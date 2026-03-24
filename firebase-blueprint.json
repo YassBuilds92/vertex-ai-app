@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "Session": {
+      "title": "Session",
+      "description": "A chat session containing metadata about a conversation.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "The title of the conversation." },
+        "mode": { "type": "string", "description": "The mode of the conversation (chat, image, video, etc.)." },
+        "updatedAt": { "type": "number", "description": "Timestamp of the last update." },
+        "userId": { "type": "string", "description": "The ID of the user who owns this session." }
+      },
+      "required": ["title", "mode", "updatedAt", "userId"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A single message within a chat session.",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "enum": ["user", "model"], "description": "The role of the sender." },
+        "content": { "type": "string", "description": "The text content of the message." },
+        "thoughts": { "type": "string", "description": "The internal thoughts/reasoning of the model." },
+        "attachments": { "type": "array", "items": { "type": "object" }, "description": "List of attachments (images, videos, etc.)." },
+        "createdAt": { "type": "number", "description": "Timestamp when the message was created." },
+        "sessionId": { "type": "string", "description": "The ID of the parent session." },
+        "userId": { "type": "string", "description": "The ID of the user who owns this message." }
+      },
+      "required": ["role", "content", "createdAt", "sessionId", "userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "User's chat sessions."
+    },
+    "/users/{userId}/sessions/{sessionId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a specific chat session."
+    }
+  }
+}

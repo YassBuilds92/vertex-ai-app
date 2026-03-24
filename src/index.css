@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  /* Awwwards Inspired Light Palette */
+  --color-aww-bg: #f9f8f6;
+  --color-aww-surface: #ffffff;
+  --color-aww-text: #1a1a1a;
+  --color-aww-text-muted: #666666;
+  --color-aww-accent: #6366f1;
+  --color-aww-border: rgba(0, 0, 0, 0.04);
+}
+
+@layer base {
+  :root {
+    --app-bg: #030303;
+    --app-text: #f4f4f5;
+    --app-text-muted: #a1a1aa;
+    --app-border: rgba(255, 255, 255, 0.04);
+    --app-surface: #0a0a0a;
+    --app-surface-hover: rgba(255, 255, 255, 0.05);
+  }
+
+  :root.light {
+    --app-bg: var(--color-aww-bg);
+    --app-text: var(--color-aww-text);
+    --app-text-muted: var(--color-aww-text-muted);
+    --app-border: var(--color-aww-border);
+    --app-surface: var(--color-aww-surface);
+    --app-surface-hover: rgba(0, 0, 0, 0.03);
+  }
+
+  body {
+    @apply bg-[var(--app-bg)] text-[var(--app-text)] font-sans selection:bg-indigo-500/30 transition-colors duration-500;
+    background-image: 
+      radial-gradient(circle at 0% 0%, rgba(79, 70, 229, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 100% 100%, rgba(124, 58, 237, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 50% 50%, rgba(30, 30, 30, 0.2) 0%, transparent 100%);
+    background-attachment: fixed;
+  }
+
+  .light body {
+    background-image: 
+      radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 100% 100%, rgba(168, 85, 247, 0.03) 0%, transparent 50%);
+  }
+
+  /* Typography improvements */
+  .markdown-body {
+    @apply text-[15.5px] leading-[1.8] tracking-normal;
+  }
+
+  .markdown-body p {
+    @apply mb-6 last:mb-0;
+  }
+
+  .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+    @apply font-semibold text-[var(--app-text)] mt-8 mb-4 tracking-tight;
+  }
+
+  .markdown-body h1 { @apply text-2xl; }
+  .markdown-body h2 { @apply text-xl; }
+  .markdown-body h3 { @apply text-lg; }
+
+  .markdown-body ul, .markdown-body ol {
+    @apply mb-6 pl-5 space-y-3;
+  }
+
+  .markdown-body li {
+    @apply pl-1;
+  }
+
+  .markdown-body code {
+    @apply bg-white/10 px-1.5 py-0.5 rounded text-[0.9em] font-mono text-indigo-300;
+  }
+
+  .markdown-body pre {
+    @apply my-6 p-5 bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-x-auto shadow-2xl transition-all;
+  }
+
+  .light .markdown-body pre {
+    @apply bg-white border-black/[0.03] shadow-lg;
+  }
+
+  .markdown-body pre code {
+    @apply bg-transparent p-0 text-zinc-300 text-[13.5px] leading-relaxed transition-colors;
+  }
+
+  .light .markdown-body pre code {
+    @apply text-zinc-800;
+  }
+
+  .markdown-body blockquote {
+    @apply border-l-2 border-indigo-500/50 pl-6 my-6 italic text-zinc-400;
+  }
+
+  .markdown-body strong {
+    @apply font-semibold text-[var(--app-text)];
+  }
+
+  .markdown-body a {
+    @apply text-indigo-400 underline underline-offset-4 decoration-indigo-500/30 hover:decoration-indigo-500 transition-all;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}

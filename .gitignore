@@ -1,0 +1,22 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Secrets & credentials
+gcp-key.json
+*.pem
+*.key
+service-account*.json
+
+# IDE & editor
+.continue/
+.vscode/
+.idea/
+
+# Temp files
+.fuse_hidden*

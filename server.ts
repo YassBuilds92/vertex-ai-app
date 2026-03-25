@@ -221,7 +221,7 @@ app.post('/api/login', (req, res) => {
   
   if (SITE_PASSWORD && password === SITE_PASSWORD) {
     // Set cookie that expires in 30 days
-    res.setHeader('Set-Cookie', \`\${COOKIE_NAME}=\${password}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000\`);
+    res.setHeader('Set-Cookie', `${COOKIE_NAME}=${password}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
     return res.json({ success: true });
   }
   

@@ -132,7 +132,7 @@ app.use((req, res, next) => {
 const COOKIE_NAME = 'site_access_token';
 const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const SITE_PASSWORD = process.env.SITE_PASSWORD;
-  const isPublicPath = req.path.includes('/login') || req.path.includes('/status');
+  const isPublicPath = req.path.includes('/login') || req.path.includes('/status') || req.path.includes('/api/chat');
   if (!SITE_PASSWORD || isPublicPath) return next();
 
   const cookies = req.headers.cookie || '';
@@ -205,11 +205,13 @@ app.post('/api/refine', async (req, res) => {
   try {
     const { prompt, type } = ChatRefineSchema.parse(req.body);
     const client = createGoogleAI();
-    const model = client.getGenerativeModel({ model: "gemini-1.5-flash-002" });
+    const model = client.getGenerativeModel({ 
+      model: "gemini-1.5-flash-002",
+      systemInstruction: { role: 'system', parts: [{ text: type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT }] }
+    });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
-        systemInstruction: { role: 'system', parts: [{ text: type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT }] },
         temperature: 0.2
       }
     });
@@ -226,7 +228,7 @@ app.post('/api/generate-image', async (req, res) => {
     const model = client.getGenerativeModel({ model: "imagen-3.0-generate-001" });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { aspectRatio, candidateCount: numberOfImages }
+      generationConfig: { aspectRatio, candidateCount: numberOfImages } as any
     });
     const base64 = result.response.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
     if (!base64) throw new Error("No image data");
@@ -259,8 +261,11 @@ app.post('/api/chat', async (req, res) => {
       contents,
       generationConfig: { temperature: config.temperature, topP: config.topP, topK: config.topK, maxOutputTokens: config.maxOutputTokens || 2048 },
       tools: tools.length > 0 ? tools : undefined,
-      systemInstruction: { role: 'system', parts: [{ text: refinedSystemInstruction || config.systemInstruction || "" }] }
     };
+
+    if (refinedSystemInstruction || config.systemInstruction) {
+        request.systemInstruction = { role: 'system', parts: [{ text: refinedSystemInstruction || config.systemInstruction || "" }] };
+    }
 
     const response = await model.generateContentStream(request);
     for await (const chunk of response.stream) {

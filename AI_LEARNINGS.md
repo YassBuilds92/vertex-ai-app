@@ -8,6 +8,11 @@
 - [Obsolescence] -> `gemini-3-pro-preview` a été fermé le 9 mars 2026, utiliser la 3.1.
 - [Localisation Vertex] -> Utiliser le point de terminaison `global` pour les modèles 3.x/3.1 et `preview` dans Vertex AI pour garantir la disponibilité si les régions spécifiques (ex: `us-central1`) renvoient un 404.
 
+## Déploiement Vercel (Express + Vite)
+- [Écran Blanc / Routage] -> Sur Vercel, ne pas utiliser le champ legacy `builds` dans `vercel.json`. Préférer les `rewrites` pour tout rediriger vers `server.ts`.
+- [Service Files Statiques] -> Dans `server.ts`, s'assurer que `app.use(express.static(distPath))` et le fallback `app.get('*', ...)` sont enregistrés en dehors de toute fonction `listen()` manuelle, car Vercel ignore les appels à `listen`.
+- [Mur de Mot de Passe] -> Pour protéger tout le site (frontend + API), router toutes les requêtes `/(.*)` vers le serveur Express via `vercel.json`. S'assurer que `SITE_PASSWORD` est défini dans les variables d'environnement Vercel.
+
 ## UI & Thèmes
 - [Synchronisation Thème] -> Pour éviter l'effet d'escalier lors du changement de thème, utiliser une règle CSS globale `* { transition: ... !important }` en dehors de la couche `@layer base` de Tailwind 4.0 pour une priorité maximale.
 - [Mode OLED] -> Le noir absolu est `#000000`. S'assurer de l'appliquer via `html.oled` avec `!important` pour écraser les variables par défaut.

@@ -21,6 +21,8 @@ const SSE_HEARTBEAT_INTERVAL = 15_000;
 
 const app = express();
 
+export default app; // For Vercel
+
 // ─── Rate Limiting ──────────────────────────────────────────────
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -581,4 +583,9 @@ async function startServer() {
   app.listen(PORT, () => log.success(`Server running on http://localhost:${PORT}`));
 }
 
-startServer();
+if (process.env.VERCEL) {
+  // On Vercel, we don't start the server manually
+  log.info("Running on Vercel (serverless mode)");
+} else {
+  startServer();
+}

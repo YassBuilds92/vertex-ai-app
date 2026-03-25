@@ -92,5 +92,5 @@
 - [URL Stable Vercel] -> Utiliser l'alias de branche `https://[PROJECT-NAME]-git-main-[TEAM].vercel.app/` pour tester les changements sans que l'URL ne change à chaque push.
 
 ## Erreurs Récentes & Corrections
-- [Erreur 404 Model Not Found] -> Tentative d'utiliser des modèles Gemini 1.5 obsolètes ou mal mappés sur Vertex AI. Solution : Utiliser exclusivement les noms `gemini-3.1-pro-preview` et `gemini-3.1-flash-lite-preview` (ou `gemini-3.1-flash-preview`) et s'assurer que le backend ne tente pas de les "downgrader" vers 1.5. Utiliser la localisation `global` si `us-central1` renvoie un 404 pour ces modèles.
+- [Erreur 404 Model Not Found] -> Tentative d'utiliser des modèles Gemini 1.5 obsolètes ou des modèles 3.x/Preview avec une localisation régionale (ex: `us-central1`). Solution : Utiliser exclusivement les noms `gemini-3.1-pro-preview` et `gemini-3.1-flash-lite-preview` et forcer la localisation `global` dans le constructeur `VertexAI` si le modèle contient `preview`, `3.1` ou `3-flash`.
 - [TS Property Literal Error] -> Erreurs `Type 'string' is not assignable to type '1:1' | ...`. Solution : Utiliser un cast `as any` ou le type exact de l'union lors du passage de valeurs dynamiques (ex: `ratio as any`) pour satisfaire le compilateur strict de Vite/TS.

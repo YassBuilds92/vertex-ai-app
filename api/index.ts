@@ -157,10 +157,18 @@ function getVertexConfig() {
   return { isConfigured: !!(projectId && location), projectId, location };
 }
 
-function createGoogleAI() {
+function createGoogleAI(modelId?: string) {
   const { projectId, location: envLocation } = getVertexConfig();
   if (!projectId || !envLocation) throw new Error('Vertex AI non configuré');
-  const options: any = { project: projectId, location: envLocation };
+  
+  // Use 'global' for preview and 3.1 models as per AI_LEARNINGS.md and user feedback
+  // Vertex AI 3.1 models and preview models often require 'global' to be found
+  let finalLocation = envLocation;
+  if (modelId && (modelId.includes('preview') || modelId.includes('3.1') || modelId.includes('3-flash'))) {
+    finalLocation = 'global';
+  }
+  
+  const options: any = { project: projectId, location: finalLocation };
   if (gcpCredentials) options.googleAuthOptions = { credentials: gcpCredentials };
   return new VertexAI(options);
 }
@@ -182,9 +190,10 @@ const ICON_PROMPT_SYSTEM_PROMPT = `Génère un prompt d'image pour un logo minim
 app.post('/api/refine', async (req, res) => {
   try {
     const { prompt, type } = ChatRefineSchema.parse(req.body);
-    const client = createGoogleAI();
+    const modelId = "gemini-3.1-flash-lite-preview";
+    const client = createGoogleAI(modelId);
     const systemPrompt = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
-    const model = client.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
+    const model = client.getGenerativeModel({ model: modelId });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
@@ -199,8 +208,9 @@ app.post('/api/refine', async (req, res) => {
 app.post('/api/generate-image', async (req, res) => {
   try {
     const { prompt, aspectRatio, numberOfImages } = ImageGenSchema.parse(req.body);
-    const client = createGoogleAI();
-    const model = client.getGenerativeModel({ model: "imagen-3.0-generate-001" });
+    const modelId = "imagen-3.0-generate-001";
+    const client = createGoogleAI(modelId);
+    const model = client.getGenerativeModel({ model: modelId });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: { aspectRatio, candidateCount: numberOfImages } as any
@@ -216,8 +226,6 @@ app.post('/api/generate-image', async (req, res) => {
 app.post('/api/chat', async (req, res) => {
   try {
     const { message, history, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
-    const client = createGoogleAI();
-
     // Model ID mapping for Vertex AI (using stable aliases to avoid 404s)
     let modelId = config.model;
     // Ensure we use the latest models as per user rules (AI_LEARNINGS.md)
@@ -225,6 +233,7 @@ app.post('/api/chat', async (req, res) => {
     if (modelId === 'gemini-3.1-pro') modelId = 'gemini-3.1-pro-preview';
     if (modelId === 'gemini-3.1-flash') modelId = 'gemini-3.1-flash-lite-preview';
 
+    const client = createGoogleAI(modelId);
     const systemPromptText = refinedSystemInstruction || config.systemInstruction || "";
     const model = client.getGenerativeModel({ 
         model: modelId,

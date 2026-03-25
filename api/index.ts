@@ -109,20 +109,14 @@ const log = {
     console.error(`[${new Date().toISOString()}] ❌ ${msg}`, err instanceof Error ? err.message : err ?? ''),
 };
 
-let storage: Storage | null = null;
-let serviceAccountEmail: string | null = null;
+let gcpCredentials: any = null;
 
 try {
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-    storage = new Storage({ credentials });
-    serviceAccountEmail = credentials.client_email || null;
+    gcpCredentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+    storage = new Storage({ credentials: gcpCredentials });
+    serviceAccountEmail = gcpCredentials.client_email || null;
     log.success(`Storage SDK initialized (${serviceAccountEmail})`);
-    
-    // On Vercel, writing files is restricted, but we can try /tmp or use the JSON content directly if SDK supports it.
-    const keyPath = process.env.VERCEL ? path.join('/tmp', 'gcp-key.json') : path.join(process.cwd(), 'gcp-key.json');
-    fs.writeFileSync(keyPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON, { mode: 0o600 });
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
   }
 } catch (error) {
   log.error('Failed to initialize Storage SDK during setup', error);
@@ -254,10 +248,16 @@ function createGoogleAI() {
   
   log.debug('Creating VertexAI client (api/index.ts)', { projectId, location: envLocation });
 
-  return new VertexAI({
+  const options: any = {
     project: projectId,
     location: envLocation,
-  });
+  };
+
+  if (gcpCredentials) {
+    options.googleAuthOptions = { credentials: gcpCredentials };
+  }
+
+  return new VertexAI(options);
 }
 
 

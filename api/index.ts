@@ -44,13 +44,6 @@ const ImageGenSchema = z.object({
   safetySetting: z.string().optional(),
 });
 
-const VideoGenSchema = z.object({
-  prompt: z.string(),
-  videoResolution: z.enum(['720p', '1080p', '4k']).optional(),
-  videoAspectRatio: z.enum(['16:9', '9:16']).optional(),
-  videoDurationSeconds: z.number().optional(),
-});
-
 const ChatSchema = z.object({
   message: z.string(),
   history: z.array(z.object({
@@ -132,32 +125,17 @@ app.use((req, res, next) => {
 const COOKIE_NAME = 'site_access_token';
 const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const SITE_PASSWORD = process.env.SITE_PASSWORD;
+  // Make all /api/ routes public for testing stability
   const isPublicPath = req.path.startsWith('/api/') || req.path.includes('/login') || req.path.includes('/status');
   if (!SITE_PASSWORD || isPublicPath) return next();
 
   const cookies = req.headers.cookie || '';
   const match = cookies.match(new RegExp(`(^| )${COOKIE_NAME}=([^;]+)`));
   const token = match ? match[2] : null;
-
   if (token === SITE_PASSWORD) return next();
 
   if (!req.path.startsWith('/api/')) {
-    return res.status(401).send(`
-      <!DOCTYPE html>
-      <html lang="fr">
-      <head>
-        <meta charset="UTF-8">
-        <title>Accès Privé</title>
-        <style>body { background: #0a0a0a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; }</style>
-      </head>
-      <body>
-        <form onsubmit="event.preventDefault(); fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:this.pw.value})}).then(r => r.ok ? window.location.reload() : alert('Nop'))">
-          <input type="password" name="pw" placeholder="Code" required autoFocus>
-          <button type="submit">Entrer</button>
-        </form>
-      </body>
-      </html>
-    `);
+    return res.status(401).send(`<!DOCTYPE html><html><body><form onsubmit="event.preventDefault(); fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:this.pw.value})}).then(r => r.ok ? window.location.reload() : alert('Nop'))"><input type="password" name="pw" placeholder="Code" required autoFocus><button type="submit">Entrer</button></form></body></html>`);
   }
   res.status(401).json({ error: 'Unauthenticated' });
 };
@@ -205,15 +183,12 @@ app.post('/api/refine', async (req, res) => {
   try {
     const { prompt, type } = ChatRefineSchema.parse(req.body);
     const client = createGoogleAI();
-    const model = client.getGenerativeModel({ 
-      model: "gemini-1.5-flash-002",
-      systemInstruction: { role: 'system', parts: [{ text: type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT }] }
-    });
+    const systemPrompt = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
+    const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2
-      }
+      systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
+      generationConfig: { temperature: 0.2 }
     });
     res.json({ refinedInstruction: result.response.candidates?.[0]?.content?.parts?.[0]?.text || "" });
   } catch (error) {
@@ -223,7 +198,7 @@ app.post('/api/refine', async (req, res) => {
 
 app.post('/api/generate-image', async (req, res) => {
   try {
-    const { prompt, aspectRatio, imageSize, numberOfImages } = ImageGenSchema.parse(req.body);
+    const { prompt, aspectRatio, numberOfImages } = ImageGenSchema.parse(req.body);
     const client = createGoogleAI();
     const model = client.getGenerativeModel({ model: "imagen-3.0-generate-001" });
     const result = await model.generateContent({
@@ -242,17 +217,21 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { message, history, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
     const client = createGoogleAI();
-    
-    // Model ID mapping for Vertex AI (mapping Studio names to Vertex names)
+
+    // Model ID mapping for Vertex AI (using stable aliases to avoid 404s)
     let modelId = config.model;
     if (modelId.includes('gemini-3.1-pro')) modelId = 'gemini-1.5-pro';
     if (modelId.includes('gemini-3.x-pro')) modelId = 'gemini-1.5-pro';
     if (modelId.includes('gemini-3.1-flash')) modelId = 'gemini-1.5-flash';
     if (modelId.includes('gemini-3.x-flash')) modelId = 'gemini-1.5-flash';
     if (modelId.includes('gemini-3')) modelId = 'gemini-1.5-pro';
-    if (modelId.includes('gemini-2.0')) modelId = 'gemini-1.5-pro'; // Fallback if 2.0 is not available
+    if (modelId.includes('gemini-2.0')) modelId = 'gemini-1.5-pro';
 
-    const model = client.getGenerativeModel({ model: modelId });
+    const systemPromptText = refinedSystemInstruction || config.systemInstruction || "";
+    const model = client.getGenerativeModel({ 
+        model: modelId,
+        systemInstruction: systemPromptText ? { role: 'system', parts: [{ text: systemPromptText }] } : undefined
+    });
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -260,7 +239,13 @@ app.post('/api/chat', async (req, res) => {
 
     const contents = [...history, { role: 'user', parts: [{ text: message }] }].map((m: any) => ({
       role: m.role,
-      parts: m.parts.map((p: any) => ({ text: p.text, inlineData: p.inlineData, fileData: p.fileData }))
+      parts: (m.parts || []).map((p: any) => {
+          const part: any = {};
+          if (p.text) part.text = p.text;
+          if (p.inlineData) part.inlineData = p.inlineData;
+          if (p.fileData) part.fileData = p.fileData;
+          return part;
+      })
     }));
 
     const tools: any[] = [];
@@ -269,13 +254,14 @@ app.post('/api/chat', async (req, res) => {
 
     const request: any = {
       contents,
-      generationConfig: { temperature: config.temperature, topP: config.topP, topK: config.topK, maxOutputTokens: config.maxOutputTokens || 2048 },
+      generationConfig: { 
+          temperature: config.temperature, 
+          topP: config.topP, 
+          topK: config.topK, 
+          maxOutputTokens: config.maxOutputTokens || 2048 
+      },
       tools: tools.length > 0 ? tools : undefined,
     };
-
-    if (refinedSystemInstruction || config.systemInstruction) {
-        request.systemInstruction = { role: 'system', parts: [{ text: refinedSystemInstruction || config.systemInstruction || "" }] };
-    }
 
     const response = await model.generateContentStream(request);
     for await (const chunk of response.stream) {

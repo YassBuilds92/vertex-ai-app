@@ -172,7 +172,7 @@ function createGoogleAI(modelId?: string): GoogleGenAI {
 
   // Use 'global' for preview and 3.1 models
   let finalLocation = envLocation;
-  if (modelId && (modelId.includes('preview') || modelId.includes('3.1') || modelId.includes('3-flash'))) {
+  if (modelId && (modelId.includes('preview') || modelId.includes('3.1') || modelId.includes('3-flash') || modelId.includes('image'))) {
     finalLocation = 'global';
   }
 
@@ -225,24 +225,40 @@ app.post('/api/refine', async (req, res) => {
 app.post('/api/generate-image', async (req, res) => {
   try {
     const { prompt, aspectRatio, numberOfImages } = ImageGenSchema.parse(req.body);
-    const modelId = "imagen-3.0-generate-001";
+    const modelId = "gemini-2.5-flash-image";
+    log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { aspectRatio, numberOfImages });
+    
     const ai = createGoogleAI(modelId);
     const result = await ai.models.generateContent({
       model: modelId,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
-        responseModalities: ['IMAGE'],
         ...(aspectRatio ? { aspectRatio } : {}),
         ...(numberOfImages ? { candidateCount: numberOfImages } : {}),
       } as any
     });
-    const part = result.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+
+    if (!result.candidates || result.candidates.length === 0) {
+      log.error("Image generation failed - no candidates", result);
+      throw new Error("Le modèle n'a pas généré d'image (possible blocage de sécurité ou quota).");
+    }
+
+    const part = result.candidates[0].content?.parts?.find((p: any) => p.inlineData);
     const base64 = (part as any)?.inlineData?.data;
-    if (!base64) throw new Error("No image data");
+
+    if (!base64) {
+      log.error("No base64 data found in candidates", result.candidates[0]);
+      throw new Error("Aucune donnée d'image (base64) n'a été trouvée dans la réponse.");
+    }
+
     res.json({ base64: `data:image/png;base64,${base64}` });
   } catch (error) {
     log.error("Image gen error", error);
-    res.status(500).json({ error: "Image failed", message: String(error) });
+    res.status(500).json({ 
+      error: "Image failed", 
+      message: "Échec de la génération d'image",
+      details: String(error) 
+    });
   }
 });
 

@@ -82,9 +82,10 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
       if (!base64) throw new Error("Aucune image n'a été retournée par l'IA");
       
       setPreviewIcon(base64);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Icon generation failed:", error);
-      alert(error instanceof Error ? error.message : "Échec de la génération de l'icône");
+      const errorMessage = error.message || "Échec de la génération de l'icône";
+      alert(errorMessage);
     } finally {
       setIsGenerating(false);
       setGenerationStep(null);
@@ -112,7 +113,10 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
         body: JSON.stringify({ prompt: imagePrompt })
       });
       
-      if (!imageRes.ok) throw new Error("Erreur lors de la génération d'image");
+      if (!imageRes.ok) {
+        const errData = await imageRes.json();
+        throw new Error(errData.details || errData.message || "Erreur lors de la génération d'image");
+      }
       
       const { base64 } = await imageRes.json();
       if (!base64) throw new Error("Aucune image retournée");

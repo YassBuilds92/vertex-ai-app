@@ -4,6 +4,32 @@ import { initializeFirestore, doc, collection, onSnapshot, query, orderBy, setDo
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
+// Helper to remove undefined properties for Firestore
+export function cleanForFirestore(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  const result: any = Array.isArray(obj) ? [] : {};
+  Object.keys(obj).forEach(key => {
+    if (obj[key] !== undefined) {
+      if (obj[key] && typeof obj[key] === 'object') {
+        const cleaned = cleanForFirestore(obj[key]);
+        if (Array.isArray(result)) {
+          result.push(cleaned);
+        } else {
+          result[key] = cleaned;
+        }
+      } else {
+        if (Array.isArray(result)) {
+          result.push(obj[key]);
+        } else {
+          result[key] = obj[key];
+        }
+      }
+    }
+  });
+  return result;
+}
+
 // Initialize Firebase SDK
 const app = initializeApp(firebaseConfig);
 export const db = initializeFirestore(app, {

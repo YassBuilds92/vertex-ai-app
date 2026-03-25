@@ -13,6 +13,9 @@ interface AppState {
   setLeftSidebarVisible: (visible: boolean) => void;
   isRightSidebarVisible: boolean;
   setRightSidebarVisible: (visible: boolean) => void;
+  isPromptRefinerEnabled: boolean;
+  setPromptRefinerEnabled: (enabled: boolean) => void;
+  resetConfig: () => void;
   theme: 'dark' | 'light' | 'oled';
   setTheme: (theme: 'dark' | 'light' | 'oled') => void;
 }
@@ -23,12 +26,19 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     temperature: 0.7,
     topP: 0.95,
     topK: 40,
+    maxOutputTokens: 2048,
+    responseMimeType: 'text/plain',
     systemInstruction: '',
     googleSearch: false,
+    googleMaps: false,
+    codeExecution: false,
+    urlContext: false,
+    structuredOutputs: false,
     thinkingLevel: 'high',
+    maxThoughtTokens: 4096,
   },
   image: {
-    model: 'gemini-3.1-flash-image-preview',
+    model: 'gemini-2.5-flash-image',
     temperature: 1.0,
     topP: 1.0,
     topK: 40,
@@ -36,6 +46,8 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     aspectRatio: '1:1',
     imageSize: '1K',
     numberOfImages: 1,
+    safetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
+    personGeneration: 'allow_adult',
   },
   video: {
     model: 'veo-3.1-generate-001',
@@ -45,6 +57,7 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     systemInstruction: '',
     videoResolution: '720p',
     videoAspectRatio: '16:9',
+    videoDurationSeconds: 6,
   },
   audio: {
     model: 'gemini-2.5-flash-preview-tts',
@@ -74,6 +87,14 @@ export const useStore = create<AppState>()(
       setLeftSidebarVisible: (visible) => set({ isLeftSidebarVisible: visible }),
       isRightSidebarVisible: true,
       setRightSidebarVisible: (visible) => set({ isRightSidebarVisible: visible }),
+      isPromptRefinerEnabled: false,
+      setPromptRefinerEnabled: (enabled) => set({ isPromptRefinerEnabled: enabled }),
+      resetConfig: () => set((state) => ({
+        configs: {
+          ...state.configs,
+          [state.activeMode]: initialConfigs[state.activeMode]
+        }
+      })),
       theme: 'dark',
       setTheme: (theme) => set({ theme }),
     }),

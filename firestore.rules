@@ -41,7 +41,8 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
           (request.auth.token.email == "yayaben92y@gmail.com" && request.auth.token.email_verified == true));
     }
 
@@ -83,7 +84,7 @@ service cloud.firestore {
     function isValidMessage(data) {
       return hasRequiredFields(['role', 'content', 'createdAt', 'sessionId', 'userId']) &&
              // On remplace 'image' par 'images' et on ajoute 'thoughtImages'
-             hasOnlyAllowedFields(['id', 'role', 'content', 'thoughts', 'attachments', 'createdAt', 'sessionId', 'userId', 'video', 'audio', 'images', 'thoughtImages']) &&
+             hasOnlyAllowedFields(['id', 'role', 'content', 'thoughts', 'attachments', 'createdAt', 'sessionId', 'userId', 'video', 'audio', 'images', 'thoughtImages', 'refinedInstruction']) &&
              data.role in ['user', 'model'] &&
              // On augmente la limite de 50 000 à 500 000 caractères
              data.content is string && data.content.size() <= 500000 &&
@@ -113,6 +114,17 @@ service cloud.firestore {
           allow update: if isOwner(userId) && isValidMessage(request.resource.data);
           allow delete: if isOwner(userId) || isAdmin();
         }
+      }
+
+      match /custom_prompts/{promptId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+        
+        function isValidCustomPrompt(data) {
+          return hasRequiredFields(['title', 'prompt', 'createdAt', 'userId']) &&
+                 data.userId == request.auth.uid;
+        }
+
+        allow create: if isOwner(userId) && isValidCustomPrompt(request.resource.data);
       }
     }
 

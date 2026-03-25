@@ -62,12 +62,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         e.preventDefault();
         const url = match[0].startsWith('http') ? match[0] : `https://${match[0]}`;
         if (!pendingAttachments.some(a => a.url === url)) {
+          const id = Math.random().toString(36).substring(7);
           setPendingAttachments(prev => [...prev, {
-            id: Math.random().toString(36).substring(7),
+            id,
             type: 'youtube',
             url: url,
-            name: `YouTube Video`
+            name: `Chargement du titre...`
           }]);
+
+          // Fetch real title from backend
+          fetch(`/api/metadata?url=${encodeURIComponent(url)}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.title) {
+                setPendingAttachments(prev => prev.map(a => 
+                  a.id === id ? { ...a, name: data.title } : a
+                ));
+              }
+            })
+            .catch(() => {
+              setPendingAttachments(prev => prev.map(a => 
+                a.id === id ? { ...a, name: 'Vidéo YouTube' } : a
+              ));
+            });
         }
         const newText = clipboardText.replace(match[0], '').trim();
         if (newText) {
@@ -82,12 +99,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       }
     }
   };
-
   return (
     <div className="relative group/input">
       <div className="absolute -inset-px rounded-[1.4rem] bg-gradient-to-r from-indigo-500/0 via-indigo-500/0 to-purple-500/0 group-focus-within/input:from-indigo-500/20 group-focus-within/input:via-purple-500/15 group-focus-within/input:to-pink-500/20 transition-all duration-700 blur-sm" />
       
-      <div className="relative bg-[var(--app-surface)]/80 backdrop-blur-3xl border border-[var(--app-border)] rounded-[2rem] p-2.5 shadow-2xl group-focus-within/input:border-indigo-500/30 transition-all duration-500 ring-1 ring-[var(--app-border)]">
+      <div className="relative bg-[var(--app-surface)]/80 backdrop-blur-3xl border border-[var(--app-border)] rounded-[2rem] p-2.5 shadow-2xl transition-all duration-500 ring-1 ring-[var(--app-border)]">
+        
         
         {/* Recording Indicator */}
         <AnimatePresence>
@@ -111,27 +128,72 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </AnimatePresence>
 
         {/* Pending Attachments */}
-        {pendingAttachments.length > 0 && (
-          <div className="flex flex-col gap-2 p-2 pb-1 mx-1 mb-1 border-b border-[var(--app-border)]">
-            {pendingAttachments.map(att => (
-              <div key={att.id} className="relative group/att bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.06] rounded-xl border border-[var(--app-border)] transition-colors overflow-hidden">
-                {att.type === 'image' && (
-                  <div className="flex items-center gap-3 p-2">
-                    <img src={att.url} alt="preview" className="w-16 h-16 object-cover rounded-lg ring-1 ring-[var(--app-border)] cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setSelectedImage(att.url)} />
-                    <span className="text-xs text-[var(--app-text-muted)] truncate">{att.name}</span>
-                  </div>
-                )}
-                {/* ... other types ... */}
-                <button 
-                  onClick={() => setPendingAttachments(prev => prev.filter(a => a.id !== att.id))}
-                  className="absolute top-1.5 right-1.5 w-5 h-5 bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:text-[var(--app-text)] rounded-full flex items-center justify-center border border-[var(--app-border)] opacity-0 group-hover/att:opacity-100 transition-all hover:bg-[var(--app-surface-hover)] shadow-md"
+        <AnimatePresence>
+          {pendingAttachments.length > 0 && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="flex flex-wrap gap-2.5 p-2 pb-1 mx-1 mb-1 border-b border-[var(--app-border)]/50 overflow-hidden"
+            >
+              {pendingAttachments.map((att, idx) => (
+                <motion.div 
+                  key={att.id} 
+                  initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
+                  transition={{ 
+                    type: "spring", 
+                    stiffness: 400, 
+                    damping: 25,
+                    delay: idx * 0.05 
+                  }}
+                  className="relative group/att bg-[var(--app-surface-hover)]/40 backdrop-blur-xl rounded-2xl border border-white/[0.08] transition-all hover:border-indigo-500/30 hover:shadow-lg hover:shadow-indigo-500/5 overflow-hidden shrink-0 w-[140px]"
                 >
-                  <X size={10} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+                  <div className="flex flex-col gap-2 p-2">
+                    <div className="relative aspect-square rounded-xl overflow-hidden bg-black/20 ring-1 ring-white/5">
+                      {att.type === 'image' ? (
+                        <img src={att.url} alt="preview" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform duration-500" onClick={() => setSelectedImage(att.url)} />
+                      ) : att.type === 'video' ? (
+                        <div className="w-full h-full flex items-center justify-center text-indigo-400 bg-indigo-500/10">
+                          <Film size={24} />
+                        </div>
+                      ) : att.type === 'audio' ? (
+                        <div className="w-full h-full flex items-center justify-center text-pink-400 bg-pink-500/10">
+                          <Mic size={24} />
+                        </div>
+                      ) : att.type === 'document' ? (
+                        <div className="w-full h-full flex items-center justify-center text-emerald-400 bg-emerald-500/10">
+                          <FileText size={24} />
+                        </div>
+                      ) : att.type === 'youtube' ? (
+                        <div className="w-full h-full flex items-center justify-center text-red-500 bg-red-500/10">
+                          <Youtube size={24} />
+                        </div>
+                      ) : null}
+                      
+                      {/* Badge Type */}
+                      <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[9px] font-bold uppercase tracking-wider text-white/90">
+                        {att.type}
+                      </div>
+                    </div>
+                    
+                    <div className="px-1 pb-1">
+                      <span className="text-[10px] font-medium text-[var(--app-text)]/90 truncate block">{att.name}</span>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={() => setPendingAttachments(prev => prev.filter(a => a.id !== att.id))}
+                    className="absolute top-2 right-2 w-6 h-6 bg-black/60 text-white hover:bg-red-500 rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 opacity-0 group-hover/att:opacity-100 transition-all shadow-xl z-20"
+                  >
+                    <X size={12} />
+                  </button>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Controls Row */}
         <div className="flex items-end gap-1.5">

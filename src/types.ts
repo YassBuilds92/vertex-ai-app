@@ -18,6 +18,7 @@ export interface Attachment {
   file?: File; // Native file object for cleaner uploads
   mimeType?: string;
   name?: string;
+  base64?: string;
 }
 
 export interface Message {
@@ -30,6 +31,7 @@ export interface Message {
   video?: string;
   attachments?: Attachment[];
   thoughts?: string;
+  refinedInstruction?: string;
   createdAt: number;
 }
 
@@ -58,7 +60,11 @@ export interface ModelConfig {
   topK: number;
   systemInstruction: string;
   googleSearch?: boolean;
-  thinkingLevel?: 'low' | 'medium' | 'high';
+  googleMaps?: boolean;
+  codeExecution?: boolean;
+  urlContext?: boolean;
+  structuredOutputs?: boolean;
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high';
   seed?: number;
   negativePrompt?: string;
   numberOfImages?: number;
@@ -66,8 +72,21 @@ export interface ModelConfig {
   imageSize?: '512' | '1K' | '2K' | '4K';
   maxOutputTokens?: number;
   stopSequences?: string[];
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  responseMimeType?: 'text/plain' | 'application/json';
+  maxThoughtTokens?: number;
   ttsVoice?: string;
   videoResolution?: '720p' | '1080p';
   videoAspectRatio?: '16:9' | '9:16';
   autoSystemInstruction?: boolean;
+}
+
+export interface CustomPrompt {
+  id: string;
+  title: string;
+  prompt: string;
+  iconUrl?: string; // Base64 image
+  createdAt: number;
+  userId: string;
 }

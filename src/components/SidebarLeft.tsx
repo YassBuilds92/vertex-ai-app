@@ -48,8 +48,10 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
 
   return (
     <div className={cn(
-      "fixed md:relative w-[280px] h-full border-r border-[var(--app-border)] bg-[var(--app-bg)]/40 backdrop-blur-3xl flex flex-col z-50 transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] md:translate-x-0",
-      isLeftSidebarVisible ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      "fixed md:relative h-full border-r border-[var(--app-border)] bg-[var(--app-bg)]/40 backdrop-blur-3xl flex flex-col z-50 transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] overflow-hidden",
+      isLeftSidebarVisible 
+        ? "w-[280px] translate-x-0 opacity-100" 
+        : "w-0 -translate-x-full opacity-0 pointer-events-none md:border-none"
     )}>
       {/* Brand */}
       <div className="p-5 pb-0">
@@ -63,12 +65,6 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
               <p className="text-[10px] text-[var(--app-text-muted)] font-medium tracking-wide uppercase">Gemini AI</p>
             </div>
           </div>
-          <button 
-            onClick={() => setLeftSidebarVisible(false)}
-            className="md:hidden p-2 text-[var(--app-text-muted)] hover:text-[var(--app-text)] rounded-lg hover:bg-[var(--app-text)]/5 transition-colors"
-          >
-            <X size={18} />
-          </button>
         </div>
       </div>
 

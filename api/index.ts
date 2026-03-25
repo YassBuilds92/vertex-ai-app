@@ -269,6 +269,9 @@ app.get('/api/status', (_req, res) => {
     isVertexConfigured: config.isConfigured,
     isGcsConfigured: !!process.env.VERTEX_GCS_OUTPUT_URI,
     serviceAccount: serviceAccountEmail,
+    envKeys: Object.keys(process.env).filter(key => 
+      ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS_JSON', 'PORT'].includes(key)
+    ),
   });
 });
 

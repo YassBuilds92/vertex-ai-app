@@ -469,7 +469,10 @@ export default function App() {
       }));
 
     } catch (error: any) {
-      if (error.name !== 'AbortError') console.error('Send error:', error);
+      if (error.name !== 'AbortError') {
+        console.error('Send error:', error);
+        alert(`Erreur d'envoi : ${error.message || String(error)}`);
+      }
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;

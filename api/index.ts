@@ -109,44 +109,47 @@ const log = {
     console.error(`[${new Date().toISOString()}] ❌ ${msg}`, err instanceof Error ? err.message : err ?? ''),
 };
 
-// ─── Google Cloud Storage Init ──────────────────────────────────
 let storage: Storage | null = null;
 let serviceAccountEmail: string | null = null;
 
-if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-  try {
+try {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
     const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
     storage = new Storage({ credentials });
     serviceAccountEmail = credentials.client_email || null;
     log.success(`Storage SDK initialized (${serviceAccountEmail})`);
+    
     // On Vercel, writing files is restricted, but we can try /tmp or use the JSON content directly if SDK supports it.
-    // For Vertex AI, let's keep the keyPath logic but use /tmp if possible.
     const keyPath = process.env.VERCEL ? path.join('/tmp', 'gcp-key.json') : path.join(process.cwd(), 'gcp-key.json');
     fs.writeFileSync(keyPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON, { mode: 0o600 });
     process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
-  } catch (error) {
-    log.error('Failed to initialize Storage SDK', error);
   }
+} catch (error) {
+  log.error('Failed to initialize Storage SDK during setup', error);
 }
 
 // ─── Middleware ──────────────────────────────────────────────────
 app.use(express.json({ limit: MAX_PAYLOAD }));
 app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
 
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
-  
-  // Debug logging for Vercel routing
-  if (req.path.includes('/api/') || req.url.includes('/api/') || req.path.includes('/status')) {
-    log.debug(`Incoming API Request (api/index.ts): ${req.method} ${req.url} (path: ${req.path})`);
-  }
-  
-  next();
-});
+try {
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    
+    // Debug logging for Vercel routing
+    if (req.path.includes('/api/') || req.url.includes('/api/') || req.path.includes('/status')) {
+      log.debug(`Incoming API Request (api/index.ts): ${req.method} ${req.url} (path: ${req.path})`);
+    }
+    
+    next();
+  });
+} catch (error) {
+  log.error("Fatal initialization error in middleware", error);
+}
 
 // ─── Authentication Middleware ────────────────────────────────────
 const COOKIE_NAME = 'site_access_token';
@@ -526,6 +529,16 @@ app.get('/api/metadata', async (req, res) => {
     log.error("Metadata error", error);
     res.status(500).json({ error: "Erreur lors de la récupération des métadonnées" });
   }
+});
+
+// Global error handler for Express
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  log.error("Global Express Error", err);
+  res.status(500).json({ 
+    error: "Internal Server Error", 
+    message: err instanceof Error ? err.message : String(err),
+    stack: process.env.NODE_ENV !== 'production' ? (err instanceof Error ? err.stack : null) : undefined
+  });
 });
 
 // ─── Static Files & SPA Fallback ──────────────────────────────────

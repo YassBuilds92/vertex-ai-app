@@ -44,6 +44,13 @@ const ImageGenSchema = z.object({
   safetySetting: z.string().optional(),
 });
 
+const VideoGenSchema = z.object({
+  prompt: z.string(),
+  videoResolution: z.string().optional(),
+  videoAspectRatio: z.string().optional(),
+  videoDurationSeconds: z.number().optional(),
+});
+
 const ChatSchema = z.object({
   message: z.string(),
   history: z.array(z.object({
@@ -125,8 +132,10 @@ app.use((req, res, next) => {
 const COOKIE_NAME = 'site_access_token';
 const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const SITE_PASSWORD = process.env.SITE_PASSWORD;
-  // Make all /api/ routes public for testing stability
-  const isPublicPath = req.path.startsWith('/api/') || req.path.includes('/login') || req.path.includes('/status');
+  const path = req.path;
+  const isApiRequest = path.startsWith('/api') || path.includes('/api/');
+  const isPublicPath = isApiRequest || path.includes('/login') || path.includes('/status');
+  
   if (!SITE_PASSWORD || isPublicPath) return next();
 
   const cookies = req.headers.cookie || '';
@@ -134,7 +143,7 @@ const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const token = match ? match[2] : null;
   if (token === SITE_PASSWORD) return next();
 
-  if (!req.path.startsWith('/api/')) {
+  if (!isApiRequest) {
     return res.status(401).send(`<!DOCTYPE html><html><body><form onsubmit="event.preventDefault(); fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:this.pw.value})}).then(r => r.ok ? window.location.reload() : alert('Nop'))"><input type="password" name="pw" placeholder="Code" required autoFocus><button type="submit">Entrer</button></form></body></html>`);
   }
   res.status(401).json({ error: 'Unauthenticated' });
@@ -223,6 +232,18 @@ app.post('/api/generate-image', async (req, res) => {
   }
 });
 
+app.post('/api/generate-video', async (req, res) => {
+  try {
+    const { prompt, videoResolution, videoAspectRatio, videoDurationSeconds } = VideoGenSchema.parse(req.body);
+    const modelId = "veo-3.1-generate-001";
+    // Veo implementation usually involves GCS output, but for now we return an error or handle it if SDK supports inline
+    // According to AI_LEARNINGS, it might need @google/genai, but we try with VertexAI first or return JSON error.
+    res.status(501).json({ error: "Non implémenté", message: "La génération vidéo Veo nécessite une configuration GCS spécifique." });
+  } catch (error) {
+    res.status(500).json({ error: "Video failed", message: String(error) });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   try {
     const { message, history, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
@@ -290,10 +311,32 @@ const distPath = path.join(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/') || req.path === '/api/status') return next();
+    // Only serve index.html for non-API GET requests
+    if (req.path.startsWith('/api') || req.method !== 'GET') return next();
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
+
+// 404 for API routes
+app.use('/api/*', (req, res) => {
+  log.warn(`404 Not Found: ${req.method} ${req.path}`);
+  res.status(404).json({ error: "Not Found", message: `La route ${req.path} n'existe pas.` });
+});
+
+// Global Error Handler (Must be last)
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  log.error(`Global error caught for ${req.method} ${req.path}`, err);
+  const status = err.status || err.statusCode || 500;
+  
+  if (req.path.startsWith('/api')) {
+    return res.status(status).json({
+      error: "Internal Server Error",
+      message: err.message || String(err),
+      path: req.path
+    });
+  }
+  res.status(status).send(`Something went wrong: ${err.message || String(err)}`);
+});
 
 // Server (Local only)
 if (!process.env.VERCEL) {

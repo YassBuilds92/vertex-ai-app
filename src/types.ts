@@ -19,6 +19,7 @@ export interface Attachment {
   mimeType?: string;
   name?: string;
   base64?: string;
+  thumbnail?: string;
 }
 
 export interface Message {

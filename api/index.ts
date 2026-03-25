@@ -1,36 +1,31 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
-// import { createServer as createViteServer } from 'vite'; // Moved to dynamic import
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { VertexAI, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai';
+import { VertexAI } from '@google-cloud/vertexai';
 import { Storage } from '@google-cloud/storage';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import cookieParser from 'cookie-parser';
 
 // ─── Constants & Setup ──────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const MAX_PAYLOAD = '50mb';
-const SSE_HEARTBEAT_INTERVAL = 15_000;
 
 const app = express();
-
 export default app; // For Vercel
 
 // ─── Rate Limiting ──────────────────────────────────────────────
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limite chaque IP à 100 requêtes par fenêtre
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Trop de requêtes, veuillez réessayer plus tard." }
 });
 
-// Use limiter for both prefixed and non-prefixed API calls
 app.use('/api/', apiLimiter);
 app.use('/status', apiLimiter);
 
@@ -97,29 +92,27 @@ const ChatSchema = z.object({
 
 // ─── Logging Helper ─────────────────────────────────────────────
 const log = {
-  info: (msg: string, meta?: Record<string, unknown>) =>
-    console.log(`[${new Date().toISOString()}] ℹ️  ${msg}`, meta ? JSON.stringify(meta) : ''),
-  success: (msg: string) =>
-    console.log(`[${new Date().toISOString()}] ✅ ${msg}`),
-  warn: (msg: string, meta?: Record<string, unknown>) =>
-    console.warn(`[${new Date().toISOString()}] ⚠️  ${msg}`, meta ? JSON.stringify(meta) : ''),
-  debug: (msg: string, meta?: Record<string, unknown>) =>
-    console.debug(`[${new Date().toISOString()}] 🔍 ${msg}`, meta ? JSON.stringify(meta) : ''),
-  error: (msg: string, err?: unknown) =>
-    console.error(`[${new Date().toISOString()}] ❌ ${msg}`, err instanceof Error ? err.message : err ?? ''),
+  info: (msg: string, meta?: any) => console.log(`[${new Date().toISOString()}] ℹ️  ${msg}`, meta ? JSON.stringify(meta) : ''),
+  success: (msg: string) => console.log(`[${new Date().toISOString()}] ✅ ${msg}`),
+  warn: (msg: string, meta?: any) => console.warn(`[${new Date().toISOString()}] ⚠️  ${msg}`, meta ? JSON.stringify(meta) : ''),
+  debug: (msg: string, meta?: any) => console.debug(`[${new Date().toISOString()}] 🔍 ${msg}`, meta ? JSON.stringify(meta) : ''),
+  error: (msg: string, err?: any) => console.error(`[${new Date().toISOString()}] ❌ ${msg}`, err instanceof Error ? err.message : err ?? ''),
 };
 
+// ─── State ──────────────────────────────────────────────────────
 let gcpCredentials: any = null;
+let storage: Storage | null = null;
+let serviceAccountEmail: string | null = null;
 
 try {
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
     gcpCredentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
     storage = new Storage({ credentials: gcpCredentials });
     serviceAccountEmail = gcpCredentials.client_email || null;
-    log.success(`Storage SDK initialized (${serviceAccountEmail})`);
+    log.success(`SDKs initialized (${serviceAccountEmail})`);
   }
 } catch (error) {
-  log.error('Failed to initialize Storage SDK during setup', error);
+  log.error('Failed to initialize GCP SDKs', error);
 }
 
 // ─── Middleware ──────────────────────────────────────────────────
@@ -135,105 +128,49 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── Authentication Middleware ────────────────────────────────────
+// ─── Authentication ──────────────────────────────────────────────
 const COOKIE_NAME = 'site_access_token';
-
-function getAuthCookie(req: Request) {
-  const cookies = req.headers.cookie || '';
-  const match = cookies.match(new RegExp(`(^| )${COOKIE_NAME}=([^;]+)`));
-  return match ? match[2] : null;
-}
-
 const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const SITE_PASSWORD = process.env.SITE_PASSWORD;
-  
-  // Skip auth if password is not set (locally) or for the login API/status
-  const isPublicPath = req.path.includes('/login') || req.path.includes('/status') || req.path.includes('/debug-path');
-  
-  if (!SITE_PASSWORD || isPublicPath) {
-    return next();
-  }
+  const isPublicPath = req.path.includes('/login') || req.path.includes('/status');
+  if (!SITE_PASSWORD || isPublicPath) return next();
 
-  // Check for the cookie
-  const token = getAuthCookie(req);
-  if (token === SITE_PASSWORD) {
-    return next();
-  }
+  const cookies = req.headers.cookie || '';
+  const match = cookies.match(new RegExp(`(^| )${COOKIE_NAME}=([^;]+)`));
+  const token = match ? match[2] : null;
 
-  // Serve login page if not authenticated
-  if (!req.path.startsWith('/api/') && !req.path.includes('/api')) {
+  if (token === SITE_PASSWORD) return next();
+
+  if (!req.path.startsWith('/api/')) {
     return res.status(401).send(`
       <!DOCTYPE html>
       <html lang="fr">
       <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Accès Privé | AI Studio</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0a0a0a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-          .card { background: #1a1a1a; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); border: 1px solid #333; max-width: 320px; width: 100%; text-align: center; }
-          h1 { margin-bottom: 1.5rem; font-size: 1.5rem; color: #fff; }
-          input { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border-radius: 6px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box; }
-          button { width: 100%; padding: 0.75rem; border-radius: 6px; border: none; background: #3b82f6; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-          button:hover { background: #2563eb; }
-          #error { color: #ef4444; margin-top: 1rem; font-size: 0.875rem; display: none; }
-        </style>
+        <title>Accès Privé</title>
+        <style>body { background: #0a0a0a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; }</style>
       </head>
       <body>
-        <div class="card">
-          <h1>🔒 Accès Privé</h1>
-          <form id="loginForm">
-            <input type="password" id="password" placeholder="Code d'accès" required autoFocus>
-            <button type="submit">Entrer</button>
-          </form>
-          <div id="error">Code incorrect</div>
-        </div>
-        <script>
-          document.getElementById('loginForm').onsubmit = async (e) => {
-            e.preventDefault();
-            const password = document.getElementById('password').value;
-            const res = await fetch('/api/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ password })
-            });
-            if (res.ok) {
-              window.location.reload();
-            } else {
-              const resNoPrefix = await fetch('/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password })
-              });
-              if (resNoPrefix.ok) window.location.reload();
-              else document.getElementById('error').style.display = 'block';
-            }
-          };
-        </script>
+        <form onsubmit="event.preventDefault(); fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:this.pw.value})}).then(r => r.ok ? window.location.reload() : alert('Nop'))">
+          <input type="password" name="pw" placeholder="Code" required autoFocus>
+          <button type="submit">Entrer</button>
+        </form>
       </body>
       </html>
     `);
   }
-
-  res.status(401).json({ error: 'Non autorisé' });
+  res.status(401).json({ error: 'Unauthenticated' });
 };
-
 app.use(authMiddleware);
 
-// ─── LOGIN ROUTE handlers (both with and without prefix) ───────
-const handleLogin = (req: Request, res: Response) => {
+app.post('/api/login', (req, res) => {
   const { password } = req.body;
-  const SITE_PASSWORD = process.env.SITE_PASSWORD;
-  
-  if (SITE_PASSWORD && password === SITE_PASSWORD) {
+  if (password === process.env.SITE_PASSWORD) {
     res.setHeader('Set-Cookie', `${COOKIE_NAME}=${password}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
     return res.json({ success: true });
   }
-  res.status(401).json({ error: 'Code incorrect' });
-};
-
-app.post('/api/login', handleLogin);
-app.post('/login', handleLogin);
+  res.status(401).json({ error: 'Refusé' });
+});
 
 // ─── Helpers ────────────────────────────────────────────────────
 function getVertexConfig() {
@@ -244,135 +181,64 @@ function getVertexConfig() {
 
 function createGoogleAI() {
   const { projectId, location: envLocation } = getVertexConfig();
-  if (!projectId || !envLocation) throw new Error('Vertex AI non configuré (VERTEX_PROJECT_ID / VERTEX_LOCATION manquants)');
-  
-  log.debug('Creating VertexAI client (api/index.ts)', { projectId, location: envLocation });
-
-  const options: any = {
-    project: projectId,
-    location: envLocation,
-  };
-
-  if (gcpCredentials) {
-    options.googleAuthOptions = { credentials: gcpCredentials };
-  }
-
+  if (!projectId || !envLocation) throw new Error('Vertex AI non configuré');
+  const options: any = { project: projectId, location: envLocation };
+  if (gcpCredentials) options.googleAuthOptions = { credentials: gcpCredentials };
   return new VertexAI(options);
 }
 
-
-// ─── API Routes (Robust matching) ────────────────────────────────
-
+// ─── Routes ─────────────────────────────────────────────────────
 app.get('/api/status', (_req, res) => {
   const config = getVertexConfig();
   res.json({
     isVertexConfigured: config.isConfigured,
     isGcsConfigured: !!process.env.VERTEX_GCS_OUTPUT_URI,
     serviceAccount: serviceAccountEmail,
-    envKeys: Object.keys(process.env).filter(key => 
-      ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS_JSON', 'PORT'].includes(key)
-    ),
+    envKeys: Object.keys(process.env).filter(k => ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS_JSON'].includes(k))
   });
 });
 
-const REFINER_SYSTEM_PROMPT = `You are a master of prompt engineering. Your role is to act as a 'Prompt Refiner'. 
-Analyze the user's input and generate an optimized 'System Instruction' for a more powerful AI model.
-The goal is to provide the model with the best possible context, role, and constraints to answer the user perfectly.
-BE CONCISE. Output ONLY the refined system instruction. Do not include any meta-talk or markdown backticks unless strictly necessary for the prompt.`;
+const REFINER_SYSTEM_PROMPT = `Optimise l'instruction système suivante pour un modèle IA puissant. Sois concis.`;
+const ICON_PROMPT_SYSTEM_PROMPT = `Génère un prompt d'image pour un logo minimaliste représentant ce rôle IA.`;
 
-const ICON_PROMPT_SYSTEM_PROMPT = `You are a visual design expert. Given a system instruction for an AI, generate a single, highly descriptive prompt (max 15 words) for an image generator (like Imagen) to create a minimalistic square icon/logo representing this AI's role. 
-Style: Modern, simplistic, vibrant colors, professional 3D or flat design. 
-DO NOT USE TEXT IN THE IMAGE. Output ONLY the image prompt.`;
-
-const handleRefine = async (req: Request, res: Response) => {
+app.post('/api/refine', async (req, res) => {
   try {
     const { prompt, type } = ChatRefineSchema.parse(req.body);
     const client = createGoogleAI();
-    const modelId = "gemini-1.5-flash-002"; // Stable refiner
-    const model = client.getGenerativeModel({ model: modelId });
-    const systemInstruction = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
-
+    const model = client.getGenerativeModel({ model: "gemini-1.5-flash-002" });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
-        systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
-        temperature: 0.2,
+        systemInstruction: { role: 'system', parts: [{ text: type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT }] },
+        temperature: 0.2
       }
     });
-
-    const candidate = result.response.candidates?.[0];
-    const refinedText = candidate?.content?.parts?.[0]?.text || "";
-    if (!refinedText) throw new Error("L'IA n'a pas pu analyser le prompt (résultat vide ou erreur de quota)");
-    res.json({ refinedInstruction: refinedText });
+    res.json({ refinedInstruction: result.response.candidates?.[0]?.content?.parts?.[0]?.text || "" });
   } catch (error) {
-    log.error('Refine error:', error);
-    res.status(500).json({ error: 'Failed to refine prompt', message: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: "Refine failed", message: String(error) });
   }
-};
+});
 
-app.post('/api/refine', handleRefine);
-app.post('/refine', handleRefine);
-
-const handleGenerateImage = async (req: Request, res: Response) => {
+app.post('/api/generate-image', async (req, res) => {
   try {
-    const { prompt, aspectRatio, imageSize, numberOfImages, personGeneration, safetySetting } = ImageGenSchema.parse(req.body);
-    const modelId = "imagen-3.0-generate-001"; // Official Vertex AI ID
+    const { prompt, aspectRatio, imageSize, numberOfImages } = ImageGenSchema.parse(req.body);
     const client = createGoogleAI();
-    const model = client.getGenerativeModel({ model: modelId });
-    
-    log.info('Image generation request', { prompt, modelId, aspectRatio });
-
-    const genConfig: any = {};
-    if (aspectRatio) genConfig.aspectRatio = aspectRatio;
-    if (imageSize) genConfig.imageSize = imageSize;
-    if (numberOfImages) genConfig.candidateCount = numberOfImages;
-    if (personGeneration) genConfig.personGeneration = personGeneration;
-    // safetySetting handled differently in Vertex
-
+    const model = client.getGenerativeModel({ model: "imagen-3.0-generate-001" });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: genConfig
+      generationConfig: { aspectRatio, candidateCount: numberOfImages }
     });
-
-    const candidate = result.response.candidates?.[0];
-    let imageBase64 = "";
-
-    if (candidate?.content?.parts) {
-      for (const part of candidate.content.parts) {
-        if (part.inlineData) {
-          imageBase64 = part.inlineData.data;
-          break;
-        }
-      }
-    }
-    
-    if (!imageBase64) throw new Error("L'IA n'a pas pu générer l'image");
-    res.json({ base64: `data:image/png;base64,${imageBase64}` });
+    const base64 = result.response.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
+    if (!base64) throw new Error("No image data");
+    res.json({ base64: `data:image/png;base64,${base64}` });
   } catch (error) {
-    log.error('Image Gen error:', error);
-    res.status(500).json({ error: 'Failed to generate image', message: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: "Image failed", message: String(error) });
   }
-};
+});
 
-app.post('/api/generate-image', handleGenerateImage);
-app.post('/generate-image', handleGenerateImage);
-
-const handleGenerateVideo = async (req: Request, res: Response) => {
+app.post('/api/chat', async (req, res) => {
   try {
-    const { prompt, videoResolution, videoAspectRatio, videoDurationSeconds } = VideoGenSchema.parse(req.body);
-    const modelId = "veo-3.1-generate-001";
-    const client = createGoogleAI(modelId);
-
-    log.info('Video generation request', { prompt, modelId, videoResolution, videoAspectRatio });
-
-    const op = await client.models.generateVideos({
-      model: modelId,
-      prompt: prompt,
-      config: {
-        resolution: videoResolution || '720p',
-        aspectRatio: videoAspectRatio || '16:9',
-        durationSeconds: v    const { message, history, config, attachments, refinedSystemInstruction } = ChatSchema.parse(req.body);
-    const finalSystemInstruction = refinedSystemInstruction || config.systemInstruction;
+    const { message, history, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
     const client = createGoogleAI();
     const model = client.getGenerativeModel({ model: config.model });
 
@@ -380,116 +246,48 @@ const handleGenerateVideo = async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const contents = [...history, { role: 'user', parts: [{ text: message }], attachments }].map((m: any) => {
-      const parts: any[] = m.parts ? [...m.parts] : [];
-      // Clean parts (remove extra fields not supported by SDK)
-      const cleanedParts = parts.map(p => {
-          if (p.text) return { text: p.text };
-          if (p.inlineData) return { inlineData: p.inlineData };
-          if (p.fileData) return { fileData: p.fileData };
-          return p;
-      });
-      return { role: m.role, parts: cleanedParts };
-    });
+    const contents = [...history, { role: 'user', parts: [{ text: message }] }].map((m: any) => ({
+      role: m.role,
+      parts: m.parts.map((p: any) => ({ text: p.text, inlineData: p.inlineData, fileData: p.fileData }))
+    }));
 
-    const generationConfig: any = { 
-        temperature: config.temperature, topP: config.topP, topK: config.topK,
-        maxOutputTokens: config.maxOutputTokens || 2048,
-    };
-    
-    // Tools syntax in Vertex AI SDK
     const tools: any[] = [];
-    if (config.googleSearch) tools.push({ google_search_retrieval: {} }); // Correct Vertex syntax
+    if (config.googleSearch) tools.push({ google_search_retrieval: {} });
     if (config.codeExecution) tools.push({ code_execution: {} });
-    
-    const requestConfig: any = {
-        contents,
-        generationConfig,
+
+    const request: any = {
+      contents,
+      generationConfig: { temperature: config.temperature, topP: config.topP, topK: config.topK, maxOutputTokens: config.maxOutputTokens || 2048 },
+      tools: tools.length > 0 ? tools : undefined,
+      systemInstruction: { role: 'system', parts: [{ text: refinedSystemInstruction || config.systemInstruction || "" }] }
     };
-    
-    if (tools.length > 0) requestConfig.tools = tools;
-    if (finalSystemInstruction) {
-        requestConfig.systemInstruction = { role: 'system', parts: [{ text: finalSystemInstruction }] };
-    }
 
-    // Thinking config (Vertex AI specific)
-    if (config.model.includes('gemini-2.0') || config.model.includes('pro')) {
-       // Note: Vertex AI SDK might have different thinking config location
-    }
-
-    const response = await model.generateContentStream(requestConfig);
-
+    const response = await model.generateContentStream(request);
     for await (const chunk of response.stream) {
-      let thoughtText = '';
-      let normalText = '';
-      const candidate = chunk.candidates?.[0];
-      if (candidate?.content?.parts) {
-        for (const part of candidate.content.parts) {
-          if ((part as any).thought === true || (part as any).thought) thoughtText += (part as any).text || '';
-          else if (part.text) normalText += part.text;
-        }
+      const parts = chunk.candidates?.[0]?.content?.parts || [];
+      for (const part of parts) {
+        if ((part as any).thought) res.write(`data: ${JSON.stringify({ thoughts: (part as any).text })}\n\n`);
+        else if (part.text) res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
       }
-      if (normalText) res.write(`data: ${JSON.stringify({ text: normalText })}\n\n`);
-      if (thoughtText) res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
     }
     res.end();
   } catch (error) {
     log.error("Chat error", error);
-    res.status(500).json({ error: "Internal Server Error", message: error instanceof Error ? error.message : String(error) });
-  }
-};
-
-app.post('/api/chat', handleChat);
-app.post('/chat', handleChat);
-
-app.get('/api/metadata', async (req, res) => {
-  const { url } = req.query;
-  if (!url || typeof url !== 'string') return res.status(400).json({ error: "URL manquante" });
-  try {
-    const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
-    if (!response.ok) return res.status(404).json({ error: "Vidéo non trouvée" });
-    const data: any = await response.json();
-    res.json({ title: data.title, thumbnail: data.thumbnail_url });
-  } catch (error) {
-    log.error("Metadata error", error);
-    res.status(500).json({ error: "Erreur lors de la récupération des métadonnées" });
+    res.status(500).json({ error: "Chat failed", message: String(error) });
   }
 });
 
-// Global error handler for Express
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  log.error("Global Express Error", err);
-  res.status(500).json({ 
-    error: "Internal Server Error", 
-    message: err instanceof Error ? err.message : String(err),
-    stack: process.env.NODE_ENV !== 'production' ? (err instanceof Error ? err.stack : null) : undefined
-  });
-});
-
-// ─── Static Files & SPA Fallback ──────────────────────────────────
-// On Vercel, 'dist' is in the project root. cwd is the root.
+// SPA Fallback
 const distPath = path.join(process.cwd(), 'dist');
-
-if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
-  if (fs.existsSync(distPath)) {
-    log.info(`Serving static files from ${distPath}`);
-    app.use(express.static(distPath));
-    app.get('*', (req, res, next) => {
-      if (req.path.includes('/api/') || req.path.includes('/status')) return next();
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path === '/api/status') return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
 }
 
-async function startServer() {
-  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
-    app.use(vite.middlewares);
-  }
-  app.listen(PORT, () => log.success(`Server running on http://localhost:${PORT}`));
-}
-
+// Server (Local only)
 if (!process.env.VERCEL) {
-  startServer();
+  app.listen(PORT, () => log.success(`Server running on port ${PORT}`));
 }

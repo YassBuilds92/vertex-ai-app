@@ -429,28 +429,6 @@ const handleGenerateVideo = async (req: Request, res: Response) => {
       if (normalText) res.write(`data: ${JSON.stringify({ text: normalText })}\n\n`);
       if (thoughtText) res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
     }
-}
-
-    if (finalSystemInstruction) aiConfig.systemInstruction = finalSystemInstruction;
-
-    const response = await client.models.generateContentStream({
-      model: config.model,
-      contents,
-      config: aiConfig
-    });
-
-    for await (const chunk of response) {
-      let thoughtText = '';
-      let normalText = '';
-      if (chunk.candidates?.[0]?.content?.parts) {
-        for (const part of chunk.candidates[0].content.parts as any[]) {
-          if (part.thought === true || part.thought) thoughtText += part.text || '';
-          else if (part.text) normalText += part.text;
-        }
-      }
-      if (normalText) res.write(`data: ${JSON.stringify({ text: normalText })}\n\n`);
-      if (thoughtText) res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
-    }
     res.end();
   } catch (error) {
     log.error("Chat error", error);

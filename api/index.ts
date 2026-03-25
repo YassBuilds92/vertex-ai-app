@@ -132,7 +132,7 @@ app.use((req, res, next) => {
 const COOKIE_NAME = 'site_access_token';
 const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const SITE_PASSWORD = process.env.SITE_PASSWORD;
-  const isPublicPath = req.path.includes('/login') || req.path.includes('/status') || req.path.startsWith('/api/');
+  const isPublicPath = req.path.startsWith('/api/') || req.path.includes('/login') || req.path.includes('/status');
   if (!SITE_PASSWORD || isPublicPath) return next();
 
   const cookies = req.headers.cookie || '';
@@ -243,13 +243,14 @@ app.post('/api/chat', async (req, res) => {
     const { message, history, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
     const client = createGoogleAI();
     
-    // Model ID mapping for Vertex AI
+    // Model ID mapping for Vertex AI (mapping Studio names to Vertex names)
     let modelId = config.model;
-    if (modelId.includes('gemini-3.1-pro')) modelId = 'gemini-1.5-pro-002';
-    if (modelId.includes('gemini-3.x-pro')) modelId = 'gemini-1.5-pro-002';
-    if (modelId.includes('gemini-3.1-flash')) modelId = 'gemini-1.5-flash-002';
-    if (modelId.includes('gemini-3.x-flash')) modelId = 'gemini-1.5-flash-002';
-    if (modelId.includes('gemini-3')) modelId = 'gemini-1.5-pro-002';
+    if (modelId.includes('gemini-3.1-pro')) modelId = 'gemini-1.5-pro';
+    if (modelId.includes('gemini-3.x-pro')) modelId = 'gemini-1.5-pro';
+    if (modelId.includes('gemini-3.1-flash')) modelId = 'gemini-1.5-flash';
+    if (modelId.includes('gemini-3.x-flash')) modelId = 'gemini-1.5-flash';
+    if (modelId.includes('gemini-3')) modelId = 'gemini-1.5-pro';
+    if (modelId.includes('gemini-2.0')) modelId = 'gemini-1.5-pro'; // Fallback if 2.0 is not available
 
     const model = client.getGenerativeModel({ model: modelId });
 

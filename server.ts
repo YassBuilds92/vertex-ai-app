@@ -571,15 +571,31 @@ app.get('/api/metadata', async (req, res) => {
   }
 });
 
+// ─── Static Files & SPA Fallback ──────────────────────────────────
+// On Vercel, the 'dist' folder is at the root after build.
+const distPath = path.join(process.cwd(), 'dist');
+
+if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+  // Check if dist exists to avoid errors on the first build
+  if (fs.existsSync(distPath)) {
+    log.info(`Serving static files from ${distPath}`);
+    app.use(express.static(distPath));
+    // The fallback MUST be after all API routes
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    log.warn('dist directory not found. Static files will not be served.');
+  }
+}
+
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
+  
   app.listen(PORT, () => log.success(`Server running on http://localhost:${PORT}`));
 }
 

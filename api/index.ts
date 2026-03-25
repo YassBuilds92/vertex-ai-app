@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
-import { createServer as createViteServer } from 'vite';
+// import { createServer as createViteServer } from 'vite'; // Moved to dynamic import
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -558,6 +558,7 @@ if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   }

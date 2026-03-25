@@ -303,7 +303,7 @@ const handleRefine = async (req: Request, res: Response) => {
     res.json({ refinedInstruction: refinedText });
   } catch (error) {
     log.error('Refine error:', error);
-    res.status(500).json({ error: 'Failed to refine prompt', details: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: 'Failed to refine prompt', message: error instanceof Error ? error.message : String(error) });
   }
 };
 
@@ -347,7 +347,7 @@ const handleGenerateImage = async (req: Request, res: Response) => {
     res.json({ base64: `data:image/png;base64,${imageBase64}` });
   } catch (error) {
     log.error('Image Gen error:', error);
-    res.status(500).json({ error: 'Failed to generate image', details: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: 'Failed to generate image', message: error instanceof Error ? error.message : String(error) });
   }
 };
 
@@ -432,7 +432,7 @@ const handleGenerateVideo = async (req: Request, res: Response) => {
     res.end();
   } catch (error) {
     log.error("Chat error", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Internal Server Error", message: error instanceof Error ? error.message : String(error) });
   }
 };
 

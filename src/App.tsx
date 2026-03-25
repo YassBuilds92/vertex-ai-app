@@ -298,7 +298,10 @@ export default function App() {
           })
         });
 
-        if (!response.ok) throw new Error('Erreur génération image');
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.details || errData.message || 'Erreur génération image');
+        }
         const data = await response.json();
         
         await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({

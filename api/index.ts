@@ -166,6 +166,58 @@ function getVertexConfig() {
   return { isConfigured: !!(projectId && location), projectId, location };
 }
 
+/**
+ * Parses raw error messages from the Google GenAI SDK (often stringified JSON)
+ * into a cleaner, human-readable format.
+ */
+function parseApiError(error: any): string {
+  const errStr = String(error);
+  if (errStr.includes('ApiError:')) {
+    try {
+      const jsonStart = errStr.indexOf('{');
+      if (jsonStart !== -1) {
+        const jsonPart = errStr.substring(jsonStart);
+        const parsed = JSON.parse(jsonPart);
+        if (parsed.error && parsed.error.message) {
+          let msg = parsed.error.message;
+          if (parsed.error.code === 429 || parsed.error.status === "RESOURCE_EXHAUSTED") {
+            msg = "Quota dépassé (429). Trop de demandes simultanées ou limite quotidienne atteinte. Réessayez dans quelques minutes.";
+          }
+          return msg;
+        }
+      }
+    } catch (e) {
+      log.debug("Failed to parse ApiError JSON", e);
+    }
+  }
+  return errStr;
+}
+
+/**
+ * Standard retry with exponential backoff for 429 (Resource Exhausted) errors.
+ */
+async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+  let lastError: any;
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      const errStr = String(error);
+      const isRetryable = errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('Too Many Requests');
+      
+      if (isRetryable && i < maxRetries) {
+        const delay = baseDelay * Math.pow(2, i);
+        log.warn(`Quota hit (429). Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 function createGoogleAI(modelId?: string): GoogleGenAI {
   const { projectId, location: envLocation } = getVertexConfig();
   if (!projectId || !envLocation) throw new Error('Vertex AI non configuré');
@@ -207,18 +259,21 @@ app.post('/api/refine', async (req, res) => {
     const modelId = "gemini-3.1-flash-lite-preview";
     const ai = createGoogleAI(modelId);
     const systemPrompt = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
-    const result = await ai.models.generateContent({
+    
+    const result = await retryWithBackoff(() => ai.models.generateContent({
       model: modelId,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         systemInstruction: systemPrompt,
         temperature: 0.2,
       }
-    });
+    }));
+    
     res.json({ refinedInstruction: result.text || "" });
   } catch (error) {
-    log.error("Refine error", error);
-    res.status(500).json({ error: "Refine failed", message: String(error) });
+    const cleanError = parseApiError(error);
+    log.error("Refine error", cleanError);
+    res.status(500).json({ error: "Refine failed", message: "Échec de l'optimisation", details: cleanError });
   }
 });
 
@@ -229,14 +284,14 @@ app.post('/api/generate-image', async (req, res) => {
     log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { aspectRatio, numberOfImages });
     
     const ai = createGoogleAI(modelId);
-    const result = await ai.models.generateContent({
+    const result = await retryWithBackoff(() => ai.models.generateContent({
       model: modelId,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         ...(aspectRatio ? { aspectRatio } : {}),
         ...(numberOfImages ? { candidateCount: numberOfImages } : {}),
       } as any
-    });
+    }));
 
     if (!result.candidates || result.candidates.length === 0) {
       log.error("Image generation failed - no candidates", result);
@@ -253,11 +308,12 @@ app.post('/api/generate-image', async (req, res) => {
 
     res.json({ base64: `data:image/png;base64,${base64}` });
   } catch (error) {
-    log.error("Image gen error", error);
+    const cleanError = parseApiError(error);
+    log.error("Image gen error", cleanError);
     res.status(500).json({ 
       error: "Image failed", 
       message: "Échec de la génération d'image",
-      details: String(error) 
+      details: cleanError 
     });
   }
 });

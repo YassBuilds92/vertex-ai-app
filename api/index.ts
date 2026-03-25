@@ -132,24 +132,14 @@ try {
 app.use(express.json({ limit: MAX_PAYLOAD }));
 app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
 
-try {
-  app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
-    res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
-    
-    // Debug logging for Vercel routing
-    if (req.path.includes('/api/') || req.url.includes('/api/') || req.path.includes('/status')) {
-      log.debug(`Incoming API Request (api/index.ts): ${req.method} ${req.url} (path: ${req.path})`);
-    }
-    
-    next();
-  });
-} catch (error) {
-  log.error("Fatal initialization error in middleware", error);
-}
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+  next();
+});
 
 // ─── Authentication Middleware ────────────────────────────────────
 const COOKIE_NAME = 'site_access_token';
@@ -277,38 +267,14 @@ function createGoogleAI(modelId: string) {
 
 // ─── API Routes (Robust matching) ────────────────────────────────
 
-const handleStatus = (_req: Request, res: Response) => {
+app.get('/api/status', (_req, res) => {
   const config = getVertexConfig();
   res.json({
     isVertexConfigured: config.isConfigured,
     isGcsConfigured: !!process.env.VERTEX_GCS_OUTPUT_URI,
     serviceAccount: serviceAccountEmail,
-    debug: {
-        projectId: config.projectId ? (config.projectId.substring(0, 5) + '...') : null,
-        location: config.location,
-        envKeys: Object.keys(process.env).filter(key => key.includes('VERTEX') || key.includes('GOOGLE')),
-        path: _req.path,
-        url: _req.url,
-        isVercel: !!process.env.VERCEL
-    }
   });
-};
-
-app.get('/api/status', handleStatus);
-app.get('/status', handleStatus);
-
-const handleDebugPath = (req: Request, res: Response) => {
-    res.json({
-        path: req.path,
-        url: req.url,
-        originalUrl: req.originalUrl,
-        headers: req.headers,
-        envKeys: Object.keys(process.env)
-    });
-};
-
-app.get('/api/debug-path', handleDebugPath);
-app.get('/debug-path', handleDebugPath);
+});
 
 const REFINER_SYSTEM_PROMPT = `You are a master of prompt engineering. Your role is to act as a 'Prompt Refiner'. 
 Analyze the user's input and generate an optimized 'System Instruction' for a more powerful AI model.

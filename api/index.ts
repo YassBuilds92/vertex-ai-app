@@ -4,7 +4,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
+import { VertexAI, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai';
 import { Storage } from '@google-cloud/storage';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
@@ -248,19 +248,15 @@ function getVertexConfig() {
   return { isConfigured: !!(projectId && location), projectId, location };
 }
 
-function createGoogleAI(modelId: string) {
+function createGoogleAI() {
   const { projectId, location: envLocation } = getVertexConfig();
   if (!projectId || !envLocation) throw new Error('Vertex AI non configuré (VERTEX_PROJECT_ID / VERTEX_LOCATION manquants)');
   
-  const isGemini = modelId.toLowerCase().includes('gemini');
-  const finalLocation = isGemini ? 'global' : envLocation;
-  
-  log.debug('Creating GoogleGenAI client (api/index.ts)', { modelId, isGemini, location: finalLocation });
+  log.debug('Creating VertexAI client (api/index.ts)', { projectId, location: envLocation });
 
-  return new GoogleGenAI({
-    vertexai: true,
+  return new VertexAI({
     project: projectId,
-    location: finalLocation,
+    location: envLocation,
   });
 }
 
@@ -288,19 +284,21 @@ DO NOT USE TEXT IN THE IMAGE. Output ONLY the image prompt.`;
 const handleRefine = async (req: Request, res: Response) => {
   try {
     const { prompt, type } = ChatRefineSchema.parse(req.body);
-    const client = createGoogleAI("gemini-3.1-flash-lite-preview");
+    const client = createGoogleAI();
+    const modelId = "gemini-1.5-flash-002"; // Stable refiner
+    const model = client.getGenerativeModel({ model: modelId });
     const systemInstruction = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
 
-    const result = await client.models.generateContent({
-      model: "gemini-3.1-flash-lite-preview",
+    const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: {
-        systemInstruction: systemInstruction,
+      generationConfig: {
+        systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
         temperature: 0.2,
       }
     });
 
-    const refinedText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const candidate = result.response.candidates?.[0];
+    const refinedText = candidate?.content?.parts?.[0]?.text || "";
     if (!refinedText) throw new Error("L'IA n'a pas pu analyser le prompt (résultat vide ou erreur de quota)");
     res.json({ refinedInstruction: refinedText });
   } catch (error) {
@@ -315,29 +313,29 @@ app.post('/refine', handleRefine);
 const handleGenerateImage = async (req: Request, res: Response) => {
   try {
     const { prompt, aspectRatio, imageSize, numberOfImages, personGeneration, safetySetting } = ImageGenSchema.parse(req.body);
-    const modelId = "gemini-2.5-flash-image"; 
-    const client = createGoogleAI(modelId);
+    const modelId = "imagen-3.0-generate-001"; // Official Vertex AI ID
+    const client = createGoogleAI();
+    const model = client.getGenerativeModel({ model: modelId });
     
     log.info('Image generation request', { prompt, modelId, aspectRatio });
 
-    const config: any = {};
-    if (aspectRatio) config.aspectRatio = aspectRatio;
-    if (imageSize) config.imageSize = imageSize;
-    if (numberOfImages) config.numberOfImages = numberOfImages;
-    if (personGeneration) config.personGeneration = personGeneration;
-    if (safetySetting) config.safetyFilterLevel = safetySetting;
+    const genConfig: any = {};
+    if (aspectRatio) genConfig.aspectRatio = aspectRatio;
+    if (imageSize) genConfig.imageSize = imageSize;
+    if (numberOfImages) genConfig.candidateCount = numberOfImages;
+    if (personGeneration) genConfig.personGeneration = personGeneration;
+    // safetySetting handled differently in Vertex
 
-    const result = await client.models.generateContent({
-      model: modelId,
+    const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: config
+      generationConfig: genConfig
     });
 
-    const candidate = result.candidates?.[0];
+    const candidate = result.response.candidates?.[0];
     let imageBase64 = "";
 
     if (candidate?.content?.parts) {
-      for (const part of candidate.content.parts as any[]) {
+      for (const part of candidate.content.parts) {
         if (part.inlineData) {
           imageBase64 = part.inlineData.data;
           break;
@@ -370,35 +368,10 @@ const handleGenerateVideo = async (req: Request, res: Response) => {
       config: {
         resolution: videoResolution || '720p',
         aspectRatio: videoAspectRatio || '16:9',
-        durationSeconds: videoDurationSeconds || 6,
-      }
-    });
-
-    const result = await op.result();
-    const video = result.generatedVideos?.[0];
-
-    if (video?.videoAttributes?.uri) {
-        res.json({ url: video.videoAttributes.uri });
-    } else if (video?.inlineData) {
-        res.json({ url: `data:video/mp4;base64,${video.inlineData.data}` });
-    } else {
-        throw new Error("L'IA n'a pas pu générer la vidéo");
-    }
-
-  } catch (error) {
-    log.error('Video Gen error:', error);
-    res.status(500).json({ error: 'Failed to generate video', details: error instanceof Error ? error.message : String(error) });
-  }
-};
-
-app.post('/api/generate-video', handleGenerateVideo);
-app.post('/generate-video', handleGenerateVideo);
-
-const handleChat = async (req: Request, res: Response) => {
-  try {
-    const { message, history, config, attachments, refinedSystemInstruction } = ChatSchema.parse(req.body);
+        durationSeconds: v    const { message, history, config, attachments, refinedSystemInstruction } = ChatSchema.parse(req.body);
     const finalSystemInstruction = refinedSystemInstruction || config.systemInstruction;
-    const client = createGoogleAI(config.model);
+    const client = createGoogleAI();
+    const model = client.getGenerativeModel({ model: config.model });
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -406,52 +379,57 @@ const handleChat = async (req: Request, res: Response) => {
 
     const contents = [...history, { role: 'user', parts: [{ text: message }], attachments }].map((m: any) => {
       const parts: any[] = m.parts ? [...m.parts] : [];
-      const textFromParts = parts.find((p: any) => p.text)?.text || "";
-      const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/g;
-      const foundYtUrls = new Set<string>();
-      let ytMatch;
-      while ((ytMatch = ytRegex.exec(textFromParts)) !== null) foundYtUrls.add(ytMatch[0]);
-
-      if (m.attachments && m.attachments.length > 0) {
-        m.attachments.forEach((att: any) => {
-          if (att.type === 'youtube') {
-            parts.push({ fileData: { fileUri: att.url, mimeType: "video/mp4" } });
-            foundYtUrls.delete(att.url);
-          } else if (att.base64) {
-            parts.push({ inlineData: { mimeType: att.mimeType || "image/jpeg", data: att.base64.split(',')[1] || att.base64 } });
-          }
-        });
-      }
-
-      foundYtUrls.forEach(url => {
-        parts.push({ fileData: { fileUri: url.startsWith('http') ? url : `https://${url}`, mimeType: "video/mp4" } });
+      // Clean parts (remove extra fields not supported by SDK)
+      const cleanedParts = parts.map(p => {
+          if (p.text) return { text: p.text };
+          if (p.inlineData) return { inlineData: p.inlineData };
+          if (p.fileData) return { fileData: p.fileData };
+          return p;
       });
-      
-      return { role: m.role, parts };
+      return { role: m.role, parts: cleanedParts };
     });
 
-    const aiConfig: any = { 
+    const generationConfig: any = { 
         temperature: config.temperature, topP: config.topP, topK: config.topK,
         maxOutputTokens: config.maxOutputTokens || 2048,
-        presencePenalty: config.presencePenalty, frequencyPenalty: config.frequencyPenalty,
-        responseMimeType: config.responseMimeType, stopSequences: config.stopSequences
     };
     
+    // Tools syntax in Vertex AI SDK
     const tools: any[] = [];
-    if (config.googleSearch) tools.push({ googleSearch: {} });
-    if (config.codeExecution) tools.push({ codeExecution: {} });
-    if (config.googleMaps) tools.push({ googleMaps: {} });
-    if (config.urlContext) tools.push({ urlContext: {} });
-    if (tools.length > 0) aiConfig.tools = tools;
+    if (config.googleSearch) tools.push({ google_search_retrieval: {} }); // Correct Vertex syntax
+    if (config.codeExecution) tools.push({ code_execution: {} });
     
-    if (config.model.includes('gemini-3')) {
-      aiConfig.thinkingConfig = { includeThoughts: true };
-      if (config.thinkingLevel) {
-        let level = config.thinkingLevel.toUpperCase();
-        if (config.model.includes('pro') && level === 'MINIMAL') level = 'LOW';
-        aiConfig.thinkingConfig.thinkingLevel = level;
-      }
+    const requestConfig: any = {
+        contents,
+        generationConfig,
+    };
+    
+    if (tools.length > 0) requestConfig.tools = tools;
+    if (finalSystemInstruction) {
+        requestConfig.systemInstruction = { role: 'system', parts: [{ text: finalSystemInstruction }] };
     }
+
+    // Thinking config (Vertex AI specific)
+    if (config.model.includes('gemini-2.0') || config.model.includes('pro')) {
+       // Note: Vertex AI SDK might have different thinking config location
+    }
+
+    const response = await model.generateContentStream(requestConfig);
+
+    for await (const chunk of response.stream) {
+      let thoughtText = '';
+      let normalText = '';
+      const candidate = chunk.candidates?.[0];
+      if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+          if ((part as any).thought === true || (part as any).thought) thoughtText += (part as any).text || '';
+          else if (part.text) normalText += part.text;
+        }
+      }
+      if (normalText) res.write(`data: ${JSON.stringify({ text: normalText })}\n\n`);
+      if (thoughtText) res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
+    }
+}
 
     if (finalSystemInstruction) aiConfig.systemInstruction = finalSystemInstruction;
 

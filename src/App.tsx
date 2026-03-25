@@ -714,7 +714,19 @@ export default function App() {
 
           {!user ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                <button onClick={() => signInWithPopup(auth, googleProvider)} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20">Se connecter avec Google</button>
+                <button 
+                  onClick={async () => {
+                    try {
+                      await signInWithPopup(auth, googleProvider);
+                    } catch (error: any) {
+                      console.error("Login error:", error);
+                      alert(`Erreur de connexion : ${error.message || String(error)}`);
+                    }
+                  }} 
+                  className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20"
+                >
+                  Se connecter avec Google
+                </button>
             </div>
           ) : (
             <>

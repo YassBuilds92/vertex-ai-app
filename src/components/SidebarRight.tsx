@@ -256,7 +256,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   {['1:1', '4:3', '16:9', '9:16', '3:4'].map(ratio => (
                     <button
                       key={ratio}
-                      onClick={() => setConfig({ aspectRatio: ratio })}
+                      onClick={() => setConfig({ aspectRatio: ratio as any })}
                       className={cn(
                         "py-2 rounded-xl text-[11px] font-bold border transition-all",
                         config.aspectRatio === ratio ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-400" : "bg-white/5 border-white/5 text-[var(--app-text-muted)] hover:bg-white/10"
@@ -308,7 +308,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   {['720p', '1080p', '4k'].map(res => (
                     <button
                       key={res}
-                      onClick={() => setConfig({ videoResolution: res })}
+                      onClick={() => setConfig({ videoResolution: res as any })}
                       className={cn(
                         "py-2 rounded-xl text-[11px] font-bold border transition-all",
                         config.videoResolution === res ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-400" : "bg-white/5 border-white/5 text-[var(--app-text-muted)] hover:bg-white/10"
@@ -326,7 +326,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   {['16:9', '9:16'].map(ratio => (
                     <button
                       key={ratio}
-                      onClick={() => setConfig({ videoAspectRatio: ratio })}
+                      onClick={() => setConfig({ videoAspectRatio: ratio as any })}
                       className={cn(
                         "flex-1 py-2 rounded-xl text-[11px] font-bold border transition-all",
                         config.videoAspectRatio === ratio ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-400" : "bg-white/5 border-white/5 text-[var(--app-text-muted)] hover:bg-white/10"

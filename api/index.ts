@@ -184,7 +184,7 @@ app.post('/api/refine', async (req, res) => {
     const { prompt, type } = ChatRefineSchema.parse(req.body);
     const client = createGoogleAI();
     const systemPrompt = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
-    const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = client.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
@@ -220,12 +220,10 @@ app.post('/api/chat', async (req, res) => {
 
     // Model ID mapping for Vertex AI (using stable aliases to avoid 404s)
     let modelId = config.model;
-    if (modelId.includes('gemini-3.1-pro')) modelId = 'gemini-1.5-pro';
-    if (modelId.includes('gemini-3.x-pro')) modelId = 'gemini-1.5-pro';
-    if (modelId.includes('gemini-3.1-flash')) modelId = 'gemini-1.5-flash';
-    if (modelId.includes('gemini-3.x-flash')) modelId = 'gemini-1.5-flash';
-    if (modelId.includes('gemini-3')) modelId = 'gemini-1.5-pro';
-    if (modelId.includes('gemini-2.0')) modelId = 'gemini-1.5-pro';
+    // Ensure we use the latest models as per user rules (AI_LEARNINGS.md)
+    if (modelId.includes('gemini-1.5')) modelId = modelId.replace('1.5', '3.1');
+    if (modelId === 'gemini-3.1-pro') modelId = 'gemini-3.1-pro-preview';
+    if (modelId === 'gemini-3.1-flash') modelId = 'gemini-3.1-flash-lite-preview';
 
     const systemPromptText = refinedSystemInstruction || config.systemInstruction || "";
     const model = client.getGenerativeModel({ 

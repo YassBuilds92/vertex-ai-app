@@ -80,6 +80,9 @@ export interface ModelConfig {
   videoResolution?: '720p' | '1080p';
   videoAspectRatio?: '16:9' | '9:16';
   autoSystemInstruction?: boolean;
+  personGeneration?: string;
+  safetySetting?: string;
+  videoDurationSeconds?: number;
 }
 
 export interface CustomPrompt {

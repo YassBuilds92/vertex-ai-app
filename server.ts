@@ -8,9 +8,7 @@ import { GoogleGenAI } from '@google/genai';
 import { Storage } from '@google-cloud/storage';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import cookieParser from 'cookie-parser'; // Note: the user might need to install this, or I can use manual parsing. 
-// I'll use manual parsing to avoid npm install for now, or I'll just add it to package.json.
-// Actually, let's just do manual parsing.
+import cookieParser from 'cookie-parser';
 
 // ─── Constants & Setup ──────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
@@ -355,7 +353,8 @@ app.post('/api/generate-video', async (req, res) => {
 
     log.info('Video generation request', { prompt, modelId, videoResolution, videoAspectRatio });
 
-    const result = await client.models.generateVideos({
+    // Veo returns a long-running operation
+    const op = await client.models.generateVideos({
       model: modelId,
       prompt: prompt,
       config: {
@@ -365,13 +364,13 @@ app.post('/api/generate-video', async (req, res) => {
       }
     });
 
-    log.info('Video generation result received');
+    log.info('Video generation operation started', { operationId: op.name });
 
-    // Veo might return an operation or a result directly depending on the SDK abstraction
-    // In many cases it returns the video in GCS or inline if small.
-    // However, for Vertex AI, it's often an operation.
-    // If the SDK waits for it:
+    // In a serverless environment, we might timeout if we wait too long.
+    // However, for now, we wait for the result to fix the TS error.
+    const result = await op.result();
     const video = result.generatedVideos?.[0];
+
     if (video?.videoAttributes?.uri) {
         res.json({ url: video.videoAttributes.uri });
     } else if (video?.inlineData) {

@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch api/server.ts",
+    "dev": "tsx watch api/index.ts",
     "build": "vite build",
-    "start": "tsx api/server.ts",
+    "start": "tsx api/index.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",

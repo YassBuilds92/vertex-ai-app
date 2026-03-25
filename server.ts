@@ -129,12 +129,18 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
 app.use(express.json({ limit: MAX_PAYLOAD }));
 app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
 
-app.use((_req: Request, res: Response, next: NextFunction) => {
+app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+  
+  // Debug logging for Vercel routing
+  if (req.path.startsWith('/api/') || req.url.startsWith('/api/')) {
+    log.debug(`Incoming API Request: ${req.method} ${req.url} (path: ${req.path})`);
+  }
+  
   next();
 });
 
@@ -257,11 +263,28 @@ function createGoogleAI(modelId: string) {
 // ─── API Routes ─────────────────────────────────────────────────
 
 app.get('/api/status', (_req, res) => {
+  const config = getVertexConfig();
   res.json({
-    isVertexConfigured: getVertexConfig().isConfigured,
+    isVertexConfigured: config.isConfigured,
     isGcsConfigured: !!process.env.VERTEX_GCS_OUTPUT_URI,
     serviceAccount: serviceAccountEmail,
+    debug: {
+        projectId: config.projectId ? (config.projectId.substring(0, 5) + '...') : null,
+        location: config.location,
+        envKeys: Object.keys(process.env).filter(key => key.includes('VERTEX') || key.includes('GOOGLE')),
+        path: _req.path,
+        url: _req.url
+    }
   });
+});
+
+app.get('/api/debug-path', (req, res) => {
+    res.json({
+        path: req.path,
+        url: req.url,
+        originalUrl: req.originalUrl,
+        headers: req.headers
+    });
 });
 
 const REFINER_SYSTEM_PROMPT = `You are a master of prompt engineering. Your role is to act as a 'Prompt Refiner'. 

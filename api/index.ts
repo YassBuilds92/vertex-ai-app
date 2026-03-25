@@ -3,7 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleGenAI } from '@google/genai';
 import { Storage } from '@google-cloud/storage';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
@@ -92,11 +92,11 @@ const ChatSchema = z.object({
 
 // ─── Logging Helper ─────────────────────────────────────────────
 const log = {
-  info: (msg: string, meta?: any) => console.log(`[${new Date().toISOString()}] ℹ️  ${msg}`, meta ? JSON.stringify(meta) : ''),
-  success: (msg: string) => console.log(`[${new Date().toISOString()}] ✅ ${msg}`),
-  warn: (msg: string, meta?: any) => console.warn(`[${new Date().toISOString()}] ⚠️  ${msg}`, meta ? JSON.stringify(meta) : ''),
-  debug: (msg: string, meta?: any) => console.debug(`[${new Date().toISOString()}] 🔍 ${msg}`, meta ? JSON.stringify(meta) : ''),
-  error: (msg: string, err?: any) => console.error(`[${new Date().toISOString()}] ❌ ${msg}`, err instanceof Error ? err.message : err ?? ''),
+  info: (msg: string, meta?: any) => console.log(`[${new Date().toISOString()}] INFO  ${msg}`, meta ? JSON.stringify(meta) : ''),
+  success: (msg: string) => console.log(`[${new Date().toISOString()}] OK ${msg}`),
+  warn: (msg: string, meta?: any) => console.warn(`[${new Date().toISOString()}] WARN  ${msg}`, meta ? JSON.stringify(meta) : ''),
+  debug: (msg: string, meta?: any) => console.debug(`[${new Date().toISOString()}] DEBUG ${msg}`, meta ? JSON.stringify(meta) : ''),
+  error: (msg: string, err?: any) => console.error(`[${new Date().toISOString()}] ERROR ${msg}`, err instanceof Error ? err.message : err ?? ''),
 };
 
 // ─── State ──────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ try {
     gcpCredentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
     storage = new Storage({ credentials: gcpCredentials });
     serviceAccountEmail = gcpCredentials.client_email || null;
-    log.success(`SDKs initialized (${serviceAccountEmail})`);
+    log.success(`GCP SDKs initialized (${serviceAccountEmail})`);
   }
 } catch (error) {
   log.error('Failed to initialize GCP SDKs', error);
@@ -132,10 +132,10 @@ app.use((req, res, next) => {
 const COOKIE_NAME = 'site_access_token';
 const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const SITE_PASSWORD = process.env.SITE_PASSWORD;
-  const path = req.path;
-  const isApiRequest = path.startsWith('/api') || path.includes('/api/');
-  const isPublicPath = isApiRequest || path.includes('/login') || path.includes('/status');
-  
+  const reqPath = req.path;
+  const isApiRequest = reqPath.startsWith('/api') || reqPath.includes('/api/');
+  const isPublicPath = isApiRequest || reqPath.includes('/login') || reqPath.includes('/status');
+
   if (!SITE_PASSWORD || isPublicPath) return next();
 
   const cookies = req.headers.cookie || '';
@@ -166,20 +166,25 @@ function getVertexConfig() {
   return { isConfigured: !!(projectId && location), projectId, location };
 }
 
-function createGoogleAI(modelId?: string) {
+function createGoogleAI(modelId?: string): GoogleGenAI {
   const { projectId, location: envLocation } = getVertexConfig();
   if (!projectId || !envLocation) throw new Error('Vertex AI non configuré');
-  
-  // Use 'global' for preview and 3.1 models as per AI_LEARNINGS.md and user feedback
-  // Vertex AI 3.1 models and preview models often require 'global' to be found
+
+  // Use 'global' for preview and 3.1 models
   let finalLocation = envLocation;
   if (modelId && (modelId.includes('preview') || modelId.includes('3.1') || modelId.includes('3-flash'))) {
     finalLocation = 'global';
   }
-  
-  const options: any = { project: projectId, location: finalLocation };
-  if (gcpCredentials) options.googleAuthOptions = { credentials: gcpCredentials };
-  return new VertexAI(options);
+
+  const options: any = {
+    vertexai: true,
+    project: projectId,
+    location: finalLocation,
+  };
+  if (gcpCredentials) {
+    options.googleAuthOptions = { credentials: gcpCredentials };
+  }
+  return new GoogleGenAI(options);
 }
 
 // ─── Routes ─────────────────────────────────────────────────────
@@ -200,16 +205,19 @@ app.post('/api/refine', async (req, res) => {
   try {
     const { prompt, type } = ChatRefineSchema.parse(req.body);
     const modelId = "gemini-3.1-flash-lite-preview";
-    const client = createGoogleAI(modelId);
+    const ai = createGoogleAI(modelId);
     const systemPrompt = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
-    const model = client.getGenerativeModel({ model: modelId });
-    const result = await model.generateContent({
+    const result = await ai.models.generateContent({
+      model: modelId,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
-      generationConfig: { temperature: 0.2 }
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.2,
+      }
     });
-    res.json({ refinedInstruction: result.response.candidates?.[0]?.content?.parts?.[0]?.text || "" });
+    res.json({ refinedInstruction: result.text || "" });
   } catch (error) {
+    log.error("Refine error", error);
     res.status(500).json({ error: "Refine failed", message: String(error) });
   }
 });
@@ -218,16 +226,22 @@ app.post('/api/generate-image', async (req, res) => {
   try {
     const { prompt, aspectRatio, numberOfImages } = ImageGenSchema.parse(req.body);
     const modelId = "imagen-3.0-generate-001";
-    const client = createGoogleAI(modelId);
-    const model = client.getGenerativeModel({ model: modelId });
-    const result = await model.generateContent({
+    const ai = createGoogleAI(modelId);
+    const result = await ai.models.generateContent({
+      model: modelId,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { aspectRatio, candidateCount: numberOfImages } as any
+      config: {
+        responseModalities: ['IMAGE'],
+        ...(aspectRatio ? { aspectRatio } : {}),
+        ...(numberOfImages ? { candidateCount: numberOfImages } : {}),
+      } as any
     });
-    const base64 = result.response.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
+    const part = result.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+    const base64 = (part as any)?.inlineData?.data;
     if (!base64) throw new Error("No image data");
     res.json({ base64: `data:image/png;base64,${base64}` });
   } catch (error) {
+    log.error("Image gen error", error);
     res.status(500).json({ error: "Image failed", message: String(error) });
   }
 });
@@ -235,9 +249,6 @@ app.post('/api/generate-image', async (req, res) => {
 app.post('/api/generate-video', async (req, res) => {
   try {
     const { prompt, videoResolution, videoAspectRatio, videoDurationSeconds } = VideoGenSchema.parse(req.body);
-    const modelId = "veo-3.1-generate-001";
-    // Veo implementation usually involves GCS output, but for now we return an error or handle it if SDK supports inline
-    // According to AI_LEARNINGS, it might need @google/genai, but we try with VertexAI first or return JSON error.
     res.status(501).json({ error: "Non implémenté", message: "La génération vidéo Veo nécessite une configuration GCS spécifique." });
   } catch (error) {
     res.status(500).json({ error: "Video failed", message: String(error) });
@@ -245,64 +256,84 @@ app.post('/api/generate-video', async (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
+  let headersSent = false;
   try {
     const { message, history, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
-    // Model ID mapping for Vertex AI (using stable aliases to avoid 404s)
+
+    // Model ID mapping
     let modelId = config.model;
-    // Ensure we use the latest models as per user rules (AI_LEARNINGS.md)
     if (modelId.includes('gemini-1.5')) modelId = modelId.replace('1.5', '3.1');
     if (modelId === 'gemini-3.1-pro') modelId = 'gemini-3.1-pro-preview';
     if (modelId === 'gemini-3.1-flash') modelId = 'gemini-3.1-flash-lite-preview';
 
-    const client = createGoogleAI(modelId);
+    const ai = createGoogleAI(modelId);
     const systemPromptText = refinedSystemInstruction || config.systemInstruction || "";
-    const model = client.getGenerativeModel({ 
-        model: modelId,
-        systemInstruction: systemPromptText ? { role: 'system', parts: [{ text: systemPromptText }] } : undefined
-    });
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    const contents = [...history, { role: 'user', parts: [{ text: message }] }].map((m: any) => ({
+    const contents = [...history, { role: 'user' as const, parts: [{ text: message }] }].map((m: any) => ({
       role: m.role,
       parts: (m.parts || []).map((p: any) => {
-          const part: any = {};
-          if (p.text) part.text = p.text;
-          if (p.inlineData) part.inlineData = p.inlineData;
-          if (p.fileData) part.fileData = p.fileData;
-          return part;
+        const part: any = {};
+        if (p.text) part.text = p.text;
+        if (p.inlineData) part.inlineData = p.inlineData;
+        if (p.fileData) part.fileData = p.fileData;
+        return part;
       })
     }));
 
+    // Build tools array for new SDK
     const tools: any[] = [];
-    if (config.googleSearch) tools.push({ google_search_retrieval: {} });
-    if (config.codeExecution) tools.push({ code_execution: {} });
+    if (config.googleSearch) tools.push({ googleSearch: {} });
+    if (config.codeExecution) tools.push({ codeExecution: {} });
 
-    const request: any = {
-      contents,
-      generationConfig: { 
-          temperature: config.temperature, 
-          topP: config.topP, 
-          topK: config.topK, 
-          maxOutputTokens: config.maxOutputTokens || 2048 
-      },
-      tools: tools.length > 0 ? tools : undefined,
+    // Build config for new SDK
+    const genConfig: any = {
+      temperature: config.temperature,
+      topP: config.topP,
+      topK: config.topK,
+      maxOutputTokens: config.maxOutputTokens || 2048,
     };
+    if (systemPromptText) genConfig.systemInstruction = systemPromptText;
+    if (tools.length > 0) genConfig.tools = tools;
 
-    const response = await model.generateContentStream(request);
-    for await (const chunk of response.stream) {
-      const parts = chunk.candidates?.[0]?.content?.parts || [];
-      for (const part of parts) {
-        if ((part as any).thought) res.write(`data: ${JSON.stringify({ thoughts: (part as any).text })}\n\n`);
-        else if (part.text) res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+    // Set SSE headers AFTER model setup succeeds (before streaming)
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    headersSent = true;
+
+    const response = await ai.models.generateContentStream({
+      model: modelId,
+      contents,
+      config: genConfig,
+    });
+
+    for await (const chunk of response) {
+      // Check for thought parts via candidates
+      const candidates = (chunk as any).candidates;
+      if (candidates?.[0]?.content?.parts) {
+        for (const part of candidates[0].content.parts) {
+          if (part.thought && part.text) {
+            res.write(`data: ${JSON.stringify({ thoughts: part.text })}\n\n`);
+          } else if (part.text) {
+            res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+          }
+        }
+      } else if (chunk.text) {
+        // Fallback: use chunk.text directly
+        res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
       }
     }
     res.end();
   } catch (error) {
     log.error("Chat error", error);
-    res.status(500).json({ error: "Chat failed", message: String(error) });
+    if (!headersSent) {
+      // Headers not sent yet -> return clean JSON error
+      res.status(500).json({ error: "Chat failed", message: String(error) });
+    } else {
+      // SSE already started -> send error as SSE event then close
+      res.write(`data: ${JSON.stringify({ error: String(error) })}\n\n`);
+      res.end();
+    }
   }
 });
 
@@ -311,7 +342,6 @@ const distPath = path.join(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (req, res, next) => {
-    // Only serve index.html for non-API GET requests
     if (req.path.startsWith('/api') || req.method !== 'GET') return next();
     res.sendFile(path.join(distPath, 'index.html'));
   });
@@ -327,7 +357,7 @@ app.use('/api/*', (req, res) => {
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   log.error(`Global error caught for ${req.method} ${req.path}`, err);
   const status = err.status || err.statusCode || 500;
-  
+  // Always return JSON for API routes
   if (req.path.startsWith('/api')) {
     return res.status(status).json({
       error: "Internal Server Error",

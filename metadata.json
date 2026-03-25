@@ -1,5 +1,0 @@
-{
-  "name": "Vertex AI Studio Clone",
-  "description": "A perfectionist, full-stack clone of AI Studio configured to use Vertex AI.",
-  "requestFramePermissions": ["microphone"]
-}

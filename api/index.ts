@@ -501,8 +501,11 @@ app.post('/api/chat', async (req, res) => {
       // Check for thought parts via candidates
       if (candidates?.[0]?.content?.parts) {
         for (const part of candidates[0].content.parts) {
-          if (part.thought && part.text) {
-            res.write(`data: ${JSON.stringify({ thoughts: part.text })}\n\n`);
+          if (part.thought) {
+            const thoughtText = (part as any).text || part.text || '';
+            if (thoughtText) {
+              res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
+            }
           } else if (part.text) {
             res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
           }
@@ -656,7 +659,7 @@ app.post('/api/cowork', async (req, res) => {
           const command = language === 'python' ? `python "${absolutePath}"` : `node "${absolutePath}"`;
           
           return new Promise((resolve) => {
-            exec(command, (error, stdout, stderr) => {
+            exec(command, { cwd: path.dirname(absolutePath) }, (error, stdout, stderr) => {
               if (error) {
                 resolve({ success: false, error: error.message, stderr });
               } else {
@@ -681,11 +684,8 @@ app.post('/api/cowork', async (req, res) => {
     const genConfig: any = {
       temperature: 0.2,
       maxOutputTokens: config.maxOutputTokens || 65536,
-      systemInstruction: config.systemInstruction || `Tu es un agent autonome en mode Cowork. 
+      systemInstruction: config.systemInstruction || `Tu es un agent autonome expert en mode Cowork. 
 Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes sur son projet.
-Tu as accès à des outils pour lire, lister et modifier des fichiers. 
-
-IMPORTANT (Environnement Serverless / Vercel) : 
 - Pour créer des fichiers, des rapports, des PDF ou des images, tu DOIS impérativement utiliser le dossier '/tmp/' (ex: '/tmp/rapport.pdf').
 - Si tu dois exécuter du code (ex: générer un PDF avec Python), écris d'abord le script dans '/tmp/script.py' avec 'write_file', puis exécute-le avec l'outil local 'execute_script'.
 - Une fois le fichier final généré dans '/tmp/', utilise l'outil 'release_file' sur ce même chemin pour obtenir un lien de téléchargement public.
@@ -725,14 +725,15 @@ Si tu crées un fichier, écris-le réellement sur le disque via 'write_file'.`,
         if (candidates?.[0]?.content?.parts) {
           for (const part of candidates[0].content.parts) {
             turnParts.push(part);
-            if (part.text) {
+            if (part.thought) {
+              const thoughtText = (part as any).text || part.text || '';
+              if (thoughtText) {
+                turnThoughts += thoughtText;
+                res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
+              }
+            } else if (part.text) {
               turnContent += part.text;
               res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
-            }
-            if (part.thought) {
-              const thoughtText = (part as any).text || '';
-              turnThoughts += thoughtText;
-              res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
             }
             if (part.functionCall) {
               functionCalls.push(part.functionCall);

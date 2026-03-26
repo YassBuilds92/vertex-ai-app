@@ -558,13 +558,12 @@ export default function App() {
           }
         }
 
-        setStreamingContent('');
-        setStreamingThoughts('');
-        if (thoughts) setExpandedThoughts(prev => ({ ...prev, [modelMsgId]: true }));
-
         await setDoc(modelMsgRef, cleanForFirestore({
           role: 'model', content: fullContent, thoughts: thoughts, createdAt: Date.now(), sessionId: currentSessionId, userId: user.uid
         }));
+
+        setStreamingContent('');
+        setStreamingThoughts('');
         
         setIsLoading(false);
         return;
@@ -700,8 +699,6 @@ export default function App() {
         }
       }
 
-      setStreamingContent('');
-      setStreamingThoughts('');
       if (thoughts) setExpandedThoughts(prev => ({ ...prev, [modelMsgId]: true }));
 
       await setDoc(modelMsgRef, cleanForFirestore({

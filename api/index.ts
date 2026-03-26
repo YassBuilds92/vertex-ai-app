@@ -671,17 +671,30 @@ app.post('/api/cowork', async (req, res) => {
           if (!fs.existsSync(absolutePath)) throw new Error(`Le script ${filePath} n'existe pas.`);
           
           const { exec } = await import('child_process');
-          const command = language === 'python' ? `python "${absolutePath}"` : `node "${absolutePath}"`;
           
-          return new Promise((resolve) => {
-            exec(command, { cwd: path.dirname(absolutePath) }, (error, stdout, stderr) => {
-              if (error) {
-                resolve({ success: false, error: error.message, stderr });
-              } else {
-                resolve({ success: true, stdout, stderr });
-              }
+          const runCommand = (cmd: string): Promise<any> => {
+            return new Promise((resolve) => {
+              exec(cmd, { cwd: path.dirname(absolutePath) }, (error, stdout, stderr) => {
+                if (error) {
+                  resolve({ success: false, error: error.message, stderr, code: error.code });
+                } else {
+                  resolve({ success: true, stdout, stderr });
+                }
+              });
             });
-          });
+          };
+
+          if (language === 'python') {
+            // Try 'python' first, then 'python3' if it fails with 'not found'
+            let result = await runCommand(`python "${absolutePath}"`);
+            if (!result.success && (result.error.includes('not found') || result.error.includes('n\'est pas reconnu'))) {
+              log.info("python not found, trying python3...");
+              result = await runCommand(`python3 "${absolutePath}"`);
+            }
+            return result;
+          } else {
+            return await runCommand(`node "${absolutePath}"`);
+          }
         }
       }
     ];
@@ -697,17 +710,23 @@ app.post('/api/cowork', async (req, res) => {
     }
 
     const genConfig: any = {
-      temperature: 0.2,
+      temperature: config.temperature || 0.2, // Use user config or default
+      topP: config.topP || 1.0,
+      topK: config.topK || 1,
       maxOutputTokens: config.maxOutputTokens || 65536,
+      thinkingLevel: config.thinkingLevel || 'high', // ENABLE THINKING
+      maxThoughtTokens: config.maxThoughtTokens || 4096,
       systemInstruction: config.systemInstruction || `Tu es un agent autonome expert en mode Cowork. 
 Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes sur son projet.
-- Pour créer des fichiers, des rapports, des PDF ou des images, tu DOIS impérativement utiliser le dossier '/tmp/' (ex: '/tmp/rapport.pdf').
-- Si tu dois exécuter du code (ex: générer un PDF avec Python), écris d'abord le script dans '/tmp/script.py' avec 'write_file', puis exécute-le avec l'outil local 'execute_script'.
-- Une fois le fichier final généré dans '/tmp/', utilise l'outil 'release_file' sur ce même chemin pour obtenir un lien de téléchargement public.
 
-Donne toujours ce lien à l'utilisateur sous forme de lien Markdown dans ta réponse finale.
-Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait via un outil.
-Si tu crées un fichier, écris-le réellement sur le disque via 'write_file'.`,
+### RÈGLES DE SURVIE ET RÉFLEXION :
+1. **PLANIFICATION** : Avant chaque action complexe, décris ta stratégie dans tes pensées.
+2. **VÉRIFICATION D'ENVIRONNEMENT** : Si tu dois exécuter un script (Python/Node), vérifie d'abord si l'interpréteur est disponible (ex: 'python --version') ou liste les fichiers pour t'assurer que tout est prêt.
+3. **RÉSILIENCE** : Si un outil échoue (ex: 'python not found'), NE RECOPIE PAS la même commande. Analyse l'erreur, et tente une approche alternative (ex: utiliser 'node', vérifier le PATH, ou lire un autre fichier).
+4. **CHEMINS** : Utilise impérativement le dossier '/tmp/' pour créer des fichiers (ex: '/tmp/rapport.pdf').
+5. **LIVRAISON** : Une fois le fichier final généré dans '/tmp/', utilise impérativement 'release_file' pour obtenir un lien de téléchargement public et donne-le à l'utilisateur.
+
+Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait. Si tu crées un fichier, écris-le réellement via 'write_file'.`,
       tools
     };
 

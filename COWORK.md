@@ -23,6 +23,8 @@ L'agent **Cowork** est une boucle autonome intégrée dans AI Studio. Contrairem
 - [x] Ajout d'un outil d'exécution de script.
 - [x] Correction de la boucle infinie (Feedback UI + Listing /tmp/).
 - [x] Installation de ReportLab pour PDF.
+- [x] Activation du moteur de raisonnement (Thinking Mode Gemini 3.1).
+- [x] Amélioration de la résilience aux erreurs d'environnement (python/python3).
 
 ## Prochaines Étapes
 1. Déployer la correction de la validation des chemins (priorité `/tmp/`).

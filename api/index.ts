@@ -183,6 +183,44 @@ function getMimeType(filePath: string): string {
   return mimes[ext] || 'application/octet-stream';
 }
 
+const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as acces a des outils pour accomplir des taches complexes. Analyse, propose et execute.";
+
+const BASE_COWORK_SYSTEM_INSTRUCTION = `Tu es un agent autonome expert en mode Cowork.
+Ton objectif est d'aider l'utilisateur a realiser des taches concretes.
+
+### ENVIRONNEMENT TECHNIQUE :
+- **Node.js UNIQUEMENT** : Cet environnement ne dispose QUE de Node.js. Python N'EST PAS installe et ne sera JAMAIS disponible.
+- **Outils natifs** : Tu disposes d'outils integres puissants. Utilise-les au lieu d'ecrire des scripts :
+  - 'create_pdf' : Genere directement un PDF structure (titre, sections, listes). C'est l'outil a utiliser pour TOUT besoin de PDF.
+  - 'write_file' : Cree des fichiers texte, JSON, HTML, CSV, etc.
+  - 'release_file' : Upload un fichier et genere un lien de telechargement public.
+  - 'execute_script' : Execute un script Node.js (PAS Python).
+
+### REGLES CRITIQUES :
+1. **POUR CREER UN PDF** : Utilise TOUJOURS l'outil 'create_pdf'. N'essaie JAMAIS d'ecrire un script Python avec reportlab/fpdf. Ca ne marchera pas.
+2. **CHEMINS** : Tous les fichiers doivent etre crees dans '/tmp/' (ex: '/tmp/rapport.pdf').
+3. **LIVRAISON** : Apres avoir cree un fichier, utilise TOUJOURS 'release_file' pour obtenir un lien de telechargement et donne-le a l'utilisateur en Markdown : [Telecharger le fichier](url).
+4. **ANTI-BOUCLE** : Si un outil echoue, NE retente PAS la meme chose. Analyse l'erreur et change d'approche.
+5. **HONNETETE** : Ne pretends JAMAIS avoir fait quelque chose que tu n'as pas fait. Si un outil echoue, dis-le clairement.`;
+
+function buildCoworkSystemInstruction(userInstruction?: string): string {
+  const trimmedInstruction = userInstruction?.trim();
+  if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
+    return BASE_COWORK_SYSTEM_INSTRUCTION;
+  }
+
+  return `${BASE_COWORK_SYSTEM_INSTRUCTION}
+
+### CONSIGNES SUPPLEMENTAIRES :
+${trimmedInstruction}`;
+}
+
+function buildCoworkFallbackMessage(releasedFile: { url: string; path?: string } | null): string | null {
+  if (!releasedFile?.url) return null;
+  const fileName = releasedFile.path ? path.basename(releasedFile.path) : 'le-fichier';
+  return `Voici votre fichier : [Telecharger ${fileName}](${releasedFile.url})`;
+}
+
 // ─── Middleware ──────────────────────────────────────────────────
 app.use(express.json({ limit: MAX_PAYLOAD }));
 app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
@@ -777,23 +815,7 @@ app.post('/api/cowork', async (req, res) => {
       maxOutputTokens: config.maxOutputTokens || 65536,
       thinkingLevel: config.thinkingLevel || 'high', // ENABLE THINKING
       maxThoughtTokens: config.maxThoughtTokens || 4096,
-      systemInstruction: config.systemInstruction || `Tu es un agent autonome expert en mode Cowork.
-Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
-
-### ENVIRONNEMENT TECHNIQUE :
-- **Node.js UNIQUEMENT** : Cet environnement ne dispose QUE de Node.js. Python N'EST PAS installé et ne sera JAMAIS disponible.
-- **Outils natifs** : Tu disposes d'outils intégrés puissants. Utilise-les au lieu d'écrire des scripts :
-  - 'create_pdf' : Génère directement un PDF structuré (titre, sections, listes). C'est l'outil à utiliser pour TOUT besoin de PDF.
-  - 'write_file' : Crée des fichiers texte, JSON, HTML, CSV, etc.
-  - 'release_file' : Upload un fichier et génère un lien de téléchargement public.
-  - 'execute_script' : Exécute un script Node.js (PAS Python).
-
-### RÈGLES CRITIQUES :
-1. **POUR CRÉER UN PDF** : Utilise TOUJOURS l'outil 'create_pdf'. N'essaie JAMAIS d'écrire un script Python avec reportlab/fpdf. Ça ne marchera pas.
-2. **CHEMINS** : Tous les fichiers doivent être créés dans '/tmp/' (ex: '/tmp/rapport.pdf').
-3. **LIVRAISON** : Après avoir créé un fichier, utilise TOUJOURS 'release_file' pour obtenir un lien de téléchargement et donne-le à l'utilisateur en Markdown : [Télécharger le fichier](url).
-4. **ANTI-BOUCLE** : Si un outil échoue, NE retente PAS la même chose. Analyse l'erreur et change d'approche.
-5. **HONNÊTETÉ** : Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait. Si un outil échoue, dis-le clairement.`,
+      systemInstruction: buildCoworkSystemInstruction(config.systemInstruction),
       tools
     };
 
@@ -805,6 +827,8 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
     let contents = [...history, { role: 'user' as const, parts: [{ text: message }] }];
     let iterations = 0;
     const MAX_ITERATIONS = 15;
+    let finalVisibleText = '';
+    let latestReleasedFile: { url: string; path?: string } | null = null;
 
     // Anti-loop detection: track consecutive failures per tool
     const toolFailures: Record<string, number> = {};
@@ -838,6 +862,7 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
               }
             } else if (part.text) {
               turnContent += part.text;
+              finalVisibleText += part.text;
               res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
             }
             if (part.functionCall) {
@@ -846,6 +871,7 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
           }
         } else if (chunk.text) {
           turnContent += chunk.text;
+          finalVisibleText += chunk.text;
           res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
         }
       }
@@ -867,6 +893,7 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
               const loopMsg = `L'outil '${tool.name}' a déjà échoué ${toolFailures[tool.name]} fois. ARRÊTE d'utiliser cet outil et adopte une approche DIFFÉRENTE. Si tu essayais Python, rappelle-toi que Python N'EST PAS disponible — utilise les outils natifs comme 'create_pdf' pour les PDFs.`;
               toolResults.push({
                 functionResponse: {
+                  ...(call.id ? { id: call.id } : {}),
                   name: tool.name,
                   response: { success: false, error: loopMsg }
                 }
@@ -879,6 +906,12 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
             try {
               const output = await tool.execute(call.args);
               const isError = (output as any).success === false || (output as any).error;
+              if (!isError && tool.name === 'release_file' && typeof (output as any).url === 'string') {
+                latestReleasedFile = {
+                  url: (output as any).url,
+                  path: typeof (call.args as any)?.path === 'string' ? (call.args as any).path : undefined
+                };
+              }
 
               if (isError) {
                 toolFailures[tool.name] = (toolFailures[tool.name] || 0) + 1;
@@ -889,6 +922,7 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
 
               toolResults.push({
                 functionResponse: {
+                  ...(call.id ? { id: call.id } : {}),
                   name: tool.name,
                   response: output
                 }
@@ -902,6 +936,7 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
               log.error(`Tool ${tool.name} failed (attempt ${toolFailures[tool.name]})`, err);
               toolResults.push({
                 functionResponse: {
+                  ...(call.id ? { id: call.id } : {}),
                   name: tool.name,
                   response: { success: false, error: String(err) }
                 }
@@ -935,6 +970,7 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
                 config: { ...genConfig, tools: [] } // Disable tools for the very last turn
              });
              const summaryText = finalResponse.text || "Tâche terminée (limite d'itérations reached).";
+             finalVisibleText += summaryText;
              res.write(`data: ${JSON.stringify({ text: summaryText })}\n\n`);
              break;
           }
@@ -943,6 +979,14 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
       }
 
       break;
+    }
+
+    if (!finalVisibleText.trim()) {
+      const fallbackMessage = buildCoworkFallbackMessage(latestReleasedFile);
+      if (fallbackMessage) {
+        finalVisibleText = fallbackMessage;
+        res.write(`data: ${JSON.stringify({ text: fallbackMessage })}\n\n`);
+      }
     }
 
     res.end();

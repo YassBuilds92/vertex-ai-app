@@ -73,7 +73,7 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     topP: 1.0,
     topK: 1,
     maxOutputTokens: 65536,
-    systemInstruction: "Tu es un agent autonome en mode Cowork. Tu as accès à des outils pour accomplir des tâches complexes. Analyse, propose et exécute.",
+    systemInstruction: '',
     googleSearch: true,
     codeExecution: true,
     thinkingLevel: 'high',

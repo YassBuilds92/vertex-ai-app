@@ -29,6 +29,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as accès à des outils pour accomplir des tâches complexes. Analyse, propose et exécute.";
 
 export default function App() {
   const { 
@@ -500,6 +501,11 @@ export default function App() {
             ? [{ text: m.content || " " }, ...m.attachments.map(a => (a.type === 'youtube' ? { fileData: { fileUri: a.url, mimeType: "video/mp4" } } : { inlineData: { mimeType: a.mimeType || "image/jpeg", data: a.base64?.split(',')[1] || a.base64 || "" } }))]
             : [{ text: m.content || " " }]
         }));
+        const coworkSystemInstruction = config?.systemInstruction?.trim();
+        const sanitizedCoworkSystemInstruction =
+          coworkSystemInstruction && coworkSystemInstruction !== LEGACY_COWORK_SYSTEM_INSTRUCTION
+            ? coworkSystemInstruction
+            : undefined;
 
         const response = await fetch('/api/cowork', {
           method: 'POST',
@@ -515,7 +521,7 @@ export default function App() {
               topP: config?.topP ?? 1.0,
               topK: config?.topK ?? 1,
               maxOutputTokens: config?.maxOutputTokens || 65536,
-              systemInstruction: config?.systemInstruction || "Tu es un agent autonome en mode Cowork.",
+              systemInstruction: sanitizedCoworkSystemInstruction,
               googleSearch: !!config?.googleSearch,
               codeExecution: !!config?.codeExecution,
               thinkingLevel: config?.thinkingLevel || 'high'

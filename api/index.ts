@@ -221,6 +221,44 @@ function buildCoworkFallbackMessage(releasedFile: { url: string; path?: string }
   return `Voici votre fichier : [Telecharger ${fileName}](${releasedFile.url})`;
 }
 
+function normalizeCoworkText(value?: string): string {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function requestNeedsDownloadableArtifact(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(pdf|fichier|document|rapport|telecharger|telecharge)\b/.test(normalized);
+}
+
+function requestNeedsPdf(message: string): boolean {
+  return /\bpdf\b/.test(normalizeCoworkText(message));
+}
+
+function buildArtifactCompletionPrompt(
+  originalMessage: string,
+  createdArtifactPath: string | null,
+  releasedFile: { url: string; path?: string } | null
+): string | null {
+  if (!requestNeedsDownloadableArtifact(originalMessage) || releasedFile?.url) {
+    return null;
+  }
+
+  const nextStep = createdArtifactPath
+    ? `Le fichier semble deja etre cree ici: '${createdArtifactPath}'. Utilise maintenant 'release_file' avec ce chemin, puis reponds uniquement avec le lien Markdown final.`
+    : requestNeedsPdf(originalMessage)
+      ? "Tu n'as pas encore cree ni livre le PDF demande. Utilise maintenant 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
+      : "Tu n'as pas encore livre le fichier demande. Cree-le si necessaire, utilise 'release_file', puis reponds uniquement avec le lien Markdown final.";
+
+  return `La tache n'est PAS terminee.
+L'utilisateur a explicitement demande un fichier telechargeable.
+Demande originale: "${originalMessage}"
+${nextStep}
+Ne refais pas tout le resume si tu l'as deja donne. Termine la livraison du fichier.`;
+}
+
 // ─── Middleware ──────────────────────────────────────────────────
 app.use(express.json({ limit: MAX_PAYLOAD }));
 app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
@@ -582,6 +620,8 @@ app.post('/api/cowork', async (req, res) => {
 
     const ai = createGoogleAI(modelId);
     
+    const hasBuiltInTools = !!(config.googleSearch || config.codeExecution || config.googleMaps || config.urlContext);
+
     // Tools definition
     const tools: any[] = [];
     if (config.googleSearch) tools.push({ googleSearch: {} });
@@ -819,6 +859,14 @@ app.post('/api/cowork', async (req, res) => {
       tools
     };
 
+    if (hasBuiltInTools && localTools.length > 0) {
+      // Required by Gemini 3 tool-combination flow so Google Search/Code Execution
+      // context can circulate across later custom tool turns.
+      genConfig.toolConfig = {
+        includeServerSideToolInvocations: true
+      };
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -829,6 +877,9 @@ app.post('/api/cowork', async (req, res) => {
     const MAX_ITERATIONS = 15;
     let finalVisibleText = '';
     let latestReleasedFile: { url: string; path?: string } | null = null;
+    let latestCreatedArtifactPath: string | null = null;
+    let artifactCompletionNudges = 0;
+    const MAX_ARTIFACT_COMPLETION_NUDGES = 2;
 
     // Anti-loop detection: track consecutive failures per tool
     const toolFailures: Record<string, number> = {};
@@ -912,6 +963,13 @@ app.post('/api/cowork', async (req, res) => {
                   path: typeof (call.args as any)?.path === 'string' ? (call.args as any).path : undefined
                 };
               }
+              if (!isError) {
+                if (tool.name === 'create_pdf' && typeof (output as any).path === 'string') {
+                  latestCreatedArtifactPath = (output as any).path;
+                } else if (tool.name === 'write_file' && typeof (call.args as any)?.path === 'string') {
+                  latestCreatedArtifactPath = (call.args as any).path;
+                }
+              }
 
               if (isError) {
                 toolFailures[tool.name] = (toolFailures[tool.name] || 0) + 1;
@@ -976,6 +1034,22 @@ app.post('/api/cowork', async (req, res) => {
           }
           continue; // Next iteration with tool results
         }
+      }
+
+      const artifactCompletionPrompt = buildArtifactCompletionPrompt(
+        message,
+        latestCreatedArtifactPath,
+        latestReleasedFile
+      );
+      if (artifactCompletionPrompt && artifactCompletionNudges < MAX_ARTIFACT_COMPLETION_NUDGES) {
+        artifactCompletionNudges++;
+        log.warn(`Cowork artifact follow-up ${artifactCompletionNudges}: file requested but not yet delivered.`);
+        res.write(`data: ${JSON.stringify({ thoughts: "Le fichier demande n'a pas encore ete livre. Relance guidee de l'agent...\n\n" })}\n\n`);
+        contents.push({
+          role: 'user',
+          parts: [{ text: artifactCompletionPrompt }]
+        });
+        continue;
       }
 
       break;

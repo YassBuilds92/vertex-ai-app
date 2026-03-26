@@ -5,14 +5,17 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 
 ## Architecture
 - **Frontend** : React (Zustand pour l'etat). Le mode `cowork` envoie des requetes a `/api/cowork`.
-- **Backend** : Express (Node.js). La route `/api/cowork` gere une boucle d'iteration (jusqu'a 15 tours) avec streaming des pensees (`thought`) et des appels d'outils (`functionCall`).
+- **Backend** : Express (Node.js). La route `/api/cowork` gere une boucle d'iteration (jusqu'a 15 tours) avec evenements SSE types (`status`, `narration`, `tool_call`, `tool_result`, `warning`, `text_delta`, `done`, `error`) et conservation stricte du tour modele Gemini 3.1 pour les `thoughtSignature`.
 - **IA** : Gemini 3.1 Pro Preview (Vertex AI).
 
 ## Outils Locaux (localTools)
+- `report_progress` : narration visible entre les etapes, sans polluer la reponse finale.
 - `list_files` : Liste les fichiers a la racine.
 - `read_file` : Lit le contenu d'un fichier (securise).
 - `write_file` : Ecrit un fichier (force vers `/tmp/` sur Vercel).
 - `list_recursive` : Exploration profonde du projet.
+- `web_search` : recherche web locale visible (fallback public, branchement provider possible plus tard).
+- `web_fetch` : lecture d'une source web precise avec contenu nettoye.
 - `release_file` : Uploade un fichier vers Google Cloud Storage et renvoie une URL signee de 7 jours.
 
 ## Etat d'Avancement
@@ -33,9 +36,14 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Affinage du garde-fou d'artefact : une simple lecture de fichier ne declenche plus `release_file`; la relance automatique ne s'active que pour les vraies demandes de creation/export.
 - [x] Correction Gemini 3.1 / `thoughtSignature` : la boucle Cowork n'utilise plus `generateContentStream` pour reconstruire l'historique fonctionnel. Chaque tour conserve desormais le `content` complet retourne par Gemini avant de le rejouer a Vertex, ce qui evite l'erreur `function call ... is missing a thought_signature`.
 - [x] Retry Cowork sur quotas : les appels modele de la boucle Cowork passent maintenant par `retryWithBackoff`, ce qui absorbe mieux les erreurs temporaires `RESOURCE_EXHAUSTED` (429) sur les taches type actu du jour + PDF.
+- [x] Refonte UX Cowork : une timeline agentique persistante est maintenant stockee dans `message.activity`, avec `runState` / `runMeta`, au lieu d'un simple bloc de `thoughts`.
+- [x] Refonte frontend Cowork : le message modele est cree des le debut du run puis mis a jour avec un flush debouncé vers Firestore, ce qui supprime l'effet "rien puis gros bloc final" et permet de recharger la session sans perdre l'activite.
+- [x] Recherche web visible : Cowork ne depend plus du built-in `googleSearch` pour la recherche traçable. Il dispose de `web_search` / `web_fetch` et d'un garde-fou adaptatif qui force plusieurs recherches visibles + au moins une lecture de source pour les demandes d'actu/doc/version/briefing/comparatif.
+- [x] Narration explicite : l'outil `report_progress` permet au modele de parler entre les outils comme un agent, sans transformer ces messages en reponse finale.
 
 ## Prochaines Etapes
-1. Deployer ces corrections sur Vercel et revalider les cas reels `creer moi un pdf test` et `fais-moi l'actu du jour puis fournis un PDF` sur l'URL de production.
-2. Mesurer l'impact UX du passage a un streaming par tour (et non plus token par token) dans Cowork, puis reintroduire un streaming plus fin seulement si on peut conserver integralement le `content` Gemini signe.
-3. Nettoyer les anciennes notes obsoletes pour que le document ne mentionne plus de workaround incompatible Vertex AI.
-4. Ameliorer la robustesse de `execute_script` avec des timeouts et un reporting plus explicite des erreurs.
+1. Deployer ces corrections sur Vercel et revalider sur production les cas reels `lis package.json`, `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, et un briefing d'actualite avec plusieurs recherches visibles.
+2. Mesurer si l'agent utilise effectivement `report_progress` et `web_search`/`web_fetch` de facon satisfaisante; si besoin, resserrer encore le prompt systeme ou les relances guidees.
+3. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
+4. Brancher ensuite un vrai provider de recherche (ex: Tavily) si le fallback public montre ses limites sur certains domaines.
+5. Nettoyer les anciennes notes obsoletes pour que le document ne mentionne plus de workaround maintenant remplaces par la timeline SSE typee et les web tools locaux.

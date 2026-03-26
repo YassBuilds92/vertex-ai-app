@@ -184,32 +184,46 @@ function getMimeType(filePath: string): string {
 }
 
 const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as acces a des outils pour accomplir des taches complexes. Analyse, propose et execute.";
+const MAX_PREVIEW_CHARS = 420;
+const MAX_ACTIVITY_ITEMS = 80;
+const MAX_WEB_FETCH_CHARS = 7000;
 
-const BASE_COWORK_SYSTEM_INSTRUCTION = `Tu es un agent autonome expert en mode Cowork.
-Ton objectif est d'aider l'utilisateur a realiser des taches concretes.
+function buildCoworkSystemInstruction(
+  userInstruction?: string,
+  capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true }
+): string {
+  const baseInstruction = `Tu es un agent autonome expert en mode Cowork.
+Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une execution visible, progressive et honnete.
 
 ### ENVIRONNEMENT TECHNIQUE :
-- **Node.js UNIQUEMENT** : Cet environnement ne dispose QUE de Node.js. Python N'EST PAS installe et ne sera JAMAIS disponible.
-- **Outils natifs** : Tu disposes d'outils integres puissants. Utilise-les au lieu d'ecrire des scripts :
-  - 'create_pdf' : Genere directement un PDF structure (titre, sections, listes). C'est l'outil a utiliser pour TOUT besoin de PDF.
-  - 'write_file' : Cree des fichiers texte, JSON, HTML, CSV, etc.
-  - 'release_file' : Upload un fichier et genere un lien de telechargement public.
-  - 'execute_script' : Execute un script Node.js (PAS Python).
+- Node.js UNIQUEMENT : cet environnement ne dispose QUE de Node.js. Python n'est PAS installe et ne sera jamais disponible.
+- Ta sortie finale doit rester propre. Pour parler de ce que tu fais pendant l'execution, utilise l'outil 'report_progress' au lieu de polluer la reponse finale.
+- Outils locaux toujours disponibles :
+  - 'report_progress' : annonce ce que tu fais, ce que tu as appris, ou ce que tu vas faire ensuite.
+  - 'list_files', 'list_recursive', 'read_file', 'write_file'
+  - 'create_pdf' : a utiliser pour tout besoin de PDF
+  - 'release_file' : publie un fichier apres creation
+${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables
+- 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
+### COMPORTEMENT ATTENDU :
+1. Commence les taches non triviales par 'report_progress' pour annoncer ton plan immediat.
+2. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, une actualite, un briefing ou des recommandations, tu dois effectuer plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n3. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' sur une source pertinente avant la synthese finale." : ""}
+4. Quand tu pivotes, bloques, ou changes de strategie, annonce-le via 'report_progress'.
+5. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.
 
 ### REGLES CRITIQUES :
-1. **POUR CREER UN PDF** : Utilise TOUJOURS l'outil 'create_pdf'. N'essaie JAMAIS d'ecrire un script Python avec reportlab/fpdf. Ca ne marchera pas.
-2. **CHEMINS** : Tous les fichiers doivent etre crees dans '/tmp/' (ex: '/tmp/rapport.pdf').
-3. **LIVRAISON** : Apres avoir cree un fichier, utilise TOUJOURS 'release_file' pour obtenir un lien de telechargement et donne-le a l'utilisateur en Markdown : [Telecharger le fichier](url).
-4. **ANTI-BOUCLE** : Si un outil echoue, NE retente PAS la meme chose. Analyse l'erreur et change d'approche.
-5. **HONNETETE** : Ne pretends JAMAIS avoir fait quelque chose que tu n'as pas fait. Si un outil echoue, dis-le clairement.`;
+1. Pour creer un PDF : utilise TOUJOURS 'create_pdf'. N'essaie JAMAIS d'ecrire un script Python avec reportlab/fpdf.
+2. Chemins : tous les fichiers generes doivent etre crees dans '/tmp/'.
+3. Livraison : apres avoir cree un fichier, utilise TOUJOURS 'release_file' puis donne le lien Markdown final.
+4. Anti-boucle : si un outil echoue, ne retente pas la meme chose en boucle. Analyse l'erreur et change d'approche.
+5. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.`;
 
-function buildCoworkSystemInstruction(userInstruction?: string): string {
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
-    return BASE_COWORK_SYSTEM_INSTRUCTION;
+    return baseInstruction;
   }
 
-  return `${BASE_COWORK_SYSTEM_INSTRUCTION}
+  return `${baseInstruction}
 
 ### CONSIGNES SUPPLEMENTAIRES :
 ${trimmedInstruction}`;
@@ -263,6 +277,207 @@ L'utilisateur a explicitement demande un fichier telechargeable.
 Demande originale: "${originalMessage}"
 ${nextStep}
 Ne refais pas tout le resume si tu l'as deja donne. Termine la livraison du fichier.`;
+}
+
+function clipText(value: unknown, max = MAX_PREVIEW_CHARS): string {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max)}... [tronque]` : text;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
+}
+
+function stripHtml(value: string): string {
+  return decodeHtmlEntities(
+    value
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+  )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractHtmlTitle(html: string): string {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return stripHtml(match?.[1] || '');
+}
+
+function normalizeSearchResultUrl(rawUrl: string): string {
+  try {
+    const expanded = rawUrl.startsWith('//') ? `https:${rawUrl}` : rawUrl;
+    const url = new URL(expanded);
+    const redirected = url.searchParams.get('uddg');
+    return redirected ? decodeURIComponent(redirected) : expanded;
+  } catch {
+    return rawUrl;
+  }
+}
+
+function requestNeedsDeepResearch(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(latest|recent|today|aujourd'hui|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide)\b/.test(normalized);
+}
+
+function buildResearchCompletionPrompt(
+  originalMessage: string,
+  stats: { webSearches: number; webFetches: number }
+): string | null {
+  if (!requestNeedsDeepResearch(originalMessage)) return null;
+  if (stats.webSearches >= 2 && stats.webFetches >= 1) return null;
+
+  const remainingSearches = Math.max(0, 2 - stats.webSearches);
+  const needsFetch = stats.webFetches < 1;
+  const instructions: string[] = [];
+
+  if (remainingSearches > 0) {
+    instructions.push(`Fais encore ${remainingSearches} recherche(s) 'web_search' avec des angles differents.`);
+  }
+  if (needsFetch) {
+    instructions.push("Ouvre ensuite au moins une source pertinente via 'web_fetch'.");
+  }
+
+  return `La recherche visible est encore insuffisante pour repondre proprement.
+Demande originale: "${originalMessage}"
+Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
+Utilise aussi 'report_progress' pour annoncer ce que tu verifies, puis seulement ensuite redige la synthese finale.`;
+}
+
+async function searchWeb(query: string, maxResults = 5) {
+  if (process.env.TAVILY_API_KEY) {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.TAVILY_API_KEY}`
+      },
+      body: JSON.stringify({
+        query,
+        max_results: Math.min(maxResults, 8),
+        search_depth: 'advanced',
+        include_answer: false,
+        include_raw_content: false
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`Tavily a renvoye ${response.status}`);
+    }
+    const data: any = await response.json();
+    const results = Array.isArray(data.results) ? data.results : [];
+    return results.slice(0, maxResults).map((result: any) => ({
+      title: clipText(result.title || result.url || 'Sans titre', 140),
+      url: result.url,
+      snippet: clipText(result.content || result.snippet || '', 240),
+      source: 'tavily'
+    }));
+  }
+
+  const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`DuckDuckGo a renvoye ${response.status}`);
+  }
+
+  const html = await response.text();
+  const anchorRegex = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const seen = new Set<string>();
+  const results: Array<{ title: string; url: string; snippet: string; source: string }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = anchorRegex.exec(html)) && results.length < maxResults) {
+    const url = normalizeSearchResultUrl(match[1]);
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+
+    const windowHtml = html.slice(match.index, match.index + 2000);
+    const snippetMatch = windowHtml.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|div)>/i);
+    const title = stripHtml(match[2]);
+    const snippet = stripHtml(snippetMatch?.[1] || '');
+
+    results.push({
+      title: clipText(title || url, 140),
+      url,
+      snippet: clipText(snippet, 240),
+      source: 'duckduckgo'
+    });
+  }
+
+  if (results.length === 0) {
+    throw new Error("Aucun resultat exploitable trouve via le fallback public.");
+  }
+
+  return results;
+}
+
+async function fetchReadableUrl(url: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`URL invalide: ${url}`);
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`Schema non supporte: ${parsed.protocol}`);
+  }
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    Accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5'
+  };
+
+  const direct = await fetch(parsed.toString(), { headers, redirect: 'follow' });
+  if (!direct.ok) {
+    throw new Error(`Impossible de lire ${parsed.toString()} (${direct.status})`);
+  }
+
+  const contentType = direct.headers.get('content-type') || '';
+  const rawText = await direct.text();
+  let title = '';
+  let content = '';
+
+  if (contentType.includes('text/html')) {
+    title = extractHtmlTitle(rawText);
+    content = stripHtml(rawText);
+  } else {
+    title = parsed.hostname;
+    content = rawText.replace(/\s+/g, ' ').trim();
+  }
+
+  if (content.length < 240) {
+    try {
+      const fallbackUrl = `https://r.jina.ai/http://${parsed.host}${parsed.pathname}${parsed.search}`;
+      const fallback = await fetch(fallbackUrl, { headers });
+      if (fallback.ok) {
+        const fallbackText = (await fallback.text()).replace(/\s+/g, ' ').trim();
+        if (fallbackText.length > content.length) {
+          content = fallbackText;
+        }
+      }
+    } catch (error) {
+      log.debug('Jina fallback fetch skipped', error);
+    }
+  }
+
+  return {
+    url: parsed.toString(),
+    title: clipText(title || parsed.hostname, 160),
+    content: clipText(content, MAX_WEB_FETCH_CHARS),
+    excerpt: clipText(content, 320),
+    source: contentType.includes('text/html') ? 'direct-html' : 'direct-text'
+  };
 }
 
 // ─── Middleware ──────────────────────────────────────────────────
@@ -614,9 +829,13 @@ app.post('/api/chat', async (req, res) => {
 
 app.post('/api/cowork', async (req, res) => {
   let headersSent = false;
+  const emitEvent = (type: string, payload: Record<string, unknown> = {}) => {
+    if (!headersSent) return;
+    res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
+  };
   try {
     const { message, history, config } = ChatSchema.parse(req.body);
-    
+
     // Model ID mapping
     let modelId = config.model;
     if (modelId.includes('gemini-1.5')) modelId = modelId.replace('1.5', '3.1');
@@ -625,16 +844,61 @@ app.post('/api/cowork', async (req, res) => {
     if (!modelId) modelId = "gemini-3.1-pro-preview";
 
     const ai = createGoogleAI(modelId);
-    
-    const hasBuiltInTools = !!(config.googleSearch || config.codeExecution || config.googleMaps || config.urlContext);
 
-    // Tools definition
-    const tools: any[] = [];
-    if (config.googleSearch) tools.push({ googleSearch: {} });
-    if (config.codeExecution) tools.push({ codeExecution: {} });
-    
-    // Local tools
+    const webSearchEnabled = config.googleSearch !== false;
+    const executeScriptEnabled = config.codeExecution !== false;
+
+    const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
+    const formatToolMeta = (toolName: string, args: any) => {
+      if (toolName === 'web_search') {
+        return { query: clipText(args?.query || '', 140), maxResults: Number(args?.maxResults || 5) };
+      }
+      if (toolName === 'web_fetch') {
+        return { url: clipText(args?.url || '', 180) };
+      }
+      if (toolName === 'report_progress') {
+        return {
+          stage: clipText(args?.stage || '', 80),
+          nextAction: clipText(args?.nextAction || '', 120)
+        };
+      }
+      return undefined;
+    };
+    const formatToolResultPreview = (toolName: string, output: any) => {
+      if (toolName === 'web_search') {
+        const results = Array.isArray(output?.results) ? output.results : [];
+        const summary = results
+          .slice(0, 3)
+          .map((result: any, index: number) => `${index + 1}. ${clipText(result.title || result.url || 'Sans titre', 80)}`)
+          .join(' | ');
+        return summary || clipText(output?.message || output?.error || '', 220);
+      }
+      if (toolName === 'web_fetch') {
+        return clipText(output?.excerpt || output?.content || output?.message || output?.error || '', 240);
+      }
+      return clipText(output?.message || output?.error || output, 240);
+    };
+
     const localTools = [
+      {
+        name: "report_progress",
+        description: "Annonce l'etape courante, ce qui a ete compris, ou ce qui va etre fait ensuite. Utilise cet outil pour parler pendant l'execution sans polluer la reponse finale.",
+        parameters: {
+          type: "object",
+          properties: {
+            stage: { type: "string", description: "Nom court de l'etape (ex: Recherche, Analyse, Livraison)." },
+            message: { type: "string", description: "Ce que tu es en train de faire ou ce que tu viens d'apprendre." },
+            nextAction: { type: "string", description: "Prochaine action prevue." }
+          },
+          required: ["message"]
+        },
+        execute: ({ stage, message, nextAction }: { stage?: string; message: string; nextAction?: string }) => ({
+          success: true,
+          stage: stage || 'Progression',
+          message,
+          nextAction: nextAction || null
+        })
+      },
       {
         name: "list_files",
         description: "Liste les fichiers et dossiers dans un répertoire spécifique (par défaut la racine).",
@@ -719,6 +983,45 @@ app.post('/api/cowork', async (req, res) => {
           return { files: allFiles.slice(0, 100) }; // Limit result count
         }
       },
+      ...(webSearchEnabled ? [{
+        name: "web_search",
+        description: "Recherche le web et renvoie une liste concise de resultats (titre, URL, extrait). Utilise cet outil plusieurs fois avec des angles differents si le sujet est ouvert ou d'actualite.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Requete de recherche precise." },
+            maxResults: { type: "number", description: "Nombre maximum de resultats a renvoyer (1-8)." }
+          },
+          required: ["query"]
+        },
+        execute: async ({ query, maxResults }: { query: string; maxResults?: number }) => {
+          const results = await searchWeb(query, Math.max(1, Math.min(maxResults || 5, 8)));
+          return {
+            success: true,
+            query,
+            results,
+            message: `${results.length} resultat(s) trouves pour "${query}".`
+          };
+        }
+      }, {
+        name: "web_fetch",
+        description: "Ouvre une URL et renvoie son titre et son contenu nettoye. A utiliser apres 'web_search' pour lire une source precise.",
+        parameters: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "URL complete a ouvrir." }
+          },
+          required: ["url"]
+        },
+        execute: async ({ url }: { url: string }) => {
+          const page = await fetchReadableUrl(url);
+          return {
+            success: true,
+            ...page,
+            message: `Source lue avec succes: ${page.title}`
+          };
+        }
+      }] : []),
       {
         name: "release_file",
         description: "Upload de façon sécurisée un fichier vers le cloud et génère un lien de téléchargement public (valable 7 jours). À utiliser après avoir créé un fichier (ex: PDF, rapport) que l'utilisateur doit uvoir télécharger.",
@@ -811,7 +1114,7 @@ app.post('/api/cowork', async (req, res) => {
           });
         }
       },
-      {
+      ...(executeScriptEnabled ? [{
         name: "execute_script",
         description: "Exécute un script Node.js préalablement écrit sur le disque. ATTENTION : Seul Node.js est disponible dans cet environnement. Python N'EST PAS installé.",
         parameters: {
@@ -841,18 +1144,16 @@ app.post('/api/cowork', async (req, res) => {
             });
           });
         }
-      }
+      }] : [])
     ];
 
-    if (localTools.length > 0) {
-      tools.push({
-        functionDeclarations: localTools.map(t => ({
-          name: t.name,
-          description: t.description,
-          parameters: t.parameters
-        }))
-      });
-    }
+    const tools = localTools.length > 0 ? [{
+      functionDeclarations: localTools.map(t => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters
+      }))
+    }] : undefined;
 
     const genConfig: any = {
       temperature: config.temperature || 0.2, // Use user config or default
@@ -861,9 +1162,12 @@ app.post('/api/cowork', async (req, res) => {
       maxOutputTokens: config.maxOutputTokens || 65536,
       thinkingLevel: config.thinkingLevel || 'high', // ENABLE THINKING
       maxThoughtTokens: config.maxThoughtTokens || 4096,
-      systemInstruction: buildCoworkSystemInstruction(config.systemInstruction),
-      tools
+      systemInstruction: buildCoworkSystemInstruction(config.systemInstruction, {
+        webSearch: webSearchEnabled,
+        executeScript: executeScriptEnabled
+      })
     };
+    if (tools) genConfig.tools = tools;
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -878,14 +1182,38 @@ app.post('/api/cowork', async (req, res) => {
     let latestCreatedArtifactPath: string | null = null;
     let artifactCompletionNudges = 0;
     const MAX_ARTIFACT_COMPLETION_NUDGES = 2;
+    let researchCompletionNudges = 0;
+    const MAX_RESEARCH_COMPLETION_NUDGES = 2;
 
     // Anti-loop detection: track consecutive failures per tool
     const toolFailures: Record<string, number> = {};
     const MAX_TOOL_FAILURES = 2; // If same tool fails 2x, inject a warning to force different approach
+    const runMeta = {
+      iterations: 0,
+      toolCalls: 0,
+      webSearches: 0,
+      webFetches: 0
+    };
+
+    emitEvent('status', {
+      iteration: 0,
+      title: 'Initialisation',
+      message: 'Cowork prepare la tache et attend le premier tour du modele.',
+      runState: 'running',
+      runMeta
+    });
 
     while (iterations < MAX_ITERATIONS) {
       iterations++;
       log.info(`Cowork iteration ${iterations} for model ${modelId}`);
+      runMeta.iterations = Math.max(runMeta.iterations, iterations);
+      emitEvent('status', {
+        iteration: iterations,
+        title: `Iteration ${iterations}`,
+        message: iterations === 1 ? "Analyse initiale de la demande." : "Cowork poursuit l'execution.",
+        runState: 'running',
+        runMeta
+      });
 
       const response = await retryWithBackoff(() => ai.models.generateContent({
         model: modelId,
@@ -900,23 +1228,32 @@ app.post('/api/cowork', async (req, res) => {
           ? [{ text: response.text }]
           : [];
       const functionCalls: any[] = [];
+      for (const part of turnParts) {
+        if (part.functionCall) {
+          functionCalls.push(part.functionCall);
+        }
+      }
+      const hasFunctionCalls = functionCalls.length > 0;
+      let iterationVisibleText = '';
 
       for (const part of turnParts) {
         if (part.thought) {
           const thoughtText = (part as any).text || part.text || '';
           if (thoughtText) {
-            res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
+            emitEvent('thought', { iteration: iterations, text: thoughtText });
           }
           continue;
         }
 
         if (part.text) {
-          finalVisibleText += part.text;
-          res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
-        }
-
-        if (part.functionCall) {
-          functionCalls.push(part.functionCall);
+          if (hasFunctionCalls) {
+            emitEvent('narration', {
+              iteration: iterations,
+              message: clipText(part.text, 900)
+            });
+          } else {
+            iterationVisibleText += part.text;
+          }
         }
       }
 
@@ -928,16 +1265,41 @@ app.post('/api/cowork', async (req, res) => {
 
       if (functionCalls.length > 0) {
         const toolResults: any[] = [];
-        // Add iterative newline to separate thoughts from tool execution for UI
-        res.write(`data: ${JSON.stringify({ thoughts: "\n\n" })}\n\n`);
-        
+
         for (const call of functionCalls) {
           const tool = localTools.find(t => t.name === call.name);
           if (tool) {
+            if (tool.name === 'report_progress') {
+              const output = await tool.execute(call.args);
+              toolResults.push({
+                functionResponse: {
+                  ...(call.id ? { id: call.id } : {}),
+                  name: tool.name,
+                  response: output
+                }
+              });
+              toolFailures[tool.name] = 0;
+              emitEvent('narration', {
+                iteration: iterations,
+                title: clipText(output.stage || 'Progression', 80),
+                message: clipText(
+                  [output.message, output.nextAction ? `Ensuite: ${output.nextAction}` : '']
+                    .filter(Boolean)
+                    .join(' '),
+                  900
+                )
+              });
+              continue;
+            }
+
+            runMeta.toolCalls += 1;
+            if (tool.name === 'web_search') runMeta.webSearches += 1;
+            if (tool.name === 'web_fetch') runMeta.webFetches += 1;
+
             // Anti-loop: check if this tool has already failed too many times
             if (toolFailures[tool.name] >= MAX_TOOL_FAILURES) {
               log.warn(`Anti-loop: tool ${tool.name} has failed ${toolFailures[tool.name]} times, blocking and injecting guidance`);
-              const loopMsg = `L'outil '${tool.name}' a déjà échoué ${toolFailures[tool.name]} fois. ARRÊTE d'utiliser cet outil et adopte une approche DIFFÉRENTE. Si tu essayais Python, rappelle-toi que Python N'EST PAS disponible — utilise les outils natifs comme 'create_pdf' pour les PDFs.`;
+              const loopMsg = `L'outil '${tool.name}' a deja echoue ${toolFailures[tool.name]} fois. Arrete de l'utiliser et adopte une approche differente. Si tu essayais Python, rappelle-toi que Python n'est pas disponible.`;
               toolResults.push({
                 functionResponse: {
                   ...(call.id ? { id: call.id } : {}),
@@ -945,11 +1307,24 @@ app.post('/api/cowork', async (req, res) => {
                   response: { success: false, error: loopMsg }
                 }
               });
-              res.write(`data: ${JSON.stringify({ thoughts: `🔄 Anti-boucle : ${tool.name} bloqué après ${toolFailures[tool.name]} échecs consécutifs.\n\n` })}\n\n`);
+              emitEvent('warning', {
+                iteration: iterations,
+                title: 'Anti-boucle',
+                message: `L'outil ${tool.name} est bloque apres ${toolFailures[tool.name]} echecs consecutifs.`,
+                toolName: tool.name,
+                runMeta
+              });
               continue;
             }
 
             log.info(`Executing tool: ${tool.name}`, call.args);
+            emitEvent('tool_call', {
+              iteration: iterations,
+              toolName: tool.name,
+              argsPreview: formatToolArgsPreview(call.args),
+              meta: formatToolMeta(tool.name, call.args),
+              runMeta
+            });
             try {
               const output = await tool.execute(call.args);
               const isError = (output as any).success === false || (output as any).error;
@@ -981,10 +1356,14 @@ app.post('/api/cowork', async (req, res) => {
                   response: output
                 }
               });
-              const statusEmoji = isError ? '❌' : '✅';
-              const statusText = isError ? 'Échec' : 'Succès';
-              const detail = (output as any).error || (output as any).message || '';
-              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name} ${JSON.stringify(call.args)}\n${statusEmoji} Résultat : ${statusText}${detail ? ` (${detail})` : ''}\n\n` })}\n\n`);
+              emitEvent('tool_result', {
+                iteration: iterations,
+                toolName: tool.name,
+                status: isError ? 'error' : 'success',
+                resultPreview: formatToolResultPreview(tool.name, output),
+                meta: formatToolMeta(tool.name, call.args),
+                runMeta
+              });
             } catch (err: any) {
               toolFailures[tool.name] = (toolFailures[tool.name] || 0) + 1;
               log.error(`Tool ${tool.name} failed (attempt ${toolFailures[tool.name]})`, err);
@@ -995,41 +1374,76 @@ app.post('/api/cowork', async (req, res) => {
                   response: { success: false, error: String(err) }
                 }
               });
-              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}\n❌ Échec : ${err.message || String(err)}\n\n` })}\n\n`);
+              emitEvent('tool_result', {
+                iteration: iterations,
+                toolName: tool.name,
+                status: 'error',
+                resultPreview: clipText(err.message || String(err), 240),
+                meta: formatToolMeta(tool.name, call.args),
+                runMeta
+              });
             }
           } else {
             log.warn(`Unknown tool called: ${call.name}`);
-            // If it's a native tool like googleSearch, we might not get it here 
-            // but the SDK handles the response. For custom loops, we need to pass it back.
             toolResults.push({
-                functionResponse: {
-                  name: call.name,
-                  response: { error: "Outil non supporté dans la boucle locale." }
-                }
+              functionResponse: {
+                ...(call.id ? { id: call.id } : {}),
+                name: call.name,
+                response: { error: "Outil non supporte dans la boucle locale." }
+              }
+            });
+            emitEvent('warning', {
+              iteration: iterations,
+              title: 'Outil inconnu',
+              message: `Le modele a demande l'outil ${call.name}, qui n'est pas supporte dans la boucle locale.`,
+              toolName: call.name
             });
           }
         }
-        
+
         if (toolResults.length > 0) {
           contents.push({ role: 'user', parts: toolResults });
           // If we are at the last iteration and tools were called, we give one MORE turn 
           // to let the model summarize the results, otherwise it stops abruptly.
           if (iterations >= MAX_ITERATIONS) {
-             log.warn("MAX_ITERATIONS reached but tools were called. Allowing one final summary turn.");
-             // We don't increment iterations here, just let it run one more time
-             // but we must break AFTER this next turn to avoid infinite loops
-             const finalResponse = await retryWithBackoff(() => ai.models.generateContent({
-                model: modelId,
-                contents,
-                config: { ...genConfig, tools: [] } // Disable tools for the very last turn
-             }));
-             const summaryText = finalResponse.text || "Tâche terminée (limite d'itérations reached).";
-             finalVisibleText += summaryText;
-             res.write(`data: ${JSON.stringify({ text: summaryText })}\n\n`);
-             break;
+            log.warn("MAX_ITERATIONS reached but tools were called. Allowing one final summary turn.");
+            emitEvent('warning', {
+              iteration: iterations,
+              title: 'Limite d iterations',
+              message: "Cowork atteint sa limite d'iterations et force un dernier tour de synthese."
+            });
+            const finalResponse = await retryWithBackoff(() => ai.models.generateContent({
+              model: modelId,
+              contents,
+              config: { ...genConfig, tools: [] }
+            }));
+            const summaryText = finalResponse.text || "Tache terminee (limite d'iterations atteinte).";
+            finalVisibleText += summaryText;
+            emitEvent('text_delta', { iteration: iterations, text: summaryText });
+            break;
           }
           continue; // Next iteration with tool results
         }
+      }
+
+      const researchCompletionPrompt =
+        webSearchEnabled && researchCompletionNudges < MAX_RESEARCH_COMPLETION_NUDGES
+          ? buildResearchCompletionPrompt(message, runMeta)
+          : null;
+      if (researchCompletionPrompt) {
+        researchCompletionNudges++;
+        log.warn(`Cowork research follow-up ${researchCompletionNudges}: more visible research required.`);
+        emitEvent('warning', {
+          iteration: iterations,
+          title: 'Recherche insuffisante',
+          message: "Cowork doit encore effectuer des recherches visibles avant de conclure.",
+          runMeta
+        });
+        contents.push({
+          role: 'user',
+          parts: [{ text: researchCompletionPrompt }]
+        });
+        continue;
       }
 
       const artifactCompletionPrompt = buildArtifactCompletionPrompt(
@@ -1040,7 +1454,12 @@ app.post('/api/cowork', async (req, res) => {
       if (artifactCompletionPrompt && artifactCompletionNudges < MAX_ARTIFACT_COMPLETION_NUDGES) {
         artifactCompletionNudges++;
         log.warn(`Cowork artifact follow-up ${artifactCompletionNudges}: file requested but not yet delivered.`);
-        res.write(`data: ${JSON.stringify({ thoughts: "Le fichier demande n'a pas encore ete livre. Relance guidee de l'agent...\n\n" })}\n\n`);
+        emitEvent('warning', {
+          iteration: iterations,
+          title: 'Livraison incomplete',
+          message: "Le fichier demande n'a pas encore ete livre. Relance guidee de l'agent...",
+          runMeta
+        });
         contents.push({
           role: 'user',
           parts: [{ text: artifactCompletionPrompt }]
@@ -1048,6 +1467,10 @@ app.post('/api/cowork', async (req, res) => {
         continue;
       }
 
+      if (iterationVisibleText) {
+        finalVisibleText += iterationVisibleText;
+        emitEvent('text_delta', { iteration: iterations, text: iterationVisibleText });
+      }
       break;
     }
 
@@ -1055,10 +1478,15 @@ app.post('/api/cowork', async (req, res) => {
       const fallbackMessage = buildCoworkFallbackMessage(latestReleasedFile);
       if (fallbackMessage) {
         finalVisibleText = fallbackMessage;
-        res.write(`data: ${JSON.stringify({ text: fallbackMessage })}\n\n`);
+        emitEvent('text_delta', { iteration: iterations, text: fallbackMessage });
       }
     }
 
+    emitEvent('done', {
+      iteration: iterations,
+      runState: 'completed',
+      runMeta
+    });
     res.end();
   } catch (error) {
     log.error("Cowork error", error);
@@ -1066,7 +1494,7 @@ app.post('/api/cowork', async (req, res) => {
     if (!headersSent) {
       res.status(500).json({ error: "Cowork failed", message: cleanError });
     } else {
-      res.write(`data: ${JSON.stringify({ error: cleanError })}\n\n`);
+      emitEvent('error', { message: cleanError, runState: 'failed' });
       res.end();
     }
   }

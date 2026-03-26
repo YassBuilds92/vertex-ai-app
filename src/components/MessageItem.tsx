@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  User, Bot, RotateCcw, Copy, Check, ImageIcon, Video, Music, FileText, Youtube, Send, Pencil, BrainCircuit, ChevronDown, AlertCircle, Sparkles, Download
+  User, Bot, RotateCcw, Copy, Check, ImageIcon, Video, Music, FileText, Youtube, Send, Pencil, BrainCircuit, ChevronDown, AlertCircle, Sparkles, Download,
+  Loader2, Globe, Search, CheckCircle2, AlertTriangle, Wrench, Clock3
 } from 'lucide-react';
-import { Message } from '../types';
+import { Message, ActivityItem } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
@@ -88,6 +89,139 @@ const ThinkingBox = ({ thoughts, live = false }: { thoughts: string; live?: bool
             ))
           )}
         </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
+const runStateMeta = {
+  running: { label: 'En cours', className: 'text-indigo-300 bg-indigo-500/12 border-indigo-500/25', icon: Loader2 },
+  completed: { label: 'Termine', className: 'text-emerald-300 bg-emerald-500/12 border-emerald-500/25', icon: CheckCircle2 },
+  failed: { label: 'Echec', className: 'text-rose-300 bg-rose-500/12 border-rose-500/25', icon: AlertTriangle },
+  aborted: { label: 'Arrete', className: 'text-amber-300 bg-amber-500/12 border-amber-500/25', icon: AlertCircle },
+} as const;
+
+function getActivityIcon(item: ActivityItem) {
+  if (item.kind === 'tool_call' || item.kind === 'tool_result') {
+    if (item.toolName === 'web_search') return Search;
+    if (item.toolName === 'web_fetch') return Globe;
+    return Wrench;
+  }
+  if (item.kind === 'warning') return AlertTriangle;
+  if (item.kind === 'narration') return Bot;
+  return Clock3;
+}
+
+const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean }) => {
+  const items = msg.activity || [];
+  const runState = msg.runState || 'running';
+  const stateMeta = runStateMeta[runState] || runStateMeta.running;
+  const StateIcon = stateMeta.icon;
+  const runMeta = msg.runMeta || { iterations: 0, toolCalls: 0, webSearches: 0, webFetches: 0 };
+
+  if (items.length === 0 && !live && !msg.runState) return null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-[1.75rem] border border-indigo-500/15 bg-[var(--app-surface)]/35 backdrop-blur-xl shadow-inner overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/6 flex flex-wrap items-center gap-2.5">
+          <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-semibold', stateMeta.className)}>
+            <StateIcon size={13} className={cn(runState === 'running' && 'animate-spin')} />
+            {stateMeta.label}
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <Wrench size={12} />
+            {runMeta.toolCalls} outil{runMeta.toolCalls > 1 ? 's' : ''}
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <Search size={12} />
+            {runMeta.webSearches} recherche{runMeta.webSearches > 1 ? 's' : ''}
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <Globe size={12} />
+            {runMeta.webFetches} source{runMeta.webFetches > 1 ? 's' : ''}
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <Clock3 size={12} />
+            iteration {runMeta.iterations || 0}
+          </div>
+        </div>
+
+        <div className="p-4 md:p-5 flex flex-col gap-3">
+          {items.length === 0 ? (
+            <div className="rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3 text-sm text-[var(--app-text-muted)] italic">
+              Initialisation de l'activite Cowork...
+            </div>
+          ) : (
+            items.map((item, index) => {
+              const Icon = getActivityIcon(item);
+              const tone =
+                item.kind === 'warning'
+                  ? 'border-amber-500/25 bg-amber-500/[0.08]'
+                  : item.kind === 'tool_result' && item.status === 'success'
+                    ? 'border-emerald-500/20 bg-emerald-500/[0.06]'
+                    : item.kind === 'tool_result' && item.status === 'error'
+                      ? 'border-rose-500/20 bg-rose-500/[0.08]'
+                      : item.kind === 'tool_call'
+                        ? 'border-sky-500/18 bg-sky-500/[0.05]'
+                        : item.kind === 'narration'
+                          ? 'border-indigo-500/20 bg-indigo-500/[0.05]'
+                          : 'border-white/8 bg-white/[0.03]';
+
+              return (
+                <div key={item.id} className="relative pl-10">
+                  {index < items.length - 1 && (
+                    <div className="absolute left-[15px] top-6 bottom-[-18px] w-px bg-gradient-to-b from-indigo-500/30 to-transparent" />
+                  )}
+                  <div className="absolute left-0 top-2 w-8 h-8 rounded-2xl border border-white/8 bg-black/30 flex items-center justify-center text-[var(--app-text-muted)]">
+                    <Icon size={14} className={cn(item.kind === 'tool_call' && 'text-sky-300', item.kind === 'warning' && 'text-amber-300')} />
+                  </div>
+                  <div className={cn('rounded-2xl border px-4 py-3.5 shadow-sm', tone)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] font-semibold">
+                          {item.title || item.toolName || 'Activite'}
+                        </div>
+                        {item.message && (
+                          <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--app-text)]/88 whitespace-pre-wrap">
+                            {item.message}
+                          </p>
+                        )}
+                      </div>
+                      <div className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                        #{item.iteration}
+                      </div>
+                    </div>
+
+                    {item.argsPreview && (
+                      <div className="mt-3 rounded-xl border border-white/6 bg-black/25 px-3 py-2 text-[12px] font-mono text-sky-200/85 break-words">
+                        {item.argsPreview}
+                      </div>
+                    )}
+                    {item.resultPreview && (
+                      <div className="mt-3 rounded-xl border border-white/6 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[var(--app-text)]/78 whitespace-pre-wrap">
+                        {item.resultPreview}
+                      </div>
+                    )}
+                    {item.meta && Object.keys(item.meta).length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {Object.entries(item.meta).map(([key, value]) => (
+                          <span
+                            key={key}
+                            className="inline-flex items-center gap-1 rounded-full border border-white/8 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[var(--app-text-muted)]"
+                          >
+                            <span className="uppercase tracking-[0.14em]">{key}</span>
+                            <span className="text-[var(--app-text)]/85 normal-case tracking-normal">{String(value)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
@@ -268,6 +402,10 @@ export const MessageItem = React.memo(({
             </div>
           ) : (
             <div className="flex flex-col gap-5">
+              {((msg.activity?.length ?? 0) > 0 || !!msg.runState) && (
+                <ActivityTimeline msg={msg} live={isLoading && isLast} />
+              )}
+
               {/* Section Thoughts : visible immédiatement dès le streaming, ou si la réponse finale a des thoughts */}
               {((isLoading && isLast) || msg.thoughts || (msg.thoughtImages?.length ?? 0) > 0) && (
                 <div className="flex flex-col gap-2">
@@ -279,7 +417,7 @@ export const MessageItem = React.memo(({
                         className="flex items-center gap-2 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors w-fit bg-indigo-500/[0.07] hover:bg-indigo-500/[0.12] px-3 py-1.5 rounded-lg border border-indigo-500/20"
                       >
                         <BrainCircuit size={13} className="animate-pulse" />
-                        <span>Réflexion en cours…</span>
+                        <span>Raisonnement brut en cours…</span>
                         <ChevronDown size={13} className={cn("transition-transform duration-300", isExpanded ? "rotate-180" : "")} />
                       </button>
                       <AnimatePresence initial={false}>
@@ -313,7 +451,7 @@ export const MessageItem = React.memo(({
                         className="flex items-center gap-2 text-xs font-medium text-zinc-500 hover:text-[var(--app-text)] transition-colors w-fit bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.07] px-3 py-1.5 rounded-lg border border-[var(--app-border)]"
                       >
                         <BrainCircuit size={13} className={cn("transition-colors", isExpanded ? "text-indigo-500" : "")} />
-                        Processus de réflexion
+                        Raisonnement brut
                         <ChevronDown size={13} className={cn("transition-transform duration-300", isExpanded ? "rotate-180" : "")} />
                       </button>
                       <AnimatePresence>
@@ -436,6 +574,11 @@ export const MessageItem = React.memo(({
                       }
                     }}
                   >{msg.content}</Markdown>
+                </div>
+              )}
+              {!msg.content && msg.runState === 'running' && (
+                <div className="text-sm text-[var(--app-text-muted)] italic">
+                  La synthese finale est en preparation...
                 </div>
               )}
             </div>

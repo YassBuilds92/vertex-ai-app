@@ -24,6 +24,7 @@ import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPrompt
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { applyCoworkEventToMessage, CoworkStreamEvent, createEmptyRunMeta, sanitizeCoworkMessageForStorage } from './utils/cowork';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -65,11 +66,15 @@ export default function App() {
   const [streamingThoughtsExpanded, setStreamingThoughtsExpanded] = useState<boolean>(true);
   const [refiningStatus, setRefiningStatus] = useState<string | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
+  const [liveCoworkMessage, setLiveCoworkMessage] = useState<Message | null>(null);
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const liveCoworkMessageRef = useRef<Message | null>(null);
+  const coworkFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coworkFlushTargetRef = useRef<{ userId: string; sessionId: string } | null>(null);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -124,12 +129,24 @@ export default function App() {
     if (!user || !activeSessionId || activeSessionId === 'local-new') {
       setCurrentMessages([]);
       setOptimisticMessages([]);
+      setLiveCoworkMessage(null);
+      liveCoworkMessageRef.current = null;
+      coworkFlushTargetRef.current = null;
       return;
     }
     const q = query(collection(db, 'users', user.uid, 'sessions', activeSessionId, 'messages'), orderBy('createdAt', 'asc'));
     return onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setCurrentMessages(fetchedMessages);
+
+      const liveId = liveCoworkMessageRef.current?.id;
+      if (liveId) {
+        const persistedLiveMessage = fetchedMessages.find(msg => msg.id === liveId);
+        if (persistedLiveMessage && persistedLiveMessage.runState && persistedLiveMessage.runState !== 'running') {
+          setLiveCoworkMessage(null);
+          liveCoworkMessageRef.current = null;
+        }
+      }
       
       // Clean up optimistic messages that have landed in Firestore
       setOptimisticMessages(prev => prev.filter(om => 
@@ -198,6 +215,63 @@ export default function App() {
     setPendingAttachments(prev => [...prev, ...newAttachments]);
   };
 
+  const setCoworkDraft = useCallback((nextValue: Message | ((prev: Message | null) => Message | null)) => {
+    setLiveCoworkMessage(prev => {
+      const next =
+        typeof nextValue === 'function'
+          ? (nextValue as (prev: Message | null) => Message | null)(prev)
+          : nextValue;
+      liveCoworkMessageRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const persistLiveCoworkMessage = useCallback(async () => {
+    const draft = liveCoworkMessageRef.current;
+    const target = coworkFlushTargetRef.current;
+    if (!draft || !target) return;
+
+    try {
+      const sanitized = sanitizeCoworkMessageForStorage(draft);
+      await setDoc(
+        doc(db, 'users', target.userId, 'sessions', target.sessionId, 'messages', sanitized.id),
+        cleanForFirestore({
+          ...sanitized,
+          sessionId: target.sessionId,
+          userId: target.userId,
+        })
+      );
+    } catch (error) {
+      console.error('Cowork draft persistence failed:', error);
+    }
+  }, []);
+
+  const scheduleCoworkPersist = useCallback(() => {
+    if (coworkFlushTimerRef.current) {
+      clearTimeout(coworkFlushTimerRef.current);
+    }
+    coworkFlushTimerRef.current = setTimeout(() => {
+      coworkFlushTimerRef.current = null;
+      void persistLiveCoworkMessage();
+    }, 350);
+  }, [persistLiveCoworkMessage]);
+
+  const flushCoworkPersist = useCallback(async () => {
+    if (coworkFlushTimerRef.current) {
+      clearTimeout(coworkFlushTimerRef.current);
+      coworkFlushTimerRef.current = null;
+    }
+    await persistLiveCoworkMessage();
+  }, [persistLiveCoworkMessage]);
+
+  useEffect(() => {
+    return () => {
+      if (coworkFlushTimerRef.current) {
+        clearTimeout(coworkFlushTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -239,11 +313,20 @@ export default function App() {
   };
 
   const displayedMessages = React.useMemo(() => {
-    // Merge Firestore messages and optimistic ones
-    // We already filter optimisticMessages in the onSnapshot callback, 
-    // but this ensures a clean combined list for the UI.
-    return [...currentMessages, ...optimisticMessages];
-  }, [currentMessages, optimisticMessages]);
+    const merged = new Map<string, Message>();
+
+    for (const message of currentMessages) {
+      merged.set(message.id, message);
+    }
+    for (const message of optimisticMessages) {
+      merged.set(message.id, message);
+    }
+    if (liveCoworkMessage) {
+      merged.set(liveCoworkMessage.id, liveCoworkMessage);
+    }
+
+    return Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt);
+  }, [currentMessages, optimisticMessages, liveCoworkMessage]);
 
   // --- IMAGE COMPRESSION HELPER ---
   const compressImage = async (base64: string, maxWidth = 1024, maxHeight = 1024, quality = 0.8): Promise<string> => {
@@ -368,6 +451,7 @@ export default function App() {
   const handleSend = async (textToSend: string, overrideMessages?: Message[]) => {
     if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading) return;
     
+    const isCoworkRun = activeMode === 'cowork';
     setIsLoading(true);
     setStreamingThoughtsExpanded(true);
     abortControllerRef.current = new AbortController();
@@ -483,23 +567,36 @@ export default function App() {
       }
 
       if (activeMode === 'cowork') {
-        // COWORK / AGENTIC FLOW
         if (!overrideMessages) {
-          const userMessage: Omit<Message, 'id'> = { 
-            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments 
+          const userMessage: Omit<Message, 'id'> = {
+            role: 'user',
+            content: finalPrompt,
+            createdAt: Date.now(),
+            attachments: cleanAttachments,
           };
           const tempId = `opt-${Date.now()}`;
           setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
-          await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ ...userMessage, sessionId: currentSessionId, userId: user.uid }));
+          await addDoc(
+            collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'),
+            cleanForFirestore({ ...userMessage, sessionId: currentSessionId, userId: user.uid })
+          );
           setPendingAttachments([]);
         }
 
         const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : currentMessages;
         const historyForApi = apiHistory.map(m => ({
           role: m.role,
-          parts: m.attachments && m.attachments.length > 0 
-            ? [{ text: m.content || " " }, ...m.attachments.map(a => (a.type === 'youtube' ? { fileData: { fileUri: a.url, mimeType: "video/mp4" } } : { inlineData: { mimeType: a.mimeType || "image/jpeg", data: a.base64?.split(',')[1] || a.base64 || "" } }))]
-            : [{ text: m.content || " " }]
+          parts:
+            m.attachments && m.attachments.length > 0
+              ? [
+                  { text: m.content || ' ' },
+                  ...m.attachments.map(a =>
+                    a.type === 'youtube'
+                      ? { fileData: { fileUri: a.url, mimeType: 'video/mp4' } }
+                      : { inlineData: { mimeType: a.mimeType || 'image/jpeg', data: a.base64?.split(',')[1] || a.base64 || '' } }
+                  ),
+                ]
+              : [{ text: m.content || ' ' }],
         }));
         const coworkSystemInstruction = config?.systemInstruction?.trim();
         const sanitizedCoworkSystemInstruction =
@@ -522,11 +619,11 @@ export default function App() {
               topK: config?.topK ?? 1,
               maxOutputTokens: config?.maxOutputTokens || 65536,
               systemInstruction: sanitizedCoworkSystemInstruction,
-              googleSearch: !!config?.googleSearch,
-              codeExecution: !!config?.codeExecution,
-              thinkingLevel: config?.thinkingLevel || 'high'
-            }
-          })
+              googleSearch: config?.googleSearch !== false,
+              codeExecution: config?.codeExecution !== false,
+              thinkingLevel: config?.thinkingLevel || 'high',
+            },
+          }),
         });
 
         if (!response.ok) {
@@ -535,48 +632,72 @@ export default function App() {
         }
 
         const reader = response.body?.getReader();
+        if (!reader) throw new Error('Flux Cowork indisponible');
+
         const decoder = new TextDecoder();
-        let fullContent = '';
-        let thoughts = '';
         let buffer = '';
 
-        const modelMsgId = Date.now().toString();
-        const modelMsgRef = doc(db, 'users', user.uid, 'sessions', currentSessionId, 'messages', modelMsgId);
+        const modelMessage: Message = {
+          id: `cowork-${Date.now()}`,
+          role: 'model',
+          content: '',
+          thoughts: '',
+          activity: [{
+            id: `cw-init-${Date.now()}`,
+            kind: 'status',
+            timestamp: Date.now(),
+            iteration: 0,
+            title: 'Initialisation',
+            message: "Connexion a la boucle Cowork...",
+            status: 'info',
+          }],
+          runState: 'running',
+          runMeta: createEmptyRunMeta(),
+          createdAt: Date.now(),
+        };
 
-        setStreamingContent('');
-        setStreamingThoughts('');
+        coworkFlushTargetRef.current = { userId: user.uid, sessionId: currentSessionId };
+        setCoworkDraft(modelMessage);
+        await setDoc(
+          doc(db, 'users', user.uid, 'sessions', currentSessionId, 'messages', modelMessage.id),
+          cleanForFirestore({
+            ...sanitizeCoworkMessageForStorage(modelMessage),
+            sessionId: currentSessionId,
+            userId: user.uid,
+          })
+        );
 
-        while (reader) {
+        while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+
           buffer += decoder.decode(value, { stream: true });
           let newlineIndex;
           while ((newlineIndex = buffer.indexOf('\n\n')) >= 0) {
             const chunk = buffer.slice(0, newlineIndex).trim();
             buffer = buffer.slice(newlineIndex + 2);
-            if (chunk.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(chunk.slice(6));
-                if (data.error) {
-                  throw new Error(data.error);
-                }
-                if (data.text) { fullContent += data.text; setStreamingContent(fullContent); }
-                if (data.thoughts) { thoughts += data.thoughts; setStreamingThoughts(thoughts); }
-              } catch (e) {
-                throw e;
-              }
+            if (!chunk.startsWith('data: ')) continue;
+
+            const data = JSON.parse(chunk.slice(6)) as CoworkStreamEvent & { error?: string };
+            if (data.error && !data.type) {
+              throw new Error(data.error);
+            }
+
+            setCoworkDraft(prev => (prev ? applyCoworkEventToMessage(prev, data) : prev));
+            scheduleCoworkPersist();
+
+            if (data.type === 'error') {
+              throw new Error(data.message || 'Erreur mode Cowork');
             }
           }
         }
 
-        await setDoc(modelMsgRef, cleanForFirestore({
-          role: 'model', content: fullContent, thoughts: thoughts, createdAt: Date.now(), sessionId: currentSessionId, userId: user.uid
-        }));
-
-        setStreamingContent('');
-        setStreamingThoughts('');
-        
-        setIsLoading(false);
+        setCoworkDraft(prev => {
+          if (!prev) return prev;
+          if (prev.runState && prev.runState !== 'running') return prev;
+          return { ...prev, runState: 'completed' };
+        });
+        await flushCoworkPersist();
         return;
       }
 
@@ -722,6 +843,31 @@ export default function App() {
       }));
 
     } catch (error: any) {
+      if (isCoworkRun && liveCoworkMessageRef.current) {
+        if (error.name === 'AbortError') {
+          setCoworkDraft(prev => {
+            if (!prev || prev.runState === 'aborted') return prev;
+            const next = applyCoworkEventToMessage(prev, {
+              type: 'warning',
+              title: 'Interrompu',
+              message: "Execution arretee par l'utilisateur.",
+            });
+            return { ...next, runState: 'aborted' };
+          });
+        } else {
+          setCoworkDraft(prev => {
+            if (!prev) return prev;
+            if (prev.runState && prev.runState !== 'running') return prev;
+            return applyCoworkEventToMessage(prev, {
+              type: 'error',
+              message: error.message || String(error),
+              runState: 'failed',
+            });
+          });
+        }
+        await flushCoworkPersist();
+      }
+
       if (error.name !== 'AbortError') {
         console.error('Send error:', error);
         alert(`Erreur d'envoi : ${error.message || String(error)}`);
@@ -1038,10 +1184,10 @@ export default function App() {
                  )}
 
                  {/* Message en cours de génération — visible immédiatement avec toggle Thoughts */}
-                 {isLoading && !refiningStatus && (
-                  <div className="max-w-4xl mx-auto px-4 md:px-10 py-4">
-                    <MessageItem
-                      msg={{ id: 'streaming', role: 'model', content: streamingContent, thoughts: streamingThoughts, createdAt: Date.now() }}
+                 {isLoading && !refiningStatus && activeMode !== 'cowork' && (
+                   <div className="max-w-4xl mx-auto px-4 md:px-10 py-4">
+                     <MessageItem
+                       msg={{ id: 'streaming', role: 'model', content: streamingContent, thoughts: streamingThoughts, createdAt: Date.now() }}
                       idx={displayedMessages.length}
                       isLast={true}
                       isLoading={true}

@@ -394,7 +394,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
             <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em] ml-1">Capacités & Outils</label>
             <div className="grid grid-cols-1 gap-2.5">
               {[
-                { id: 'googleSearch', label: 'Google Search', icon: Globe, color: 'text-blue-400', activeBg: 'bg-blue-500/20 border-blue-500/30' },
+                { id: 'googleSearch', label: activeMode === 'cowork' ? 'Web Search' : 'Google Search', icon: Globe, color: 'text-blue-400', activeBg: 'bg-blue-500/20 border-blue-500/30' },
                 { id: 'codeExecution', label: 'Code Execution', icon: Code2, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 border-emerald-500/30' },
                 { id: 'urlContext', label: 'URL Reader', icon: Link2, color: 'text-purple-400', activeBg: 'bg-purple-500/20 border-purple-500/30' },
               ].map((tool) => (

@@ -32,8 +32,41 @@ export interface Message {
   video?: string;
   attachments?: Attachment[];
   thoughts?: string;
+  activity?: ActivityItem[];
+  runState?: RunState;
+  runMeta?: RunMeta;
   refinedInstruction?: string;
   createdAt: number;
+}
+
+export type RunState = 'running' | 'completed' | 'failed' | 'aborted';
+
+export interface RunMeta {
+  iterations: number;
+  toolCalls: number;
+  webSearches: number;
+  webFetches: number;
+}
+
+export type ActivityKind =
+  | 'status'
+  | 'narration'
+  | 'tool_call'
+  | 'tool_result'
+  | 'warning';
+
+export interface ActivityItem {
+  id: string;
+  kind: ActivityKind;
+  timestamp: number;
+  iteration: number;
+  title?: string;
+  message?: string;
+  status?: 'info' | 'success' | 'error';
+  toolName?: string;
+  argsPreview?: string;
+  resultPreview?: string;
+  meta?: Record<string, string | number | boolean | null | undefined>;
 }
 
 export interface SystemPromptVersion {

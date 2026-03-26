@@ -362,7 +362,7 @@ app.post('/api/chat', async (req, res) => {
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
-      maxOutputTokens: config.maxOutputTokens || 2048,
+      maxOutputTokens: config.maxOutputTokens || 8192,
     };
     if (systemPromptText) genConfig.systemInstruction = systemPromptText;
     if (tools.length > 0) genConfig.tools = tools;
@@ -380,8 +380,16 @@ app.post('/api/chat', async (req, res) => {
     });
 
     for await (const chunk of response) {
-      // Check for thought parts via candidates
+      // Check for finish reason in candidates
       const candidates = (chunk as any).candidates;
+      if (candidates?.[0]?.finishReason && candidates[0].finishReason !== 'STOP' && candidates[0].finishReason !== 'FINISH_REASON_UNSPECIFIED') {
+        log.warn(`Stream finished with reason: ${candidates[0].finishReason}`, { model: modelId });
+        if (candidates[0].finishReason === 'MAX_TOKENS') {
+          res.write(`data: ${JSON.stringify({ error: "Limite de tokens atteinte. La réponse est peut-être incomplète." })}\n\n`);
+        }
+      }
+
+      // Check for thought parts via candidates
       if (candidates?.[0]?.content?.parts) {
         for (const part of candidates[0].content.parts) {
           if (part.thought && part.text) {

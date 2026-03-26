@@ -279,18 +279,39 @@ app.post('/api/refine', async (req, res) => {
 
 app.post('/api/generate-image', async (req, res) => {
   try {
-    const { prompt, aspectRatio, numberOfImages } = ImageGenSchema.parse(req.body);
-    const modelId = "gemini-2.5-flash-image";
-    log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { aspectRatio, numberOfImages });
+    const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel } = ImageGenSchema.extend({
+      model: z.string().optional(),
+      thinkingLevel: z.string().optional()
+    }).parse(req.body);
+
+    const modelId = req.body.model || "gemini-2.5-flash-image";
+    log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { modelId, aspectRatio, numberOfImages });
     
     const ai = createGoogleAI(modelId);
+    
+    const config: any = {
+      ...(aspectRatio ? { aspectRatio } : {}),
+      ...(numberOfImages ? { candidateCount: numberOfImages } : {}),
+    };
+
+    // If it's a Gemini 3.x model, we can pass thinkingLevel
+    if (modelId.includes('gemini-3') || modelId.includes('nano-banana')) {
+      if (thinkingLevel) config.thinkingLevel = thinkingLevel;
+    }
+
+    // Handle Imagen specific parameters if the SDK supports them via generateContent
+    // Note: for imagen-3.0/4.0, some parameters might need to be in 'parameters' for raw Predict, 
+    // but the genai SDK maps them to config.
+    if (modelId.includes('imagen')) {
+      if (personGeneration) config.personGeneration = personGeneration;
+      if (safetySetting) config.safetyFilterLevel = safetySetting;
+      if (imageSize) config.imageSize = imageSize;
+    }
+
     const result = await retryWithBackoff(() => ai.models.generateContent({
       model: modelId,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: {
-        ...(aspectRatio ? { aspectRatio } : {}),
-        ...(numberOfImages ? { candidateCount: numberOfImages } : {}),
-      } as any
+      config
     }));
 
     if (!result.candidates || result.candidates.length === 0) {

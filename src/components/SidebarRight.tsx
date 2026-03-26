@@ -212,10 +212,13 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     <div className="p-3 space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
                       {[
                         { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', info: 'Task Complexes', modes: ['chat'] },
-                        { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', info: 'Économique', modes: ['chat'] },
+                        { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', info: 'Vitesse & Multimodal', modes: ['chat', 'image'] },
                         { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', info: 'Vitesse pure', modes: ['chat'] },
-                        { id: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Image', info: 'Photoréaliste', modes: ['image'] },
-                        { id: 'imagen-3.0-generate-001', label: 'Imagen 3', info: 'Artistique', modes: ['image'] },
+                        { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', info: 'Raisonnement Image', modes: ['image'] },
+                        { id: 'imagen-4.0-generate-001', label: 'Imagen 4', info: 'Ultra HD (2K)', modes: ['image'] },
+                        { id: 'imagen-3.0-generate-001', label: 'Imagen 3 Advanced', info: 'Haute Fidélité', modes: ['image'] },
+                        { id: 'imagen-3.0-fast-generate-001', label: 'Imagen 3 Fast', info: 'Rapide & Pro', modes: ['image'] },
+                        { id: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Image', info: 'Polyvalent', modes: ['image'] },
                         { id: 'veo-3.1-generate-001', label: 'Veo 3.1 Video', info: 'Ultra Real', modes: ['video'] },
                         { id: 'gemini-2.5-flash-preview-tts', label: 'Audio TTS', info: 'Naturel', modes: ['audio'] },
                       ]
@@ -253,7 +256,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
               <div className="space-y-2">
                 <span className="text-[11px] font-bold text-[var(--app-text-muted)] ml-1">Format (Aspect Ratio)</span>
                 <div className="grid grid-cols-3 gap-2">
-                  {['1:1', '4:3', '16:9', '9:16', '3:4'].map(ratio => (
+                  {['1:1', '4:3', '3:4', '16:9', '9:16', '21:9', '3:2', '2:3'].map(ratio => (
                     <button
                       key={ratio}
                       onClick={() => setConfig({ aspectRatio: ratio as any })}
@@ -280,6 +283,26 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   <option value="dont_allow" className="bg-[#111]">Interdire</option>
                 </select>
               </div>
+
+              {config.model.includes('imagen') && (
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-[var(--app-text-muted)] ml-1">Résolution (Quality)</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['512', '1K', '2K'].map(size => (
+                      <button
+                        key={size}
+                        onClick={() => setConfig({ imageSize: size as any })}
+                        className={cn(
+                          "py-2 rounded-xl text-[11px] font-bold border transition-all",
+                          config.imageSize === size ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-400" : "bg-white/5 border-white/5 text-[var(--app-text-muted)] hover:bg-white/10"
+                        )}
+                      >
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <div className="flex justify-between items-center px-1">

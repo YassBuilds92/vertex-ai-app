@@ -245,6 +245,43 @@ export default function App() {
     overscan: 5,
   });
 
+  // --- ATTACHMENTS HELPERS ---
+  const uploadAttachment = async (attachment: Attachment, userId: string, sessionId: string): Promise<string> => {
+    // If it's already a URL (not base64), return it
+    if (attachment.url.startsWith('http') && !attachment.url.includes('base64')) return attachment.url;
+    
+    try {
+      let blob: Blob;
+      if (attachment.file) {
+        blob = attachment.file;
+      } else if (attachment.base64) {
+        // Convert base64 to blob
+        const base64Data = attachment.base64.split(',')[1] || attachment.base64;
+        const mimeType = attachment.mimeType || 'image/png';
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        blob = new Blob([byteArray], { type: mimeType });
+      } else {
+        return attachment.url;
+      }
+
+      const fileExt = attachment.mimeType?.split('/')[1] || 'png';
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const storageRef = ref(storage, `users/${userId}/sessions/${sessionId}/${fileName}`);
+      
+      const snapshot = await uploadBytes(storageRef, blob);
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+      return downloadUrl;
+    } catch (e) {
+      console.error("Upload failed:", e);
+      return attachment.url; // Fallback to original
+    }
+  };
+
   const handleSend = async (textToSend: string, overrideMessages?: Message[]) => {
     if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading) return;
     
@@ -271,7 +308,12 @@ export default function App() {
       if (!user || !currentSessionId) return;
 
       // Clean attachments for Firestore
-      const cleanAttachments = pendingAttachments.map(({ file, ...rest }) => ({ ...rest }));
+      const cleanAttachments: Attachment[] = [];
+      for (const att of pendingAttachments) {
+        const { file, ...rest } = att;
+        const uploadUrl = await uploadAttachment(att, user.uid, currentSessionId);
+        cleanAttachments.push({ ...rest, url: uploadUrl, base64: undefined }); 
+      }
 
       // --- BRANCHED LOGIC BASED ON MODE ---
       
@@ -290,11 +332,13 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: textToSend,
+            model: config.model,
             aspectRatio: config.aspectRatio,
             imageSize: config.imageSize,
             numberOfImages: config.numberOfImages,
             personGeneration: config.personGeneration,
-            safetySetting: config.safetySetting
+            safetySetting: config.safetySetting,
+            thinkingLevel: config.thinkingLevel
           })
         });
 
@@ -304,10 +348,18 @@ export default function App() {
         }
         const data = await response.json();
         
+        const generatedImageUrl = await uploadAttachment({
+          id: Date.now().toString(),
+          type: 'image',
+          url: data.base64,
+          base64: data.base64,
+          name: 'Image générée'
+        }, user.uid, currentSessionId);
+
         await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({
           role: 'model',
           content: "Image générée avec succès.",
-          attachments: [{ id: Date.now().toString(), type: 'image', url: data.base64, name: 'Image générée' }],
+          attachments: [{ id: Date.now().toString(), type: 'image', url: generatedImageUrl, name: 'Image générée' }],
           createdAt: Date.now(),
           sessionId: currentSessionId,
           userId: user.uid

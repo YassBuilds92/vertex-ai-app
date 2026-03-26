@@ -11,6 +11,7 @@ import {
 import {
   auth, db, googleProvider, signInWithPopup, onAuthStateChanged,
   doc, collection, onSnapshot, query, orderBy, setDoc, addDoc, updateDoc, deleteDoc, getDoc,
+  storage, ref, uploadBytes, getDownloadURL,
   OperationType, handleFirestoreError, User as FirebaseUser, cleanForFirestore
 } from './firebase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -277,8 +278,10 @@ export default function App() {
       const downloadUrl = await getDownloadURL(snapshot.ref);
       return downloadUrl;
     } catch (e) {
-      console.error("Upload failed:", e);
-      return attachment.url; // Fallback to original
+      console.error("Upload to Storage failed, falling back to original URL:", e);
+      // If the URL is extremely large (base64 > 1MB), we might still hit the Firestore limit
+      // but there's not much we can do if the upload failed.
+      return attachment.url; 
     }
   };
 

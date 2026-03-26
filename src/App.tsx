@@ -237,6 +237,41 @@ export default function App() {
     return [...currentMessages, ...optimisticMessages];
   }, [currentMessages, optimisticMessages]);
 
+  // --- IMAGE COMPRESSION HELPER ---
+  const compressImage = async (base64: string, maxWidth = 1024, maxHeight = 1024, quality = 0.8): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height *= maxWidth / width;
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width *= maxHeight / height;
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        
+        // Try JPEG for better compression
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressed);
+      };
+      img.onerror = () => resolve(base64); // Fallback to original if can't load
+      img.src = base64;
+    });
+  };
+
   // Virtualizer for performance
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -284,17 +319,30 @@ export default function App() {
       const downloadUrl = await getDownloadURL(snapshot.ref);
       return downloadUrl;
     } catch (e: any) {
-      console.error("Upload to Storage failed:", e);
+      console.warn("Storage upload failed, attempting compression fallback:", e);
       
-      // CRITICAL: If the URL is a large base64 string, we MUST NOT return it
-      // as it will crash Firestore with "Document too large".
-      const isLargeBase64 = attachment.url.startsWith('data:') && attachment.url.length > 500000;
-      
-      if (isLargeBase64) {
-        throw new Error(`Échec de l'enregistrement de l'image sur Firebase Storage. Vérifiez vos permissions de stockage ou votre quota. Détails: ${e.message || String(e)}`);
+      // FALLBACK: Store directly in Firestore if we can compress it < 1MB
+      if (attachment.base64 || (attachment.url && attachment.url.startsWith('data:'))) {
+        const sourceData = attachment.base64 || attachment.url;
+        
+        // If it's already small enough, just return it
+        if (sourceData.length < 800000) return sourceData;
+
+        // Otherwise, compress it
+        console.info("Compressing image for Firestore storage...");
+        let compressed = await compressImage(sourceData, 800, 800, 0.7);
+        
+        // Final safety check: if still too big, go even smaller
+        if (compressed.length > 1000000) {
+          compressed = await compressImage(compressed, 512, 512, 0.5);
+        }
+        
+        if (compressed.length < 1048000) {
+           return compressed;
+        }
       }
-      
-      return attachment.url; 
+
+      throw new Error(`Échec de l'enregistrement : Storage inaccessible et image trop grande pour Firestore. Détails: ${e.message || String(e)}`);
     }
   };
 

@@ -137,12 +137,11 @@ async function uploadToGCS(buffer: Buffer, fileName: string, contentType: string
 }
 
 // ─── Path Helpers ──────────────────────────────────────────────
-const ALLOWED_ROOTS = [process.cwd()];
-if (process.env.VERCEL || process.platform !== 'win32') {
-  ALLOWED_ROOTS.push('/tmp');
-} else {
-  ALLOWED_ROOTS.push(os.tmpdir());
-}
+const ALLOWED_ROOTS = [
+  path.normalize(process.cwd()),
+  path.normalize('/tmp'),
+  path.normalize(os.tmpdir())
+];
 
 function resolveAndValidatePath(filePath: string): string {
   // If path is absolute, check it against allowed roots

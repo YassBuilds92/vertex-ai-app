@@ -28,9 +28,11 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Fusion systematique du prompt systeme Cowork backend avec les consignes utilisateur pour eviter qu'un prompt frontend minimal neutralise les regles critiques.
 - [x] Propagation de `call.id` dans les `functionResponse` et ajout d'un fallback final si `release_file` reussit mais que Gemini ne genere aucun texte de conclusion.
 - [x] Ajout d'un garde-fou "artifact completion" : si l'utilisateur demande un PDF/fichier et que le modele s'arrete apres une synthese texte, la boucle relance un tour guide pour terminer `create_pdf -> release_file -> lien final`.
-- [x] Alignement avec la doc Gemini 3 sur le mix built-in tools + function calling via `includeServerSideToolInvocations` pour mieux faire circuler le contexte Google Search / Code Execution.
+- [x] Correction de la regression Vertex AI : suppression de `includeServerSideToolInvocations` dans `/api/cowork` car ce parametre n'est pas supporte par Vertex AI, tout en conservant `googleSearch` / `codeExecution` via `config.tools`.
+- [x] Correction de l'ecran vide Cowork : les erreurs SSE (`data.error`) sont maintenant remontees cote frontend au lieu d'etre ignorees silencieusement.
+- [x] Affinage du garde-fou d'artefact : une simple lecture de fichier ne declenche plus `release_file`; la relance automatique ne s'active que pour les vraies demandes de creation/export.
 
 ## Prochaines Etapes
-1. Deployer ces corrections sur Vercel et revalider le cas reel "fais-moi l'actu du jour puis fournis un PDF" sur l'URL de production.
-2. Nettoyer les anciennes notes obsoletes pour que le document reflete uniquement l'architecture Node native actuelle.
+1. Deployer ces corrections sur Vercel et revalider les cas reels `creer moi un pdf test` et `fais-moi l'actu du jour puis fournis un PDF` sur l'URL de production.
+2. Nettoyer les anciennes notes obsoletes pour que le document ne mentionne plus de workaround incompatible Vertex AI.
 3. Ameliorer la robustesse de `execute_script` avec des timeouts et un reporting plus explicite des erreurs.

@@ -557,9 +557,14 @@ export default function App() {
             if (chunk.startsWith('data: ')) {
               try {
                 const data = JSON.parse(chunk.slice(6));
+                if (data.error) {
+                  throw new Error(data.error);
+                }
                 if (data.text) { fullContent += data.text; setStreamingContent(fullContent); }
                 if (data.thoughts) { thoughts += data.thoughts; setStreamingThoughts(thoughts); }
-              } catch (e) {}
+              } catch (e) {
+                throw e;
+              }
             }
           }
         }
@@ -698,9 +703,14 @@ export default function App() {
           if (chunk.startsWith('data: ')) {
             try {
               const data = JSON.parse(chunk.slice(6));
+              if (data.error) {
+                throw new Error(data.error);
+              }
               if (data.text) { fullContent += data.text; setStreamingContent(fullContent); }
               if (data.thoughts) { thoughts += data.thoughts; setStreamingThoughts(thoughts); }
-            } catch (e) {}
+            } catch (e) {
+              throw e;
+            }
           }
         }
       }

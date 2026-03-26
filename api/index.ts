@@ -230,7 +230,13 @@ function normalizeCoworkText(value?: string): string {
 
 function requestNeedsDownloadableArtifact(message: string): boolean {
   const normalized = normalizeCoworkText(message);
-  return /\b(pdf|fichier|document|rapport|telecharger|telecharge)\b/.test(normalized);
+  if (/\b(pdf|document|rapport|attestation|presentation|telecharger|telecharge)\b/.test(normalized)) {
+    return true;
+  }
+
+  const artifactVerb = /\b(cree|creer|genere|generer|fabrique|fabriquer|produis|produire|fournis|fournir|exporte|exporter|prepare|preparer)\b/;
+  const genericArtifactNoun = /\b(fichier|document)\b/;
+  return artifactVerb.test(normalized) && genericArtifactNoun.test(normalized);
 }
 
 function requestNeedsPdf(message: string): boolean {
@@ -858,14 +864,6 @@ app.post('/api/cowork', async (req, res) => {
       systemInstruction: buildCoworkSystemInstruction(config.systemInstruction),
       tools
     };
-
-    if (hasBuiltInTools && localTools.length > 0) {
-      // Required by Gemini 3 tool-combination flow so Google Search/Code Execution
-      // context can circulate across later custom tool turns.
-      genConfig.toolConfig = {
-        includeServerSideToolInvocations: true
-      };
-    }
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');

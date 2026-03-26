@@ -502,6 +502,14 @@ function buildCoworkSystemInstruction(
     requestSpecificDirectives.push(
       "Si le sujet porte sur un terme court, ambigu, un mot d'argot ou une reference culturelle, ne cherche jamais le mot seul. Contextualise la requete (langue, pays, domaine, usage) puis ouvre au moins une source avec 'web_fetch' avant d'ecrire."
     );
+    requestSpecificDirectives.push(
+      "Tant que la recherche visible n'est pas suffisante, n'ecris pas de paroles finales, meme partielles. Utilise d'abord 'report_progress', puis accumule des recherches et des sources."
+    );
+  }
+  if (originalMessage && requestNeedsTopicalCreativeResearch(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Comme cette demande creative vise une personne, une affaire ou un sujet possiblement lie a l'actu, commence par cartographier le contexte recent: faits, dates, reactions, accusations/defenses et points de desaccord, avant d'ecrire."
+    );
   }
   if (originalMessage && requestNeedsMusicCatalogResearch(originalMessage)) {
     requestSpecificDirectives.push(
@@ -583,11 +591,38 @@ function normalizeCoworkText(value?: string): string {
     .toLowerCase();
 }
 
-function requestNeedsGroundedWriting(message: string): boolean {
+function requestAsksForWriting(message: string): boolean {
   const normalized = normalizeCoworkText(message);
-  const asksForDocumentation = /\b(documente(?:\s|-)?toi|documente|renseigne(?:\s|-)?toi|renseigne|verifie|verification|verifier|sources?|contexte|signification|definition|veut dire|argot|slang|terme|expression)\b/.test(normalized);
-  const asksForWriting = /\b(punchline|punchlines|rap|texte|paroles|lyrics|son|couplet|refrain|ecris|ecrire|redige|rediger|genere|generer|compose|composer)\b/.test(normalized);
-  return asksForDocumentation && asksForWriting;
+  return /\b(punchline|punchlines|rap|texte|paroles|lyrics|son|couplet|refrain|ecris|ecrire|redige|rediger|genere|generer|compose|composer|freestyle|topline)\b/.test(normalized);
+}
+
+function requestMentionsResearchIntent(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(documente(?:\s|-)?toi|documente|renseigne(?:\s|-)?toi|renseigne|verifie|verification|verifier|cherche|chercher|recherche|rechercher|creuse|creuser|fouille|fouiller|investigue|investiguer|analyse|analyser|etudie|etudier|apprends?(?:\s+sur)?|informe(?:\s|-)?toi|informe|sources?|references?|contexte|signification|definition|veut dire|argot|slang|terme|expression|autour de lui|autour d'elle|autour d'eux|ce qui se dit|tout ce qu(?:['\u2019])il y a autour|tout ce qu(?:['\u2019])il y a sur lui|tout ce qu(?:['\u2019])il y a sur elle)\b/.test(normalized);
+}
+
+function requestNeedsTopicalCreativeResearch(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  const asksForWriting = requestAsksForWriting(message);
+  if (!asksForWriting) return false;
+
+  const recentContextSignals =
+    requestIsCurrentAffairs(message)
+    || requestNeedsCurrentDateGrounding(message)
+    || /\b(affaire|dossier|proces|tribunal|justice|plainte|accusation|accuse|polemique|controverse|buzz|reaction|reactions|suite a|en ce moment|du moment)\b/.test(normalized);
+  const stanceVerbPattern = /\b(defendre|defense|soutenir|soutien|plaider|plaidoyer|repondre a|reponds a|reponds|clasher|clashe|attaque|attaquer|denoncer|denonce|charger|charge)\b/;
+  const looksLikeConcreteExternalSubject =
+    /\b(?:defendre|soutenir|plaider(?:\s+pour)?|repondre a|reponds a|clasher|clashe|attaquer|attaque|denoncer|denonce|charger|charge)\s+(?!mon\b|ma\b|mes\b|ton\b|ta\b|tes\b|notre\b|nos\b|votre\b|vos\b|leur\b|leurs\b|le\b|la\b|les\b|un\b|une\b|des\b|du\b|de la\b|de l(?:['\u2019])|ce\b|cet\b|cette\b|ces\b|moi\b|toi\b|nous\b|vous\b)[a-z0-9'.\u2019-][a-z0-9'.\u2019-]*(?:\s+[a-z0-9'.\u2019-][a-z0-9'.\u2019-]*){0,5}\b/.test(normalized);
+
+  return recentContextSignals || (stanceVerbPattern.test(normalized) && looksLikeConcreteExternalSubject);
+}
+
+function requestNeedsGroundedWriting(message: string): boolean {
+  return requestAsksForWriting(message)
+    && (
+      requestMentionsResearchIntent(message)
+      || requestNeedsTopicalCreativeResearch(message)
+    );
 }
 
 function requestNeedsMusicCatalogResearch(message: string): boolean {
@@ -643,6 +678,16 @@ function getResearchTargets(message: string): ResearchTargets {
   }
 
   if (requestIsCurrentAffairs(message) || requestNeedsCurrentDateGrounding(message)) {
+    targets.webSearches = Math.max(targets.webSearches, 4);
+    targets.webFetches = Math.max(targets.webFetches, 2);
+  }
+
+  if (requestNeedsGroundedWriting(message)) {
+    targets.webSearches = Math.max(targets.webSearches, 3);
+    targets.webFetches = Math.max(targets.webFetches, 2);
+  }
+
+  if (requestNeedsTopicalCreativeResearch(message)) {
     targets.webSearches = Math.max(targets.webSearches, 4);
     targets.webFetches = Math.max(targets.webFetches, 2);
   }
@@ -890,6 +935,9 @@ function buildResearchCompletionPrompt(
     instructions.push(`Lis encore ${remainingFetches} source(s) pertinente(s) via 'web_fetch'.`);
   } else if (stats.webSearches === 0 && stats.webFetches < 2) {
     instructions.push("Comme la recherche moteur est bloquee, ouvre encore une deuxieme source pertinente via 'web_fetch'.");
+  }
+  if (requestNeedsGroundedWriting(originalMessage)) {
+    instructions.push("Ne livre pas encore les paroles ou le texte final: termine d'abord la recherche visible puis seulement ensuite redige.");
   }
 
   return `La recherche visible est encore insuffisante pour repondre proprement.

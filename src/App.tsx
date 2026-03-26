@@ -422,7 +422,7 @@ export default function App() {
             temperature: config.temperature,
             topP: config.topP,
             topK: config.topK,
-            maxOutputTokens: config.maxOutputTokens || 2048,
+            maxOutputTokens: config.maxOutputTokens || 8192,
             systemInstruction: config.systemInstruction,
             googleSearch: config.googleSearch,
             thinkingLevel: config.thinkingLevel

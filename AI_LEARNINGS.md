@@ -48,3 +48,6 @@
 - [Detailed Error Reporting] -> Pour les erreurs d'API (500), s'assurer que le backend renvoie un objet JSON avec `{ error, message, details }`. Le frontend doit utiliser `errData.details || errData.message` pour afficher une alerte utile à l'utilisateur.
 - [Gestion des Quotas (429)] -> Pour les erreurs `RESOURCE_EXHAUSTED`, implémenter un `retryWithBackoff` (3 tentatives, délai exponentiel) côté backend. Utiliser un helper `parseApiError` pour extraire le message JSON des erreurs Vertex AI (ex: `ApiError: {...}`) et fournir un message clair ("Quota dépassé, réessayez dans quelques minutes") au lieu de JSON brut.
 - [Interruption Streaming / Troncature] -> Si la réponse s'arrête en plein milieu d'une phrase sans erreur visible (carré rouge disparu), c'est souvent dû à la limite `maxOutputTokens` (par défaut 2048). **Solution** : Augmenter `maxOutputTokens` à 8192 ou plus. Nous avons ajouté une option "Illimité" dans les paramètres avancés qui règle `maxOutputTokens` à `null` côté frontend et `128000` côté backend pour éviter toute troncature artificielle.
+
+## Tests & Déploiement
+- [Validation des changements] -> Interdiction de tester via `localhost`. Tout changement doit être poussé sur Vercel via le workflow `/deploy` (git push) et testé directement sur l'URL de production : `https://vertex-ai-app-pearl.vercel.app/`.

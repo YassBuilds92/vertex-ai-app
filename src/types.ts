@@ -71,7 +71,7 @@ export interface ModelConfig {
   numberOfImages?: number;
   aspectRatio?: '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '5:4' | '4:5' | '16:9' | '9:16' | '21:9' | '4:1' | '1:4' | '8:1' | '1:8';
   imageSize?: '512' | '1K' | '2K' | '4K';
-  maxOutputTokens?: number | null;
+  maxOutputTokens?: number;
   stopSequences?: string[];
   presencePenalty?: number;
   frequencyPenalty?: number;

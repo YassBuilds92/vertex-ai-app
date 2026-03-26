@@ -478,44 +478,24 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                       { key: 'temperature', label: 'Température', min: 0, max: 2, step: 0.1, color: 'indigo' },
                       { key: 'topP', label: 'Top P', min: 0, max: 1, step: 0.01, color: 'indigo' },
                       { key: 'topK', label: 'Top K', min: 1, max: 100, step: 1, color: 'indigo' },
-                      { key: 'maxOutputTokens', label: 'Max Output', min: 1, max: 16384, step: 128, color: 'indigo' },
+                      { key: 'maxOutputTokens', label: 'Max Output', min: 1, max: 65536, step: 1024, color: 'indigo' },
                     ].map((s) => {
-                      const isMaxOutput = s.key === 'maxOutputTokens';
-                      const isUnlimited = isMaxOutput && config.maxOutputTokens === null;
-                      
                       return (
                         <div key={s.key} className="space-y-4">
                           <div className="flex justify-between items-end">
                             <div className="flex items-center gap-2">
                               <label className="text-[11px] font-bold text-[var(--app-text-muted)] tracking-wide">{s.label}</label>
-                              {isMaxOutput && (
-                                <button 
-                                  onClick={() => setConfig({ maxOutputTokens: isUnlimited ? 8192 : null })}
-                                  className={cn(
-                                    "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter transition-all",
-                                    isUnlimited 
-                                      ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" 
-                                      : "bg-white/5 text-[var(--app-text-muted)] hover:bg-white/10"
-                                  )}
-                                >
-                                  {isUnlimited ? 'Illimité' : 'Limiter'}
-                                </button>
-                              )}
                             </div>
                             <span className="font-mono text-[12px] text-indigo-400 font-bold">
-                              {isUnlimited ? '∞' : (config as any)[s.key]}
+                              {(config as any)[s.key]}
                             </span>
                           </div>
-                          {!isUnlimited ? (
                             <input 
                               type="range" min={s.min} max={s.max} step={s.step}
                               value={(config as any)[s.key] || 8192}
                               onChange={(e) => setConfig({ [s.key]: parseFloat(e.target.value) })}
                               className="w-full accent-indigo-500 h-1 bg-white/10 rounded-full appearance-none cursor-pointer hover:accent-indigo-400 transition-all"
                             />
-                          ) : (
-                            <div className="h-1 w-full bg-gradient-to-r from-indigo-500/20 via-indigo-500 to-indigo-500/20 rounded-full animate-pulse opacity-50" />
-                          )}
                         </div>
                       );
                     })}

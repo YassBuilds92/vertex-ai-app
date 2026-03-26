@@ -72,7 +72,7 @@ const ChatSchema = z.object({
     temperature: z.number(),
     topP: z.number(),
     topK: z.number(),
-    maxOutputTokens: z.number().nullable(),
+    maxOutputTokens: z.number().optional().nullable(),
     systemInstruction: z.string().optional(),
     googleSearch: z.boolean().optional(),
     googleMaps: z.boolean().optional(),
@@ -362,7 +362,7 @@ app.post('/api/chat', async (req, res) => {
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
-      maxOutputTokens: (config.maxOutputTokens === null || config.maxOutputTokens === 0) ? 128000 : config.maxOutputTokens,
+      maxOutputTokens: config.maxOutputTokens || 65536,
     };
     if (systemPromptText) genConfig.systemInstruction = systemPromptText;
     if (tools.length > 0) genConfig.tools = tools;

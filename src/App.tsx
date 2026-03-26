@@ -146,7 +146,15 @@ export default function App() {
   const [titleInput, setTitleInput] = useState('');
   const [customTitle, setCustomTitle] = useState<string | null>(null);
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
-  const activeSession = sessions.find(s => s.id === activeSessionId) || { id: 'local-new', title: customTitle || 'Nouvelle conversation', messages: [], updatedAt: Date.now(), mode: activeMode, userId: user?.uid || '', systemInstruction: config?.systemInstruction || '' };
+  const activeSession = sessions.find(s => s.id === activeSessionId) || { 
+    id: 'local-new', 
+    title: customTitle || 'Nouvelle conversation', 
+    messages: [], 
+    updatedAt: Date.now(), 
+    mode: activeMode, 
+    userId: user?.uid || '', 
+    systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || '' 
+  };
 
   const handleNewChat = useCallback(() => {
     setPendingAttachments([]);
@@ -372,7 +380,7 @@ export default function App() {
           updatedAt: Date.now(),
           mode: activeMode,
           userId: user.uid,
-          systemInstruction: config?.systemInstruction || ''
+          systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || ''
         });
         setCustomTitle(null);
         currentSessionId = newId;
@@ -442,8 +450,8 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: generationPrompt,
-            model: config.model,
-            aspectRatio: config.aspectRatio,
+            model: config?.model || configs.chat.model,
+            aspectRatio: config?.aspectRatio,
             imageSize: config.imageSize,
             numberOfImages: config.numberOfImages,
             personGeneration: config.personGeneration,
@@ -502,11 +510,11 @@ export default function App() {
             history: historyForApi,
             attachments: cleanAttachments,
             config: {
-              model: config.model,
-              temperature: config.temperature,
-              googleSearch: config.googleSearch,
-              codeExecution: config.codeExecution,
-              thinkingLevel: config.thinkingLevel
+              model: config?.model || configs.chat.model,
+              temperature: config?.temperature ?? 0.1,
+              googleSearch: !!config?.googleSearch,
+              codeExecution: !!config?.codeExecution,
+              thinkingLevel: config?.thinkingLevel || 'high'
             }
           })
         });
@@ -575,9 +583,9 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: generationPrompt,
-            videoResolution: config.videoResolution,
-            videoAspectRatio: config.videoAspectRatio,
-            videoDurationSeconds: config.videoDurationSeconds
+            videoResolution: config?.videoResolution || '720p',
+            videoAspectRatio: config?.videoAspectRatio || '16:9',
+            videoDurationSeconds: config?.videoDurationSeconds || 6
           })
         });
 
@@ -640,14 +648,14 @@ export default function App() {
           history: historyForApi,
           attachments: finalAttachments,
           config: {
-            model: activeMode === 'chat' ? config.model : configs.chat.model,
-            temperature: config.temperature,
-            topP: config.topP,
-            topK: config.topK,
-            maxOutputTokens: config.maxOutputTokens || 8192,
-            systemInstruction: config.systemInstruction,
-            googleSearch: config.googleSearch,
-            thinkingLevel: config.thinkingLevel
+            model: activeMode === 'chat' ? (config?.model || configs.chat.model) : configs.chat.model,
+            temperature: config?.temperature ?? 0.7,
+            topP: config?.topP ?? 0.95,
+            topK: config?.topK ?? 40,
+            maxOutputTokens: config?.maxOutputTokens || 8192,
+            systemInstruction: config?.systemInstruction || configs.chat.systemInstruction || '',
+            googleSearch: !!config?.googleSearch,
+            thinkingLevel: config?.thinkingLevel || 'high'
           },
           refinedSystemInstruction: finalRefinedInstruction
         })

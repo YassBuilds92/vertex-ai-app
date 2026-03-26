@@ -232,14 +232,14 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                           onClick={() => { setConfig({ model: m.id }); setIsModelDropdownOpen(false); }}
                           className={cn(
                             "w-full text-left p-3.5 hover:bg-white/5 rounded-2xl text-[13px] transition-all flex items-center justify-between group",
-                            config.model === m.id ? "bg-indigo-500/10 text-indigo-400 font-bold" : "text-[var(--app-text)] font-medium"
+                            config?.model === m.id ? "bg-indigo-500/10 text-indigo-400 font-bold" : "text-[var(--app-text)] font-medium"
                           )}
                         >
                           <div className="flex flex-col">
                             <span>{m.label}</span>
                             <span className="text-[10px] text-[var(--app-text-muted)] opacity-60 font-normal">{m.info}</span>
                           </div>
-                          {config.model === m.id && <Check size={14} className="text-indigo-500" />}
+                          {config?.model === m.id && <Check size={14} className="text-indigo-500" />}
                         </button>
                       ))}
                     </div>
@@ -287,7 +287,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                 </select>
               </div>
 
-              {config.model.includes('imagen') && (
+              {config?.model?.includes('imagen') && (
                 <div className="space-y-2">
                   <span className="text-[11px] font-bold text-[var(--app-text-muted)] ml-1">Résolution (Quality)</span>
                   <div className="grid grid-cols-2 gap-2">
@@ -297,7 +297,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                         onClick={() => setConfig({ imageSize: size as any })}
                         className={cn(
                           "py-2 rounded-xl text-[11px] font-bold border transition-all",
-                          config.imageSize === size ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-400" : "bg-white/5 border-white/5 text-[var(--app-text-muted)] hover:bg-white/10"
+                          config?.imageSize === size ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-400" : "bg-white/5 border-white/5 text-[var(--app-text-muted)] hover:bg-white/10"
                         )}
                       >
                         {size}
@@ -310,11 +310,11 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
               <div className="space-y-2">
                 <div className="flex justify-between items-center px-1">
                   <span className="text-[11px] font-bold text-[var(--app-text-muted)] font-mono">Nombre d'images</span>
-                  <span className="text-xs font-bold text-indigo-400">{config.numberOfImages || 1}</span>
+                  <span className="text-xs font-bold text-indigo-400">{config?.numberOfImages || 1}</span>
                 </div>
                 <input 
                   type="range" min="1" max="4" step="1"
-                  value={config.numberOfImages || 1}
+                  value={config?.numberOfImages || 1}
                   onChange={(e) => setConfig({ numberOfImages: parseInt(e.target.value) })}
                   className="w-full accent-indigo-500 h-1 bg-white/10 rounded-full appearance-none cursor-pointer"
                 />
@@ -367,7 +367,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
               <div className="space-y-2">
                 <div className="flex justify-between items-center px-1">
                   <span className="text-[11px] font-bold text-[var(--app-text-muted)]">Durée</span>
-                  <span className="text-xs font-bold text-indigo-400">{config.videoDurationSeconds || 6}s</span>
+                  <span className="text-xs font-bold text-indigo-400">{config?.videoDurationSeconds || 6}s</span>
                 </div>
                 <div className="flex gap-2">
                   {[4, 6, 8].map(sec => (
@@ -376,7 +376,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                       onClick={() => setConfig({ videoDurationSeconds: sec })}
                       className={cn(
                         "flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-all",
-                        config.videoDurationSeconds === sec ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" : "bg-white/5 text-[var(--app-text-muted)]"
+                        config?.videoDurationSeconds === sec ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" : "bg-white/5 text-[var(--app-text-muted)]"
                       )}
                     >
                       {sec}s
@@ -389,7 +389,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
         )}
 
         {/* Tools Section - Premium Grid */}
-        {isGroundingSupported(config.model) && (
+        {config && isGroundingSupported(config.model) && (
           <motion.div variants={itemVariants} className="space-y-4">
             <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em] ml-1">Capacités & Outils</label>
             <div className="grid grid-cols-1 gap-2.5">
@@ -420,7 +420,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
         )}
 
         {/* System Prompt Context */}
-        {(!config.model.includes('image') && !config.model.includes('veo') && !config.model.includes('tts')) && (
+        {config && (!config.model?.includes('image') && !config.model?.includes('veo') && !config.model?.includes('tts')) && (
           <motion.div variants={itemVariants} className="space-y-4 pt-4 border-t border-white/5">
             <div className="flex items-center justify-between mb-1 px-1">
               <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em]">Instructions Système</label>
@@ -458,7 +458,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                    { id: 'low', label: 'Flash' },
                    { id: 'medium', label: 'Pro' },
                    { id: 'high', label: 'High' }
-                 ].filter(l => !(config.model.includes('pro') && l.id === 'minimal')).map((level) => (
+                 ].filter(l => !(config?.model?.includes('pro') && l.id === 'minimal')).map((level) => (
                    <button
                     key={level.id}
                     onClick={() => setConfig({ thinkingLevel: level.id as any })}

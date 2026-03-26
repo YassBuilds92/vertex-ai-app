@@ -47,6 +47,9 @@ export interface RunMeta {
   toolCalls: number;
   webSearches: number;
   webFetches: number;
+  validatedSearches: number;
+  degradedSearches: number;
+  blockedQueryFamilies: number;
   retryCount: number;
   queueWaitMs: number;
   inputTokens: number;
@@ -72,7 +75,7 @@ export interface ActivityItem {
   iteration: number;
   title?: string;
   message?: string;
-  status?: 'info' | 'success' | 'error';
+  status?: 'info' | 'success' | 'warning' | 'error';
   toolName?: string;
   argsPreview?: string;
   resultPreview?: string;

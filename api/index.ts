@@ -251,6 +251,9 @@ type CoworkRunMeta = {
   toolCalls: number;
   webSearches: number;
   webFetches: number;
+  validatedSearches: number;
+  degradedSearches: number;
+  blockedQueryFamilies: number;
   retryCount: number;
   queueWaitMs: number;
   inputTokens: number;
@@ -298,6 +301,9 @@ function createEmptyCoworkRunMeta(): CoworkRunMeta {
     toolCalls: 0,
     webSearches: 0,
     webFetches: 0,
+    validatedSearches: 0,
+    degradedSearches: 0,
+    blockedQueryFamilies: 0,
     retryCount: 0,
     queueWaitMs: 0,
     inputTokens: 0,
@@ -506,6 +512,17 @@ function buildCoworkSystemInstruction(
       "Tant que la recherche visible n'est pas suffisante, n'ecris pas de paroles finales, meme partielles. Utilise d'abord 'report_progress', puis accumule des recherches et des sources."
     );
   }
+  if (originalMessage && requestNeedsStrictFactualSearch(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Pour cette demande factuelle sensible, une recherche degradee, hors sujet ou transitoirement indisponible ne compte pas comme preuve. Ne la presente jamais comme un succes net."
+    );
+    requestSpecificDirectives.push(
+      "Il est interdit de conclure sur ce sujet sans au moins une source lue via 'web_fetch', sauf si tu expliques explicitement que la recherche est restee insuffisante."
+    );
+    requestSpecificDirectives.push(
+      "Repeter une requete quasi identique n'est pas un progres. Si un angle est faible, pivote vraiment: autre formulation, source directe, outil specialise, ou constat d'insuffisance."
+    );
+  }
   if (originalMessage && requestNeedsTopicalCreativeResearch(originalMessage)) {
     requestSpecificDirectives.push(
       "Comme cette demande creative vise une personne, une affaire ou un sujet possiblement lie a l'actu, commence par cartographier le contexte recent: faits, dates, reactions, accusations/defenses et points de desaccord, avant d'ecrire."
@@ -637,6 +654,14 @@ function requestNeedsMusicCatalogResearch(message: string): boolean {
   return mentionsMusicEntity && wantsCatalog;
 }
 
+function requestNeedsStrictFactualSearch(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return requestNeedsCurrentDateGrounding(message)
+    || requestNeedsGroundedWriting(message)
+    || /\b(proces|tribunal|justice|plainte|plaignant|plaignante|accusation|accuse|accusee|condamn|verdict|jugement|cour|mandat|arret|prison|viol|agression|police|avocat|extrad|detention)\b/.test(normalized)
+    || /\b(documentation|docs?|version|release|sortie|mise a jour|update|benchmark|compar|compare|comparatif|roadmap|api|sdk|modele|model)\b/.test(normalized);
+}
+
 function requestIsCurrentAffairs(message: string): boolean {
   const normalized = normalizeCoworkText(message);
   return /\b(actualite|actu|news|briefing|headline|presse|monde|international|france|breaking)\b/.test(normalized);
@@ -680,6 +705,11 @@ function getResearchTargets(message: string): ResearchTargets {
   if (requestIsCurrentAffairs(message) || requestNeedsCurrentDateGrounding(message)) {
     targets.webSearches = Math.max(targets.webSearches, 4);
     targets.webFetches = Math.max(targets.webFetches, 2);
+  }
+
+  if (requestNeedsStrictFactualSearch(message)) {
+    targets.webSearches = Math.max(targets.webSearches, 3);
+    targets.webFetches = Math.max(targets.webFetches, 1);
   }
 
   if (requestNeedsGroundedWriting(message)) {
@@ -890,17 +920,17 @@ function normalizeSearchResultUrl(rawUrl: string): string {
 
 function requestNeedsDeepResearch(message: string): boolean {
   const normalized = normalizeCoworkText(message);
-  return requestNeedsGroundedWriting(message)
+  return requestNeedsStrictFactualSearch(message)
+    || requestNeedsGroundedWriting(message)
     || requestNeedsMusicCatalogResearch(message)
     || /\b(latest|recent|today|aujourd'hui|du jour|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide|recherche|recherches|search|searches)\b/.test(normalized);
 }
 
-function buildResearchCompletionPrompt(
+function hasSatisfiedResearchRequirements(
   originalMessage: string,
-  stats: MusicResearchProgress,
-  requestClock: RequestClock
-): string | null {
-  if (!requestNeedsDeepResearch(originalMessage)) return null;
+  stats: MusicResearchProgress
+): boolean {
+  if (!requestNeedsDeepResearch(originalMessage)) return true;
   if (
     requestNeedsMusicCatalogResearch(originalMessage)
     && stats.musicCatalogCoverage
@@ -908,7 +938,7 @@ function buildResearchCompletionPrompt(
     && stats.musicCatalogCoverage.hasCatalogPage
     && stats.musicCatalogCoverage.hasAlbumTracklist
   ) {
-    return null;
+    return true;
   }
 
   const targets = getResearchTargets(originalMessage);
@@ -917,8 +947,35 @@ function buildResearchCompletionPrompt(
     stats.webSearches >= targets.webSearches && stats.webFetches >= targets.webFetches;
   const enoughViaDirectSources =
     !explicitSearchCount && stats.webSearches === 0 && stats.webFetches >= Math.max(2, targets.webFetches);
-  if (enoughViaSearchAndRead || enoughViaDirectSources) return null;
+  if (requestNeedsStrictFactualSearch(originalMessage) && stats.webFetches < 1) {
+    return false;
+  }
+  return enoughViaSearchAndRead || enoughViaDirectSources;
+}
 
+function buildStrictResearchFailureMessage(
+  originalMessage: string,
+  stats: MusicResearchProgress,
+  requestClock: RequestClock
+): string | null {
+  if (!requestNeedsStrictFactualSearch(originalMessage)) return null;
+  if (hasSatisfiedResearchRequirements(originalMessage, stats)) return null;
+
+  return `Je m'arrete proprement: la recherche reste insuffisamment fiable pour repondre a cette demande sensible.
+Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
+Etat obtenu: ${stats.webSearches} recherche(s) validee(s), ${stats.webFetches} source(s) lisible(s), ${stats.degradedSearches} recherche(s) degradee(s), ${stats.blockedQueryFamilies} famille(s) de requetes bloquees.
+Je prefere ne pas broder sans source lue suffisamment fiable.`;
+}
+
+function buildResearchCompletionPrompt(
+  originalMessage: string,
+  stats: MusicResearchProgress,
+  requestClock: RequestClock
+): string | null {
+  if (!requestNeedsDeepResearch(originalMessage)) return null;
+  if (hasSatisfiedResearchRequirements(originalMessage, stats)) return null;
+
+  const targets = getResearchTargets(originalMessage);
   const remainingSearches = Math.max(0, targets.webSearches - stats.webSearches);
   const remainingFetches = Math.max(0, targets.webFetches - stats.webFetches);
   const instructions: string[] = [];
@@ -936,15 +993,20 @@ function buildResearchCompletionPrompt(
   } else if (stats.webSearches === 0 && stats.webFetches < 2) {
     instructions.push("Comme la recherche moteur est bloquee, ouvre encore une deuxieme source pertinente via 'web_fetch'.");
   }
+  if (requestNeedsStrictFactualSearch(originalMessage) && stats.webFetches < 1) {
+    instructions.push("Pour cette demande factuelle sensible, au moins une source lue via 'web_fetch' est obligatoire avant toute conclusion.");
+  }
   if (requestNeedsGroundedWriting(originalMessage)) {
     instructions.push("Ne livre pas encore les paroles ou le texte final: termine d'abord la recherche visible puis seulement ensuite redige.");
   }
+  instructions.push("Une recherche degradee, hors sujet ou transitoirement indisponible ne compte pas comme preuve.");
+  instructions.push("Repeter une requete quasi identique n'est pas un progres: pivote vraiment d'angle, ouvre une source directe, ou admets que la recherche reste insuffisante.");
 
   return `La recherche visible est encore insuffisante pour repondre proprement.
 Demande originale: "${originalMessage}"
 Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
 Minimum attendu pour cette demande: ${targets.webSearches} recherche(s) visibles et ${targets.webFetches} lecture(s) de source.
-Etat actuel: ${stats.webSearches} recherche(s) et ${stats.webFetches} lecture(s).
+Etat actuel: ${stats.webSearches} recherche(s) validee(s), ${stats.webFetches} lecture(s) fiable(s), ${stats.degradedSearches} recherche(s) degradee(s), ${stats.blockedQueryFamilies} famille(s) bloquee(s).
 ${stats.musicCatalogCoverage ? `Couverture musique actuelle: ${stats.musicCatalogCoverage.distinctDomains} domaine(s), page catalogue=${stats.musicCatalogCoverage.hasCatalogPage ? 'oui' : 'non'}, tracklist album=${stats.musicCatalogCoverage.hasAlbumTracklist ? 'oui' : 'non'}.` : ''}
 Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
 Utilise aussi 'report_progress' pour annoncer ce que tu verifies, puis seulement ensuite redige la synthese finale.`;
@@ -966,8 +1028,31 @@ type SearchResultItem = {
   source: string;
 };
 
+type SearchQuality = 'relevant' | 'degraded' | 'off_topic' | 'transient_error';
+
 type SearchOptions = {
   strictMusic?: boolean;
+  strictFactual?: boolean;
+};
+
+type SearchAssessment = {
+  quality: Exclude<SearchQuality, 'transient_error'>;
+  bestScore: number;
+  matchedAnchors: string[];
+  matchedResults: number;
+};
+
+type SearchOutcome = {
+  success: boolean;
+  quality: SearchQuality;
+  provider: string;
+  results: SearchResultItem[];
+  relevanceScore: number;
+  matchedAnchors: string[];
+  fallbackUsed: boolean;
+  warnings: string[];
+  error?: string;
+  transient?: boolean;
 };
 
 type ReadableFetchQuality = 'full' | 'partial' | 'shell' | 'serp';
@@ -1018,6 +1103,8 @@ type MusicCatalogLookupResult = {
 type MusicResearchProgress = {
   webSearches: number;
   webFetches: number;
+  degradedSearches: number;
+  blockedQueryFamilies: number;
   musicCatalogCompleted?: boolean;
   musicCatalogCoverage?: MusicCatalogCoverage | null;
 };
@@ -1249,27 +1336,76 @@ function rankSearchResults(query: string, results: SearchResultItem[]): SearchRe
     .map(({ result }) => result);
 }
 
-function resultsLookRelevant(query: string, results: SearchResultItem[]): boolean {
-  if (results.length === 0) return false;
+function getMatchedAnchors(query: string, results: SearchResultItem[]): string[] {
+  const topResults = results.slice(0, Math.min(3, results.length));
+  const anchorTokens = extractSearchAnchorTokens(query);
+  return anchorTokens.filter((token, index) => {
+    if (anchorTokens.indexOf(token) !== index) return false;
+    return topResults.some((result) => searchResultHaystack(result).all.includes(token));
+  });
+}
+
+function assessSearchResults(
+  query: string,
+  results: SearchResultItem[],
+  options: { strict?: boolean } = {}
+): SearchAssessment {
+  if (results.length === 0) {
+    return {
+      quality: 'off_topic',
+      bestScore: 0,
+      matchedAnchors: [],
+      matchedResults: 0,
+    };
+  }
 
   const topResults = results.slice(0, Math.min(3, results.length));
   const anchorTokens = extractSearchAnchorTokens(query);
-  if (anchorTokens.length === 0) return true;
+  if (anchorTokens.length === 0) {
+    return {
+      quality: 'relevant',
+      bestScore: 1,
+      matchedAnchors: [],
+      matchedResults: Math.min(1, topResults.length),
+    };
+  }
 
   const bestScore = Math.max(...topResults.map(result => scoreSearchResultRelevance(query, result)));
+  const matchedAnchors = getMatchedAnchors(query, topResults);
   const matchedResults = topResults.filter(result => {
     const haystack = searchResultHaystack(result).all;
     return anchorTokens.some(token => haystack.includes(token));
   }).length;
+  const matchedAnchorRatio = matchedAnchors.length / anchorTokens.length;
 
   const needsStrictMatch =
     anchorTokens.length === 1
     || anchorTokens.some(token => /\d/.test(token))
     || searchQueryLooksMusicLookup(query);
 
-  return needsStrictMatch
-    ? bestScore >= 6 && matchedResults >= 1
-    : bestScore >= 4 && matchedResults >= Math.min(2, topResults.length);
+  const isRelevant = options.strict
+    ? (
+        bestScore >= 6
+        && matchedResults >= 1
+        && matchedAnchors.length >= Math.min(2, anchorTokens.length)
+        && matchedAnchorRatio >= (anchorTokens.length >= 4 ? 0.34 : 0.5)
+      )
+    : (
+        needsStrictMatch
+          ? bestScore >= 6 && matchedResults >= 1
+          : bestScore >= 4 && matchedResults >= Math.min(2, topResults.length)
+      );
+
+  return {
+    quality: isRelevant ? 'relevant' : (bestScore > 0 || matchedAnchors.length > 0 ? 'degraded' : 'off_topic'),
+    bestScore,
+    matchedAnchors,
+    matchedResults,
+  };
+}
+
+function resultsLookRelevant(query: string, results: SearchResultItem[], options: { strict?: boolean } = {}): boolean {
+  return assessSearchResults(query, results, options).quality === 'relevant';
 }
 
 function parseRssResults(
@@ -1390,86 +1526,137 @@ async function searchViaGoogleNewsRss(query: string, maxResults = 5) {
   return results;
 }
 
-async function searchWeb(query: string, maxResults = 5, options: SearchOptions = {}) {
-  const strictMusic = options.strictMusic || searchQueryLooksMusicLookup(query);
+function looksLikeTransientSearchIssue(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(403|429|quota|temporar|unavailable|too many requests|saturation|deadline exceeded|forbidden)\b/.test(normalized);
+}
+
+async function searchViaTavily(query: string, maxResults = 5): Promise<SearchResultItem[]> {
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.TAVILY_API_KEY}`
+    },
+    body: JSON.stringify({
+      query,
+      max_results: Math.min(maxResults, 8),
+      search_depth: 'advanced',
+      include_answer: false,
+      include_raw_content: false
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Tavily a renvoye ${response.status}`);
+  }
+  const data: any = await response.json();
+  const results = Array.isArray(data.results) ? data.results : [];
+  return results.slice(0, maxResults).map((result: any) => ({
+    title: clipText(result.title || result.url || 'Sans titre', 140),
+    url: result.url,
+    snippet: clipText(result.content || result.snippet || '', 240),
+    source: 'tavily'
+  }));
+}
+
+async function searchWeb(query: string, maxResults = 5, options: SearchOptions = {}): Promise<SearchOutcome> {
+  const strictMode = Boolean(options.strictMusic || options.strictFactual || searchQueryLooksMusicLookup(query));
+  const newsy = searchQueryLooksNewsy(query);
+  const attempts: Array<{ label: string; run: () => Promise<SearchResultItem[]> }> = [];
 
   if (process.env.TAVILY_API_KEY) {
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.TAVILY_API_KEY}`
-      },
-      body: JSON.stringify({
-        query,
-        max_results: Math.min(maxResults, 8),
-        search_depth: 'advanced',
-        include_answer: false,
-        include_raw_content: false
-      })
-    });
-    if (!response.ok) {
-      throw new Error(`Tavily a renvoye ${response.status}`);
-    }
-    const data: any = await response.json();
-    const results = Array.isArray(data.results) ? data.results : [];
-    const mappedResults = results.slice(0, maxResults).map((result: any) => ({
-      title: clipText(result.title || result.url || 'Sans titre', 140),
-      url: result.url,
-      snippet: clipText(result.content || result.snippet || '', 240),
-      source: 'tavily'
-    }));
-    const rankedResults = rankSearchResults(query, mappedResults);
-    if (strictMusic && !resultsLookRelevant(query, rankedResults)) {
-      throw new Error(`Tavily a renvoye des resultats encore trop flous pour "${query}".`);
-    }
-    return rankedResults;
+    attempts.push({ label: 'tavily', run: () => searchViaTavily(query, maxResults) });
   }
 
-  const attempts: Array<{ label: string; run: () => Promise<SearchResultItem[]> }> = searchQueryLooksNewsy(query)
-    ? [
-        { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) },
-        { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
-      ]
-    : [
-        { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
-        { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) },
-      ];
-
-  if (searchQueryLooksNewsy(query)) {
-    attempts.push({ label: 'google-news-rss', run: () => searchViaGoogleNewsRss(query, maxResults) });
+  if (newsy) {
+    attempts.push(
+      { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) },
+      { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
+      { label: 'google-news-rss', run: () => searchViaGoogleNewsRss(query, maxResults) }
+    );
+  } else {
+    attempts.push(
+      { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
+      { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) }
+    );
   }
 
-  const errors: string[] = [];
-  let bestFallbackResults: SearchResultItem[] | null = null;
-  let bestFallbackScore = Number.NEGATIVE_INFINITY;
+  const primaryProvider = attempts[0]?.label || 'fallback-public';
+  const warnings: string[] = [];
+  let sawTransientIssue = false;
+  let bestDegraded: (SearchOutcome & { quality: 'degraded' | 'off_topic' }) | null = null;
 
   for (const attempt of attempts) {
     try {
       const rankedResults = rankSearchResults(query, await attempt.run());
       if (rankedResults.length === 0) continue;
 
-      const topScore = scoreSearchResultRelevance(query, rankedResults[0]);
-      if (topScore > bestFallbackScore) {
-        bestFallbackResults = rankedResults;
-        bestFallbackScore = topScore;
+      const assessment = assessSearchResults(query, rankedResults, { strict: strictMode });
+      const outcome: SearchOutcome = {
+        success: assessment.quality === 'relevant' || (!strictMode && assessment.quality === 'degraded'),
+        quality: assessment.quality,
+        provider: attempt.label,
+        results: rankedResults,
+        relevanceScore: assessment.bestScore,
+        matchedAnchors: assessment.matchedAnchors,
+        fallbackUsed: attempt.label !== primaryProvider,
+        warnings: [...warnings],
+      };
+
+      if (assessment.quality === 'relevant') {
+        return outcome;
       }
 
-      if (resultsLookRelevant(query, rankedResults)) {
-        return rankedResults;
+      if (
+        !bestDegraded
+        || assessment.bestScore > bestDegraded.relevanceScore
+        || (
+          assessment.bestScore === bestDegraded.relevanceScore
+          && assessment.matchedAnchors.length > bestDegraded.matchedAnchors.length
+        )
+      ) {
+        bestDegraded = {
+          ...outcome,
+          success: !strictMode && assessment.quality === 'degraded',
+          quality: assessment.quality,
+        };
       }
 
-      errors.push(`${attempt.label}: resultats hors sujet pour "${query}"`);
+      warnings.push(`${attempt.label}: resultats ${assessment.quality === 'degraded' ? 'insuffisants' : 'hors sujet'} pour "${query}"`);
     } catch (error) {
-      errors.push(`${attempt.label}: ${parseApiError(error)}`);
+      const message = parseApiError(error);
+      warnings.push(`${attempt.label}: ${message}`);
+      if (looksLikeTransientSearchIssue(message)) {
+        sawTransientIssue = true;
+      }
     }
   }
 
-  if (!strictMusic && bestFallbackResults && bestFallbackScore > 0) {
-    return bestFallbackResults;
+  if (bestDegraded) {
+    return {
+      ...bestDegraded,
+      success: bestDegraded.success,
+      quality: strictMode && bestDegraded.quality === 'degraded' ? 'degraded' : bestDegraded.quality,
+      warnings,
+      error: strictMode
+        ? `La recherche n'a pas valide suffisamment la requete "${query}".`
+        : undefined,
+    };
   }
 
-  throw new Error(`Aucun resultat exploitable trouve via les fallbacks publics. ${errors.length > 0 ? `Dernieres erreurs: ${errors.join(' | ')}` : ''}`.trim());
+  const errorMessage = `Aucun resultat exploitable trouve via les moteurs disponibles.${warnings.length > 0 ? ` Dernieres erreurs: ${warnings.join(' | ')}` : ''}`.trim();
+  return {
+    success: false,
+    quality: sawTransientIssue ? 'transient_error' : 'off_topic',
+    provider: primaryProvider,
+    results: [],
+    relevanceScore: 0,
+    matchedAnchors: [],
+    fallbackUsed: false,
+    warnings,
+    error: errorMessage,
+    transient: sawTransientIssue,
+  };
 }
 
 async function fetchDirectReadablePage(parsed: URL, headers: Record<string, string>): Promise<ReadablePage> {
@@ -1963,21 +2150,22 @@ export async function musicCatalogLookup(options: MusicLookupOptions): Promise<M
   const candidateUrls = new Map<string, { url: string; domain: string; priority: number }>();
 
   for (const seed of buildMusicSeedQueries(artistQuery, ownedTracks, includeFeatures, includeUnofficial)) {
-    try {
-      const results = await searchWeb(seed.query, 5, { strictMusic: true });
-      for (const result of results) {
-        const parsed = safeParseUrl(result.url);
-        if (!parsed) continue;
-        const normalizedUrl = parsed.toString().split('#')[0];
-        const domain = stripWww(parsed.hostname);
-        if (isLikelySearchEngineUrl(normalizedUrl) || !isMusicPlatformDomain(domain)) continue;
-        const current = candidateUrls.get(normalizedUrl);
-        if (!current || seed.priority < current.priority) {
-          candidateUrls.set(normalizedUrl, { url: normalizedUrl, domain, priority: seed.priority });
-        }
+    const search = await searchWeb(seed.query, 5, { strictMusic: true });
+    if (!search.success || search.quality !== 'relevant') {
+      searchErrors.push(search.error || search.warnings[0] || `Recherche insuffisante pour "${seed.query}".`);
+      continue;
+    }
+
+    for (const result of search.results) {
+      const parsed = safeParseUrl(result.url);
+      if (!parsed) continue;
+      const normalizedUrl = parsed.toString().split('#')[0];
+      const domain = stripWww(parsed.hostname);
+      if (isLikelySearchEngineUrl(normalizedUrl) || !isMusicPlatformDomain(domain)) continue;
+      const current = candidateUrls.get(normalizedUrl);
+      if (!current || seed.priority < current.priority) {
+        candidateUrls.set(normalizedUrl, { url: normalizedUrl, domain, priority: seed.priority });
       }
-    } catch (error) {
-      searchErrors.push(parseApiError(error));
     }
   }
 
@@ -2583,6 +2771,7 @@ app.post('/api/cowork', async (req, res) => {
 
     const webSearchEnabled = config.googleSearch !== false;
     const executeScriptEnabled = config.codeExecution !== false;
+    const strictFactualSearch = requestNeedsStrictFactualSearch(message);
 
     const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
     const formatToolMeta = (toolName: string, args: any) => {
@@ -2606,6 +2795,26 @@ app.post('/api/cowork', async (req, res) => {
       }
       return undefined;
     };
+    const formatToolResultMeta = (toolName: string, args: any, output: any) => {
+      if (toolName === 'web_search') {
+        return {
+          query: clipText(output?.query || args?.query || '', 140),
+          provider: clipText(output?.provider || '', 32),
+          quality: clipText(output?.quality || '', 20),
+          score: Number(output?.relevanceScore || 0),
+          anchors: Array.isArray(output?.matchedAnchors) ? output.matchedAnchors.length : 0,
+          fallback: Boolean(output?.fallbackUsed),
+        };
+      }
+      if (toolName === 'web_fetch') {
+        return {
+          domain: clipText(output?.domain || '', 40),
+          quality: clipText(output?.quality || '', 20),
+          searchPage: Boolean(output?.isSearchPage),
+        };
+      }
+      return formatToolMeta(toolName, args);
+    };
     const formatToolResultPreview = (toolName: string, output: any) => {
       if (toolName === 'music_catalog_lookup') {
         const coverage = output?.coverage;
@@ -2623,14 +2832,19 @@ app.post('/api/cowork', async (req, res) => {
         const queryPrefix = output?.originalQuery
           ? `Requete ajustee au ${requestClock.dateLabel}: ${clipText(output?.query || '', 90)}. `
           : '';
+        const qualityPrefix = output?.quality ? `[${String(output.quality)}${output?.provider ? ` via ${output.provider}` : ''}] ` : '';
         const summary = results
           .slice(0, 3)
           .map((result: any, index: number) => `${index + 1}. ${clipText(result.title || result.url || 'Sans titre', 80)}`)
           .join(' | ');
-        return `${queryPrefix}${summary || clipText(output?.message || output?.error || '', 220)}`.trim();
+        const warnings = Array.isArray(output?.warnings) && output.warnings.length > 0
+          ? ` ${clipText(output.warnings[0], 180)}`
+          : '';
+        return `${qualityPrefix}${queryPrefix}${summary || clipText(output?.message || output?.error || '', 220)}${warnings}`.trim();
       }
       if (toolName === 'web_fetch') {
-        return clipText(output?.excerpt || output?.content || output?.message || output?.error || '', 240);
+        const qualityPrefix = output?.quality ? `[${String(output.quality)}${output?.domain ? ` ${output.domain}` : ''}] ` : '';
+        return `${qualityPrefix}${clipText(output?.excerpt || output?.content || output?.message || output?.error || '', 220)}`.trim();
       }
       return clipText(output?.message || output?.error || output, 240);
     };
@@ -2795,16 +3009,28 @@ app.post('/api/cowork', async (req, res) => {
         },
         execute: async ({ query, maxResults }: { query: string; maxResults?: number }) => {
           const effectiveQuery = alignSearchQueryWithRequest(query, message, requestClock);
-          const results = await searchWeb(effectiveQuery, Math.max(1, Math.min(maxResults || 5, 8)));
+          const outcome = await searchWeb(
+            effectiveQuery,
+            Math.max(1, Math.min(maxResults || 5, 8)),
+            { strictFactual: strictFactualSearch }
+          );
+          const resultCount = outcome.results.length;
           return {
-            success: true,
+            success: outcome.success,
             query: effectiveQuery,
             ...(effectiveQuery !== query ? { originalQuery: query } : {}),
-            results,
+            provider: outcome.provider,
+            quality: outcome.quality,
+            relevanceScore: outcome.relevanceScore,
+            matchedAnchors: outcome.matchedAnchors,
+            fallbackUsed: outcome.fallbackUsed,
+            warnings: outcome.warnings,
+            results: outcome.results,
+            ...(outcome.error ? { error: outcome.error } : {}),
             message:
               effectiveQuery !== query
-                ? `${results.length} resultat(s) trouves pour "${effectiveQuery}". Requete re-alignee sur la date du jour (${requestClock.dateLabel}).`
-                : `${results.length} resultat(s) trouves pour "${effectiveQuery}".`
+                ? `${resultCount} resultat(s) pour "${effectiveQuery}" via ${outcome.provider}. Qualite: ${outcome.quality}. Requete re-alignee sur la date du jour (${requestClock.dateLabel}).`
+                : `${resultCount} resultat(s) pour "${effectiveQuery}" via ${outcome.provider}. Qualite: ${outcome.quality}.`
           };
         }
       }, {
@@ -2822,7 +3048,7 @@ app.post('/api/cowork', async (req, res) => {
           return {
             success: true,
             ...page,
-            message: `Source lue avec succes: ${page.title}`
+            message: `Source lue avec succes: ${page.title} (${page.quality}).`
           };
         }
       }] : []),
@@ -3439,9 +3665,14 @@ app.post('/api/cowork', async (req, res) => {
     const successfulResearchMeta: MusicResearchProgress = {
       webSearches: 0,
       webFetches: 0,
+      degradedSearches: 0,
+      blockedQueryFamilies: 0,
       musicCatalogCompleted: false,
       musicCatalogCoverage: null
     };
+    const blockedSearchFamilies = new Set<string>();
+    const weakSearchFamilies = new Map<string, number>();
+    let lastSearchExactKey: string | null = null;
 
     const getToolFailureScope = (toolName: string, args: any) => {
       if (toolName === 'web_search') {
@@ -3496,6 +3727,24 @@ app.post('/api/cowork', async (req, res) => {
       toolFailureScopes.set(scope.exactKey, nextExact);
       toolFailureScopes.set(scope.familyKey, nextFamily);
       return Math.max(nextExact, nextFamily);
+    };
+
+    const recordWeakSearch = (scope: { exactKey: string; familyKey: string }) => {
+      const nextWeakCount = (weakSearchFamilies.get(scope.familyKey) || 0) + 1;
+      weakSearchFamilies.set(scope.familyKey, nextWeakCount);
+      if (nextWeakCount >= 2) {
+        blockedSearchFamilies.add(scope.familyKey);
+      }
+      runMeta.blockedQueryFamilies = blockedSearchFamilies.size;
+      successfulResearchMeta.blockedQueryFamilies = blockedSearchFamilies.size;
+      return nextWeakCount;
+    };
+
+    const clearWeakSearch = (scope: { exactKey: string; familyKey: string }) => {
+      weakSearchFamilies.delete(scope.familyKey);
+      blockedSearchFamilies.delete(scope.familyKey);
+      runMeta.blockedQueryFamilies = blockedSearchFamilies.size;
+      successfulResearchMeta.blockedQueryFamilies = blockedSearchFamilies.size;
     };
 
     const isTransientToolIssue = (toolName: string, errorLike: unknown) => {
@@ -3662,9 +3911,52 @@ app.post('/api/cowork', async (req, res) => {
                 title: 'Anti-boucle',
                 message: `L'outil ${tool.name} est bloque pour '${clipText(toolScope.label, 120)}' apres ${currentFailureCount} echecs proches.`,
                 toolName: tool.name,
+                meta: { scope: clipText(toolScope.label, 120), reason: 'echecs_proches' },
                 runMeta
               });
               continue;
+            }
+
+            if (tool.name === 'web_search') {
+              if (lastSearchExactKey && toolScope.exactKey === lastSearchExactKey) {
+                const loopMsg = `La requete '${toolScope.label}' est identique a la recherche precedente. Change reellement d'angle, ouvre une source directe via 'web_fetch', ou admets que la recherche reste insuffisante.`;
+                toolResults.push({
+                  functionResponse: {
+                    ...(call.id ? { id: call.id } : {}),
+                    name: tool.name,
+                    response: { success: false, quality: 'degraded', error: loopMsg, warnings: [loopMsg] }
+                  }
+                });
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: 'Requete repetee',
+                  message: loopMsg,
+                  toolName: tool.name,
+                  meta: { query: clipText(toolScope.label, 120), reason: 'duplicate_query' },
+                  runMeta
+                });
+                continue;
+              }
+
+              if (blockedSearchFamilies.has(toolScope.familyKey)) {
+                const loopMsg = `La famille de requetes '${toolScope.label}' est bloquee apres plusieurs recherches faibles. Pivote: autre angle, 'web_fetch' direct, outil specialise, ou conclusion honnete d'insuffisance.`;
+                toolResults.push({
+                  functionResponse: {
+                    ...(call.id ? { id: call.id } : {}),
+                    name: tool.name,
+                    response: { success: false, quality: 'degraded', error: loopMsg, warnings: [loopMsg] }
+                  }
+                });
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: 'Famille bloquee',
+                  message: loopMsg,
+                  toolName: tool.name,
+                  meta: { family: clipText(toolScope.label, 120), reason: 'weak_family_blocked' },
+                  runMeta
+                });
+                continue;
+              }
             }
 
             runMeta.toolCalls += 1;
@@ -3683,6 +3975,22 @@ app.post('/api/cowork', async (req, res) => {
               const output = await tool.execute(call.args);
               const isError = (output as any).success === false || (output as any).error;
               const transientIssue = isError && isTransientToolIssue(tool.name, (output as any).error || (output as any).message || output);
+              const searchQuality = tool.name === 'web_search'
+                ? ((output as any).quality as SearchQuality | undefined) || (isError ? 'off_topic' : 'relevant')
+                : null;
+              const fetchQuality = tool.name === 'web_fetch'
+                ? ((output as any).quality as ReadableFetchQuality | undefined) || 'serp'
+                : null;
+              const hasReliableFetch = tool.name === 'web_fetch' && readableQualityScore(fetchQuality || 'serp') >= 2;
+              const warningResult =
+                transientIssue
+                || (tool.name === 'web_search' && searchQuality !== 'relevant')
+                || (tool.name === 'web_fetch' && !hasReliableFetch);
+
+              if (tool.name === 'web_search') {
+                lastSearchExactKey = toolScope.exactKey;
+              }
+
               if (!isError && tool.name === 'release_file' && typeof (output as any).url === 'string') {
                 latestReleasedFile = {
                   url: (output as any).url,
@@ -3699,10 +4007,49 @@ app.post('/api/cowork', async (req, res) => {
 
               if (isError) {
                 recordToolFailure(toolScope, transientIssue);
+                if (tool.name === 'web_search') {
+                  runMeta.degradedSearches += 1;
+                  successfulResearchMeta.degradedSearches += 1;
+                  if (!transientIssue) {
+                    const weakCount = recordWeakSearch(toolScope);
+                    if (weakCount >= 2) {
+                      emitEvent('warning', {
+                        iteration: iterations,
+                        title: 'Pivot requis',
+                        message: `Deux recherches faibles ou plus sur la famille '${clipText(toolScope.label, 120)}'. Change d'angle ou ouvre une source directe.`,
+                        toolName: tool.name,
+                        meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
+                        runMeta
+                      });
+                    }
+                  }
+                }
               } else {
                 clearToolFailures(toolScope);
-                if (tool.name === 'web_search') successfulResearchMeta.webSearches += 1;
-                if (tool.name === 'web_fetch') successfulResearchMeta.webFetches += 1;
+                if (tool.name === 'web_search') {
+                  if (searchQuality === 'relevant') {
+                    successfulResearchMeta.webSearches += 1;
+                    runMeta.validatedSearches += 1;
+                    clearWeakSearch(toolScope);
+                  } else {
+                    runMeta.degradedSearches += 1;
+                    successfulResearchMeta.degradedSearches += 1;
+                    const weakCount = recordWeakSearch(toolScope);
+                    if (weakCount >= 2) {
+                      emitEvent('warning', {
+                        iteration: iterations,
+                        title: 'Pivot requis',
+                        message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent trop faibles. Ne repete pas la meme famille de requetes.`,
+                        toolName: tool.name,
+                        meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
+                        runMeta
+                      });
+                    }
+                  }
+                }
+                if (tool.name === 'web_fetch' && hasReliableFetch) {
+                  successfulResearchMeta.webFetches += 1;
+                }
                 if (tool.name === 'music_catalog_lookup') {
                   successfulResearchMeta.musicCatalogCoverage = (output as any).coverage || null;
                   successfulResearchMeta.musicCatalogCompleted = !(output as any).partial;
@@ -3719,9 +4066,11 @@ app.post('/api/cowork', async (req, res) => {
               emitEvent('tool_result', {
                 iteration: iterations,
                 toolName: tool.name,
-                status: isError && !transientIssue ? 'error' : 'success',
+                status: isError
+                  ? (transientIssue ? 'warning' : 'error')
+                  : (warningResult ? 'warning' : 'success'),
                 resultPreview: formatToolResultPreview(tool.name, output),
-                meta: formatToolMeta(tool.name, call.args),
+                meta: formatToolResultMeta(tool.name, call.args, output),
                 runMeta
               });
               if (isError && transientIssue) {
@@ -3732,10 +4081,45 @@ app.post('/api/cowork', async (req, res) => {
                   runState: 'running',
                   runMeta
                 });
+              } else if (tool.name === 'web_search' && searchQuality && searchQuality !== 'relevant') {
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: 'Recherche degradee',
+                  message: `La requete '${clipText((output as any).query || toolScope.label, 120)}' n'a pas valide suffisamment le sujet. Ce resultat ne compte pas comme preuve.`,
+                  toolName: tool.name,
+                  meta: formatToolResultMeta(tool.name, call.args, output),
+                  runMeta
+                });
+              } else if (tool.name === 'web_fetch' && !hasReliableFetch) {
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: 'Source partielle',
+                  message: `La lecture de '${clipText((output as any).url || toolScope.label, 120)}' reste trop partielle pour valider proprement la recherche.`,
+                  toolName: tool.name,
+                  meta: formatToolResultMeta(tool.name, call.args, output),
+                  runMeta
+                });
               }
             } catch (err: any) {
               const transientIssue = isTransientToolIssue(tool.name, err);
               const failureCount = recordToolFailure(toolScope, transientIssue);
+              if (tool.name === 'web_search') {
+                runMeta.degradedSearches += 1;
+                successfulResearchMeta.degradedSearches += 1;
+                if (!transientIssue) {
+                  const weakCount = recordWeakSearch(toolScope);
+                  if (weakCount >= 2) {
+                    emitEvent('warning', {
+                      iteration: iterations,
+                      title: 'Pivot requis',
+                      message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent improductives. Pivote ou conclue proprement.`,
+                      toolName: tool.name,
+                      meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
+                      runMeta
+                    });
+                  }
+                }
+              }
               log.error(`Tool ${tool.name} failed${transientIssue ? ' transiently' : ` (attempt ${failureCount})`}`, err);
               toolResults.push({
                 functionResponse: {
@@ -3747,7 +4131,7 @@ app.post('/api/cowork', async (req, res) => {
               emitEvent('tool_result', {
                 iteration: iterations,
                 toolName: tool.name,
-                status: transientIssue ? 'success' : 'error',
+                status: transientIssue ? 'warning' : 'error',
                 resultPreview: clipText(err.message || String(err), 240),
                 meta: formatToolMeta(tool.name, call.args),
                 runMeta
@@ -3848,6 +4232,27 @@ app.post('/api/cowork', async (req, res) => {
           parts: [{ text: researchCompletionPrompt }]
         });
         continue;
+      }
+
+      const strictResearchFailureMessage =
+        webSearchEnabled && !latestReleasedFile?.url && researchCompletionNudges >= MAX_RESEARCH_COMPLETION_NUDGES
+          ? buildStrictResearchFailureMessage(message, successfulResearchMeta, requestClock)
+          : null;
+      if (strictResearchFailureMessage) {
+        emitEvent('warning', {
+          iteration: iterations,
+          title: 'Recherche insuffisante',
+          message: "Cowork s'arrete proprement: les recherches valides restent insuffisantes pour conclure.",
+          meta: {
+            validated: successfulResearchMeta.webSearches,
+            degraded: successfulResearchMeta.degradedSearches,
+            blockedFamilies: successfulResearchMeta.blockedQueryFamilies,
+          },
+          runMeta
+        });
+        finalVisibleText += strictResearchFailureMessage;
+        emitEvent('text_delta', { iteration: iterations, text: strictResearchFailureMessage, runMeta });
+        break;
       }
 
       const artifactCompletionPrompt = buildArtifactCompletionPrompt(

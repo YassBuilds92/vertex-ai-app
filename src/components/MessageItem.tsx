@@ -144,6 +144,9 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
     toolCalls: 0,
     webSearches: 0,
     webFetches: 0,
+    validatedSearches: 0,
+    degradedSearches: 0,
+    blockedQueryFamilies: 0,
     retryCount: 0,
     queueWaitMs: 0,
     inputTokens: 0,
@@ -181,6 +184,20 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
             <Search size={12} />
             {runMeta.webSearches} recherche{runMeta.webSearches > 1 ? 's' : ''}
           </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] text-[11px] text-emerald-200">
+            <CheckCircle2 size={12} />
+            {runMeta.validatedSearches} valide{runMeta.validatedSearches > 1 ? 'es' : ''}
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-[11px] text-amber-200">
+            <AlertTriangle size={12} />
+            {runMeta.degradedSearches} degradee{runMeta.degradedSearches > 1 ? 's' : ''}
+          </div>
+          {runMeta.blockedQueryFamilies > 0 && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-rose-500/20 bg-rose-500/[0.07] text-[11px] text-rose-200">
+              <AlertCircle size={12} />
+              {runMeta.blockedQueryFamilies} famille{runMeta.blockedQueryFamilies > 1 ? 's' : ''} bloquee{runMeta.blockedQueryFamilies > 1 ? 's' : ''}
+            </div>
+          )}
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
             <Globe size={12} />
             {runMeta.webFetches} source{runMeta.webFetches > 1 ? 's' : ''}
@@ -223,6 +240,8 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
               const tone =
                 item.kind === 'warning'
                   ? 'border-amber-500/25 bg-amber-500/[0.08]'
+                  : item.kind === 'tool_result' && item.status === 'warning'
+                    ? 'border-amber-500/22 bg-amber-500/[0.07]'
                   : item.kind === 'tool_result' && item.status === 'success'
                     ? 'border-emerald-500/20 bg-emerald-500/[0.06]'
                     : item.kind === 'tool_result' && item.status === 'error'
@@ -239,7 +258,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                     <div className="absolute left-[15px] top-6 bottom-[-18px] w-px bg-gradient-to-b from-indigo-500/30 to-transparent" />
                   )}
                   <div className="absolute left-0 top-2 w-8 h-8 rounded-2xl border border-white/8 bg-black/30 flex items-center justify-center text-[var(--app-text-muted)]">
-                    <Icon size={14} className={cn(item.kind === 'tool_call' && 'text-sky-300', item.kind === 'warning' && 'text-amber-300')} />
+                    <Icon size={14} className={cn(item.kind === 'tool_call' && 'text-sky-300', item.kind === 'warning' && 'text-amber-300', item.kind === 'tool_result' && item.status === 'warning' && 'text-amber-300')} />
                   </div>
                   <div className={cn('rounded-2xl border px-4 py-3.5 shadow-sm', tone)}>
                     <div className="flex items-start justify-between gap-3">

@@ -46,7 +46,7 @@ export type CoworkStreamEvent =
       timestamp?: number;
       iteration?: number;
       toolName?: string;
-      status?: 'success' | 'error';
+      status?: 'success' | 'warning' | 'error';
       resultPreview?: string;
       meta?: Record<string, ActivityMetaValue>;
       runMeta?: Partial<RunMeta>;
@@ -58,6 +58,7 @@ export type CoworkStreamEvent =
       title?: string;
       message?: string;
       toolName?: string;
+      meta?: Record<string, ActivityMetaValue>;
       runMeta?: Partial<RunMeta>;
     }
   | {
@@ -90,6 +91,9 @@ export function createEmptyRunMeta(): RunMeta {
     toolCalls: 0,
     webSearches: 0,
     webFetches: 0,
+    validatedSearches: 0,
+    degradedSearches: 0,
+    blockedQueryFamilies: 0,
     retryCount: 0,
     queueWaitMs: 0,
     inputTokens: 0,
@@ -144,6 +148,9 @@ function mergeRunMeta(current?: Partial<RunMeta>, incoming?: Partial<RunMeta>): 
     toolCalls: Math.max(Number(current?.toolCalls || 0), Number(incoming?.toolCalls || 0)),
     webSearches: Math.max(Number(current?.webSearches || 0), Number(incoming?.webSearches || 0)),
     webFetches: Math.max(Number(current?.webFetches || 0), Number(incoming?.webFetches || 0)),
+    validatedSearches: Math.max(Number(current?.validatedSearches || 0), Number(incoming?.validatedSearches || 0)),
+    degradedSearches: Math.max(Number(current?.degradedSearches || 0), Number(incoming?.degradedSearches || 0)),
+    blockedQueryFamilies: Math.max(Number(current?.blockedQueryFamilies || 0), Number(incoming?.blockedQueryFamilies || 0)),
     retryCount: Math.max(Number(current?.retryCount || 0), Number(incoming?.retryCount || 0)),
     queueWaitMs: Math.max(Number(current?.queueWaitMs || 0), Number(incoming?.queueWaitMs || 0)),
     inputTokens: Math.max(Number(current?.inputTokens || 0), Number(incoming?.inputTokens || 0)),
@@ -231,7 +238,7 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
           toolName: event.toolName,
           resultPreview: event.resultPreview,
           meta: event.meta,
-          status: event.status === 'error' ? 'error' : 'success',
+          status: event.status === 'error' ? 'error' : event.status === 'warning' ? 'warning' : 'success',
         })
       );
 
@@ -243,7 +250,8 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
           title: event.title || 'Avertissement',
           message: event.message,
           toolName: event.toolName,
-          status: 'error',
+          meta: event.meta,
+          status: 'warning',
         })
       );
 

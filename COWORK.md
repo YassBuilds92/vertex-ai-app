@@ -15,7 +15,7 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - `read_file` : Lit le contenu d'un fichier (securise).
 - `write_file` : Ecrit un fichier (force vers `/tmp/` sur Vercel).
 - `list_recursive` : Exploration profonde du projet.
-- `web_search` : recherche web locale visible (fallback public, branchement provider possible plus tard).
+- `web_search` : recherche web locale visible avec qualite explicite (`relevant`, `degraded`, `off_topic`, `transient_error`), provider remonte et blocage des repetitions faibles.
 - `web_fetch` : lecture d'une source web precise avec contenu nettoye.
 - `release_file` : Uploade un fichier vers Google Cloud Storage et renvoie une URL signee de 7 jours.
 
@@ -60,11 +60,14 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Lookup musique specialise : Cowork dispose maintenant d'un outil `music_catalog_lookup` qui resolve l'artiste via Apple Music / YouTube / TrackMusik, etend les albums vers leurs tracklists, separe `missingConfirmed` / `albumOnly` / `optionalFeatures`, et refuse de presenter une liste "complete" si la couverture reste partielle.
 - [x] Anti-boucle scoppé par recherche/source : l'agent ne bloque plus `web_search` globalement apres deux echecs quelconques. Le blocage se fait maintenant par requete/famille de requetes pour `web_search` et par URL/hostname pour `web_fetch`. Les 403/429 et indisponibilites temporaires sont traites comme degradations transitoires, pas comme echecs terminaux.
 - [x] Activite Cowork musique plus lisible : la timeline reconnait `music_catalog_lookup`, les previews de resultat exposent la couverture (domaines, catalogue, album) et les incidents transitoires de provider ne ressortent plus en erreur rouge systematique.
+- [x] Recherche stricte et honnete : Cowork distingue maintenant les recherches valides des resultats degrades/hors sujet, n'incremente `validatedSearches` que sur les vrais `web_search` pertinents, impose au moins une source `web_fetch` sur les sujets factuels sensibles, bloque les requetes strictement repetitives, et coupe proprement avec un message d'insuffisance si la recherche reste trop faible apres les relances.
+- [x] Timeline recherche honnete : `runMeta` expose maintenant `validatedSearches`, `degradedSearches` et `blockedQueryFamilies`, les `tool_result` degradés passent en warning ambre, et les warnings affichent le provider, la famille bloquee et la raison du pivot.
 
 ## Prochaines Etapes
 1. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet, que la timeline revient apres reload, et que les compteurs tokens/euros montent correctement.
-2. Rejouer en production le cas `fais un son pour defendre Tariq Ramadan` et les variantes `cherche toute l'actu sur lui puis fais un son` pour verifier que Cowork fait bien `plan -> recherche -> verification -> production` au lieu d'ecrire des paroles des l'iteration 1.
-3. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste robuste quand Apple Music sert une page US/EN, et qu'il n'annonce jamais une liste exhaustive quand `coverage.partial` devrait rester vrai.
-4. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) pour ne plus dependre uniquement d'un lien Markdown dans le texte final.
-5. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
-6. Brancher ensuite un vrai provider de recherche (ex: Tavily) si le fallback public montre ses limites sur certains domaines.
+2. Rejouer en production le cas `Tariq Ramadan il va aller en prison ?` pour verifier qu'il n'y a plus de rafale de `web_search` quasi identiques, qu'au moins une source est lue avant conclusion, et qu'en cas de recherche insuffisante Cowork s'arrete honnetement au lieu de broder.
+3. Rejouer en production le cas `fais un son pour defendre Tariq Ramadan` et les variantes `cherche toute l'actu sur lui puis fais un son` pour verifier que Cowork fait bien `plan -> recherche -> verification -> production` au lieu d'ecrire des paroles des l'iteration 1.
+4. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste robuste quand Apple Music sert une page US/EN, et qu'il n'annonce jamais une liste exhaustive quand `coverage.partial` devrait rester vrai.
+5. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) pour ne plus dependre uniquement d'un lien Markdown dans le texte final.
+6. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
+7. Configurer `TAVILY_API_KEY` sur Vercel puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.

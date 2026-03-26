@@ -115,6 +115,26 @@ try {
   log.error('Failed to initialize GCP SDKs', error);
 }
 
+const BUCKET_NAME = 'videosss92';
+
+async function uploadToGCS(buffer: Buffer, fileName: string, contentType: string): Promise<string> {
+  if (!storage) throw new Error("Storage non configuré");
+  const bucket = storage.bucket(BUCKET_NAME);
+  const file = bucket.file(`uploaded/${fileName}`);
+  
+  await file.save(buffer, {
+    metadata: { contentType },
+  });
+
+  // Generate a signed URL that lasts for 7 days
+  const [url] = await file.getSignedUrl({
+    action: 'read',
+    expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+  });
+
+  return url;
+}
+
 // ─── Middleware ──────────────────────────────────────────────────
 app.use(express.json({ limit: MAX_PAYLOAD }));
 app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
@@ -325,7 +345,11 @@ app.post('/api/generate-image', async (req, res) => {
       throw new Error("Aucune donnée d'image (base64) n'a été trouvée dans la réponse.");
     }
 
-    res.json({ base64: `data:image/png;base64,${base64}` });
+    const buffer = Buffer.from(base64, 'base64');
+    const fileName = `generated-${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
+    const url = await uploadToGCS(buffer, fileName, 'image/png');
+
+    res.json({ url, base64: `data:image/png;base64,${base64}` });
   } catch (error) {
     const cleanError = parseApiError(error);
     log.error("Image gen error", cleanError);
@@ -343,6 +367,25 @@ app.post('/api/generate-video', async (req, res) => {
     res.status(501).json({ error: "Non implémenté", message: "La génération vidéo Veo nécessite une configuration GCS spécifique." });
   } catch (error) {
     res.status(500).json({ error: "Video failed", message: String(error) });
+  }
+});
+
+app.post('/api/upload', async (req, res) => {
+  try {
+    const { base64, fileName, mimeType } = z.object({
+      base64: z.string(),
+      fileName: z.string(),
+      mimeType: z.string()
+    }).parse(req.body);
+
+    const pureBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
+    const buffer = Buffer.from(pureBase64, 'base64');
+    const url = await uploadToGCS(buffer, fileName, mimeType);
+
+    res.json({ url });
+  } catch (error) {
+    log.error("Upload error", error);
+    res.status(500).json({ error: "Upload failed", message: String(error) });
   }
 });
 

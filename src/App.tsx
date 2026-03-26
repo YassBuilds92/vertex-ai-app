@@ -11,7 +11,6 @@ import {
 import {
   auth, db, googleProvider, signInWithPopup, onAuthStateChanged,
   doc, collection, onSnapshot, query, orderBy, setDoc, addDoc, updateDoc, deleteDoc, getDoc,
-  storage, ref, uploadBytes, getDownloadURL,
   OperationType, handleFirestoreError, User as FirebaseUser, cleanForFirestore
 } from './firebase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -313,11 +312,22 @@ export default function App() {
 
       const fileExt = attachment.mimeType?.split('/')[1] || 'png';
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const storageRef = ref(storage, `users/${userId}/sessions/${sessionId}/${fileName}`);
       
-      const snapshot = await uploadBytes(storageRef, blob);
-      const downloadUrl = await getDownloadURL(snapshot.ref);
-      return downloadUrl;
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base64: attachment.base64 || attachment.url,
+          fileName,
+          mimeType: attachment.mimeType || 'image/png'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erreur serveur lors de l'upload: ${response.statusText}`);
+      }
+      const { url } = await response.json();
+      return url;
     } catch (e: any) {
       console.warn("Storage upload failed, attempting compression fallback:", e);
       
@@ -448,14 +458,7 @@ export default function App() {
         }
         const data = await response.json();
         
-        const generatedImageUrl = await uploadAttachment({
-          id: Date.now().toString(),
-          type: 'image',
-          url: data.base64,
-          base64: data.base64,
-          mimeType: 'image/png',
-          name: 'Image générée'
-        }, user.uid, currentSessionId);
+        const generatedImageUrl = data.url;
 
         await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({
           role: 'model',

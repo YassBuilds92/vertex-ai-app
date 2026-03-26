@@ -103,6 +103,7 @@ const runStateMeta = {
 
 function getActivityIcon(item: ActivityItem) {
   if (item.kind === 'tool_call' || item.kind === 'tool_result') {
+    if (item.toolName === 'music_catalog_lookup') return Music;
     if (item.toolName === 'web_search') return Search;
     if (item.toolName === 'web_fetch') return Globe;
     return Wrench;

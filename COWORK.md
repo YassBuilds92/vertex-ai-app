@@ -10,6 +10,7 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 
 ## Outils Locaux (localTools)
 - `report_progress` : narration visible entre les etapes, sans polluer la reponse finale.
+- `music_catalog_lookup` : lookup musique/discographie specialise (catalogue officiel, titres manquants, album-only, feats optionnels, couverture par sources).
 - `list_files` : Liste les fichiers a la racine.
 - `read_file` : Lit le contenu d'un fichier (securise).
 - `write_file` : Ecrit un fichier (force vers `/tmp/` sur Vercel).
@@ -55,10 +56,13 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Serialisation par conversation : `/api/cowork` file maintenant les runs par `sessionId`, et le frontend ajoute un verrou synchrone (`sendInFlightRef`) pour bloquer les doubles envois ultra rapides.
 - [x] Recherche creative verifiee : les demandes "documente-toi puis ecris" sont maintenant traitees comme de la recherche profonde via `requestNeedsGroundedWriting()`, avec decomposition visible et obligation de contextualiser les requetes + lire une source avant la redaction finale.
 - [x] Recherche artiste/discographie fiabilisee : les demandes du type "j'ai tel son, dis-moi ceux qu'il me manque" sont maintenant classees comme recherche profonde via `requestNeedsMusicCatalogResearch()`, avec minima `3 web_search + 2 web_fetch`, obligation de chercher d'abord l'alias exact, et reranking des SERP pour ne plus accepter les faux positifs `Bing RSS` quand `DuckDuckGo` renvoie les vraies pages artiste.
+- [x] Lookup musique specialise : Cowork dispose maintenant d'un outil `music_catalog_lookup` qui resolve l'artiste via Apple Music / YouTube / TrackMusik, etend les albums vers leurs tracklists, separe `missingConfirmed` / `albumOnly` / `optionalFeatures`, et refuse de presenter une liste "complete" si la couverture reste partielle.
+- [x] Anti-boucle scoppé par recherche/source : l'agent ne bloque plus `web_search` globalement apres deux echecs quelconques. Le blocage se fait maintenant par requete/famille de requetes pour `web_search` et par URL/hostname pour `web_fetch`. Les 403/429 et indisponibilites temporaires sont traites comme degradations transitoires, pas comme echecs terminaux.
+- [x] Activite Cowork musique plus lisible : la timeline reconnait `music_catalog_lookup`, les previews de resultat exposent la couverture (domaines, catalogue, album) et les incidents transitoires de provider ne ressortent plus en erreur rouge systematique.
 
 ## Prochaines Etapes
 1. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet, que la timeline revient apres reload, et que les compteurs tokens/euros montent correctement.
-2. Tester specifiquement les demandes creatives documentees (ex: terme d'argot + ecriture rap) et les demandes musique/discographie (ex: `ven1`, `persona non grata`, `sd night`) pour verifier que Cowork fait bien `report_progress` -> `web_search` contextualises -> `web_fetch` -> redaction, sans partir trop vite sur une generation finale.
+2. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste robuste quand Apple Music sert une page US/EN, et qu'il n'annonce jamais une liste exhaustive quand `coverage.partial` devrait rester vrai.
 3. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) pour ne plus dependre uniquement d'un lien Markdown dans le texte final.
 4. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
 5. Brancher ensuite un vrai provider de recherche (ex: Tavily) si le fallback public montre ses limites sur certains domaines.

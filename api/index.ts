@@ -505,10 +505,13 @@ function buildCoworkSystemInstruction(
   }
   if (originalMessage && requestNeedsMusicCatalogResearch(originalMessage)) {
     requestSpecificDirectives.push(
-      "Pour un artiste, une discographie ou des titres manquants, commence par chercher le pseudo exact tel qu'ecrit par l'utilisateur, y compris chiffres et variantes de casse, avant d'elargir."
+      "Pour un artiste, une discographie ou des titres manquants, appelle d'abord l'outil 'music_catalog_lookup' avec le pseudo exact tel qu'ecrit par l'utilisateur, y compris chiffres et variantes de casse."
     );
     requestSpecificDirectives.push(
-      "Ne conclus jamais qu'un artiste est introuvable apres une seule requete generique. Si une recherche est hors sujet, relance immediatement avec l'alias exact puis avec des angles plateformes/sources (YouTube, Spotify, Deezer, Genius, Apple Music, TrackMusik, etc.), puis ouvre au moins une page artiste via 'web_fetch'."
+      "Ne conclus jamais qu'un artiste est introuvable apres une seule requete generique. Si 'music_catalog_lookup' revient partiel ou incertain, relance immediatement avec l'alias exact puis avec des angles plateformes/sources (YouTube, Spotify, Deezer, Genius, Apple Music, TrackMusik, etc.), puis ouvre au moins une page artiste via 'web_fetch'."
+    );
+    requestSpecificDirectives.push(
+      "Tu n'as le droit d'affirmer 'voila tout ce qu'il te manque' que si la couverture est suffisante. Sinon, dis explicitement que la liste est partielle et separe bien: deja possedes, manquants confirmes, titres d'album, feats/freestyles optionnels, points incertains."
     );
   }
   if (pdfTargets) {
@@ -849,10 +852,20 @@ function requestNeedsDeepResearch(message: string): boolean {
 
 function buildResearchCompletionPrompt(
   originalMessage: string,
-  stats: { webSearches: number; webFetches: number },
+  stats: MusicResearchProgress,
   requestClock: RequestClock
 ): string | null {
   if (!requestNeedsDeepResearch(originalMessage)) return null;
+  if (
+    requestNeedsMusicCatalogResearch(originalMessage)
+    && stats.musicCatalogCoverage
+    && stats.musicCatalogCoverage.distinctDomains >= 2
+    && stats.musicCatalogCoverage.hasCatalogPage
+    && stats.musicCatalogCoverage.hasAlbumTracklist
+  ) {
+    return null;
+  }
+
   const targets = getResearchTargets(originalMessage);
   const explicitSearchCount = extractRequestedSearchCount(originalMessage);
   const enoughViaSearchAndRead =
@@ -865,6 +878,9 @@ function buildResearchCompletionPrompt(
   const remainingFetches = Math.max(0, targets.webFetches - stats.webFetches);
   const instructions: string[] = [];
 
+  if (requestNeedsMusicCatalogResearch(originalMessage) && !stats.musicCatalogCompleted) {
+    instructions.push("Commence par 'music_catalog_lookup' pour resoudre l'artiste, les titres officiels, l'album et les feats eventuels.");
+  }
   if (stats.webSearches === 0) {
     instructions.push("Si 'web_search' reste bloque, lis directement 2 sources pertinentes via 'web_fetch' (page d'accueil, live, flux RSS, documentation officielle).");
   } else if (remainingSearches > 0) {
@@ -881,6 +897,7 @@ Demande originale: "${originalMessage}"
 Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
 Minimum attendu pour cette demande: ${targets.webSearches} recherche(s) visibles et ${targets.webFetches} lecture(s) de source.
 Etat actuel: ${stats.webSearches} recherche(s) et ${stats.webFetches} lecture(s).
+${stats.musicCatalogCoverage ? `Couverture musique actuelle: ${stats.musicCatalogCoverage.distinctDomains} domaine(s), page catalogue=${stats.musicCatalogCoverage.hasCatalogPage ? 'oui' : 'non'}, tracklist album=${stats.musicCatalogCoverage.hasAlbumTracklist ? 'oui' : 'non'}.` : ''}
 Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
 Utilise aussi 'report_progress' pour annoncer ce que tu verifies, puis seulement ensuite redige la synthese finale.`;
 }
@@ -900,6 +917,175 @@ type SearchResultItem = {
   snippet: string;
   source: string;
 };
+
+type SearchOptions = {
+  strictMusic?: boolean;
+};
+
+type ReadableFetchQuality = 'full' | 'partial' | 'shell' | 'serp';
+
+type ReadablePage = {
+  url: string;
+  title: string;
+  content: string;
+  rawContent: string;
+  excerpt: string;
+  source: string;
+  quality: ReadableFetchQuality;
+  domain: string;
+  isSearchPage: boolean;
+  isCatalogEvidence: boolean;
+};
+
+type MusicCatalogSourceKind = 'artist' | 'album' | 'tracklist' | 'video';
+
+type MusicCatalogSource = {
+  domain: string;
+  url: string;
+  kind: MusicCatalogSourceKind;
+};
+
+type MusicCatalogCoverage = {
+  distinctDomains: number;
+  hasCatalogPage: boolean;
+  hasAlbumTracklist: boolean;
+};
+
+type MusicCatalogLookupResult = {
+  success: boolean;
+  recoverable?: boolean;
+  artistQuery: string;
+  resolvedArtist: string;
+  ownedConfirmed: string[];
+  missingConfirmed: string[];
+  albumOnly: string[];
+  optionalFeatures: string[];
+  uncertain: string[];
+  sources: MusicCatalogSource[];
+  coverage: MusicCatalogCoverage;
+  partial: boolean;
+  message: string;
+};
+
+type MusicResearchProgress = {
+  webSearches: number;
+  webFetches: number;
+  musicCatalogCompleted?: boolean;
+  musicCatalogCoverage?: MusicCatalogCoverage | null;
+};
+
+const MUSIC_PLATFORM_DOMAINS = [
+  'music.apple.com',
+  'youtube.com',
+  'deezer.com',
+  'qobuz.com',
+  'spotify.com',
+  'open.spotify.com',
+  'trackmusik.fr',
+  'genius.com',
+  'nouvomonde.fr',
+  'skyrock.fm',
+  'facebook.com',
+];
+
+const MUSIC_JINA_DOMAINS = [
+  'music.apple.com',
+  'youtube.com',
+  'deezer.com',
+  'qobuz.com',
+  'spotify.com',
+  'open.spotify.com',
+  'trackmusik.fr',
+];
+
+function stripWww(hostname: string): string {
+  return hostname.replace(/^www\./i, '').toLowerCase();
+}
+
+function safeParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function getUrlDomain(value: string): string {
+  return stripWww(safeParseUrl(value)?.hostname || '');
+}
+
+function domainMatches(domain: string, candidate: string): boolean {
+  return domain === candidate || domain.endsWith(`.${candidate}`);
+}
+
+function isMusicPlatformDomain(domain: string): boolean {
+  return MUSIC_PLATFORM_DOMAINS.some(candidate => domainMatches(domain, candidate));
+}
+
+function shouldPreferJinaForUrl(value: string): boolean {
+  const domain = getUrlDomain(value);
+  return MUSIC_JINA_DOMAINS.some(candidate => domainMatches(domain, candidate));
+}
+
+function isLikelySearchEngineUrl(value: string): boolean {
+  const parsed = safeParseUrl(value);
+  if (!parsed) return false;
+  const domain = stripWww(parsed.hostname);
+  const pathname = parsed.pathname.toLowerCase();
+
+  return (
+    (domainMatches(domain, 'bing.com') && pathname.startsWith('/search'))
+    || (domainMatches(domain, 'duckduckgo.com') && pathname.startsWith('/html'))
+    || (domainMatches(domain, 'google.com') && pathname.startsWith('/search'))
+    || (domainMatches(domain, 'news.google.com') && pathname.startsWith('/search'))
+    || (domainMatches(domain, 'youtube.com') && pathname.startsWith('/results'))
+  );
+}
+
+function normalizeReadableExcerpt(value: string, max = 320): string {
+  return clipText(value.replace(/\s+/g, ' ').trim(), max);
+}
+
+function parseJinaTitle(rawText: string): string {
+  const titleMatch = rawText.match(/^Title:\s*(.+)$/mi);
+  return clipText((titleMatch?.[1] || '').trim(), 160);
+}
+
+function getReadablePageQuality(url: string, content: string): ReadableFetchQuality {
+  if (isLikelySearchEngineUrl(url)) return 'serp';
+
+  const normalized = normalizeCoworkText(content);
+  if (!normalized || normalized.length < 180) return 'shell';
+
+  const looksYoutubeShell =
+    domainMatches(getUrlDomain(url), 'youtube.com')
+    && normalized.includes('skip navigation')
+    && normalized.includes('search with your voice')
+    && normalized.length < 1200;
+  if (looksYoutubeShell) return 'shell';
+
+  const looksMusicShell =
+    /(ouvrir dans musique|lire lire lire|se connecter se connecter)/.test(normalized)
+    && normalized.length < 900;
+  if (looksMusicShell) return 'partial';
+
+  if (normalized.length < 500) return 'partial';
+  return 'full';
+}
+
+function readableQualityScore(value: ReadableFetchQuality): number {
+  switch (value) {
+    case 'full':
+      return 3;
+    case 'partial':
+      return 2;
+    case 'shell':
+      return 1;
+    case 'serp':
+    default:
+      return 0;
+  }
+}
 
 const SEARCH_RESULT_GENERIC_TOKENS = new Set([
   'artiste',
@@ -1156,7 +1342,9 @@ async function searchViaGoogleNewsRss(query: string, maxResults = 5) {
   return results;
 }
 
-async function searchWeb(query: string, maxResults = 5) {
+async function searchWeb(query: string, maxResults = 5, options: SearchOptions = {}) {
+  const strictMusic = options.strictMusic || searchQueryLooksMusicLookup(query);
+
   if (process.env.TAVILY_API_KEY) {
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
@@ -1183,7 +1371,11 @@ async function searchWeb(query: string, maxResults = 5) {
       snippet: clipText(result.content || result.snippet || '', 240),
       source: 'tavily'
     }));
-    return rankSearchResults(query, mappedResults);
+    const rankedResults = rankSearchResults(query, mappedResults);
+    if (strictMusic && !resultsLookRelevant(query, rankedResults)) {
+      throw new Error(`Tavily a renvoye des resultats encore trop flous pour "${query}".`);
+    }
+    return rankedResults;
   }
 
   const attempts: Array<{ label: string; run: () => Promise<SearchResultItem[]> }> = searchQueryLooksNewsy(query)
@@ -1225,14 +1417,70 @@ async function searchWeb(query: string, maxResults = 5) {
     }
   }
 
-  if (bestFallbackResults && bestFallbackScore > 0) {
+  if (!strictMusic && bestFallbackResults && bestFallbackScore > 0) {
     return bestFallbackResults;
   }
 
   throw new Error(`Aucun resultat exploitable trouve via les fallbacks publics. ${errors.length > 0 ? `Dernieres erreurs: ${errors.join(' | ')}` : ''}`.trim());
 }
 
-async function fetchReadableUrl(url: string) {
+async function fetchDirectReadablePage(parsed: URL, headers: Record<string, string>): Promise<ReadablePage> {
+  const direct = await fetch(parsed.toString(), { headers, redirect: 'follow' });
+  if (!direct.ok) {
+    throw new Error(`Impossible de lire ${parsed.toString()} (${direct.status})`);
+  }
+
+  const contentType = direct.headers.get('content-type') || '';
+  const rawText = await direct.text();
+  const title = contentType.includes('text/html')
+    ? extractHtmlTitle(rawText)
+    : parsed.hostname;
+  const content = contentType.includes('text/html')
+    ? stripHtml(rawText)
+    : rawText.replace(/\s+/g, ' ').trim();
+  const quality = getReadablePageQuality(parsed.toString(), content);
+
+  return {
+    url: parsed.toString(),
+    title: clipText(title || parsed.hostname, 160),
+    content: clipText(content, MAX_WEB_FETCH_CHARS),
+    rawContent: rawText,
+    excerpt: normalizeReadableExcerpt(content),
+    source: contentType.includes('text/html') ? 'direct-html' : 'direct-text',
+    quality,
+    domain: stripWww(parsed.hostname),
+    isSearchPage: quality === 'serp',
+    isCatalogEvidence: quality === 'full' && !isLikelySearchEngineUrl(parsed.toString())
+  };
+}
+
+async function fetchJinaReadablePage(parsed: URL, headers: Record<string, string>): Promise<ReadablePage> {
+  const jinaUrl = `https://r.jina.ai/http://${parsed.host}${parsed.pathname}${parsed.search}`;
+  const response = await fetch(jinaUrl, { headers, redirect: 'follow' });
+  if (!response.ok) {
+    throw new Error(`Jina a renvoye ${response.status} pour ${parsed.toString()}`);
+  }
+
+  const rawText = await response.text();
+  const title = parseJinaTitle(rawText) || parsed.hostname;
+  const content = rawText.replace(/\r/g, '').trim();
+  const quality = getReadablePageQuality(parsed.toString(), content);
+
+  return {
+    url: parsed.toString(),
+    title: clipText(title, 160),
+    content: clipText(content, MAX_WEB_FETCH_CHARS),
+    rawContent: rawText,
+    excerpt: normalizeReadableExcerpt(content),
+    source: 'jina-ai',
+    quality,
+    domain: stripWww(parsed.hostname),
+    isSearchPage: quality === 'serp',
+    isCatalogEvidence: quality === 'full' && !isLikelySearchEngineUrl(parsed.toString())
+  };
+}
+
+async function fetchReadableUrlDetailed(url: string): Promise<ReadablePage> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -1248,49 +1496,621 @@ async function fetchReadableUrl(url: string) {
     Accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5'
   };
 
-  const direct = await fetch(parsed.toString(), { headers, redirect: 'follow' });
-  if (!direct.ok) {
-    throw new Error(`Impossible de lire ${parsed.toString()} (${direct.status})`);
-  }
+  const preferJina = shouldPreferJinaForUrl(parsed.toString());
+  let directPage: ReadablePage | null = null;
+  let jinaPage: ReadablePage | null = null;
+  const errors: string[] = [];
 
-  const contentType = direct.headers.get('content-type') || '';
-  const rawText = await direct.text();
-  let title = '';
-  let content = '';
-
-  if (contentType.includes('text/html')) {
-    title = extractHtmlTitle(rawText);
-    content = stripHtml(rawText);
-  } else {
-    title = parsed.hostname;
-    content = rawText.replace(/\s+/g, ' ').trim();
-  }
-
-  if (content.length < 240) {
+  if (!preferJina) {
     try {
-      const fallbackUrl = `https://r.jina.ai/http://${parsed.host}${parsed.pathname}${parsed.search}`;
-      const fallback = await fetch(fallbackUrl, { headers });
-      if (fallback.ok) {
-        const fallbackText = (await fallback.text()).replace(/\s+/g, ' ').trim();
-        if (fallbackText.length > content.length) {
-          content = fallbackText;
-        }
-      }
+      directPage = await fetchDirectReadablePage(parsed, headers);
     } catch (error) {
-      log.debug('Jina fallback fetch skipped', error);
+      errors.push(parseApiError(error));
     }
   }
 
+  if (
+    preferJina
+    || !directPage
+    || readableQualityScore(directPage.quality) < 3
+    || (isMusicPlatformDomain(stripWww(parsed.hostname)) && readableQualityScore(directPage.quality) < 3)
+  ) {
+    try {
+      jinaPage = await fetchJinaReadablePage(parsed, headers);
+    } catch (error) {
+      errors.push(parseApiError(error));
+    }
+  }
+
+  if (!directPage && !preferJina) {
+    try {
+      directPage = await fetchDirectReadablePage(parsed, headers);
+    } catch (error) {
+      errors.push(parseApiError(error));
+    }
+  }
+
+  const bestPage = [directPage, jinaPage]
+    .filter((page): page is ReadablePage => Boolean(page))
+    .sort((left, right) => readableQualityScore(right.quality) - readableQualityScore(left.quality))[0];
+
+  if (!bestPage) {
+    throw new Error(`Impossible de lire ${parsed.toString()}. ${errors.join(' | ')}`.trim());
+  }
+
+  return bestPage;
+}
+
+async function fetchReadableUrl(url: string) {
+  const page = await fetchReadableUrlDetailed(url);
   return {
-    url: parsed.toString(),
-    title: clipText(title || parsed.hostname, 160),
-    content: clipText(content, MAX_WEB_FETCH_CHARS),
-    excerpt: clipText(content, 320),
-    source: contentType.includes('text/html') ? 'direct-html' : 'direct-text'
+    url: page.url,
+    title: page.title,
+    content: page.content,
+    excerpt: page.excerpt,
+    source: page.source,
+    quality: page.quality,
+    domain: page.domain,
+    isCatalogEvidence: page.isCatalogEvidence
   };
 }
 
 // ─── Middleware ──────────────────────────────────────────────────
+type MusicLookupOptions = {
+  artistQuery: string;
+  ownedTracks?: string[];
+  includeFeatures?: boolean;
+  includeUnofficial?: boolean;
+  originalMessage?: string;
+};
+
+type MusicCatalogAccumulator = {
+  resolvedArtist: string;
+  officialTracks: Map<string, string>;
+  singleTracks: Map<string, string>;
+  albumTracks: Map<string, string>;
+  optionalFeatures: Map<string, string>;
+  uncertain: Map<string, string>;
+  sources: MusicCatalogSource[];
+  coverage: MusicCatalogCoverage;
+};
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractMarkdownLinks(markdown: string): Array<{ text: string; url: string }> {
+  const links: Array<{ text: string; url: string }> = [];
+  const regex = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(markdown))) {
+    const cleanedText = decodeHtmlEntities(match[1])
+      .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
+      .replace(/^#+\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    links.push({
+      text: cleanedText,
+      url: match[2].trim()
+    });
+  }
+
+  return links;
+}
+
+function extractMarkdownSection(markdown: string, headings: string[]): string {
+  const wanted = headings.map(heading => normalizeCoworkText(heading));
+  const lines = markdown.replace(/\r/g, '').split('\n');
+  const collected: string[] = [];
+  let capture = false;
+
+  for (const line of lines) {
+    if (/^##\s+/.test(line)) {
+      const normalizedHeading = normalizeCoworkText(line.replace(/^##\s+/, '').trim());
+      if (capture) break;
+      capture = wanted.some(heading => normalizedHeading.includes(heading));
+    }
+    if (capture) {
+      collected.push(line);
+    }
+  }
+
+  return collected.join('\n').trim();
+}
+
+function choosePreferredMusicLabel(current: string | undefined, next: string): string {
+  if (!current) return next;
+  const score = (value: string) => {
+    const normalized = normalizeCoworkText(value);
+    let total = value.length;
+    if (/\b(feat|ft|single|album|official|video|clip)\b/.test(normalized)) total += 18;
+    if (/[()[\]]/.test(value)) total += 8;
+    return total;
+  };
+  return score(next) < score(current) ? next : current;
+}
+
+function cleanMusicTitleCandidate(value: string, aliases: string[] = []): string {
+  let cleaned = decodeHtmlEntities(value || '')
+    .replace(/[\u200e\u200f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  for (const alias of aliases.map(alias => alias.trim()).filter(Boolean)) {
+    cleaned = cleaned.replace(new RegExp(`^${escapeRegExp(alias)}\\s*[-:|]\\s*`, 'i'), '').trim();
+  }
+
+  cleaned = cleaned
+    .replace(/\s*[-–]\s*(single|ep|album)\s*$/i, '')
+    .replace(/\s*\((official|clip officiel|audio officiel|visualizer)[^)]+\)\s*$/i, '')
+    .replace(/\s*\[(official|clip officiel|audio officiel|visualizer)[^\]]+\]\s*$/i, '')
+    .replace(/\s*\|\s*(official|clip officiel|audio officiel|visualizer).*/i, '')
+    .replace(/^[`"'“”]+|[`"'“”]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return cleaned.replace(/^[\-:|]\s*|\s*[\-:|]$/g, '').trim();
+}
+
+function normalizeTrackKey(value: string, aliases: string[] = []): string {
+  let normalized = normalizeCoworkText(cleanMusicTitleCandidate(value, aliases));
+  for (const alias of aliases.map(alias => normalizeCoworkText(alias)).filter(Boolean)) {
+    normalized = normalized.replace(new RegExp(`\\b${escapeRegExp(alias)}\\b`, 'g'), ' ');
+  }
+
+  return normalized
+    .replace(/\((feat|ft|featuring|avec)[^)]+\)/g, ' ')
+    .replace(/\b(feat|ft|featuring|avec)\.?\s+[a-z0-9\s&'.,-]+$/g, ' ')
+    .replace(/\s*[-–]\s*(single|ep|album)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function setMusicEntry(map: Map<string, string>, rawTitle: string, aliases: string[] = []) {
+  const cleaned = cleanMusicTitleCandidate(rawTitle, aliases);
+  const key = normalizeTrackKey(cleaned, aliases);
+  if (!cleaned || !key) return;
+  map.set(key, choosePreferredMusicLabel(map.get(key), cleaned));
+}
+
+function toSortedValues(map: Map<string, string>): string[] {
+  return [...map.values()].sort((left, right) => left.localeCompare(right, 'fr', { sensitivity: 'base' }));
+}
+
+function inferMusicSourceKind(url: string): MusicCatalogSourceKind {
+  const parsed = safeParseUrl(url);
+  if (!parsed) return 'artist';
+  const domain = stripWww(parsed.hostname);
+  const pathname = parsed.pathname.toLowerCase();
+
+  if (domainMatches(domain, 'youtube.com')) {
+    return pathname.includes('/watch') ? 'video' : 'artist';
+  }
+  if (pathname.includes('/song/')) return 'tracklist';
+  if (pathname.includes('/album/')) return 'album';
+  return 'artist';
+}
+
+function pushMusicSource(sources: MusicCatalogSource[], url: string, kind?: MusicCatalogSourceKind) {
+  const parsed = safeParseUrl(url);
+  if (!parsed) return;
+  const normalizedUrl = parsed.toString().split('#')[0];
+  if (sources.some(source => source.url === normalizedUrl)) return;
+  sources.push({
+    domain: stripWww(parsed.hostname),
+    url: normalizedUrl,
+    kind: kind || inferMusicSourceKind(normalizedUrl)
+  });
+}
+
+function parseAppleMusicArtistPage(page: ReadablePage, aliases: string[]) {
+  const raw = page.rawContent.replace(/\r/g, '');
+  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[–-]\s+Apple Music/mu);
+  const resolvedArtist = cleanMusicTitleCandidate(headerMatch?.[1] || '', aliases);
+
+  const topTracks = new Map<string, string>();
+  for (const link of extractMarkdownLinks(extractMarkdownSection(raw, ['classement des morceaux', 'top songs']))) {
+    if (link.url.includes('/artist/') || link.url.includes('#')) {
+      setMusicEntry(topTracks, link.text, aliases);
+    }
+  }
+
+  const singleTracks = new Map<string, string>();
+  for (const link of extractMarkdownLinks(extractMarkdownSection(raw, ['singles et ep', 'ep et singles', 'singles', 'singles & eps', 'singles and eps']))) {
+    if (link.url.includes('/album/')) {
+      setMusicEntry(singleTracks, link.text, aliases);
+    }
+  }
+
+  const albumUrls = [...new Set(
+    extractMarkdownLinks(extractMarkdownSection(raw, ['albums']))
+      .filter(link => link.url.includes('/album/'))
+      .map(link => link.url)
+  )];
+
+  const featureTracks = new Map<string, string>();
+  for (const link of extractMarkdownLinks(extractMarkdownSection(raw, ['apparait sur', 'appears on']))) {
+    if (link.url.includes('/album/')) {
+      setMusicEntry(featureTracks, link.text, aliases);
+    }
+  }
+
+  return {
+    resolvedArtist,
+    topTracks,
+    singleTracks,
+    albumUrls,
+    featureTracks
+  };
+}
+
+function parseAppleMusicSearchPage(page: ReadablePage, artistQuery: string) {
+  const raw = page.rawContent.replace(/\r/g, '');
+  const normalizedArtist = normalizeTrackKey(artistQuery);
+  const artistCandidates = [
+    ...[...raw.matchAll(/###\s+([^\]\n]+)\]\((https?:\/\/music\.apple\.com\/[^)]+\/artist\/[^)]+)\)/g)].map(match => ({
+      text: cleanMusicTitleCandidate(match[1]),
+      url: match[2]
+    })),
+    ...[...raw.matchAll(/\[\]\((https?:\/\/music\.apple\.com\/[^)]+\/artist\/[^)]+)\)[\s\S]{0,260}?\*\s+([^\n]+)\s*\n\s*\*\s+Artist/gi)].map(match => ({
+      text: cleanMusicTitleCandidate(match[2]),
+      url: match[1]
+    }))
+  ];
+  const albumCandidates = extractMarkdownLinks(extractMarkdownSection(raw, ['albums']))
+    .filter(link => link.url.includes('/album/'));
+  const singleTracks = new Map<string, string>();
+  for (const link of albumCandidates) {
+    if (/\b(single|ep)\b/i.test(link.text)) {
+      setMusicEntry(singleTracks, link.text, [artistQuery]);
+    }
+  }
+
+  const artistUrl = artistCandidates.find(link => normalizeTrackKey(link.text) === normalizedArtist)?.url
+    || artistCandidates.find(link => normalizeTrackKey(link.text).includes(normalizedArtist))?.url
+    || null;
+
+  return {
+    artistUrl,
+    albumUrls: [...new Set(albumCandidates.map(link => link.url))],
+    singleTracks
+  };
+}
+
+function parseAppleMusicAlbumPage(page: ReadablePage, aliases: string[]) {
+  const raw = page.rawContent.replace(/\r/g, '');
+  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[–-]\s+Album\b/mu);
+  const albumTitle = cleanMusicTitleCandidate(headerMatch?.[1] || '', aliases);
+  const tracks = new Map<string, string>();
+
+  for (const link of extractMarkdownLinks(raw)) {
+    if (link.url.includes('/song/')) {
+      setMusicEntry(tracks, link.text, aliases);
+    }
+  }
+
+  return { albumTitle, tracks };
+}
+
+function parseYouTubeVideosPage(page: ReadablePage, aliases: string[]) {
+  const raw = page.rawContent.replace(/\r/g, '');
+  const officialTracks = new Map<string, string>();
+  const unofficialTracks = new Map<string, string>();
+  const regex = /^###\s+\[(.+?)\]\((https?:\/\/www\.youtube\.com\/watch\?v=[^) ]+)(?:\s+"[^"]*")?\)/gm;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(raw))) {
+    const title = cleanMusicTitleCandidate(match[1], aliases);
+    const normalized = normalizeCoworkText(title);
+    if (!title || title.length < 2) continue;
+
+    if (/\b(freestyle|planete rap|planet rap|live|session|interview|shorts?|teaser|preview|making of)\b/.test(normalized)) {
+      setMusicEntry(unofficialTracks, title, aliases);
+    } else {
+      setMusicEntry(officialTracks, title, aliases);
+    }
+  }
+
+  return { officialTracks, unofficialTracks };
+}
+
+function extractOwnedTracksFromMessage(message: string, artistQuery: string): string[] {
+  if (!message.trim()) return [];
+
+  const candidates: string[] = [];
+  const quotedRegex = /["“”'`](.{2,80}?)["“”'`]/g;
+  let quotedMatch: RegExpExecArray | null;
+  while ((quotedMatch = quotedRegex.exec(message))) {
+    candidates.push(quotedMatch[1]);
+  }
+
+  const aliasRegex = artistQuery ? new RegExp(`\\b${escapeRegExp(artistQuery)}\\b`, 'ig') : null;
+  const splitPieces = message
+    .replace(/\bet\s+/gi, ', ')
+    .split(/[,;\n]/)
+    .map(piece => piece.trim())
+    .filter(Boolean);
+
+  for (const piece of splitPieces) {
+    let candidate = piece
+      .replace(/^.*?\b(j['’ ]?ai|je possede|je possede deja|je l'ai|je l ai)\b/i, '')
+      .replace(/\b(le|les|son|sons|titre|titres|track|tracks|morceau|morceaux|chanson|chansons)\b/gi, ' ')
+      .replace(/\b(dis moi|dis-moi|je les veux tous|je veux tous|tout ce qu[ei]'?l me manque|ceux qu[ei]'?l me manque)\b.*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (aliasRegex) {
+      candidate = candidate.replace(aliasRegex, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    if (!candidate) continue;
+    if (candidate.split(/\s+/).length > 8) continue;
+    candidates.push(candidate);
+  }
+
+  const unique = new Map<string, string>();
+  for (const candidate of candidates) {
+    const cleaned = cleanMusicTitleCandidate(candidate, [artistQuery]);
+    const key = normalizeTrackKey(cleaned, [artistQuery]);
+    if (!cleaned || !key) continue;
+    unique.set(key, choosePreferredMusicLabel(unique.get(key), cleaned));
+  }
+
+  return [...unique.values()];
+}
+
+function buildMusicSeedQueries(
+  artistQuery: string,
+  ownedTracks: string[],
+  includeFeatures: boolean,
+  includeUnofficial: boolean
+) {
+  const wantsFreestyleLookup = includeUnofficial || ownedTracks.some(track => /\b(planete rap|planet rap|freestyle)\b/i.test(track));
+  const queries = [
+    { query: `${artistQuery} Apple Music`, priority: 0 },
+    { query: `${artistQuery} YouTube`, priority: 1 },
+    { query: `${artistQuery} TrackMusik`, priority: 2 },
+  ];
+
+  if (includeFeatures) {
+    queries.push({ query: `${artistQuery} feat Apple Music`, priority: 3 });
+  }
+  if (wantsFreestyleLookup) {
+    queries.push({ query: `${artistQuery} Planete Rap YouTube`, priority: 4 });
+  }
+
+  return queries;
+}
+
+export async function musicCatalogLookup(options: MusicLookupOptions): Promise<MusicCatalogLookupResult> {
+  const artistQuery = options.artistQuery.trim();
+  const includeFeatures = options.includeFeatures !== false;
+  const includeUnofficial = options.includeUnofficial === true;
+  const ownedTracks = (options.ownedTracks && options.ownedTracks.length > 0
+    ? options.ownedTracks
+    : extractOwnedTracksFromMessage(options.originalMessage || '', artistQuery)
+  )
+    .map(track => track.trim())
+    .filter(Boolean);
+
+  const aliases = [artistQuery];
+  const accumulator: MusicCatalogAccumulator = {
+    resolvedArtist: artistQuery,
+    officialTracks: new Map<string, string>(),
+    singleTracks: new Map<string, string>(),
+    albumTracks: new Map<string, string>(),
+    optionalFeatures: new Map<string, string>(),
+    uncertain: new Map<string, string>(),
+    sources: [],
+    coverage: {
+      distinctDomains: 0,
+      hasCatalogPage: false,
+      hasAlbumTracklist: false
+    }
+  };
+
+  const searchErrors: string[] = [];
+  const candidateUrls = new Map<string, { url: string; domain: string; priority: number }>();
+
+  for (const seed of buildMusicSeedQueries(artistQuery, ownedTracks, includeFeatures, includeUnofficial)) {
+    try {
+      const results = await searchWeb(seed.query, 5, { strictMusic: true });
+      for (const result of results) {
+        const parsed = safeParseUrl(result.url);
+        if (!parsed) continue;
+        const normalizedUrl = parsed.toString().split('#')[0];
+        const domain = stripWww(parsed.hostname);
+        if (isLikelySearchEngineUrl(normalizedUrl) || !isMusicPlatformDomain(domain)) continue;
+        const current = candidateUrls.get(normalizedUrl);
+        if (!current || seed.priority < current.priority) {
+          candidateUrls.set(normalizedUrl, { url: normalizedUrl, domain, priority: seed.priority });
+        }
+      }
+    } catch (error) {
+      searchErrors.push(parseApiError(error));
+    }
+  }
+
+  const sortedCandidates = [...candidateUrls.values()].sort((left, right) => left.priority - right.priority);
+  let appleArtistUrl = sortedCandidates.find(candidate => domainMatches(candidate.domain, 'music.apple.com') && candidate.url.includes('/artist/'))?.url;
+  let appleAlbumUrl = sortedCandidates.find(candidate => domainMatches(candidate.domain, 'music.apple.com') && candidate.url.includes('/album/'))?.url;
+  const youtubeArtistUrl = sortedCandidates.find(candidate => domainMatches(candidate.domain, 'youtube.com') && !candidate.url.includes('/watch') && !candidate.url.includes('/results'))?.url;
+  const trackmusikUrl = sortedCandidates.find(candidate => domainMatches(candidate.domain, 'trackmusik.fr'))?.url;
+
+  if (!appleArtistUrl || !appleAlbumUrl) {
+    try {
+      const appleSearchPage = await fetchReadableUrlDetailed(`https://music.apple.com/us/search?term=${encodeURIComponent(artistQuery)}`);
+      const appleSearch = parseAppleMusicSearchPage(appleSearchPage, artistQuery);
+      appleArtistUrl = appleArtistUrl || appleSearch.artistUrl || undefined;
+      appleAlbumUrl = appleAlbumUrl || appleSearch.albumUrls[0] || undefined;
+      for (const [key, title] of appleSearch.singleTracks) {
+        accumulator.singleTracks.set(key, choosePreferredMusicLabel(accumulator.singleTracks.get(key), title));
+        accumulator.officialTracks.set(key, choosePreferredMusicLabel(accumulator.officialTracks.get(key), title));
+      }
+    } catch (error) {
+      searchErrors.push(parseApiError(error));
+    }
+  }
+
+  const initialUrls = [appleArtistUrl, youtubeArtistUrl, trackmusikUrl, appleAlbumUrl].filter((value): value is string => Boolean(value));
+  const visitedUrls = new Set<string>();
+
+  for (const url of initialUrls) {
+    visitedUrls.add(url);
+    try {
+      const page = await fetchReadableUrlDetailed(url);
+      if (domainMatches(page.domain, 'music.apple.com') && url.includes('/artist/')) {
+        const parsed = parseAppleMusicArtistPage(page, aliases);
+        if (parsed.resolvedArtist) {
+          accumulator.resolvedArtist = parsed.resolvedArtist;
+          aliases.push(parsed.resolvedArtist);
+        }
+        if (parsed.topTracks.size > 0 || parsed.singleTracks.size > 0 || parsed.albumUrls.length > 0) {
+          accumulator.coverage.hasCatalogPage = true;
+        }
+        for (const [key, title] of parsed.topTracks) {
+          accumulator.officialTracks.set(key, choosePreferredMusicLabel(accumulator.officialTracks.get(key), title));
+        }
+        for (const [key, title] of parsed.singleTracks) {
+          accumulator.singleTracks.set(key, choosePreferredMusicLabel(accumulator.singleTracks.get(key), title));
+          accumulator.officialTracks.set(key, choosePreferredMusicLabel(accumulator.officialTracks.get(key), title));
+        }
+        if (includeFeatures) {
+          for (const [key, title] of parsed.featureTracks) {
+            accumulator.optionalFeatures.set(key, choosePreferredMusicLabel(accumulator.optionalFeatures.get(key), title));
+          }
+        }
+        pushMusicSource(accumulator.sources, url, 'artist');
+
+        for (const albumUrl of parsed.albumUrls.slice(0, 3)) {
+          if (visitedUrls.has(albumUrl)) continue;
+          visitedUrls.add(albumUrl);
+          try {
+            const albumPage = await fetchReadableUrlDetailed(albumUrl);
+            const albumData = parseAppleMusicAlbumPage(albumPage, aliases);
+            if (albumData.tracks.size > 0) {
+              accumulator.coverage.hasAlbumTracklist = true;
+              for (const [key, title] of albumData.tracks) {
+                accumulator.albumTracks.set(key, choosePreferredMusicLabel(accumulator.albumTracks.get(key), title));
+                accumulator.officialTracks.set(key, choosePreferredMusicLabel(accumulator.officialTracks.get(key), title));
+              }
+              pushMusicSource(accumulator.sources, albumUrl, 'tracklist');
+            }
+          } catch (error) {
+            searchErrors.push(parseApiError(error));
+          }
+        }
+      } else if (domainMatches(page.domain, 'music.apple.com') && url.includes('/album/')) {
+        const albumData = parseAppleMusicAlbumPage(page, aliases);
+        if (albumData.tracks.size > 0) {
+          accumulator.coverage.hasAlbumTracklist = true;
+          for (const [key, title] of albumData.tracks) {
+            accumulator.albumTracks.set(key, choosePreferredMusicLabel(accumulator.albumTracks.get(key), title));
+            accumulator.officialTracks.set(key, choosePreferredMusicLabel(accumulator.officialTracks.get(key), title));
+          }
+          pushMusicSource(accumulator.sources, url, 'tracklist');
+        }
+      } else if (domainMatches(page.domain, 'youtube.com')) {
+        const youtubeData = parseYouTubeVideosPage(page, aliases);
+        for (const [key, title] of youtubeData.officialTracks) {
+          accumulator.officialTracks.set(key, choosePreferredMusicLabel(accumulator.officialTracks.get(key), title));
+        }
+        if (includeUnofficial) {
+          for (const [key, title] of youtubeData.unofficialTracks) {
+            accumulator.uncertain.set(key, choosePreferredMusicLabel(accumulator.uncertain.get(key), title));
+          }
+        }
+        pushMusicSource(accumulator.sources, url, 'artist');
+      } else if (domainMatches(page.domain, 'trackmusik.fr')) {
+        if (normalizeCoworkText(page.rawContent).includes('toute la discographie')) {
+          accumulator.coverage.hasCatalogPage = true;
+        }
+        pushMusicSource(accumulator.sources, url, 'artist');
+      }
+    } catch (error) {
+      searchErrors.push(parseApiError(error));
+    }
+  }
+
+  accumulator.coverage.distinctDomains = new Set(accumulator.sources.map(source => source.domain)).size;
+
+  const ownedMap = new Map<string, string>();
+  for (const track of ownedTracks) {
+    const cleaned = cleanMusicTitleCandidate(track, aliases);
+    const key = normalizeTrackKey(cleaned, aliases);
+    if (!cleaned || !key) continue;
+    ownedMap.set(key, choosePreferredMusicLabel(ownedMap.get(key), cleaned));
+  }
+
+  const ownedConfirmed = new Map<string, string>();
+  const allKnownTracks = new Map<string, string>();
+  for (const collection of [accumulator.officialTracks, accumulator.optionalFeatures, accumulator.uncertain]) {
+    for (const [key, title] of collection) {
+      allKnownTracks.set(key, choosePreferredMusicLabel(allKnownTracks.get(key), title));
+    }
+  }
+  for (const [key, title] of ownedMap) {
+    const confirmed = allKnownTracks.get(key);
+    if (confirmed) {
+      ownedConfirmed.set(key, choosePreferredMusicLabel(title, confirmed));
+    }
+  }
+
+  const missingConfirmed = new Map<string, string>();
+  for (const [key, title] of accumulator.officialTracks) {
+    if (!ownedMap.has(key) && !accumulator.optionalFeatures.has(key)) {
+      missingConfirmed.set(key, title);
+    }
+  }
+
+  const albumOnly = new Map<string, string>();
+  for (const [key, title] of accumulator.albumTracks) {
+    if (!accumulator.singleTracks.has(key) && !ownedMap.has(key)) {
+      albumOnly.set(key, title);
+    }
+  }
+
+  const optionalFeatures = new Map<string, string>();
+  if (includeFeatures) {
+    for (const [key, title] of accumulator.optionalFeatures) {
+      if (!ownedMap.has(key)) {
+        optionalFeatures.set(key, title);
+      }
+    }
+  }
+
+  const partial =
+    accumulator.coverage.distinctDomains < 2
+    || !accumulator.coverage.hasCatalogPage
+    || !accumulator.coverage.hasAlbumTracklist;
+
+  const messageParts = [
+    `Couverture: ${accumulator.coverage.distinctDomains} domaine(s) distinct(s).`,
+    accumulator.coverage.hasCatalogPage ? 'Catalogue artiste confirme.' : 'Catalogue artiste incomplet.',
+    accumulator.coverage.hasAlbumTracklist ? 'Tracklist album confirmee.' : 'Tracklist album manquante.'
+  ];
+  if (searchErrors.length > 0) {
+    messageParts.push(`Incidents sources: ${clipText(searchErrors.join(' | '), 220)}.`);
+  }
+
+  return {
+    success: true,
+    artistQuery,
+    resolvedArtist: accumulator.resolvedArtist,
+    ownedConfirmed: toSortedValues(ownedConfirmed),
+    missingConfirmed: toSortedValues(missingConfirmed),
+    albumOnly: toSortedValues(albumOnly),
+    optionalFeatures: toSortedValues(optionalFeatures),
+    uncertain: toSortedValues(accumulator.uncertain),
+    sources: accumulator.sources,
+    coverage: accumulator.coverage,
+    partial,
+    message: messageParts.join(' ')
+  };
+}
+
 app.use(express.json({ limit: MAX_PAYLOAD }));
 app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
 
@@ -1718,6 +2538,12 @@ app.post('/api/cowork', async (req, res) => {
 
     const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
     const formatToolMeta = (toolName: string, args: any) => {
+      if (toolName === 'music_catalog_lookup') {
+        return {
+          artist: clipText(args?.artistQuery || '', 80),
+          owned: Array.isArray(args?.ownedTracks) ? args.ownedTracks.length : 0
+        };
+      }
       if (toolName === 'web_search') {
         return { query: clipText(args?.query || '', 140), maxResults: Number(args?.maxResults || 5) };
       }
@@ -1733,6 +2559,17 @@ app.post('/api/cowork', async (req, res) => {
       return undefined;
     };
     const formatToolResultPreview = (toolName: string, output: any) => {
+      if (toolName === 'music_catalog_lookup') {
+        const coverage = output?.coverage;
+        const sources = Array.isArray(output?.sources) ? output.sources.length : 0;
+        return [
+          output?.resolvedArtist ? `Artiste: ${output.resolvedArtist}` : null,
+          Array.isArray(output?.missingConfirmed) ? `${output.missingConfirmed.length} titre(s) confirmes manquants` : null,
+          coverage ? `${coverage.distinctDomains} domaine(s), catalogue=${coverage.hasCatalogPage ? 'oui' : 'non'}, album=${coverage.hasAlbumTracklist ? 'oui' : 'non'}` : null,
+          sources > 0 ? `${sources} source(s)` : null,
+          output?.partial ? 'Couverture partielle' : 'Couverture confirmee'
+        ].filter(Boolean).join(' | ');
+      }
       if (toolName === 'web_search') {
         const results = Array.isArray(output?.results) ? output.results : [];
         const queryPrefix = output?.originalQuery
@@ -1769,6 +2606,43 @@ app.post('/api/cowork', async (req, res) => {
           message,
           nextAction: nextAction || null
         })
+      },
+      {
+        name: "music_catalog_lookup",
+        description: "Resout un artiste musical et compare les titres deja possedes avec les sorties officielles confirmees (singles, album, feats optionnels). A utiliser en premier pour les demandes du type 'qu'est-ce qu'il me manque ?'.",
+        parameters: {
+          type: "object",
+          properties: {
+            artistQuery: { type: "string", description: "Pseudo exact de l'artiste a verifier." },
+            ownedTracks: {
+              type: "array",
+              description: "Titres que l'utilisateur dit deja posseder.",
+              items: { type: "string" }
+            },
+            includeFeatures: { type: "boolean", description: "Inclure les feats et apparitions." },
+            includeUnofficial: { type: "boolean", description: "Inclure les freestyles, videos ou sorties non strictement catalogue." }
+          },
+          required: ["artistQuery"]
+        },
+        execute: async ({
+          artistQuery,
+          ownedTracks,
+          includeFeatures,
+          includeUnofficial
+        }: {
+          artistQuery: string;
+          ownedTracks?: string[];
+          includeFeatures?: boolean;
+          includeUnofficial?: boolean;
+        }) => {
+          return musicCatalogLookup({
+            artistQuery,
+            ownedTracks,
+            includeFeatures,
+            includeUnofficial,
+            originalMessage: message
+          });
+        }
       },
       {
         name: "list_files",
@@ -2512,12 +3386,74 @@ app.post('/api/cowork', async (req, res) => {
     const MAX_RESEARCH_COMPLETION_NUDGES = 2;
     const runMeta = createEmptyCoworkRunMeta();
 
-    // Anti-loop detection: track consecutive failures per tool
-    const toolFailures: Record<string, number> = {};
-    const MAX_TOOL_FAILURES = 2; // If same tool fails 2x, inject a warning to force different approach
-    const successfulResearchMeta = {
+    const toolFailureScopes = new Map<string, number>();
+    const MAX_TOOL_FAILURES = 2;
+    const successfulResearchMeta: MusicResearchProgress = {
       webSearches: 0,
-      webFetches: 0
+      webFetches: 0,
+      musicCatalogCompleted: false,
+      musicCatalogCoverage: null
+    };
+
+    const getToolFailureScope = (toolName: string, args: any) => {
+      if (toolName === 'web_search') {
+        const query = String(args?.query || '').trim();
+        const normalizedQuery = normalizeCoworkText(query).replace(/\s+/g, ' ').trim() || 'vide';
+        const family = extractSearchAnchorTokens(query).slice(0, 3).join(' ') || normalizedQuery;
+        return {
+          exactKey: `${toolName}:query:${normalizedQuery}`,
+          familyKey: `${toolName}:family:${family}`,
+          label: query || '(requete vide)'
+        };
+      }
+
+      if (toolName === 'web_fetch') {
+        const url = String(args?.url || '').trim();
+        const parsed = safeParseUrl(url);
+        const normalizedUrl = parsed ? parsed.toString().split('#')[0] : normalizeCoworkText(url);
+        const hostname = parsed ? stripWww(parsed.hostname) : normalizeCoworkText(url);
+        return {
+          exactKey: `${toolName}:url:${normalizedUrl || 'vide'}`,
+          familyKey: `${toolName}:host:${hostname || 'vide'}`,
+          label: url || '(url vide)'
+        };
+      }
+
+      return {
+        exactKey: `${toolName}:global`,
+        familyKey: `${toolName}:global`,
+        label: toolName
+      };
+    };
+
+    const getToolFailureCount = (scope: { exactKey: string; familyKey: string }) => {
+      return Math.max(
+        toolFailureScopes.get(scope.exactKey) || 0,
+        toolFailureScopes.get(scope.familyKey) || 0
+      );
+    };
+
+    const clearToolFailures = (scope: { exactKey: string; familyKey: string }) => {
+      toolFailureScopes.delete(scope.exactKey);
+      toolFailureScopes.delete(scope.familyKey);
+    };
+
+    const recordToolFailure = (
+      scope: { exactKey: string; familyKey: string },
+      transient: boolean
+    ) => {
+      if (transient) return 0;
+      const nextExact = (toolFailureScopes.get(scope.exactKey) || 0) + 1;
+      const nextFamily = (toolFailureScopes.get(scope.familyKey) || 0) + 1;
+      toolFailureScopes.set(scope.exactKey, nextExact);
+      toolFailureScopes.set(scope.familyKey, nextFamily);
+      return Math.max(nextExact, nextFamily);
+    };
+
+    const isTransientToolIssue = (toolName: string, errorLike: unknown) => {
+      if (toolName !== 'web_search' && toolName !== 'web_fetch') return false;
+      const normalized = normalizeCoworkText(parseApiError(errorLike));
+      return /\b(403|429|quota|simultan|concurrent|temporar|indisponible|unavailable|deadline exceeded|too many requests|saturation)\b/.test(normalized);
     };
 
     const gateKey = sessionId ? `session:${sessionId}` : `ip:${req.ip || 'unknown'}`;
@@ -2647,7 +3583,7 @@ app.post('/api/cowork', async (req, res) => {
                   response: output
                 }
               });
-              toolFailures[tool.name] = 0;
+              clearToolFailures(getToolFailureScope(tool.name, call.args));
               emitEvent('narration', {
                 iteration: iterations,
                 title: clipText(output.stage || 'Progression', 80),
@@ -2661,10 +3597,11 @@ app.post('/api/cowork', async (req, res) => {
               continue;
             }
 
-            // Anti-loop: check if this tool has already failed too many times
-            if (toolFailures[tool.name] >= MAX_TOOL_FAILURES) {
-              log.warn(`Anti-loop: tool ${tool.name} has failed ${toolFailures[tool.name]} times, blocking and injecting guidance`);
-              const loopMsg = `L'outil '${tool.name}' a deja echoue ${toolFailures[tool.name]} fois. Arrete de l'utiliser et adopte une approche differente. Si tu essayais Python, rappelle-toi que Python n'est pas disponible.`;
+            const toolScope = getToolFailureScope(tool.name, call.args);
+            const currentFailureCount = getToolFailureCount(toolScope);
+            if (currentFailureCount >= MAX_TOOL_FAILURES) {
+              log.warn(`Anti-loop: tool ${tool.name} scope ${toolScope.label} has failed ${currentFailureCount} times, blocking and injecting guidance`);
+              const loopMsg = `L'outil '${tool.name}' est actuellement bloque pour '${toolScope.label}' apres ${currentFailureCount} echecs proches. Change d'angle, de requete ou de source au lieu d'insister.`;
               toolResults.push({
                 functionResponse: {
                   ...(call.id ? { id: call.id } : {}),
@@ -2675,7 +3612,7 @@ app.post('/api/cowork', async (req, res) => {
               emitEvent('warning', {
                 iteration: iterations,
                 title: 'Anti-boucle',
-                message: `L'outil ${tool.name} est bloque apres ${toolFailures[tool.name]} echecs consecutifs.`,
+                message: `L'outil ${tool.name} est bloque pour '${clipText(toolScope.label, 120)}' apres ${currentFailureCount} echecs proches.`,
                 toolName: tool.name,
                 runMeta
               });
@@ -2697,6 +3634,7 @@ app.post('/api/cowork', async (req, res) => {
             try {
               const output = await tool.execute(call.args);
               const isError = (output as any).success === false || (output as any).error;
+              const transientIssue = isError && isTransientToolIssue(tool.name, (output as any).error || (output as any).message || output);
               if (!isError && tool.name === 'release_file' && typeof (output as any).url === 'string') {
                 latestReleasedFile = {
                   url: (output as any).url,
@@ -2712,12 +3650,15 @@ app.post('/api/cowork', async (req, res) => {
               }
 
               if (isError) {
-                toolFailures[tool.name] = (toolFailures[tool.name] || 0) + 1;
+                recordToolFailure(toolScope, transientIssue);
               } else {
-                // Reset failure counter on success
-                toolFailures[tool.name] = 0;
+                clearToolFailures(toolScope);
                 if (tool.name === 'web_search') successfulResearchMeta.webSearches += 1;
                 if (tool.name === 'web_fetch') successfulResearchMeta.webFetches += 1;
+                if (tool.name === 'music_catalog_lookup') {
+                  successfulResearchMeta.musicCatalogCoverage = (output as any).coverage || null;
+                  successfulResearchMeta.musicCatalogCompleted = !(output as any).partial;
+                }
               }
 
               toolResults.push({
@@ -2730,14 +3671,24 @@ app.post('/api/cowork', async (req, res) => {
               emitEvent('tool_result', {
                 iteration: iterations,
                 toolName: tool.name,
-                status: isError ? 'error' : 'success',
+                status: isError && !transientIssue ? 'error' : 'success',
                 resultPreview: formatToolResultPreview(tool.name, output),
                 meta: formatToolMeta(tool.name, call.args),
                 runMeta
               });
+              if (isError && transientIssue) {
+                emitEvent('status', {
+                  iteration: iterations,
+                  title: 'Source degradee',
+                  message: `L'outil ${tool.name} a rencontre un incident transitoire sur '${clipText(toolScope.label, 120)}'. Cowork peut tenter une autre piste sans bloquer cette strategie.`,
+                  runState: 'running',
+                  runMeta
+                });
+              }
             } catch (err: any) {
-              toolFailures[tool.name] = (toolFailures[tool.name] || 0) + 1;
-              log.error(`Tool ${tool.name} failed (attempt ${toolFailures[tool.name]})`, err);
+              const transientIssue = isTransientToolIssue(tool.name, err);
+              const failureCount = recordToolFailure(toolScope, transientIssue);
+              log.error(`Tool ${tool.name} failed${transientIssue ? ' transiently' : ` (attempt ${failureCount})`}`, err);
               toolResults.push({
                 functionResponse: {
                   ...(call.id ? { id: call.id } : {}),
@@ -2748,11 +3699,20 @@ app.post('/api/cowork', async (req, res) => {
               emitEvent('tool_result', {
                 iteration: iterations,
                 toolName: tool.name,
-                status: 'error',
+                status: transientIssue ? 'success' : 'error',
                 resultPreview: clipText(err.message || String(err), 240),
                 meta: formatToolMeta(tool.name, call.args),
                 runMeta
               });
+              if (transientIssue) {
+                emitEvent('status', {
+                  iteration: iterations,
+                  title: 'Source degradee',
+                  message: `L'outil ${tool.name} a rencontre un incident transitoire sur '${clipText(toolScope.label, 120)}'. Cowork peut poursuivre avec une autre source.`,
+                  runState: 'running',
+                  runMeta
+                });
+              }
             }
           } else {
             log.warn(`Unknown tool called: ${call.name}`);

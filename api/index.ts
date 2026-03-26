@@ -151,15 +151,16 @@ function resolveAndValidatePath(filePath: string): string {
     throw new Error("Accès refusé : chemin en dehors des zones autorisées.");
   }
 
-  // If path is relative, try resolving against process.cwd() first
-  const projectPath = path.resolve(process.cwd(), filePath);
-  if (projectPath.startsWith(process.cwd())) return projectPath;
-
-  // Fallback for Vercel: allow relative paths in /tmp if project is read-only
+  // Fallback for Vercel: prioritize relative paths in /tmp if project is likely read-only
   if (process.env.VERCEL) {
     const tmpPath = path.resolve('/tmp', filePath);
-    if (tmpPath.startsWith('/tmp')) return tmpPath;
+    // Ensure we don't escape /tmp
+    if (tmpPath.startsWith('/tmp') || tmpPath.startsWith(path.normalize('/tmp'))) return tmpPath;
   }
+
+  // If path is relative, try resolving against process.cwd()
+  const projectPath = path.resolve(process.cwd(), filePath);
+  if (projectPath.startsWith(process.cwd())) return projectPath;
 
   throw new Error("Accès refusé hors du projet.");
 }
@@ -635,6 +636,35 @@ app.post('/api/cowork', async (req, res) => {
           const url = await uploadToGCS(buffer, fileName, mimeType);
           return { success: true, url, message: `Fichier ${filePath} uploadé avec succès. Voici le lien de téléchargement.` };
         }
+      },
+      {
+        name: "execute_script",
+        description: "Exécute un script (Python ou Node.js) préalablement écrit sur le disque. Utile pour générer des PDF, traiter des données, etc.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Chemin du script à exécuter (ex: /tmp/script.py)." },
+            language: { type: "string", enum: ["python", "node"], description: "Le langage du script." }
+          },
+          required: ["path", "language"]
+        },
+        execute: async ({ path: filePath, language }: { path: string, language: "python" | "node" }) => {
+          const absolutePath = resolveAndValidatePath(filePath);
+          if (!fs.existsSync(absolutePath)) throw new Error(`Le script ${filePath} n'existe pas.`);
+          
+          const { exec } = await import('child_process');
+          const command = language === 'python' ? `python "${absolutePath}"` : `node "${absolutePath}"`;
+          
+          return new Promise((resolve) => {
+            exec(command, (error, stdout, stderr) => {
+              if (error) {
+                resolve({ success: false, error: error.message, stderr });
+              } else {
+                resolve({ success: true, stdout, stderr });
+              }
+            });
+          });
+        }
       }
     ];
 
@@ -656,9 +686,9 @@ Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes sur s
 Tu as accès à des outils pour lire, lister et modifier des fichiers. 
 
 IMPORTANT (Environnement Serverless / Vercel) : 
-- Le dossier racine du projet est en LECTURE SEULE sur Vercel. 
 - Pour créer des fichiers, des rapports, des PDF ou des images, tu DOIS impérativement utiliser le dossier '/tmp/' (ex: '/tmp/rapport.pdf').
-- Une fois le fichier créé dans '/tmp/', utilise l'outil 'release_file' sur ce même chemin pour obtenir un lien de téléchargement public.
+- Si tu dois exécuter du code (ex: générer un PDF avec Python), écris d'abord le script dans '/tmp/script.py' avec 'write_file', puis exécute-le avec l'outil local 'execute_script'.
+- Une fois le fichier final généré dans '/tmp/', utilise l'outil 'release_file' sur ce même chemin pour obtenir un lien de téléchargement public.
 
 Donne toujours ce lien à l'utilisateur sous forme de lien Markdown dans ta réponse finale.
 Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait via un outil.

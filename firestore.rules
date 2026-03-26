@@ -73,11 +73,36 @@ service cloud.firestore {
     function isValidCoworkRunMeta(data) {
       return !('runMeta' in data) || (
         data.runMeta is map &&
-        data.runMeta.keys().hasOnly(['iterations', 'toolCalls', 'webSearches', 'webFetches']) &&
+        data.runMeta.keys().hasOnly([
+          'iterations',
+          'modelCalls',
+          'toolCalls',
+          'webSearches',
+          'webFetches',
+          'retryCount',
+          'queueWaitMs',
+          'inputTokens',
+          'outputTokens',
+          'thoughtTokens',
+          'toolUseTokens',
+          'totalTokens',
+          'estimatedCostUsd',
+          'estimatedCostEur'
+        ]) &&
         (!('iterations' in data.runMeta) || data.runMeta.iterations is number) &&
+        (!('modelCalls' in data.runMeta) || data.runMeta.modelCalls is number) &&
         (!('toolCalls' in data.runMeta) || data.runMeta.toolCalls is number) &&
         (!('webSearches' in data.runMeta) || data.runMeta.webSearches is number) &&
-        (!('webFetches' in data.runMeta) || data.runMeta.webFetches is number)
+        (!('webFetches' in data.runMeta) || data.runMeta.webFetches is number) &&
+        (!('retryCount' in data.runMeta) || data.runMeta.retryCount is number) &&
+        (!('queueWaitMs' in data.runMeta) || data.runMeta.queueWaitMs is number) &&
+        (!('inputTokens' in data.runMeta) || data.runMeta.inputTokens is number) &&
+        (!('outputTokens' in data.runMeta) || data.runMeta.outputTokens is number) &&
+        (!('thoughtTokens' in data.runMeta) || data.runMeta.thoughtTokens is number) &&
+        (!('toolUseTokens' in data.runMeta) || data.runMeta.toolUseTokens is number) &&
+        (!('totalTokens' in data.runMeta) || data.runMeta.totalTokens is number) &&
+        (!('estimatedCostUsd' in data.runMeta) || data.runMeta.estimatedCostUsd is number) &&
+        (!('estimatedCostEur' in data.runMeta) || data.runMeta.estimatedCostEur is number)
       );
     }
 

@@ -30,6 +30,7 @@ export type CoworkStreamEvent =
       timestamp?: number;
       iteration?: number;
       text?: string;
+      runMeta?: Partial<RunMeta>;
     }
   | {
       type: 'tool_call';
@@ -64,6 +65,7 @@ export type CoworkStreamEvent =
       timestamp?: number;
       iteration?: number;
       text?: string;
+      runMeta?: Partial<RunMeta>;
     }
   | {
       type: 'done';
@@ -78,14 +80,25 @@ export type CoworkStreamEvent =
       iteration?: number;
       message?: string;
       runState?: RunState;
+      runMeta?: Partial<RunMeta>;
     };
 
 export function createEmptyRunMeta(): RunMeta {
   return {
     iterations: 0,
+    modelCalls: 0,
     toolCalls: 0,
     webSearches: 0,
     webFetches: 0,
+    retryCount: 0,
+    queueWaitMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    thoughtTokens: 0,
+    toolUseTokens: 0,
+    totalTokens: 0,
+    estimatedCostUsd: 0,
+    estimatedCostEur: 0,
   };
 }
 
@@ -127,9 +140,19 @@ function pushActivity(message: Message, item: ActivityItem): Message {
 function mergeRunMeta(current?: Partial<RunMeta>, incoming?: Partial<RunMeta>): RunMeta {
   return {
     iterations: Math.max(Number(current?.iterations || 0), Number(incoming?.iterations || 0)),
+    modelCalls: Math.max(Number(current?.modelCalls || 0), Number(incoming?.modelCalls || 0)),
     toolCalls: Math.max(Number(current?.toolCalls || 0), Number(incoming?.toolCalls || 0)),
     webSearches: Math.max(Number(current?.webSearches || 0), Number(incoming?.webSearches || 0)),
     webFetches: Math.max(Number(current?.webFetches || 0), Number(incoming?.webFetches || 0)),
+    retryCount: Math.max(Number(current?.retryCount || 0), Number(incoming?.retryCount || 0)),
+    queueWaitMs: Math.max(Number(current?.queueWaitMs || 0), Number(incoming?.queueWaitMs || 0)),
+    inputTokens: Math.max(Number(current?.inputTokens || 0), Number(incoming?.inputTokens || 0)),
+    outputTokens: Math.max(Number(current?.outputTokens || 0), Number(incoming?.outputTokens || 0)),
+    thoughtTokens: Math.max(Number(current?.thoughtTokens || 0), Number(incoming?.thoughtTokens || 0)),
+    toolUseTokens: Math.max(Number(current?.toolUseTokens || 0), Number(incoming?.toolUseTokens || 0)),
+    totalTokens: Math.max(Number(current?.totalTokens || 0), Number(incoming?.totalTokens || 0)),
+    estimatedCostUsd: Math.max(Number(current?.estimatedCostUsd || 0), Number(incoming?.estimatedCostUsd || 0)),
+    estimatedCostEur: Math.max(Number(current?.estimatedCostEur || 0), Number(incoming?.estimatedCostEur || 0)),
   };
 }
 

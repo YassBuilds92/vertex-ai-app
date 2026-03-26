@@ -86,6 +86,7 @@ export default function App() {
   const coworkFlushTargetRef = useRef<{ userId: string; sessionId: string } | null>(null);
   const coworkStorageModeRef = useRef<'rich' | 'legacy'>('rich');
   const coworkStorageWarningShownRef = useRef(false);
+  const sendInFlightRef = useRef(false);
 
   const activateMode = useCallback((mode: AppMode) => {
     setActiveMode(mode);
@@ -553,9 +554,10 @@ export default function App() {
   };
 
   const handleSend = async (textToSend: string, overrideMessages?: Message[]) => {
-    if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading) return;
+    if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading || sendInFlightRef.current) return;
     
     const isCoworkRun = activeMode === 'cowork';
+    sendInFlightRef.current = true;
     setIsLoading(true);
     setStreamingThoughtsExpanded(true);
     abortControllerRef.current = new AbortController();
@@ -733,6 +735,7 @@ export default function App() {
               timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris',
               nowIso: new Date().toISOString(),
             },
+            sessionId: currentSessionId,
           }),
         });
 
@@ -980,11 +983,12 @@ export default function App() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      sendInFlightRef.current = false;
     }
   };
 
   const handleRetry = async (idx: number) => {
-    if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading) return;
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading || sendInFlightRef.current) return;
     
     const messages = currentMessages;
     const targetMsg = messages[idx];
@@ -1022,7 +1026,7 @@ export default function App() {
   };
 
   const handleEdit = async (idx: number, newText: string) => {
-    if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading) return;
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading || sendInFlightRef.current) return;
     const targetMsg = currentMessages[idx];
     
     await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId, 'messages', targetMsg.id), {

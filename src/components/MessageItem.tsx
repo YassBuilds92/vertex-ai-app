@@ -112,12 +112,47 @@ function getActivityIcon(item: ActivityItem) {
   return Clock3;
 }
 
+function formatCompactNumber(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
+  return String(Math.round(value));
+}
+
+function formatEuroEstimate(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '~0 €';
+  if (value < 0.01) return `~${value.toFixed(4)} €`;
+  if (value < 1) return `~${value.toFixed(3)} €`;
+  return `~${value.toFixed(2)} €`;
+}
+
+function formatDurationMs(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0s';
+  if (value >= 60_000) return `${(value / 60_000).toFixed(1)} min`;
+  return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
+}
+
 const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean }) => {
   const items = msg.activity || [];
   const runState = msg.runState || 'running';
   const stateMeta = runStateMeta[runState] || runStateMeta.running;
   const StateIcon = stateMeta.icon;
-  const runMeta = msg.runMeta || { iterations: 0, toolCalls: 0, webSearches: 0, webFetches: 0 };
+  const runMeta = msg.runMeta || {
+    iterations: 0,
+    modelCalls: 0,
+    toolCalls: 0,
+    webSearches: 0,
+    webFetches: 0,
+    retryCount: 0,
+    queueWaitMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    thoughtTokens: 0,
+    toolUseTokens: 0,
+    totalTokens: 0,
+    estimatedCostUsd: 0,
+    estimatedCostEur: 0,
+  };
 
   if (items.length === 0 && !live && !msg.runState) return null;
 
@@ -134,6 +169,14 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
             {runMeta.toolCalls} outil{runMeta.toolCalls > 1 ? 's' : ''}
           </div>
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <Sparkles size={12} />
+            {formatCompactNumber(runMeta.totalTokens)} tokens
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <AlertCircle size={12} />
+            {formatEuroEstimate(runMeta.estimatedCostEur)}
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
             <Search size={12} />
             {runMeta.webSearches} recherche{runMeta.webSearches > 1 ? 's' : ''}
           </div>
@@ -145,9 +188,30 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
             <Clock3 size={12} />
             iteration {runMeta.iterations || 0}
           </div>
+          {runMeta.retryCount > 0 && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-[11px] text-amber-200">
+              <AlertTriangle size={12} />
+              retry {runMeta.retryCount}
+            </div>
+          )}
         </div>
 
         <div className="p-4 md:p-5 flex flex-col gap-3">
+          {(runMeta.totalTokens > 0 || runMeta.queueWaitMs > 0) && (
+            <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-3 text-[12px] text-[var(--app-text-muted)]">
+              <span className="text-[var(--app-text)]/88">
+                Input {formatCompactNumber(runMeta.inputTokens)} • Output {formatCompactNumber(runMeta.outputTokens)}
+                {runMeta.thoughtTokens > 0 ? ` • Reasoning ${formatCompactNumber(runMeta.thoughtTokens)}` : ''}
+                {runMeta.toolUseTokens > 0 ? ` • Outils->modele ${formatCompactNumber(runMeta.toolUseTokens)}` : ''}
+                {runMeta.modelCalls > 0 ? ` • ${runMeta.modelCalls} appel${runMeta.modelCalls > 1 ? 's' : ''} modele` : ''}
+              </span>
+              {runMeta.queueWaitMs > 0 && (
+                <span className="block mt-1">
+                  File d'attente: {formatDurationMs(runMeta.queueWaitMs)}
+                </span>
+              )}
+            </div>
+          )}
           {items.length === 0 ? (
             <div className="rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3 text-sm text-[var(--app-text-muted)] italic">
               Initialisation de l'activite Cowork...

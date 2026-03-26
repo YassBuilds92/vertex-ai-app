@@ -55,6 +55,7 @@ const VideoGenSchema = z.object({
 
 const ChatSchema = z.object({
   message: z.string(),
+  sessionId: z.string().optional(),
   history: z.array(z.object({
     role: z.enum(['user', 'model']),
     parts: z.array(z.object({
@@ -192,6 +193,30 @@ const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork
 const MAX_PREVIEW_CHARS = 420;
 const MAX_ACTIVITY_ITEMS = 80;
 const MAX_WEB_FETCH_CHARS = 7000;
+const LONG_CONTEXT_THRESHOLD_TOKENS = 200_000;
+const USD_TO_EUR_RATE = 0.866626; // ECB reference rate on 2026-03-26: 1 EUR = 1.1539 USD.
+
+const MODEL_PRICING_USD_PER_1M: Record<string, {
+  input: { standard: number; longContext: number };
+  output: { standard: number; longContext: number };
+}> = {
+  'gemini-3.1-pro-preview': {
+    input: { standard: 2, longContext: 4 },
+    output: { standard: 12, longContext: 18 }
+  },
+  'gemini-3.1-flash-lite-preview': {
+    input: { standard: 0.25, longContext: 0.25 },
+    output: { standard: 1.5, longContext: 1.5 }
+  },
+  'gemini-3-flash-preview': {
+    input: { standard: 0.5, longContext: 0.5 },
+    output: { standard: 3, longContext: 3 }
+  },
+  'gemini-3-pro-preview': {
+    input: { standard: 2, longContext: 4 },
+    output: { standard: 12, longContext: 18 }
+  }
+};
 
 type ClientContext = {
   locale?: string;
@@ -219,6 +244,168 @@ type PdfQualityTargets = {
   minSections: number;
   minWords: number;
 };
+
+type CoworkRunMeta = {
+  iterations: number;
+  modelCalls: number;
+  toolCalls: number;
+  webSearches: number;
+  webFetches: number;
+  retryCount: number;
+  queueWaitMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  thoughtTokens: number;
+  toolUseTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+  estimatedCostEur: number;
+};
+
+type UsageTotals = {
+  promptTokens: number;
+  outputTokens: number;
+  thoughtTokens: number;
+  toolUseTokens: number;
+  totalTokens: number;
+};
+
+type RetryKind = 'quota' | 'concurrency' | 'server';
+
+type RetryOptions = {
+  maxRetries?: number;
+  baseDelayMs?: number;
+  onRetry?: (context: {
+    attempt: number;
+    maxRetries: number;
+    delayMs: number;
+    kind: RetryKind;
+    message: string;
+  }) => void | Promise<void>;
+};
+
+type CoworkRunGate = {
+  active: boolean;
+  queue: Array<() => void>;
+};
+
+const coworkRunGates = new Map<string, CoworkRunGate>();
+
+function createEmptyCoworkRunMeta(): CoworkRunMeta {
+  return {
+    iterations: 0,
+    modelCalls: 0,
+    toolCalls: 0,
+    webSearches: 0,
+    webFetches: 0,
+    retryCount: 0,
+    queueWaitMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    thoughtTokens: 0,
+    toolUseTokens: 0,
+    totalTokens: 0,
+    estimatedCostUsd: 0,
+    estimatedCostEur: 0
+  };
+}
+
+function roundMetric(value: number, digits = 6): number {
+  return Number(value.toFixed(digits));
+}
+
+function extractUsageTotals(response: any): UsageTotals {
+  const usage = response?.usageMetadata;
+  const promptTokens = Number(usage?.promptTokenCount || 0);
+  const outputTokens = Number(usage?.candidatesTokenCount || 0);
+  const thoughtTokens = Number(usage?.thoughtsTokenCount || 0);
+  const toolUseTokens = Number(usage?.toolUsePromptTokenCount || 0);
+  const totalTokens = Number(
+    usage?.totalTokenCount
+      || promptTokens + outputTokens + thoughtTokens + toolUseTokens
+  );
+
+  return {
+    promptTokens,
+    outputTokens,
+    thoughtTokens,
+    toolUseTokens,
+    totalTokens
+  };
+}
+
+function getModelPricing(modelId: string) {
+  return MODEL_PRICING_USD_PER_1M[modelId] || MODEL_PRICING_USD_PER_1M['gemini-3.1-pro-preview'];
+}
+
+function estimateUsageCost(modelId: string, usage: UsageTotals) {
+  const pricing = getModelPricing(modelId);
+  const longContext = usage.promptTokens > LONG_CONTEXT_THRESHOLD_TOKENS;
+  const inputRate = longContext ? pricing.input.longContext : pricing.input.standard;
+  const outputRate = longContext ? pricing.output.longContext : pricing.output.standard;
+  const billableInputTokens = usage.promptTokens + usage.toolUseTokens;
+  const billableOutputTokens = usage.outputTokens + usage.thoughtTokens;
+  const usd =
+    (billableInputTokens / 1_000_000) * inputRate
+    + (billableOutputTokens / 1_000_000) * outputRate;
+  const eur = usd * USD_TO_EUR_RATE;
+
+  return {
+    usd: roundMetric(usd),
+    eur: roundMetric(eur)
+  };
+}
+
+function accumulateUsageTotals(runMeta: CoworkRunMeta, modelId: string, response: any) {
+  const usage = extractUsageTotals(response);
+  const cost = estimateUsageCost(modelId, usage);
+
+  runMeta.modelCalls += 1;
+  runMeta.inputTokens += usage.promptTokens;
+  runMeta.outputTokens += usage.outputTokens;
+  runMeta.thoughtTokens += usage.thoughtTokens;
+  runMeta.toolUseTokens += usage.toolUseTokens;
+  runMeta.totalTokens += usage.totalTokens;
+  runMeta.estimatedCostUsd = roundMetric(runMeta.estimatedCostUsd + cost.usd);
+  runMeta.estimatedCostEur = roundMetric(runMeta.estimatedCostEur + cost.eur);
+}
+
+async function acquireCoworkRunGate(key: string): Promise<{ waitMs: number; release: () => void }> {
+  let gate = coworkRunGates.get(key);
+  if (!gate) {
+    gate = { active: false, queue: [] };
+    coworkRunGates.set(key, gate);
+  }
+
+  const waitStartedAt = Date.now();
+  if (gate.active) {
+    await new Promise<void>((resolve) => {
+      gate!.queue.push(resolve);
+    });
+  }
+
+  gate.active = true;
+
+  return {
+    waitMs: Date.now() - waitStartedAt,
+    release: () => {
+      const current = coworkRunGates.get(key);
+      if (!current) return;
+      const next = current.queue.shift();
+      if (next) {
+        next();
+        return;
+      }
+      current.active = false;
+      coworkRunGates.delete(key);
+    }
+  };
+}
+
+function formatWaitDuration(delayMs: number): string {
+  if (delayMs >= 60_000) return `${(delayMs / 60_000).toFixed(1)} min`;
+  return `${(delayMs / 1000).toFixed(delayMs >= 10_000 ? 0 : 1)} s`;
+}
 
 function sanitizeLocale(value?: string): string {
   if (!value) return 'fr-FR';
@@ -308,6 +495,14 @@ function buildCoworkSystemInstruction(
       `Pour CETTE demande, vise au minimum ${researchTargets.webSearches} recherche(s) web visibles et ${researchTargets.webFetches} lecture(s) de source avant de conclure, sauf blocage web total.`
     );
   }
+  if (originalMessage && requestNeedsGroundedWriting(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Avant toute production creative finale, suis explicitement ce schema: hypotheses -> recherches -> verification -> redaction. Ne saute jamais directement de la premiere recherche a l'ecriture finale."
+    );
+    requestSpecificDirectives.push(
+      "Si le sujet porte sur un terme court, ambigu, un mot d'argot ou une reference culturelle, ne cherche jamais le mot seul. Contextualise la requete (langue, pays, domaine, usage) puis ouvre au moins une source avec 'web_fetch' avant d'ecrire."
+    );
+  }
   if (pdfTargets) {
     requestSpecificDirectives.push(
       `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
@@ -331,10 +526,11 @@ Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une 
 ${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables
 - 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
 ### COMPORTEMENT ATTENDU :
-1. Commence les taches non triviales par 'report_progress' pour annoncer ton plan immediat.
-2. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, une actualite, un briefing ou des recommandations, tu dois effectuer plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n3. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' sur une source pertinente avant la synthese finale.\n   Si 'web_search' echoue ou est bloque, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
-4. Quand tu pivotes, bloques, ou changes de strategie, annonce-le via 'report_progress'.
-5. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.
+1. Commence les taches non triviales par 'report_progress' pour annoncer ton plan immediat et decomposer la demande en sous-problemes verifiables.
+2. Si l'utilisateur te demande de te documenter, de verifier, de prendre ton temps, ou de produire un contenu creatif base sur un terme, un contexte culturel ou de l'argot, tu dois suivre: plan -> recherche -> verification -> production.
+3. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, une actualite, un briefing ou des recommandations, tu dois effectuer plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n4. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' sur une source pertinente avant la synthese finale.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' echoue ou est bloque, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
+5. Quand tu pivotes, bloques, ou changes de strategie, annonce-le via 'report_progress'.
+6. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.
 
 ### REPERES TEMPORELS :
 ${requestClock
@@ -374,6 +570,13 @@ function normalizeCoworkText(value?: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function requestNeedsGroundedWriting(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  const asksForDocumentation = /\b(documente(?:\s|-)?toi|documente|renseigne(?:\s|-)?toi|renseigne|verifie|verification|verifier|sources?|contexte|signification|definition|veut dire|argot|slang|terme|expression)\b/.test(normalized);
+  const asksForWriting = /\b(punchline|punchlines|rap|texte|paroles|lyrics|son|couplet|refrain|ecris|ecrire|redige|rediger|genere|generer|compose|composer)\b/.test(normalized);
+  return asksForDocumentation && asksForWriting;
 }
 
 function requestIsCurrentAffairs(message: string): boolean {
@@ -614,7 +817,8 @@ function normalizeSearchResultUrl(rawUrl: string): string {
 
 function requestNeedsDeepResearch(message: string): boolean {
   const normalized = normalizeCoworkText(message);
-  return /\b(latest|recent|today|aujourd'hui|du jour|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide|recherche|recherches|search|searches)\b/.test(normalized);
+  return requestNeedsGroundedWriting(message)
+    || /\b(latest|recent|today|aujourd'hui|du jour|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide|recherche|recherches|search|searches)\b/.test(normalized);
 }
 
 function buildResearchCompletionPrompt(
@@ -970,22 +1174,76 @@ function parseApiError(error: any): string {
 }
 
 /**
- * Standard retry with exponential backoff for 429 (Resource Exhausted) errors.
+ * Classifies transient API failures so the retry policy can react differently to
+ * quota saturation, simultaneous requests, and generic upstream hiccups.
  */
-async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+function classifyRetryableError(error: any): { retryable: boolean; kind: RetryKind; message: string } {
+  const cleanMessage = parseApiError(error);
+  const normalized = `${String(error)} ${cleanMessage}`.toLowerCase();
+
+  const isQuotaLike =
+    normalized.includes('429')
+    || normalized.includes('resource_exhausted')
+    || normalized.includes('too many requests');
+  const isConcurrencyLike =
+    normalized.includes('simultan')
+    || normalized.includes('concurrent')
+    || normalized.includes('parallel')
+    || normalized.includes('too many simultaneous');
+  const isServerLike =
+    normalized.includes('503')
+    || normalized.includes('unavailable')
+    || normalized.includes('temporarily')
+    || normalized.includes('deadline exceeded');
+
+  if (!(isQuotaLike || isConcurrencyLike || isServerLike)) {
+    return { retryable: false, kind: 'server', message: cleanMessage };
+  }
+
+  if (isConcurrencyLike) {
+    return { retryable: true, kind: 'concurrency', message: cleanMessage };
+  }
+  if (isServerLike && !isQuotaLike) {
+    return { retryable: true, kind: 'server', message: cleanMessage };
+  }
+  return { retryable: true, kind: 'quota', message: cleanMessage };
+}
+
+/**
+ * Intelligent retry with exponential backoff + jitter for transient quota,
+ * concurrency, and upstream availability failures.
+ */
+async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
+  const maxRetries = options.maxRetries ?? 3;
+  const baseDelayMs = options.baseDelayMs ?? 1000;
   let lastError: any;
+
   for (let i = 0; i <= maxRetries; i++) {
     try {
       return await fn();
     } catch (error: any) {
       lastError = error;
-      const errStr = String(error);
-      const isRetryable = errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('Too Many Requests');
-      
-      if (isRetryable && i < maxRetries) {
-        const delay = baseDelay * Math.pow(2, i);
-        log.warn(`Quota hit (429). Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+      const classified = classifyRetryableError(error);
+
+      if (classified.retryable && i < maxRetries) {
+        const multiplier = classified.kind === 'concurrency' ? 2.5 : classified.kind === 'server' ? 1.5 : 1;
+        const exponentialDelay = baseDelayMs * multiplier * Math.pow(2, i);
+        const jitter = Math.floor(Math.random() * Math.min(1200, exponentialDelay * 0.35));
+        const delayMs = Math.min(15_000, Math.round(exponentialDelay + jitter));
+
+        log.warn(`Transient ${classified.kind} failure. Retrying in ${delayMs}ms... (Attempt ${i + 1}/${maxRetries})`, {
+          message: classified.message
+        });
+
+        await options.onRetry?.({
+          attempt: i + 1,
+          maxRetries,
+          delayMs,
+          kind: classified.kind,
+          message: classified.message
+        });
+
+        await new Promise(resolve => setTimeout(resolve, delayMs));
         continue;
       }
       throw error;
@@ -1240,12 +1498,13 @@ app.post('/api/chat', async (req, res) => {
 
 app.post('/api/cowork', async (req, res) => {
   let headersSent = false;
+  let releaseCoworkRunGate: (() => void) | null = null;
   const emitEvent = (type: string, payload: Record<string, unknown> = {}) => {
     if (!headersSent) return;
     res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
   };
   try {
-    const { message, history, config, clientContext } = ChatSchema.parse(req.body);
+    const { message, sessionId, history, config, clientContext } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
     const researchTargets = getResearchTargets(message);
     const pdfQualityTargets = getPdfQualityTargets(message);
@@ -2056,20 +2315,29 @@ app.post('/api/cowork', async (req, res) => {
     const MAX_ARTIFACT_COMPLETION_NUDGES = 2;
     let researchCompletionNudges = 0;
     const MAX_RESEARCH_COMPLETION_NUDGES = 2;
+    const runMeta = createEmptyCoworkRunMeta();
 
     // Anti-loop detection: track consecutive failures per tool
     const toolFailures: Record<string, number> = {};
     const MAX_TOOL_FAILURES = 2; // If same tool fails 2x, inject a warning to force different approach
-    const runMeta = {
-      iterations: 0,
-      toolCalls: 0,
-      webSearches: 0,
-      webFetches: 0
-    };
     const successfulResearchMeta = {
       webSearches: 0,
       webFetches: 0
     };
+
+    const gateKey = sessionId ? `session:${sessionId}` : `ip:${req.ip || 'unknown'}`;
+    const gate = await acquireCoworkRunGate(gateKey);
+    releaseCoworkRunGate = gate.release;
+    if (gate.waitMs > 0) {
+      runMeta.queueWaitMs += gate.waitMs;
+      emitEvent('status', {
+        iteration: 0,
+        title: 'File d attente',
+        message: `Un autre run Cowork etait deja actif sur cette conversation. Demarrage apres ${formatWaitDuration(gate.waitMs)} d'attente.`,
+        runState: 'running',
+        runMeta
+      });
+    }
 
     emitEvent('status', {
       iteration: 0,
@@ -2086,7 +2354,13 @@ app.post('/api/cowork', async (req, res) => {
       emitEvent('status', {
         iteration: iterations,
         title: `Iteration ${iterations}`,
-        message: iterations === 1 ? "Analyse initiale de la demande." : "Cowork poursuit l'execution.",
+        message: iterations === 1
+          ? (
+              requestNeedsDeepResearch(message)
+                ? "Analyse initiale, decomposition de la demande et plan de verification."
+                : "Analyse initiale de la demande."
+            )
+          : "Cowork poursuit l'execution.",
         runState: 'running',
         runMeta
       });
@@ -2095,7 +2369,31 @@ app.post('/api/cowork', async (req, res) => {
         model: modelId,
         contents,
         config: genConfig
-      }));
+      }), {
+        maxRetries: 3,
+        baseDelayMs: 1200,
+        onRetry: async ({ attempt, maxRetries, delayMs, kind, message: retryMessage }) => {
+          runMeta.retryCount += 1;
+          emitEvent('status', {
+            iteration: iterations,
+            title: 'Retry intelligent',
+            message:
+              kind === 'concurrency'
+                ? `Collision ou saturation simultanee detectee. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`
+                : kind === 'server'
+                  ? `Le modele est temporairement indisponible. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`
+                  : `Quota ou limite temporaire detecte. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`,
+            runState: 'running',
+            runMeta
+          });
+        }
+      });
+      accumulateUsageTotals(runMeta, modelId, response);
+      emitEvent('status', {
+        iteration: iterations,
+        runState: 'running',
+        runMeta
+      });
 
       const modelTurn = (response as any)?.candidates?.[0]?.content;
       const turnParts: any[] = modelTurn?.parts
@@ -2288,16 +2586,41 @@ app.post('/api/cowork', async (req, res) => {
             emitEvent('warning', {
               iteration: iterations,
               title: 'Limite d iterations',
-              message: "Cowork atteint sa limite d'iterations et force un dernier tour de synthese."
+              message: "Cowork atteint sa limite d'iterations et force un dernier tour de synthese.",
+              runMeta
             });
             const finalResponse = await retryWithBackoff(() => ai.models.generateContent({
               model: modelId,
               contents,
               config: { ...genConfig, tools: [] }
-            }));
+            }), {
+              maxRetries: 3,
+              baseDelayMs: 1200,
+              onRetry: async ({ attempt, maxRetries, delayMs, kind, message: retryMessage }) => {
+                runMeta.retryCount += 1;
+                emitEvent('status', {
+                  iteration: iterations,
+                  title: 'Retry intelligent',
+                  message:
+                    kind === 'concurrency'
+                      ? `Dernier tour retarde par une saturation simultanee. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`
+                      : kind === 'server'
+                        ? `Dernier tour retarde par une indisponibilite temporaire. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`
+                        : `Dernier tour retarde par un quota temporaire. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`,
+                  runState: 'running',
+                  runMeta
+                });
+              }
+            });
+            accumulateUsageTotals(runMeta, modelId, finalResponse);
+            emitEvent('status', {
+              iteration: iterations,
+              runState: 'running',
+              runMeta
+            });
             const summaryText = finalResponse.text || "Tache terminee (limite d'iterations atteinte).";
             finalVisibleText += summaryText;
-            emitEvent('text_delta', { iteration: iterations, text: summaryText });
+            emitEvent('text_delta', { iteration: iterations, text: summaryText, runMeta });
             break;
           }
           continue; // Next iteration with tool results
@@ -2347,7 +2670,7 @@ app.post('/api/cowork', async (req, res) => {
 
       if (iterationVisibleText) {
         finalVisibleText += iterationVisibleText;
-        emitEvent('text_delta', { iteration: iterations, text: iterationVisibleText });
+        emitEvent('text_delta', { iteration: iterations, text: iterationVisibleText, runMeta });
       }
       break;
     }
@@ -2356,7 +2679,7 @@ app.post('/api/cowork', async (req, res) => {
       const fallbackMessage = buildCoworkFallbackMessage(latestReleasedFile);
       if (fallbackMessage) {
         finalVisibleText = fallbackMessage;
-        emitEvent('text_delta', { iteration: iterations, text: fallbackMessage });
+        emitEvent('text_delta', { iteration: iterations, text: fallbackMessage, runMeta });
       }
     }
 
@@ -2375,6 +2698,8 @@ app.post('/api/cowork', async (req, res) => {
       emitEvent('error', { message: cleanError, runState: 'failed' });
       res.end();
     }
+  } finally {
+    releaseCoworkRunGate?.();
   }
 });
 

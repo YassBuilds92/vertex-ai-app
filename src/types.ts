@@ -43,9 +43,19 @@ export type RunState = 'running' | 'completed' | 'failed' | 'aborted';
 
 export interface RunMeta {
   iterations: number;
+  modelCalls: number;
   toolCalls: number;
   webSearches: number;
   webFetches: number;
+  retryCount: number;
+  queueWaitMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  thoughtTokens: number;
+  toolUseTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+  estimatedCostEur: number;
 }
 
 export type ActivityKind =

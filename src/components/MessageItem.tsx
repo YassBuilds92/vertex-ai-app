@@ -554,6 +554,22 @@ export const MessageItem = React.memo(({
                 <div className="markdown-body text-[var(--app-text)]/90">
                   <Markdown
                     components={{
+                      a({ href, children, ...props }: any) {
+                        const safeHref = typeof href === 'string' ? href : '';
+                        const openInNewTab = safeHref.length > 0 && !safeHref.startsWith('#');
+
+                        return (
+                          <a
+                            href={safeHref}
+                            target={openInNewTab ? '_blank' : undefined}
+                            rel={openInNewTab ? 'noopener noreferrer' : undefined}
+                            className="font-medium text-indigo-300 underline underline-offset-4 decoration-indigo-400/40 hover:text-indigo-200 hover:decoration-indigo-300 transition-colors break-all"
+                            {...props}
+                          >
+                            {children}
+                          </a>
+                        );
+                      },
                       code({node, inline, className, children, ...props}: any) {
                         const match = /language-(\w+)/.exec(className || '');
                         const codeString = String(children).replace(/\n$/, '');

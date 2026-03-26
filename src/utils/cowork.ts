@@ -3,6 +3,8 @@ import { ActivityItem, Message, RunMeta, RunState } from '../types';
 const MAX_ACTIVITY_ITEMS = 80;
 const MAX_ACTIVITY_TEXT = 420;
 const MAX_THOUGHT_CHARS = 16000;
+const MAX_LOCAL_SNAPSHOTS_PER_SESSION = 24;
+const COWORK_LOCAL_STORAGE_KEY = 'studio-pro-cowork-snapshots-v1';
 
 type ActivityMetaValue = string | number | boolean | null | undefined;
 
@@ -275,4 +277,140 @@ export function sanitizeCoworkMessageForStorage(message: Message): Message {
         meta: sanitizeMeta(item.meta),
       })),
   };
+}
+
+type CoworkLocalSnapshots = Record<string, Record<string, Record<string, Message>>>;
+
+function canUseLocalStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function readCoworkLocalSnapshots(): CoworkLocalSnapshots {
+  if (!canUseLocalStorage()) return {};
+
+  try {
+    const raw = window.localStorage.getItem(COWORK_LOCAL_STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as CoworkLocalSnapshots;
+  } catch {
+    return {};
+  }
+}
+
+function writeCoworkLocalSnapshots(store: CoworkLocalSnapshots) {
+  if (!canUseLocalStorage()) return;
+
+  try {
+    window.localStorage.setItem(COWORK_LOCAL_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Ignore quota or serialization failures. Firestore remains the source of truth.
+  }
+}
+
+function pruneSessionSnapshots(messagesById: Record<string, Message>) {
+  const entries = Object.entries(messagesById)
+    .sort(([, left], [, right]) => right.createdAt - left.createdAt)
+    .slice(0, MAX_LOCAL_SNAPSHOTS_PER_SESSION);
+
+  return Object.fromEntries(entries);
+}
+
+function pickLongerText(current?: string, fallback?: string) {
+  if (!current) return fallback;
+  if (!fallback) return current;
+  return fallback.length > current.length ? fallback : current;
+}
+
+function pickRunState(current?: RunState, fallback?: RunState) {
+  if (current && current !== 'running') return current;
+  if (fallback && fallback !== 'running') return fallback;
+  return current || fallback;
+}
+
+function mergeCoworkMessage(current: Message, snapshot: Message): Message {
+  return sanitizeCoworkMessageForStorage({
+    ...current,
+    content: pickLongerText(current.content, snapshot.content) || '',
+    thoughts: pickLongerText(current.thoughts, snapshot.thoughts),
+    attachments: (current.attachments?.length ?? 0) > 0 ? current.attachments : snapshot.attachments,
+    images: (current.images?.length ?? 0) > 0 ? current.images : snapshot.images,
+    thoughtImages: (current.thoughtImages?.length ?? 0) > 0 ? current.thoughtImages : snapshot.thoughtImages,
+    audio: current.audio || snapshot.audio,
+    video: current.video || snapshot.video,
+    refinedInstruction: current.refinedInstruction || snapshot.refinedInstruction,
+    activity:
+      (snapshot.activity?.length ?? 0) > (current.activity?.length ?? 0)
+        ? snapshot.activity
+        : current.activity,
+    runState: pickRunState(current.runState, snapshot.runState),
+    runMeta: mergeRunMeta(current.runMeta, snapshot.runMeta),
+  });
+}
+
+export function saveCoworkSessionSnapshot(userId: string, sessionId: string, message: Message) {
+  if (!userId || !sessionId || message.role !== 'model') return;
+
+  const store = readCoworkLocalSnapshots();
+  const userSnapshots = store[userId] || {};
+  const sessionSnapshots = userSnapshots[sessionId] || {};
+
+  sessionSnapshots[message.id] = sanitizeCoworkMessageForStorage(message);
+  userSnapshots[sessionId] = pruneSessionSnapshots(sessionSnapshots);
+  store[userId] = userSnapshots;
+
+  writeCoworkLocalSnapshots(store);
+}
+
+export function clearCoworkSessionSnapshots(userId: string, sessionId: string, messageIds?: string[]) {
+  if (!userId || !sessionId) return;
+
+  const store = readCoworkLocalSnapshots();
+  const userSnapshots = store[userId];
+  if (!userSnapshots || !userSnapshots[sessionId]) return;
+
+  if (!messageIds || messageIds.length === 0) {
+    delete userSnapshots[sessionId];
+  } else {
+    for (const messageId of messageIds) {
+      delete userSnapshots[sessionId][messageId];
+    }
+
+    if (Object.keys(userSnapshots[sessionId]).length === 0) {
+      delete userSnapshots[sessionId];
+    }
+  }
+
+  if (Object.keys(userSnapshots).length === 0) {
+    delete store[userId];
+  } else {
+    store[userId] = userSnapshots;
+  }
+
+  writeCoworkLocalSnapshots(store);
+}
+
+export function hydrateCoworkMessages(messages: Message[], userId: string, sessionId: string): Message[] {
+  if (!userId || !sessionId) return messages;
+
+  const store = readCoworkLocalSnapshots();
+  const sessionSnapshots = store[userId]?.[sessionId];
+  if (!sessionSnapshots) return messages;
+
+  const merged = new Map<string, Message>();
+
+  for (const message of messages) {
+    const snapshot = sessionSnapshots[message.id];
+    merged.set(message.id, snapshot ? mergeCoworkMessage(message, snapshot) : message);
+  }
+
+  for (const [messageId, snapshot] of Object.entries(sessionSnapshots)) {
+    if (!merged.has(messageId)) {
+      merged.set(messageId, snapshot);
+    }
+  }
+
+  return Array.from(merged.values()).sort((left, right) => left.createdAt - right.createdAt);
 }

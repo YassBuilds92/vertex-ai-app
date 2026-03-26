@@ -24,7 +24,15 @@ import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPrompt
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { applyCoworkEventToMessage, CoworkStreamEvent, createEmptyRunMeta, sanitizeCoworkMessageForStorage } from './utils/cowork';
+import {
+  applyCoworkEventToMessage,
+  clearCoworkSessionSnapshots,
+  CoworkStreamEvent,
+  createEmptyRunMeta,
+  hydrateCoworkMessages,
+  sanitizeCoworkMessageForStorage,
+  saveCoworkSessionSnapshot,
+} from './utils/cowork';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -35,6 +43,7 @@ const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork
 export default function App() {
   const { 
     activeMode, setActiveMode, activeSessionId, setActiveSessionId, 
+    lastSessionIdsByMode,
     configs, setConfig, isLeftSidebarVisible, setLeftSidebarVisible,
     isRightSidebarVisible, setRightSidebarVisible, theme, 
     isPromptRefinerEnabled
@@ -78,6 +87,30 @@ export default function App() {
   const coworkStorageModeRef = useRef<'rich' | 'legacy'>('rich');
   const coworkStorageWarningShownRef = useRef(false);
 
+  const activateMode = useCallback((mode: AppMode) => {
+    setActiveMode(mode);
+
+    const preferredSessionId = lastSessionIdsByMode[mode];
+    const preferredSession = preferredSessionId
+      ? sessions.find(session => session.id === preferredSessionId && session.mode === mode)
+      : undefined;
+    const fallbackSession = sessions.find(session => session.mode === mode);
+
+    if (preferredSession) {
+      setActiveSessionId(preferredSession.id);
+      return;
+    }
+
+    if (fallbackSession) {
+      setActiveSessionId(fallbackSession.id);
+      return;
+    }
+
+    setPendingAttachments([]);
+    setCustomTitle(null);
+    setActiveSessionId('local-new');
+  }, [lastSessionIdsByMode, sessions, setActiveMode, setActiveSessionId]);
+
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -85,7 +118,7 @@ export default function App() {
         e.preventDefault();
         const modes: AppMode[] = ['chat', 'cowork', 'image', 'video', 'audio'];
         const next = modes[(modes.indexOf(activeMode) + 1) % modes.length];
-        setActiveMode(next);
+        activateMode(next);
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
         e.preventDefault();
@@ -95,7 +128,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeMode, isLeftSidebarVisible, isRightSidebarVisible, setActiveMode, setLeftSidebarVisible, setRightSidebarVisible]);
+  }, [activateMode, activeMode, isLeftSidebarVisible, isRightSidebarVisible, setLeftSidebarVisible, setRightSidebarVisible]);
 
   // Audio Hook
   const { isRecording, recordingTime, toggleRecording } = useAudioRecorder((dataUrl) => {
@@ -128,7 +161,7 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || !activeSessionId || activeSessionId === 'local-new') {
+    if (!user) {
       setCurrentMessages([]);
       setOptimisticMessages([]);
       setLiveCoworkMessage(null);
@@ -136,14 +169,23 @@ export default function App() {
       coworkFlushTargetRef.current = null;
       return;
     }
+    if (!activeSessionId || activeSessionId === 'local-new') {
+      setCurrentMessages([]);
+      setOptimisticMessages([]);
+      return;
+    }
     const q = query(collection(db, 'users', user.uid, 'sessions', activeSessionId, 'messages'), orderBy('createdAt', 'asc'));
     return onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-      setCurrentMessages(fetchedMessages);
+      const hydratedMessages =
+        activeMode === 'cowork'
+          ? hydrateCoworkMessages(fetchedMessages, user.uid, activeSessionId)
+          : fetchedMessages;
+      setCurrentMessages(hydratedMessages);
 
       const liveId = liveCoworkMessageRef.current?.id;
-      if (liveId) {
-        const persistedLiveMessage = fetchedMessages.find(msg => msg.id === liveId);
+      if (liveId && coworkFlushTargetRef.current?.sessionId === activeSessionId) {
+        const persistedLiveMessage = hydratedMessages.find(msg => msg.id === liveId);
         if (persistedLiveMessage && persistedLiveMessage.runState && persistedLiveMessage.runState !== 'running') {
           setLiveCoworkMessage(null);
           liveCoworkMessageRef.current = null;
@@ -152,14 +194,14 @@ export default function App() {
       
       // Clean up optimistic messages that have landed in Firestore
       setOptimisticMessages(prev => prev.filter(om => 
-        !fetchedMessages.some(fm => fm.role === om.role && fm.content === om.content && Math.abs(fm.createdAt - om.createdAt) < 5000)
+        !hydratedMessages.some(fm => fm.role === om.role && fm.content === om.content && Math.abs(fm.createdAt - om.createdAt) < 5000)
       ));
       
-      setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: fetchedMessages } : s));
+      setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: hydratedMessages } : s));
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${user?.uid}/sessions/${activeSessionId}/messages`);
     });
-  }, [user, activeSessionId]);
+  }, [user, activeMode, activeSessionId]);
 
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -183,10 +225,7 @@ export default function App() {
   }, [setActiveSessionId]);
 
   const handleModeChange = (mode: AppMode) => {
-    setActiveMode(mode);
-    const existing = sessions.find(s => s.mode === mode);
-    if (existing) setActiveSessionId(existing.id);
-    else handleNewChat();
+    activateMode(mode);
   };
 
   const processFiles = async (files: FileList | File[]) => {
@@ -227,6 +266,18 @@ export default function App() {
       return next;
     });
   }, []);
+
+  const touchSession = useCallback(async (sessionId: string) => {
+    if (!user || !sessionId || sessionId === 'local-new') return;
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'sessions', sessionId), {
+        updatedAt: Date.now(),
+      });
+    } catch (error) {
+      console.warn('Session timestamp update failed:', error);
+    }
+  }, [user]);
 
   const persistCoworkSnapshot = useCallback(async (message: Message, target: { userId: string; sessionId: string }) => {
     const messageRef = doc(db, 'users', target.userId, 'sessions', target.sessionId, 'messages', message.id);
@@ -270,17 +321,33 @@ export default function App() {
     }
   }, []);
 
-  const persistLiveCoworkMessage = useCallback(async () => {
+  const releaseCoworkDraft = useCallback(async (options?: { clear?: boolean }) => {
     const draft = liveCoworkMessageRef.current;
     const target = coworkFlushTargetRef.current;
-    if (!draft || !target) return;
 
-    try {
-      await persistCoworkSnapshot(draft, target);
-    } catch (error) {
-      console.error('Cowork draft persistence failed:', error);
+    if (coworkFlushTimerRef.current) {
+      clearTimeout(coworkFlushTimerRef.current);
+      coworkFlushTimerRef.current = null;
     }
+
+    if (draft && target) {
+      try {
+        await persistCoworkSnapshot(draft, target);
+      } catch (error) {
+        console.error('Cowork draft persistence failed:', error);
+      }
+    }
+
+    if (options?.clear === false) return;
+
+    setLiveCoworkMessage(null);
+    liveCoworkMessageRef.current = null;
+    coworkFlushTargetRef.current = null;
   }, [persistCoworkSnapshot]);
+
+  const persistLiveCoworkMessage = useCallback(async () => {
+    await releaseCoworkDraft({ clear: false });
+  }, [releaseCoworkDraft]);
 
   const scheduleCoworkPersist = useCallback(() => {
     if (coworkFlushTimerRef.current) {
@@ -293,20 +360,21 @@ export default function App() {
   }, [persistLiveCoworkMessage]);
 
   const flushCoworkPersist = useCallback(async () => {
-    if (coworkFlushTimerRef.current) {
-      clearTimeout(coworkFlushTimerRef.current);
-      coworkFlushTimerRef.current = null;
-    }
-    await persistLiveCoworkMessage();
-  }, [persistLiveCoworkMessage]);
+    await releaseCoworkDraft({ clear: false });
+  }, [releaseCoworkDraft]);
 
   useEffect(() => {
     return () => {
-      if (coworkFlushTimerRef.current) {
-        clearTimeout(coworkFlushTimerRef.current);
-      }
+      void releaseCoworkDraft();
     };
-  }, []);
+  }, [releaseCoworkDraft]);
+
+  useEffect(() => {
+    const target = coworkFlushTargetRef.current;
+    if (!liveCoworkMessage || !target) return;
+
+    saveCoworkSessionSnapshot(target.userId, target.sessionId, liveCoworkMessage);
+  }, [liveCoworkMessage]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -357,12 +425,12 @@ export default function App() {
     for (const message of optimisticMessages) {
       merged.set(message.id, message);
     }
-    if (liveCoworkMessage) {
+    if (liveCoworkMessage && coworkFlushTargetRef.current?.sessionId === activeSessionId) {
       merged.set(liveCoworkMessage.id, liveCoworkMessage);
     }
 
     return Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt);
-  }, [currentMessages, optimisticMessages, liveCoworkMessage]);
+  }, [activeSessionId, currentMessages, optimisticMessages, liveCoworkMessage]);
 
   // --- IMAGE COMPRESSION HELPER ---
   const compressImage = async (base64: string, maxWidth = 1024, maxHeight = 1024, quality = 0.8): Promise<string> => {
@@ -509,6 +577,7 @@ export default function App() {
       }
 
       if (!user || !currentSessionId) return;
+      await touchSession(currentSessionId);
 
       // Clean attachments for Firestore
       const cleanAttachments: Attachment[] = [];
@@ -947,6 +1016,7 @@ export default function App() {
     await Promise.all(messagesToDelete.map(id => 
       deleteDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId, 'messages', id))
     ));
+    clearCoworkSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
 
     handleSend('', historyToProcess);
   };
@@ -963,6 +1033,7 @@ export default function App() {
     await Promise.all(messagesToDelete.map(id => 
       deleteDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId, 'messages', id))
     ));
+    clearCoworkSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
 
     const historyToProcess = [...currentMessages.slice(0, idx), { ...targetMsg, content: newText }];
     handleSend('', historyToProcess);

@@ -7,6 +7,7 @@ import { doc, deleteDoc } from 'firebase/firestore';
 import { db, auth, OperationType, handleFirestoreError } from '../firebase';
 import { useStore } from '../store/useStore';
 import { AppMode, ChatSession } from '../types';
+import { clearCoworkSessionSnapshots } from '../utils/cowork';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -167,6 +168,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                       if (!window.confirm('Supprimer cette conversation ?')) return;
                       try {
                         await deleteDoc(doc(db, 'users', user.uid, 'sessions', session.id));
+                        clearCoworkSessionSnapshots(user.uid, session.id);
                         if (activeSessionId === session.id) {
                           const nextSession = sessions.find(s => s.id !== session.id && s.mode === activeMode);
                           if (nextSession) setActiveSessionId(nextSession.id);

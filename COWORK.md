@@ -47,10 +47,13 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Compatibilite Firestore de la timeline Cowork : les regles acceptent maintenant `activity` / `runState` / `runMeta`, et le frontend retombe sur une persistance legacy si le cloud n'a pas encore recu les nouvelles regles.
 - [x] Contexte temporel explicite : le frontend envoie maintenant `clientContext` (`locale`, `timeZone`, `nowIso`), Cowork construit un `requestClock`, injecte la date absolue dans son system prompt, et realigne les `web_search` temporelles sur la date du jour pour eviter les derives type `23 mai 2024` sur une demande "actu du jour".
 - [x] PDF long-form renforce : la profondeur de recherche est maintenant dynamique selon la demande (`getResearchTargets()`), `MAX_ITERATIONS` s'adapte aux briefs plus longs, `create_pdf` refuse les rapports trop courts quand l'utilisateur demande un PDF dense, et le rendu PDF est passe a une vraie mise en page multi-page (couverture, resume, headers, footers, pagination, sections stylisees).
+- [x] Navigation fichier / PDF adoucie : les liens rendus par Cowork s'ouvrent maintenant dans un nouvel onglet via un renderer Markdown dedie, ce qui evite de remplacer l'interface AI Studio quand l'utilisateur ouvre un PDF signe.
+- [x] Memoire locale de secours pour Cowork : chaque message modele riche (`content`, `thoughts`, `activity`, `runState`, `runMeta`) est desormais miroir en `localStorage`, puis rehydrate a l'ouverture d'une session pour limiter les pertes si Firestore arrive en retard ou retombe en mode legacy.
+- [x] Retour sur la bonne discussion : l'etat Zustand memorise maintenant la derniere session par mode (`lastSessionIdsByMode`), `updatedAt` des sessions est touche a chaque envoi, et le draft live Cowork n'est plus affiche dans la mauvaise conversation quand on navigue entre plusieurs threads.
 
 ## Prochaines Etapes
-1. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, et `fais moi un pdf tres long sur l'actu du jour` pour verifier la date affichee, le nombre de recherches visibles, la longueur du PDF et le style final.
-2. Mesurer si l'agent utilise effectivement `report_progress` et `web_search`/`web_fetch` de facon satisfaisante; si besoin, resserrer encore le prompt systeme ou les relances guidees.
-3. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
-4. Brancher ensuite un vrai provider de recherche (ex: Tavily) si le fallback public montre ses limites sur certains domaines.
-5. Nettoyer les anciennes notes obsoletes pour que le document ne mentionne plus de workaround maintenant remplaces par la timeline SSE typee et les web tools locaux.
+1. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet et que la timeline revient apres reload.
+2. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) pour ne plus dependre uniquement d'un lien Markdown dans le texte final.
+3. Mesurer si l'agent utilise effectivement `report_progress` et `web_search`/`web_fetch` de facon satisfaisante; si besoin, resserrer encore le prompt systeme ou les relances guidees.
+4. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
+5. Brancher ensuite un vrai provider de recherche (ex: Tavily) si le fallback public montre ses limites sur certains domaines.

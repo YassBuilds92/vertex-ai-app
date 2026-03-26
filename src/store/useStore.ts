@@ -7,6 +7,7 @@ interface AppState {
   setActiveMode: (mode: AppMode) => void;
   activeSessionId: string | null;
   setActiveSessionId: (id: string | null) => void;
+  lastSessionIdsByMode: Record<AppMode, string | null>;
   configs: Record<AppMode, ModelConfig>;
   setConfig: (config: Partial<ModelConfig>) => void;
   isLeftSidebarVisible: boolean;
@@ -80,13 +81,28 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
   }
 };
 
+const initialLastSessionIdsByMode: Record<AppMode, string | null> = {
+  chat: null,
+  cowork: null,
+  image: null,
+  video: null,
+  audio: null,
+};
+
 export const useStore = create<AppState>()(
   persist(
     (set) => ({
       activeMode: 'chat',
       setActiveMode: (mode) => set({ activeMode: mode }),
       activeSessionId: null,
-      setActiveSessionId: (id) => set({ activeSessionId: id }),
+      setActiveSessionId: (id) => set((state) => ({
+        activeSessionId: id,
+        lastSessionIdsByMode: {
+          ...state.lastSessionIdsByMode,
+          [state.activeMode]: id,
+        },
+      })),
+      lastSessionIdsByMode: initialLastSessionIdsByMode,
       configs: initialConfigs,
       setConfig: (newConfig) => set((state) => ({ 
         configs: { 
@@ -114,11 +130,13 @@ export const useStore = create<AppState>()(
       partialize: (state) => ({ 
         activeMode: state.activeMode, 
         activeSessionId: state.activeSessionId,
+        lastSessionIdsByMode: state.lastSessionIdsByMode,
         configs: state.configs,
         theme: state.theme 
       }),
       merge: (persistedState: any, currentState) => {
         const persistedConfigs = (persistedState as any)?.configs || {};
+        const persistedLastSessionIdsByMode = (persistedState as any)?.lastSessionIdsByMode || {};
         
         // Deep merge each mode's config to ensure no missing fields
         const mergedConfigs = { ...currentState.configs };
@@ -134,6 +152,10 @@ export const useStore = create<AppState>()(
           ...currentState,
           ...(persistedState as any),
           configs: mergedConfigs,
+          lastSessionIdsByMode: {
+            ...initialLastSessionIdsByMode,
+            ...persistedLastSessionIdsByMode,
+          },
         };
       },
     }

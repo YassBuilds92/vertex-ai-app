@@ -8,6 +8,7 @@ import { GoogleGenAI } from '@google/genai';
 import { Storage } from '@google-cloud/storage';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
+import PDFDocument from 'pdfkit';
 
 // ─── Constants & Setup ──────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
@@ -656,45 +657,105 @@ app.post('/api/cowork', async (req, res) => {
         }
       },
       {
-        name: "execute_script",
-        description: "Exécute un script (Python ou Node.js) préalablement écrit sur le disque. Utile pour générer des PDF, traiter des données, etc.",
+        name: "create_pdf",
+        description: "Crée un fichier PDF directement. Utilise cet outil pour générer des PDFs au lieu d'écrire un script Python. Supporte : titre, sous-titres, paragraphes, listes à puces. Le fichier est créé dans /tmp/.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin du script à exécuter (ex: /tmp/script.py)." },
-            language: { type: "string", enum: ["python", "node"], description: "Le langage du script." }
+            filename: { type: "string", description: "Nom du fichier PDF (ex: rapport.pdf). Sera créé dans /tmp/." },
+            title: { type: "string", description: "Titre principal du document." },
+            sections: {
+              type: "array",
+              description: "Liste de sections du document. Chaque section a un 'heading' optionnel et un 'body' (texte ou liste à puces séparées par \\n).",
+              items: {
+                type: "object",
+                properties: {
+                  heading: { type: "string", description: "Titre de la section (optionnel)." },
+                  body: { type: "string", description: "Contenu texte de la section. Utiliser \\n pour les sauts de ligne. Préfixer avec '• ' pour les listes à puces." }
+                }
+              }
+            }
+          },
+          required: ["filename", "title", "sections"]
+        },
+        execute: async ({ filename, title, sections }: { filename: string, title: string, sections: Array<{ heading?: string, body: string }> }) => {
+          const outputPath = path.join('/tmp', filename.endsWith('.pdf') ? filename : `${filename}.pdf`);
+
+          return new Promise<any>((resolve, reject) => {
+            try {
+              const doc = new PDFDocument({ size: 'A4', margin: 50 });
+              const stream = fs.createWriteStream(outputPath);
+              doc.pipe(stream);
+
+              // Title
+              doc.fontSize(22).font('Helvetica-Bold').text(title, { align: 'center' });
+              doc.moveDown(1.5);
+
+              // Sections
+              for (const section of sections) {
+                if (section.heading) {
+                  doc.fontSize(16).font('Helvetica-Bold').text(section.heading);
+                  doc.moveDown(0.5);
+                }
+                if (section.body) {
+                  const lines = section.body.split('\n');
+                  for (const line of lines) {
+                    if (line.trim().startsWith('•') || line.trim().startsWith('-')) {
+                      doc.fontSize(11).font('Helvetica').text(line.trim(), { indent: 20 });
+                    } else {
+                      doc.fontSize(11).font('Helvetica').text(line.trim());
+                    }
+                  }
+                }
+                doc.moveDown(1);
+              }
+
+              // Footer
+              doc.fontSize(8).font('Helvetica-Oblique').text(`Généré par Studio Pro Agent — ${new Date().toLocaleDateString('fr-FR')}`, { align: 'center' });
+
+              doc.end();
+
+              stream.on('finish', () => {
+                resolve({ success: true, path: outputPath, message: `PDF '${filename}' créé avec succès à ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de téléchargement.` });
+              });
+              stream.on('error', (err) => {
+                reject(err);
+              });
+            } catch (err) {
+              reject(err);
+            }
+          });
+        }
+      },
+      {
+        name: "execute_script",
+        description: "Exécute un script Node.js préalablement écrit sur le disque. ATTENTION : Seul Node.js est disponible dans cet environnement. Python N'EST PAS installé.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Chemin du script à exécuter (ex: /tmp/script.js)." },
+            language: { type: "string", enum: ["node"], description: "Le langage du script (seul 'node' est supporté)." }
           },
           required: ["path", "language"]
         },
-        execute: async ({ path: filePath, language }: { path: string, language: "python" | "node" }) => {
+        execute: async ({ path: filePath, language }: { path: string, language: string }) => {
+          if (language === 'python') {
+            return { success: false, error: "Python n'est PAS disponible dans cet environnement serveur. Utilise les outils natifs comme 'create_pdf' pour générer des PDFs, ou 'execute_script' avec language='node' pour du JavaScript." };
+          }
           const absolutePath = resolveAndValidatePath(filePath);
           if (!fs.existsSync(absolutePath)) throw new Error(`Le script ${filePath} n'existe pas.`);
-          
-          const { exec } = await import('child_process');
-          
-          const runCommand = (cmd: string): Promise<any> => {
-            return new Promise((resolve) => {
-              exec(cmd, { cwd: path.dirname(absolutePath) }, (error, stdout, stderr) => {
-                if (error) {
-                  resolve({ success: false, error: error.message, stderr, code: error.code });
-                } else {
-                  resolve({ success: true, stdout, stderr });
-                }
-              });
-            });
-          };
 
-          if (language === 'python') {
-            // Try 'python' first, then 'python3' if it fails with 'not found'
-            let result = await runCommand(`python "${absolutePath}"`);
-            if (!result.success && (result.error.includes('not found') || result.error.includes('n\'est pas reconnu'))) {
-              log.info("python not found, trying python3...");
-              result = await runCommand(`python3 "${absolutePath}"`);
-            }
-            return result;
-          } else {
-            return await runCommand(`node "${absolutePath}"`);
-          }
+          const { exec } = await import('child_process');
+
+          return new Promise<any>((resolve) => {
+            exec(`node "${absolutePath}"`, { cwd: path.dirname(absolutePath), timeout: 30000 }, (error, stdout, stderr) => {
+              if (error) {
+                resolve({ success: false, error: error.message, stderr, code: error.code });
+              } else {
+                resolve({ success: true, stdout, stderr });
+              }
+            });
+          });
         }
       }
     ];
@@ -716,17 +777,23 @@ app.post('/api/cowork', async (req, res) => {
       maxOutputTokens: config.maxOutputTokens || 65536,
       thinkingLevel: config.thinkingLevel || 'high', // ENABLE THINKING
       maxThoughtTokens: config.maxThoughtTokens || 4096,
-      systemInstruction: config.systemInstruction || `Tu es un agent autonome expert en mode Cowork. 
-Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes sur son projet.
+      systemInstruction: config.systemInstruction || `Tu es un agent autonome expert en mode Cowork.
+Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes.
 
-### RÈGLES DE SURVIE ET RÉFLEXION :
-1. **PLANIFICATION** : Avant chaque action complexe, décris ta stratégie dans tes pensées.
-2. **VÉRIFICATION D'ENVIRONNEMENT** : Si tu dois exécuter un script (Python/Node), vérifie d'abord si l'interpréteur est disponible (ex: 'python --version') ou liste les fichiers pour t'assurer que tout est prêt.
-3. **RÉSILIENCE** : Si un outil échoue (ex: 'python not found'), NE RECOPIE PAS la même commande. Analyse l'erreur, et tente une approche alternative (ex: utiliser 'node', vérifier le PATH, ou lire un autre fichier).
-4. **CHEMINS** : Utilise impérativement le dossier '/tmp/' pour créer des fichiers (ex: '/tmp/rapport.pdf').
-5. **LIVRAISON** : Une fois le fichier final généré dans '/tmp/', utilise impérativement 'release_file' pour obtenir un lien de téléchargement public et donne-le à l'utilisateur.
+### ENVIRONNEMENT TECHNIQUE :
+- **Node.js UNIQUEMENT** : Cet environnement ne dispose QUE de Node.js. Python N'EST PAS installé et ne sera JAMAIS disponible.
+- **Outils natifs** : Tu disposes d'outils intégrés puissants. Utilise-les au lieu d'écrire des scripts :
+  - 'create_pdf' : Génère directement un PDF structuré (titre, sections, listes). C'est l'outil à utiliser pour TOUT besoin de PDF.
+  - 'write_file' : Crée des fichiers texte, JSON, HTML, CSV, etc.
+  - 'release_file' : Upload un fichier et génère un lien de téléchargement public.
+  - 'execute_script' : Exécute un script Node.js (PAS Python).
 
-Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait. Si tu crées un fichier, écris-le réellement via 'write_file'.`,
+### RÈGLES CRITIQUES :
+1. **POUR CRÉER UN PDF** : Utilise TOUJOURS l'outil 'create_pdf'. N'essaie JAMAIS d'écrire un script Python avec reportlab/fpdf. Ça ne marchera pas.
+2. **CHEMINS** : Tous les fichiers doivent être créés dans '/tmp/' (ex: '/tmp/rapport.pdf').
+3. **LIVRAISON** : Après avoir créé un fichier, utilise TOUJOURS 'release_file' pour obtenir un lien de téléchargement et donne-le à l'utilisateur en Markdown : [Télécharger le fichier](url).
+4. **ANTI-BOUCLE** : Si un outil échoue, NE retente PAS la même chose. Analyse l'erreur et change d'approche.
+5. **HONNÊTETÉ** : Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait. Si un outil échoue, dis-le clairement.`,
       tools
     };
 
@@ -737,7 +804,11 @@ Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait. Si tu crées 
 
     let contents = [...history, { role: 'user' as const, parts: [{ text: message }] }];
     let iterations = 0;
-    const MAX_ITERATIONS = 15; // Increased from 8 to allow for more complex tasks and retries
+    const MAX_ITERATIONS = 15;
+
+    // Anti-loop detection: track consecutive failures per tool
+    const toolFailures: Record<string, number> = {};
+    const MAX_TOOL_FAILURES = 2; // If same tool fails 2x, inject a warning to force different approach
 
     while (iterations < MAX_ITERATIONS) {
       iterations++;
@@ -790,26 +861,49 @@ Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait. Si tu crées 
         for (const call of functionCalls) {
           const tool = localTools.find(t => t.name === call.name);
           if (tool) {
+            // Anti-loop: check if this tool has already failed too many times
+            if (toolFailures[tool.name] >= MAX_TOOL_FAILURES) {
+              log.warn(`Anti-loop: tool ${tool.name} has failed ${toolFailures[tool.name]} times, blocking and injecting guidance`);
+              const loopMsg = `L'outil '${tool.name}' a déjà échoué ${toolFailures[tool.name]} fois. ARRÊTE d'utiliser cet outil et adopte une approche DIFFÉRENTE. Si tu essayais Python, rappelle-toi que Python N'EST PAS disponible — utilise les outils natifs comme 'create_pdf' pour les PDFs.`;
+              toolResults.push({
+                functionResponse: {
+                  name: tool.name,
+                  response: { success: false, error: loopMsg }
+                }
+              });
+              res.write(`data: ${JSON.stringify({ thoughts: `🔄 Anti-boucle : ${tool.name} bloqué après ${toolFailures[tool.name]} échecs consécutifs.\n\n` })}\n\n`);
+              continue;
+            }
+
             log.info(`Executing tool: ${tool.name}`, call.args);
             try {
               const output = await tool.execute(call.args);
+              const isError = (output as any).success === false || (output as any).error;
+
+              if (isError) {
+                toolFailures[tool.name] = (toolFailures[tool.name] || 0) + 1;
+              } else {
+                // Reset failure counter on success
+                toolFailures[tool.name] = 0;
+              }
+
               toolResults.push({
                 functionResponse: {
                   name: tool.name,
                   response: output
                 }
               });
-              const isError = (output as any).success === false || (output as any).error;
               const statusEmoji = isError ? '❌' : '✅';
               const statusText = isError ? 'Échec' : 'Succès';
               const detail = (output as any).error || (output as any).message || '';
-              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}\n${JSON.stringify(call.args)}\n\n${statusEmoji} Résultat : ${statusText}${detail ? ` (${detail})` : ''}\n\n` })}\n\n`);
+              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name} ${JSON.stringify(call.args)}\n${statusEmoji} Résultat : ${statusText}${detail ? ` (${detail})` : ''}\n\n` })}\n\n`);
             } catch (err: any) {
-              log.error(`Tool ${tool.name} failed`, err);
+              toolFailures[tool.name] = (toolFailures[tool.name] || 0) + 1;
+              log.error(`Tool ${tool.name} failed (attempt ${toolFailures[tool.name]})`, err);
               toolResults.push({
                 functionResponse: {
                   name: tool.name,
-                  response: { error: String(err) }
+                  response: { success: false, error: String(err) }
                 }
               });
               res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}\n❌ Échec : ${err.message || String(err)}\n\n` })}\n\n`);

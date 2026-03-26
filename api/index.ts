@@ -207,7 +207,7 @@ ${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js s
 - 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
 ### COMPORTEMENT ATTENDU :
 1. Commence les taches non triviales par 'report_progress' pour annoncer ton plan immediat.
-2. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, une actualite, un briefing ou des recommandations, tu dois effectuer plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n3. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' sur une source pertinente avant la synthese finale." : ""}
+2. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, une actualite, un briefing ou des recommandations, tu dois effectuer plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n3. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' sur une source pertinente avant la synthese finale.\n   Si 'web_search' echoue ou est bloque, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
 4. Quand tu pivotes, bloques, ou changes de strategie, annonce-le via 'report_progress'.
 5. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.
 
@@ -216,7 +216,8 @@ ${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js s
 2. Chemins : tous les fichiers generes doivent etre crees dans '/tmp/'.
 3. Livraison : apres avoir cree un fichier, utilise TOUJOURS 'release_file' puis donne le lien Markdown final.
 4. Anti-boucle : si un outil echoue, ne retente pas la meme chose en boucle. Analyse l'erreur et change d'approche.
-5. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.`;
+5. N'utilise JAMAIS 'write_file' pour fabriquer un faux fichier '.pdf'. Pour un PDF, utilise uniquement 'create_pdf'.
+6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -334,17 +335,22 @@ function buildResearchCompletionPrompt(
   stats: { webSearches: number; webFetches: number }
 ): string | null {
   if (!requestNeedsDeepResearch(originalMessage)) return null;
-  if (stats.webSearches >= 2 && stats.webFetches >= 1) return null;
+  const enoughViaSearchAndRead = stats.webSearches >= 2 && stats.webFetches >= 1;
+  const enoughViaDirectSources = stats.webFetches >= 2;
+  if (enoughViaSearchAndRead || enoughViaDirectSources) return null;
 
   const remainingSearches = Math.max(0, 2 - stats.webSearches);
-  const needsFetch = stats.webFetches < 1;
   const instructions: string[] = [];
 
-  if (remainingSearches > 0) {
+  if (stats.webSearches === 0) {
+    instructions.push("Si 'web_search' reste bloque, lis directement 2 sources pertinentes via 'web_fetch' (page d'accueil, live, flux RSS, documentation officielle).");
+  } else if (remainingSearches > 0) {
     instructions.push(`Fais encore ${remainingSearches} recherche(s) 'web_search' avec des angles differents.`);
   }
-  if (needsFetch) {
+  if (stats.webFetches < 1) {
     instructions.push("Ouvre ensuite au moins une source pertinente via 'web_fetch'.");
+  } else if (stats.webSearches === 0 && stats.webFetches < 2) {
+    instructions.push("Comme la recherche moteur est bloquee, ouvre encore une deuxieme source pertinente via 'web_fetch'.");
   }
 
   return `La recherche visible est encore insuffisante pour repondre proprement.
@@ -353,35 +359,67 @@ Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
 Utilise aussi 'report_progress' pour annoncer ce que tu verifies, puis seulement ensuite redige la synthese finale.`;
 }
 
-async function searchWeb(query: string, maxResults = 5) {
-  if (process.env.TAVILY_API_KEY) {
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.TAVILY_API_KEY}`
-      },
-      body: JSON.stringify({
-        query,
-        max_results: Math.min(maxResults, 8),
-        search_depth: 'advanced',
-        include_answer: false,
-        include_raw_content: false
-      })
+function unwrapXmlValue(value: string): string {
+  return value.replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '').trim();
+}
+
+function extractXmlTagValue(block: string, tagName: string): string {
+  const match = block.match(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'));
+  return stripHtml(unwrapXmlValue(match?.[1] || ''));
+}
+
+function parseRssResults(
+  xml: string,
+  source: string,
+  maxResults: number
+): Array<{ title: string; url: string; snippet: string; source: string }> {
+  const items = [...xml.matchAll(/<item\b[\s\S]*?<\/item>/gi)];
+  const seen = new Set<string>();
+  const results: Array<{ title: string; url: string; snippet: string; source: string }> = [];
+
+  for (const match of items) {
+    if (results.length >= maxResults) break;
+    const block = match[0];
+    const url = extractXmlTagValue(block, 'link');
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+
+    const title = extractXmlTagValue(block, 'title') || url;
+    const snippet =
+      extractXmlTagValue(block, 'description') ||
+      extractXmlTagValue(block, 'content:encoded') ||
+      extractXmlTagValue(block, 'content');
+
+    results.push({
+      title: clipText(title, 140),
+      url,
+      snippet: clipText(snippet, 240),
+      source
     });
-    if (!response.ok) {
-      throw new Error(`Tavily a renvoye ${response.status}`);
-    }
-    const data: any = await response.json();
-    const results = Array.isArray(data.results) ? data.results : [];
-    return results.slice(0, maxResults).map((result: any) => ({
-      title: clipText(result.title || result.url || 'Sans titre', 140),
-      url: result.url,
-      snippet: clipText(result.content || result.snippet || '', 240),
-      source: 'tavily'
-    }));
   }
 
+  return results;
+}
+
+async function searchViaBingRss(query: string, maxResults = 5) {
+  const response = await fetch(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Bing RSS a renvoye ${response.status}`);
+  }
+
+  const xml = await response.text();
+  const results = parseRssResults(xml, 'bing', maxResults);
+  if (results.length === 0) {
+    throw new Error('Aucun resultat exploitable trouve via Bing RSS.');
+  }
+  return results;
+}
+
+async function searchViaDuckDuckGo(query: string, maxResults = 5) {
   const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
@@ -416,10 +454,87 @@ async function searchWeb(query: string, maxResults = 5) {
   }
 
   if (results.length === 0) {
-    throw new Error("Aucun resultat exploitable trouve via le fallback public.");
+    throw new Error('Aucun resultat exploitable trouve via DuckDuckGo.');
   }
 
   return results;
+}
+
+function searchQueryLooksNewsy(query: string): boolean {
+  const normalized = normalizeCoworkText(query);
+  return /\b(actualite|actu|news|aujourd'hui|today|breaking|headline|briefing|rss|presse)\b/.test(normalized);
+}
+
+async function searchViaGoogleNewsRss(query: string, maxResults = 5) {
+  const response = await fetch(
+    `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=fr&gl=FR&ceid=FR:fr`,
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+      }
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Google News RSS a renvoye ${response.status}`);
+  }
+
+  const xml = await response.text();
+  const results = parseRssResults(xml, 'google-news', maxResults);
+  if (results.length === 0) {
+    throw new Error('Aucun resultat exploitable trouve via Google News RSS.');
+  }
+  return results;
+}
+
+async function searchWeb(query: string, maxResults = 5) {
+  if (process.env.TAVILY_API_KEY) {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.TAVILY_API_KEY}`
+      },
+      body: JSON.stringify({
+        query,
+        max_results: Math.min(maxResults, 8),
+        search_depth: 'advanced',
+        include_answer: false,
+        include_raw_content: false
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`Tavily a renvoye ${response.status}`);
+    }
+    const data: any = await response.json();
+    const results = Array.isArray(data.results) ? data.results : [];
+    return results.slice(0, maxResults).map((result: any) => ({
+      title: clipText(result.title || result.url || 'Sans titre', 140),
+      url: result.url,
+      snippet: clipText(result.content || result.snippet || '', 240),
+      source: 'tavily'
+    }));
+  }
+
+  const attempts: Array<() => Promise<Array<{ title: string; url: string; snippet: string; source: string }>>> = [
+    () => searchViaBingRss(query, maxResults),
+    () => searchViaDuckDuckGo(query, maxResults),
+  ];
+
+  if (searchQueryLooksNewsy(query)) {
+    attempts.push(() => searchViaGoogleNewsRss(query, maxResults));
+  }
+
+  const errors: string[] = [];
+  for (const attempt of attempts) {
+    try {
+      const results = await attempt();
+      if (results.length > 0) return results;
+    } catch (error) {
+      errors.push(parseApiError(error));
+    }
+  }
+
+  throw new Error(`Aucun resultat exploitable trouve via les fallbacks publics. ${errors.length > 0 ? `Dernieres erreurs: ${errors.join(' | ')}` : ''}`.trim());
 }
 
 async function fetchReadableUrl(url: string) {
@@ -946,6 +1061,12 @@ app.post('/api/cowork', async (req, res) => {
           required: ["path", "content"]
         },
         execute: ({ path: filePath, content }: { path: string, content: string }) => {
+          if (path.extname(filePath).toLowerCase() === '.pdf') {
+            return {
+              success: false,
+              error: "N'ecris jamais un PDF brut via 'write_file'. Utilise l'outil 'create_pdf' pour generer un vrai PDF."
+            };
+          }
           const absolutePath = resolveAndValidatePath(filePath);
           const dir = path.dirname(absolutePath);
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1194,6 +1315,10 @@ app.post('/api/cowork', async (req, res) => {
       webSearches: 0,
       webFetches: 0
     };
+    const successfulResearchMeta = {
+      webSearches: 0,
+      webFetches: 0
+    };
 
     emitEvent('status', {
       iteration: 0,
@@ -1292,10 +1417,6 @@ app.post('/api/cowork', async (req, res) => {
               continue;
             }
 
-            runMeta.toolCalls += 1;
-            if (tool.name === 'web_search') runMeta.webSearches += 1;
-            if (tool.name === 'web_fetch') runMeta.webFetches += 1;
-
             // Anti-loop: check if this tool has already failed too many times
             if (toolFailures[tool.name] >= MAX_TOOL_FAILURES) {
               log.warn(`Anti-loop: tool ${tool.name} has failed ${toolFailures[tool.name]} times, blocking and injecting guidance`);
@@ -1316,6 +1437,10 @@ app.post('/api/cowork', async (req, res) => {
               });
               continue;
             }
+
+            runMeta.toolCalls += 1;
+            if (tool.name === 'web_search') runMeta.webSearches += 1;
+            if (tool.name === 'web_fetch') runMeta.webFetches += 1;
 
             log.info(`Executing tool: ${tool.name}`, call.args);
             emitEvent('tool_call', {
@@ -1347,6 +1472,8 @@ app.post('/api/cowork', async (req, res) => {
               } else {
                 // Reset failure counter on success
                 toolFailures[tool.name] = 0;
+                if (tool.name === 'web_search') successfulResearchMeta.webSearches += 1;
+                if (tool.name === 'web_fetch') successfulResearchMeta.webFetches += 1;
               }
 
               toolResults.push({
@@ -1427,8 +1554,8 @@ app.post('/api/cowork', async (req, res) => {
       }
 
       const researchCompletionPrompt =
-        webSearchEnabled && researchCompletionNudges < MAX_RESEARCH_COMPLETION_NUDGES
-          ? buildResearchCompletionPrompt(message, runMeta)
+        webSearchEnabled && !latestReleasedFile?.url && researchCompletionNudges < MAX_RESEARCH_COMPLETION_NUDGES
+          ? buildResearchCompletionPrompt(message, successfulResearchMeta)
           : null;
       if (researchCompletionPrompt) {
         researchCompletionNudges++;

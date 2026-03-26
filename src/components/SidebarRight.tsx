@@ -184,11 +184,16 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                 <div className="flex flex-col gap-0.5">
                   <span className="text-[13px] font-bold tracking-tight text-[var(--app-text)]">
                     {({
-                      'gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
-                      'gemini-3.1-flash-lite-preview': 'Gemini 3.1 Flash Lite',
-                      'gemini-3-flash-preview': 'Gemini 3 Flash',
-                      'gemini-2.5-flash-image': 'Nano Banana',
-                      'veo-3.1-generate-001': 'Veo 3.1 Video',
+                    'gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
+                    'gemini-3.1-flash-lite-preview': 'Gemini 3.1 Flash Lite',
+                    'gemini-3-flash-preview': 'Gemini 3 Flash',
+                    'gemini-2.5-flash-image': 'Gemini 2.5 Image',
+                    'imagen-4.0-generate-001': 'Imagen 4',
+                    'imagen-3.0-generate-001': 'Imagen 3 Advanced',
+                    'imagen-3.0-fast-generate-001': 'Imagen 3 Fast',
+                    'veo-3.1-generate-001': 'Veo 3.1 Video',
+                    'gemini-2.5-flash-preview-tts': 'Audio TTS',
+
                     } as any)[config?.model || ''] || config?.model}
                   </span>
                   <span className="text-[10px] text-[var(--app-text-muted)] opacity-70">
@@ -212,15 +217,15 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     <div className="p-3 space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
                       {[
                         { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', info: 'Task Complexes', modes: ['chat'] },
-                        { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', info: 'Vitesse & Multimodal', modes: ['chat', 'image'] },
+                        { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', info: 'Vitesse & Multimodal', modes: ['chat'] },
                         { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', info: 'Vitesse pure', modes: ['chat'] },
-                        { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', info: 'Raisonnement Image', modes: ['image'] },
                         { id: 'imagen-4.0-generate-001', label: 'Imagen 4', info: 'Ultra HD (2K)', modes: ['image'] },
                         { id: 'imagen-3.0-generate-001', label: 'Imagen 3 Advanced', info: 'Haute Fidélité', modes: ['image'] },
                         { id: 'imagen-3.0-fast-generate-001', label: 'Imagen 3 Fast', info: 'Rapide & Pro', modes: ['image'] },
                         { id: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Image', info: 'Polyvalent', modes: ['image'] },
                         { id: 'veo-3.1-generate-001', label: 'Veo 3.1 Video', info: 'Ultra Real', modes: ['video'] },
                         { id: 'gemini-2.5-flash-preview-tts', label: 'Audio TTS', info: 'Naturel', modes: ['audio'] },
+
                       ]
                       .filter(m => m.modes.includes(activeMode))
                       .map((m) => (

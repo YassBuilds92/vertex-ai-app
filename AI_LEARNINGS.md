@@ -51,4 +51,4 @@
 
 ## Tests & Déploiement
 - [Validation des changements] -> Interdiction de tester via `localhost`. Tout changement doit être poussé sur Vercel via le workflow `/deploy` (git push) et testé directement sur l'URL de production : `https://vertex-ai-app-pearl.vercel.app/`.
-- [Erreur de taille Firestore (1MB)] -> Une erreur `exceeds the maximum allowed size` survient si on stocke des images base64 directement dans Firestore. **Solution** : Uploader l'image/pièce-jointe vers `firebase/storage` via `uploadBytes`, récupérer l'URL via `getDownloadURL`, et ne stocker QUE l'URL dans Firestore (en supprimant le champ `base64`).
+- [Filtrage Modèles Image] -> Les modèles multimodaux (Gemini 3.1 Flash Lite) étaient mélangés aux modèles de génération (Imagen) en mode image. -> Filtrer la liste des modèles dans `SidebarRight.tsx` pour ne garder que ceux ayant le tag `image` et retirer `image` des modèles purement text/multimodal. Supprimer Gemini 3 Pro (obsolète).

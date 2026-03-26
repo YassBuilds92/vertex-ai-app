@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
@@ -133,6 +134,35 @@ async function uploadToGCS(buffer: Buffer, fileName: string, contentType: string
   });
 
   return url;
+}
+
+// ─── Path Helpers ──────────────────────────────────────────────
+const ALLOWED_ROOTS = [process.cwd()];
+if (process.env.VERCEL || process.platform !== 'win32') {
+  ALLOWED_ROOTS.push('/tmp');
+} else {
+  ALLOWED_ROOTS.push(os.tmpdir());
+}
+
+function resolveAndValidatePath(filePath: string): string {
+  // If path is absolute, check it against allowed roots
+  if (path.isAbsolute(filePath)) {
+    const absolute = path.normalize(filePath);
+    if (ALLOWED_ROOTS.some(root => absolute.startsWith(root))) return absolute;
+    throw new Error("Accès refusé : chemin en dehors des zones autorisées.");
+  }
+
+  // If path is relative, try resolving against process.cwd() first
+  const projectPath = path.resolve(process.cwd(), filePath);
+  if (projectPath.startsWith(process.cwd())) return projectPath;
+
+  // Fallback for Vercel: allow relative paths in /tmp if project is read-only
+  if (process.env.VERCEL) {
+    const tmpPath = path.resolve('/tmp', filePath);
+    if (tmpPath.startsWith('/tmp')) return tmpPath;
+  }
+
+  throw new Error("Accès refusé hors du projet.");
 }
 
 function getMimeType(filePath: string): string {
@@ -537,8 +567,7 @@ app.post('/api/cowork', async (req, res) => {
           required: ["path"]
         },
         execute: ({ path: filePath }: { path: string }) => {
-          const absolutePath = path.resolve(process.cwd(), filePath);
-          if (!absolutePath.startsWith(process.cwd())) throw new Error("Accès refusé hors du projet.");
+          const absolutePath = resolveAndValidatePath(filePath);
           if (!fs.existsSync(absolutePath)) throw new Error(`Le fichier ${filePath} n'existe pas.`);
           const content = fs.readFileSync(absolutePath, 'utf-8');
           // Limit content if too large
@@ -557,12 +586,11 @@ app.post('/api/cowork', async (req, res) => {
           required: ["path", "content"]
         },
         execute: ({ path: filePath, content }: { path: string, content: string }) => {
-          const absolutePath = path.resolve(process.cwd(), filePath);
-          if (!absolutePath.startsWith(process.cwd())) throw new Error("Accès refusé hors du projet.");
+          const absolutePath = resolveAndValidatePath(filePath);
           const dir = path.dirname(absolutePath);
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
           fs.writeFileSync(absolutePath, content, 'utf-8');
-          return { success: true, message: `Fichier ${filePath} écrit avec succès.` };
+          return { success: true, message: `Fichier ${filePath} écrit avec succès à l'emplacement : ${absolutePath}` };
         }
       },
       {
@@ -599,8 +627,7 @@ app.post('/api/cowork', async (req, res) => {
           required: ["path"]
         },
         execute: async ({ path: filePath }: { path: string }) => {
-          const absolutePath = path.resolve(process.cwd(), filePath);
-          if (!absolutePath.startsWith(process.cwd())) throw new Error("Accès refusé hors du projet.");
+          const absolutePath = resolveAndValidatePath(filePath);
           if (!fs.existsSync(absolutePath)) throw new Error(`Le fichier ${filePath} n'existe pas.`);
           const buffer = fs.readFileSync(absolutePath);
           const fileName = path.basename(filePath);
@@ -628,10 +655,15 @@ app.post('/api/cowork', async (req, res) => {
       systemInstruction: config.systemInstruction || `Tu es un agent autonome en mode Cowork. 
 Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes sur son projet.
 Tu as accès à des outils pour lire, lister et modifier des fichiers. 
-Si tu crées un fichier que l'utilisateur doit télécharger (comme un PDF, un rapport, ou une image), tu DOIS impérativement utiliser l'outil 'release_file' APRÈS l'avoir créé pour obtenir un lien de téléchargement public.
+
+IMPORTANT (Environnement Serverless / Vercel) : 
+- Le dossier racine du projet est en LECTURE SEULE sur Vercel. 
+- Pour créer des fichiers, des rapports, des PDF ou des images, tu DOIS impérativement utiliser le dossier '/tmp/' (ex: '/tmp/rapport.pdf').
+- Une fois le fichier créé dans '/tmp/', utilise l'outil 'release_file' sur ce même chemin pour obtenir un lien de téléchargement public.
+
 Donne toujours ce lien à l'utilisateur sous forme de lien Markdown dans ta réponse finale.
 Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait via un outil.
-Si tu crées un fichier (ex: un rapport), écris-le réellement sur le disque via 'write_file'.`,
+Si tu crées un fichier, écris-le réellement sur le disque via 'write_file'.`,
       tools
     };
 

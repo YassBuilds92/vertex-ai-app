@@ -38,8 +38,9 @@
 - [Erreur de Référence Initialisation] -> Dans `App.tsx`, s'assurer que `displayedMessages` (utilisé par `rowVirtualizer`) est déclaré AVANT l'initialisation du virtualiseur pour éviter une `ReferenceError` (Temporal Dead Zone).
 - [Bug Visuel Renvoyer/Regénérer] -> Si un message vide apparaît lors d'une régénération, vérifier `handleSend`. Il ne faut pas créer de nouveau message optimiste ou Firestore si `overrideMessages` est présent. La `message` envoyée à l'API doit être le dernier élément de l'historique, et l'historique doit être tronqué d'un élément pour éviter les doublons côté serveur.
 - [Firestore Error] -> `addDoc` rejette les propriétés `undefined`. Toujours utiliser `value || null` pour les champs optionnels (ex: `iconUrl`).
-- [Imagen Vertex AI] -> `imagen-4.0-...` est obsolète ! **MIGRATE TO gemini-2.5-flash-image** avant juin 2026.
-- [SDK Image Gen] -> Pour les modèles Gemini (ex: `gemini-2.5-flash-image`), il faut utiliser `client.models.generateContent` et NON `generateImages`.
+- [Imagen 4/3] -> Obsolètes et supprimés. Utiliser la série **Nano Banana** (Gemini 2.5/3/3.1 Image).
+- [Nano Banana Series] -> `gemini-3.1-flash-image-preview` (Nano Banana 2), `gemini-3-pro-image-preview` (Nano Banana Pro), `gemini-2.5-flash-image` (Nano Banana).
+- [SDK Image Gen] -> Pour les modèles Gemini (ex: `gemini-2.5-flash-image`), il faut utiliser `client.models.generateContent` et NON `generateImages`. Les paramètres `imageSize`, `aspectRatio` et `personGeneration` sont supportés via `config`.
 - [Génération d'icônes suspendue] -> En cas de quota (429), le `refine` échoue. Afficher une `alert()` au lieu de charger indéfiniment.
 - [Sauvegarde Inopérante] -> Suivre l'état d'authentification avec `onAuthStateChanged`. Utiliser `serverTimestamp()` pour les dates.
 - [Vertex AI Gemini Access Error] -> L'erreur `Gemini cannot be accessed through Vertex Predict/RawPredict API` survient si on utilise `generateImages` (Predict API) pour un modèle Gemini (ex: `gemini-2.5-flash-image`). Solution : utiliser `generateContent` et extraire l'image de `part.inlineData.data`. Toujours utiliser la localisation `global` pour les modèles Gemini 3.x/3.1 sur Vertex.

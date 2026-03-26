@@ -299,10 +299,8 @@ app.post('/api/generate-image', async (req, res) => {
       if (thinkingLevel) config.thinkingLevel = thinkingLevel;
     }
 
-    // Handle Imagen specific parameters if the SDK supports them via generateContent
-    // Note: for imagen-3.0/4.0, some parameters might need to be in 'parameters' for raw Predict, 
-    // but the genai SDK maps them to config.
-    if (modelId.includes('imagen')) {
+    // Handle specific parameters for Imagen and new Gemini Image models
+    if (modelId.includes('imagen') || modelId.includes('image-preview') || modelId.includes('gemini-2.5-flash-image')) {
       if (personGeneration) config.personGeneration = personGeneration;
       if (safetySetting) config.safetyFilterLevel = safetySetting;
       if (imageSize) config.imageSize = imageSize;

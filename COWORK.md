@@ -41,8 +41,10 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Recherche web visible : Cowork ne depend plus du built-in `googleSearch` pour la recherche traçable. Il dispose de `web_search` / `web_fetch` et d'un garde-fou adaptatif qui force plusieurs recherches visibles + au moins une lecture de source pour les demandes d'actu/doc/version/briefing/comparatif.
 - [x] Narration explicite : l'outil `report_progress` permet au modele de parler entre les outils comme un agent, sans transformer ces messages en reponse finale.
 
+- [x] Compatibilite Firestore de la timeline Cowork : les regles acceptent maintenant `activity` / `runState` / `runMeta`, et le frontend retombe sur une persistance legacy si le cloud n'a pas encore recu les nouvelles regles.
+
 ## Prochaines Etapes
-1. Deployer ces corrections sur Vercel et revalider sur production les cas reels `lis package.json`, `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, et un briefing d'actualite avec plusieurs recherches visibles.
+1. Deployer `firestore.rules` puis revalider sur production les cas reels `lis package.json`, `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, et un briefing d'actualite avec plusieurs recherches visibles.
 2. Mesurer si l'agent utilise effectivement `report_progress` et `web_search`/`web_fetch` de facon satisfaisante; si besoin, resserrer encore le prompt systeme ou les relances guidees.
 3. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
 4. Brancher ensuite un vrai provider de recherche (ex: Tavily) si le fallback public montre ses limites sur certains domaines.

@@ -66,6 +66,25 @@ service cloud.firestore {
       return !(field in request.resource.data) || (request.resource.data[field] is list && request.resource.data[field].size() <= maxLen);
     }
 
+    function isValidCoworkRunState(data) {
+      return !('runState' in data) || (data.runState is string && data.runState in ['running', 'completed', 'failed', 'aborted']);
+    }
+
+    function isValidCoworkRunMeta(data) {
+      return !('runMeta' in data) || (
+        data.runMeta is map &&
+        data.runMeta.keys().hasOnly(['iterations', 'toolCalls', 'webSearches', 'webFetches']) &&
+        (!('iterations' in data.runMeta) || data.runMeta.iterations is number) &&
+        (!('toolCalls' in data.runMeta) || data.runMeta.toolCalls is number) &&
+        (!('webSearches' in data.runMeta) || data.runMeta.webSearches is number) &&
+        (!('webFetches' in data.runMeta) || data.runMeta.webFetches is number)
+      );
+    }
+
+    function isValidCoworkActivity(data) {
+      return !('activity' in data) || (data.activity is list && data.activity.size() <= 80);
+    }
+
     // ===============================================================
     // Domain Validators
     // ===============================================================
@@ -84,12 +103,15 @@ service cloud.firestore {
     function isValidMessage(data) {
       return hasRequiredFields(['role', 'content', 'createdAt', 'sessionId', 'userId']) &&
              // On remplace 'image' par 'images' et on ajoute 'thoughtImages'
-             hasOnlyAllowedFields(['id', 'role', 'content', 'thoughts', 'attachments', 'createdAt', 'sessionId', 'userId', 'video', 'audio', 'images', 'thoughtImages', 'refinedInstruction']) &&
+             hasOnlyAllowedFields(['id', 'role', 'content', 'thoughts', 'attachments', 'createdAt', 'sessionId', 'userId', 'video', 'audio', 'images', 'thoughtImages', 'refinedInstruction', 'activity', 'runState', 'runMeta']) &&
              data.role in ['user', 'model'] &&
              // On augmente la limite de 50 000 à 500 000 caractères
              data.content is string && data.content.size() <= 500000 &&
              (!( 'thoughts' in data) || (data.thoughts is string && data.thoughts.size() <= 500000)) &&
              isValidList('attachments', 20) &&
+             isValidCoworkActivity(data) &&
+             isValidCoworkRunState(data) &&
+             isValidCoworkRunMeta(data) &&
              data.createdAt is number &&
              data.sessionId is string &&
              data.userId == request.auth.uid;

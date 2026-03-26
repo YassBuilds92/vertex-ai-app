@@ -75,6 +75,8 @@ export default function App() {
   const liveCoworkMessageRef = useRef<Message | null>(null);
   const coworkFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coworkFlushTargetRef = useRef<{ userId: string; sessionId: string } | null>(null);
+  const coworkStorageModeRef = useRef<'rich' | 'legacy'>('rich');
+  const coworkStorageWarningShownRef = useRef(false);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -226,25 +228,59 @@ export default function App() {
     });
   }, []);
 
+  const persistCoworkSnapshot = useCallback(async (message: Message, target: { userId: string; sessionId: string }) => {
+    const messageRef = doc(db, 'users', target.userId, 'sessions', target.sessionId, 'messages', message.id);
+    const sanitized = sanitizeCoworkMessageForStorage(message);
+    const richPayload = cleanForFirestore({
+      ...sanitized,
+      sessionId: target.sessionId,
+      userId: target.userId,
+    });
+    const { activity, runState, runMeta, ...legacyMessage } = sanitized;
+    const legacyPayload = cleanForFirestore({
+      ...legacyMessage,
+      sessionId: target.sessionId,
+      userId: target.userId,
+    });
+
+    if (coworkStorageModeRef.current === 'legacy') {
+      await setDoc(messageRef, legacyPayload);
+      return;
+    }
+
+    try {
+      await setDoc(messageRef, richPayload);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      const isPermissionError =
+        errorMessage.includes('missing or insufficient permissions') ||
+        errorMessage.includes('permission-denied') ||
+        errorMessage.includes('permission denied');
+
+      if (!isPermissionError) {
+        throw error;
+      }
+
+      coworkStorageModeRef.current = 'legacy';
+      if (!coworkStorageWarningShownRef.current) {
+        coworkStorageWarningShownRef.current = true;
+        console.warn('Cowork Firestore rules are outdated. Falling back to legacy message persistence without activity metadata.');
+      }
+      await setDoc(messageRef, legacyPayload);
+    }
+  }, []);
+
   const persistLiveCoworkMessage = useCallback(async () => {
     const draft = liveCoworkMessageRef.current;
     const target = coworkFlushTargetRef.current;
     if (!draft || !target) return;
 
     try {
-      const sanitized = sanitizeCoworkMessageForStorage(draft);
-      await setDoc(
-        doc(db, 'users', target.userId, 'sessions', target.sessionId, 'messages', sanitized.id),
-        cleanForFirestore({
-          ...sanitized,
-          sessionId: target.sessionId,
-          userId: target.userId,
-        })
-      );
+      await persistCoworkSnapshot(draft, target);
     } catch (error) {
       console.error('Cowork draft persistence failed:', error);
     }
-  }, []);
+  }, [persistCoworkSnapshot]);
 
   const scheduleCoworkPersist = useCallback(() => {
     if (coworkFlushTimerRef.current) {
@@ -656,16 +692,11 @@ export default function App() {
           createdAt: Date.now(),
         };
 
+        coworkStorageModeRef.current = 'rich';
+        coworkStorageWarningShownRef.current = false;
         coworkFlushTargetRef.current = { userId: user.uid, sessionId: currentSessionId };
         setCoworkDraft(modelMessage);
-        await setDoc(
-          doc(db, 'users', user.uid, 'sessions', currentSessionId, 'messages', modelMessage.id),
-          cleanForFirestore({
-            ...sanitizeCoworkMessageForStorage(modelMessage),
-            sessionId: currentSessionId,
-            userId: user.uid,
-          })
-        );
+        await persistCoworkSnapshot(modelMessage, { userId: user.uid, sessionId: currentSessionId });
 
         while (true) {
           const { done, value } = await reader.read();

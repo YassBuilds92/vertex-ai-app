@@ -135,6 +135,23 @@ async function uploadToGCS(buffer: Buffer, fileName: string, contentType: string
   return url;
 }
 
+function getMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const mimes: Record<string, string> = {
+    '.pdf': 'application/pdf',
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.html': 'text/html',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.csv': 'text/csv',
+    '.json': 'application/json',
+  };
+  return mimes[ext] || 'application/octet-stream';
+}
+
 // ─── Middleware ──────────────────────────────────────────────────
 app.use(express.json({ limit: MAX_PAYLOAD }));
 app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
@@ -498,14 +515,99 @@ app.post('/api/cowork', async (req, res) => {
     if (config.googleSearch) tools.push({ googleSearch: {} });
     if (config.codeExecution) tools.push({ codeExecution: {} });
     
-    // Local tools (POC)
+    // Local tools
     const localTools = [
       {
         name: "list_files",
-        description: "Liste les fichiers à la racine du projet pour comprendre la structure.",
+        description: "Liste les fichiers et dossiers à la racine du projet.",
+        parameters: { type: "object", properties: {} },
         execute: () => {
           const files = fs.readdirSync(process.cwd());
           return { files: files.filter(f => !f.startsWith('.')) };
+        }
+      },
+      {
+        name: "read_file",
+        description: "Lit le contenu d'un fichier texte spécifique du projet.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Chemin relatif du fichier à lire." }
+          },
+          required: ["path"]
+        },
+        execute: ({ path: filePath }: { path: string }) => {
+          const absolutePath = path.resolve(process.cwd(), filePath);
+          if (!absolutePath.startsWith(process.cwd())) throw new Error("Accès refusé hors du projet.");
+          if (!fs.existsSync(absolutePath)) throw new Error(`Le fichier ${filePath} n'existe pas.`);
+          const content = fs.readFileSync(absolutePath, 'utf-8');
+          // Limit content if too large
+          return { content: content.length > 20000 ? content.slice(0, 20000) + "... [tronqué]" : content };
+        }
+      },
+      {
+        name: "write_file",
+        description: "Crée ou modifie un fichier avec le contenu spécifié.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Chemin relatif du fichier à écrire." },
+            content: { type: "string", description: "Contenu à écrire dans le fichier." }
+          },
+          required: ["path", "content"]
+        },
+        execute: ({ path: filePath, content }: { path: string, content: string }) => {
+          const absolutePath = path.resolve(process.cwd(), filePath);
+          if (!absolutePath.startsWith(process.cwd())) throw new Error("Accès refusé hors du projet.");
+          const dir = path.dirname(absolutePath);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(absolutePath, content, 'utf-8');
+          return { success: true, message: `Fichier ${filePath} écrit avec succès.` };
+        }
+      },
+      {
+        name: "list_recursive",
+        description: "Liste récursivement tous les fichiers du projet (limité).",
+        parameters: { type: "object", properties: {} },
+        execute: () => {
+          const getAllFiles = (dir: string, fileList: string[] = [], depth = 0): string[] => {
+            if (depth > 2) return fileList; // Limit depth
+            const files = fs.readdirSync(dir);
+            files.forEach(file => {
+              if (file.startsWith('.') || file === 'node_modules' || file === 'dist') return;
+              const name = path.join(dir, file);
+              if (fs.statSync(name).isDirectory()) {
+                getAllFiles(name, fileList, depth + 1);
+              } else {
+                fileList.push(path.relative(process.cwd(), name));
+              }
+            });
+            return fileList;
+          };
+          const allFiles = getAllFiles(process.cwd());
+          return { files: allFiles.slice(0, 100) }; // Limit result count
+        }
+      },
+      {
+        name: "release_file",
+        description: "Upload de façon sécurisée un fichier vers le cloud et génère un lien de téléchargement public (valable 7 jours). À utiliser après avoir créé un fichier (ex: PDF, rapport) que l'utilisateur doit uvoir télécharger.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Chemin relatif du fichier local à uploader." }
+          },
+          required: ["path"]
+        },
+        execute: async ({ path: filePath }: { path: string }) => {
+          const absolutePath = path.resolve(process.cwd(), filePath);
+          if (!absolutePath.startsWith(process.cwd())) throw new Error("Accès refusé hors du projet.");
+          if (!fs.existsSync(absolutePath)) throw new Error(`Le fichier ${filePath} n'existe pas.`);
+          const buffer = fs.readFileSync(absolutePath);
+          const fileName = path.basename(filePath);
+          const mimeType = getMimeType(filePath);
+          log.info(`Releasing file: ${filePath} (${mimeType})`);
+          const url = await uploadToGCS(buffer, fileName, mimeType);
+          return { success: true, url, message: `Fichier ${filePath} uploadé avec succès. Voici le lien de téléchargement.` };
         }
       }
     ];
@@ -515,15 +617,21 @@ app.post('/api/cowork', async (req, res) => {
         functionDeclarations: localTools.map(t => ({
           name: t.name,
           description: t.description,
-          parameters: { type: "object", properties: {} }
+          parameters: t.parameters
         }))
       });
     }
 
     const genConfig: any = {
-      temperature: 0.2, // Lower temperature for agentic tasks
+      temperature: 0.2,
       maxOutputTokens: config.maxOutputTokens || 65536,
-      systemInstruction: config.systemInstruction || "Tu es un agent d'assistance technique. Utilise les outils à ta disposition pour aider l'utilisateur.",
+      systemInstruction: config.systemInstruction || `Tu es un agent autonome en mode Cowork. 
+Ton objectif est d'aider l'utilisateur à réaliser des tâches concrètes sur son projet.
+Tu as accès à des outils pour lire, lister et modifier des fichiers. 
+Si tu crées un fichier que l'utilisateur doit télécharger (comme un PDF, un rapport, ou une image), tu DOIS impérativement utiliser l'outil 'release_file' APRÈS l'avoir créé pour obtenir un lien de téléchargement public.
+Donne toujours ce lien à l'utilisateur sous forme de lien Markdown dans ta réponse finale.
+Ne prétends JAMAIS avoir fait quelque chose que tu n'as pas fait via un outil.
+Si tu crées un fichier (ex: un rapport), écris-le réellement sur le disque via 'write_file'.`,
       tools
     };
 
@@ -534,7 +642,7 @@ app.post('/api/cowork', async (req, res) => {
 
     let contents = [...history, { role: 'user' as const, parts: [{ text: message }] }];
     let iterations = 0;
-    const MAX_ITERATIONS = 5;
+    const MAX_ITERATIONS = 8; // Slightly more for complex tasks
 
     while (iterations < MAX_ITERATIONS) {
       iterations++;
@@ -561,8 +669,9 @@ app.post('/api/cowork', async (req, res) => {
               res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
             }
             if (part.thought) {
-              turnThoughts += (part as any).text || '';
-              res.write(`data: ${JSON.stringify({ thoughts: (part as any).text })}\n\n`);
+              const thoughtText = (part as any).text || '';
+              turnThoughts += thoughtText;
+              res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
             }
             if (part.functionCall) {
               functionCalls.push(part.functionCall);
@@ -579,20 +688,23 @@ app.post('/api/cowork', async (req, res) => {
 
       if (functionCalls.length > 0) {
         const toolResults: any[] = [];
+        // Add iterative newline to separate thoughts from tool execution for UI
+        res.write(`data: ${JSON.stringify({ thoughts: "\n\n" })}\n\n`);
+        
         for (const call of functionCalls) {
           const tool = localTools.find(t => t.name === call.name);
           if (tool) {
-            log.info(`Executing tool: ${tool.name}`);
+            log.info(`Executing tool: ${tool.name}`, call.args);
             try {
-              const output = tool.execute();
+              const output = await tool.execute(call.args);
               toolResults.push({
                 functionResponse: {
                   name: tool.name,
                   response: output
                 }
               });
-              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ ${tool.name} : succès` })}\n\n`);
-            } catch (err) {
+              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}\n${JSON.stringify(call.args)}\n\n✅ Résultat : succès\n\n` })}\n\n`);
+            } catch (err: any) {
               log.error(`Tool ${tool.name} failed`, err);
               toolResults.push({
                 functionResponse: {
@@ -600,10 +712,18 @@ app.post('/api/cowork', async (req, res) => {
                   response: { error: String(err) }
                 }
               });
+              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}\n❌ Échec : ${err.message || String(err)}\n\n` })}\n\n`);
             }
           } else {
             log.warn(`Unknown tool called: ${call.name}`);
-            // Let the loop continue, the model might handle its own built-in tools if GROUNDING is returned
+            // If it's a native tool like googleSearch, we might not get it here 
+            // but the SDK handles the response. For custom loops, we need to pass it back.
+            toolResults.push({
+                functionResponse: {
+                  name: call.name,
+                  response: { error: "Outil non supporté dans la boucle locale." }
+                }
+            });
           }
         }
         
@@ -613,11 +733,6 @@ app.post('/api/cowork', async (req, res) => {
         }
       }
 
-      // If no local tools were called or we've reached a final answer
-      if (turnContent === '' && turnThoughts === '' && functionCalls.length === 0) {
-        // Fallback for empty responses
-        res.write(`data: ${JSON.stringify({ text: "Je n'ai pas pu générer de réponse. Veuillez reformuler." })}\n\n`);
-      }
       break;
     }
 

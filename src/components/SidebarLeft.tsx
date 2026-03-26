@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Sparkles, X, Plus, LogOut, Database,
-  MessageSquare, Image as ImageIcon, Film, Mic 
+  MessageSquare, Image as ImageIcon, Film, Mic, BrainCircuit
 } from 'lucide-react';
 import { doc, deleteDoc } from 'firebase/firestore';
 import { db, auth, OperationType, handleFirestoreError } from '../firebase';
@@ -16,6 +16,7 @@ function cn(...inputs: ClassValue[]) {
 
 const modeConfig = {
   chat: { icon: MessageSquare, label: 'Chat & Raisonnement', color: 'indigo', gradient: 'from-indigo-500 to-blue-600' },
+  cowork: { icon: BrainCircuit, label: 'Cowork (Autonome)', color: 'purple', gradient: 'from-purple-500 to-indigo-600' },
   image: { icon: ImageIcon, label: "Génération d'Images", color: 'pink', gradient: 'from-pink-500 to-rose-600' },
   video: { icon: Film, label: 'Génération Vidéo', color: 'emerald', gradient: 'from-emerald-500 to-teal-600' },
   audio: { icon: Mic, label: 'Text-to-Speech', color: 'amber', gradient: 'from-amber-500 to-orange-600' },
@@ -23,6 +24,7 @@ const modeConfig = {
 
 const modeIcons = {
   chat: MessageSquare,
+  cowork: BrainCircuit,
   image: ImageIcon,
   video: Film,
   audio: Mic,

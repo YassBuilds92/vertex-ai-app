@@ -66,6 +66,17 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     topK: 40,
     systemInstruction: '',
     ttsVoice: 'Kore',
+  },
+  cowork: {
+    model: 'gemini-3.1-pro-preview',
+    temperature: 0.1,
+    topP: 1.0,
+    topK: 1,
+    maxOutputTokens: 65536,
+    systemInstruction: "Tu es un agent autonome en mode Cowork. Tu as accès à des outils pour accomplir des tâches complexes. Analyse, propose et exécute.",
+    googleSearch: true,
+    codeExecution: true,
+    thinkingLevel: 'high',
   }
 };
 

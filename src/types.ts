@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-export type AppMode = 'chat' | 'image' | 'video' | 'audio';
+export type AppMode = 'chat' | 'image' | 'video' | 'audio' | 'cowork';
 
 export type AttachmentType = 'image' | 'video' | 'audio' | 'document' | 'youtube';
 

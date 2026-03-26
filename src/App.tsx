@@ -75,7 +75,7 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        const modes: AppMode[] = ['chat', 'image', 'video', 'audio'];
+        const modes: AppMode[] = ['chat', 'cowork', 'image', 'video', 'audio'];
         const next = modes[(modes.indexOf(activeMode) + 1) % modes.length];
         setActiveMode(next);
       }
@@ -467,6 +467,91 @@ export default function App() {
           createdAt: Date.now(),
           sessionId: currentSessionId,
           userId: user.uid
+        }));
+        
+        setIsLoading(false);
+        return;
+      }
+
+      if (activeMode === 'cowork') {
+        // COWORK / AGENTIC FLOW
+        if (!overrideMessages) {
+          const userMessage: Omit<Message, 'id'> = { 
+            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments 
+          };
+          const tempId = `opt-${Date.now()}`;
+          setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
+          await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ ...userMessage, sessionId: currentSessionId, userId: user.uid }));
+          setPendingAttachments([]);
+        }
+
+        const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : currentMessages;
+        const historyForApi = apiHistory.map(m => ({
+          role: m.role,
+          parts: m.attachments && m.attachments.length > 0 
+            ? [{ text: m.content || " " }, ...m.attachments.map(a => (a.type === 'youtube' ? { fileData: { fileUri: a.url, mimeType: "video/mp4" } } : { inlineData: { mimeType: a.mimeType || "image/jpeg", data: a.base64?.split(',')[1] || a.base64 || "" } }))]
+            : [{ text: m.content || " " }]
+        }));
+
+        const response = await fetch('/api/cowork', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: abortControllerRef.current.signal,
+          body: JSON.stringify({
+            message: finalPrompt,
+            history: historyForApi,
+            attachments: cleanAttachments,
+            config: {
+              model: config.model,
+              temperature: config.temperature,
+              googleSearch: config.googleSearch,
+              codeExecution: config.codeExecution,
+              thinkingLevel: config.thinkingLevel
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.details || errData.message || 'Erreur mode Cowork');
+        }
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let fullContent = '';
+        let thoughts = '';
+        let buffer = '';
+
+        const modelMsgId = Date.now().toString();
+        const modelMsgRef = doc(db, 'users', user.uid, 'sessions', currentSessionId, 'messages', modelMsgId);
+
+        setStreamingContent('');
+        setStreamingThoughts('');
+
+        while (reader) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let newlineIndex;
+          while ((newlineIndex = buffer.indexOf('\n\n')) >= 0) {
+            const chunk = buffer.slice(0, newlineIndex).trim();
+            buffer = buffer.slice(newlineIndex + 2);
+            if (chunk.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(chunk.slice(6));
+                if (data.text) { fullContent += data.text; setStreamingContent(fullContent); }
+                if (data.thoughts) { thoughts += data.thoughts; setStreamingThoughts(thoughts); }
+              } catch (e) {}
+            }
+          }
+        }
+
+        setStreamingContent('');
+        setStreamingThoughts('');
+        if (thoughts) setExpandedThoughts(prev => ({ ...prev, [modelMsgId]: true }));
+
+        await setDoc(modelMsgRef, cleanForFirestore({
+          role: 'model', content: fullContent, thoughts: thoughts, createdAt: Date.now(), sessionId: currentSessionId, userId: user.uid
         }));
         
         setIsLoading(false);

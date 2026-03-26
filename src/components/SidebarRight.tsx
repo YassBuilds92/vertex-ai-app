@@ -196,7 +196,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     } as any)[config?.model || ''] || config?.model}
                   </span>
                   <span className="text-[10px] text-[var(--app-text-muted)] opacity-70">
-                    {activeMode === 'image' ? 'Générateur d\'images' : activeMode === 'video' ? 'Générateur de vidéos' : 'Fenêtre massive'}
+                    {activeMode === 'image' ? "Générateur d'images" : activeMode === 'video' ? "Générateur de vidéos" : activeMode === 'cowork' ? 'Assistant Autonome' : 'Fenêtre massive'}
                   </span>
                 </div>
               </div>
@@ -215,9 +215,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   >
                     <div className="p-3 space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
                       {[
-                        { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', info: 'Task Complexes', modes: ['chat'] },
-                        { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', info: 'Vitesse & Multimodal', modes: ['chat'] },
-                        { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', info: 'Vitesse pure', modes: ['chat'] },
+                        { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', info: 'Task Complexes', modes: ['chat', 'cowork'] },
+                        { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', info: 'Vitesse & Multimodal', modes: ['chat', 'cowork'] },
+                        { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', info: 'Vitesse pure', modes: ['chat', 'cowork'] },
                         { id: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', info: 'Flash Speed & Realism', modes: ['image'] },
                         { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', info: 'State-of-the-art Generative', modes: ['image'] },
                         { id: 'gemini-2.5-flash-image', label: 'Nano Banana', info: 'Polyvalent & Stable', modes: ['image'] },

@@ -479,6 +479,126 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.post('/api/cowork', async (req, res) => {
+  let headersSent = false;
+  try {
+    const { message, history, config } = ChatSchema.parse(req.body);
+    const modelId = config.model || "gemini-3.1-pro-preview";
+    const ai = createGoogleAI(modelId);
+    
+    // Tools definition
+    const tools: any[] = [];
+    if (config.googleSearch) tools.push({ googleSearch: {} });
+    if (config.codeExecution) tools.push({ codeExecution: {} });
+    
+    // Local tools (POC)
+    const localTools = [
+      {
+        name: "list_files",
+        description: "Liste les fichiers à la racine du projet pour comprendre la structure.",
+        execute: () => {
+          const files = fs.readdirSync(process.cwd());
+          return { files: files.filter(f => !f.startsWith('.')) };
+        }
+      }
+    ];
+
+    if (localTools.length > 0) {
+      tools.push({
+        functionDeclarations: localTools.map(t => ({
+          name: t.name,
+          description: t.description,
+          parameters: { type: "object", properties: {} }
+        }))
+      });
+    }
+
+    const genConfig: any = {
+      temperature: 0.2, // Lower temperature for agentic tasks
+      maxOutputTokens: config.maxOutputTokens || 65536,
+      systemInstruction: config.systemInstruction || "Tu es un agent d'assistance technique. Utilise les outils à ta disposition pour aider l'utilisateur.",
+      tools
+    };
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    headersSent = true;
+
+    let contents = [...history, { role: 'user' as const, parts: [{ text: message }] }];
+    let iterations = 0;
+    const MAX_ITERATIONS = 5;
+
+    while (iterations < MAX_ITERATIONS) {
+      iterations++;
+      log.info(`Cowork iteration ${iterations} for model ${modelId}`);
+
+      const result = await ai.models.generateContent({
+        model: modelId,
+        contents,
+        config: genConfig
+      });
+
+      const response = result.response;
+      const candidate = response.candidates?.[0];
+      if (!candidate) break;
+
+      contents.push(candidate.content);
+
+      // Handle function calls
+      const functionCalls = candidate.content.parts.filter(p => p.functionCall);
+      
+      if (functionCalls.length > 0) {
+        const toolResults: any[] = [];
+        for (const call of functionCalls) {
+          const tool = localTools.find(t => t.name === (call.functionCall as any).name);
+          if (tool) {
+            log.info(`Executing tool: ${tool.name}`);
+            const output = tool.execute();
+            toolResults.push({
+              functionResponse: {
+                name: tool.name,
+                response: output
+              }
+            });
+            // Notify UI about tool usage
+            res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}...` })}\n\n`);
+          }
+        }
+        
+        if (toolResults.length > 0) {
+          contents.push({ role: 'user', parts: toolResults });
+          continue; // Next iteration with tool results
+        }
+      }
+
+      // If no function calls, or after we've got a final text answer
+      if (candidate.content.parts.some(p => p.text)) {
+        for (const part of candidate.content.parts) {
+          if (part.text) {
+            res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+          }
+          if (part.thought) {
+             res.write(`data: ${JSON.stringify({ thoughts: (part as any).text })}\n\n`);
+          }
+        }
+      }
+      
+      break; // End of loop if no more tools called
+    }
+
+    res.end();
+  } catch (error) {
+    log.error("Cowork error", error);
+    if (!headersSent) {
+      res.status(500).json({ error: "Cowork failed", message: String(error) });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: String(error) })}\n\n`);
+      res.end();
+    }
+  }
+});
+
 // SPA Fallback
 const distPath = path.join(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {

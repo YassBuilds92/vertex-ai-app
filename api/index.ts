@@ -703,7 +703,7 @@ Si tu crées un fichier, écris-le réellement sur le disque via 'write_file'.`,
 
     let contents = [...history, { role: 'user' as const, parts: [{ text: message }] }];
     let iterations = 0;
-    const MAX_ITERATIONS = 8; // Slightly more for complex tasks
+    const MAX_ITERATIONS = 15; // Increased from 8 to allow for more complex tasks and retries
 
     while (iterations < MAX_ITERATIONS) {
       iterations++;
@@ -791,6 +791,21 @@ Si tu crées un fichier, écris-le réellement sur le disque via 'write_file'.`,
         
         if (toolResults.length > 0) {
           contents.push({ role: 'user', parts: toolResults });
+          // If we are at the last iteration and tools were called, we give one MORE turn 
+          // to let the model summarize the results, otherwise it stops abruptly.
+          if (iterations >= MAX_ITERATIONS) {
+             log.warn("MAX_ITERATIONS reached but tools were called. Allowing one final summary turn.");
+             // We don't increment iterations here, just let it run one more time
+             // but we must break AFTER this next turn to avoid infinite loops
+             const finalResponse = await ai.models.generateContent({
+                model: modelId,
+                contents,
+                config: { ...genConfig, tools: [] } // Disable tools for the very last turn
+             });
+             const summaryText = finalResponse.text || "Tâche terminée (limite d'itérations reached).";
+             res.write(`data: ${JSON.stringify({ text: summaryText })}\n\n`);
+             break;
+          }
           continue; // Next iteration with tool results
         }
       }

@@ -256,16 +256,22 @@ export default function App() {
       if (attachment.file) {
         blob = attachment.file;
       } else if (attachment.base64) {
-        // Convert base64 to blob
-        const base64Data = attachment.base64.split(',')[1] || attachment.base64;
-        const mimeType = attachment.mimeType || 'image/png';
-        const byteCharacters = atob(base64Data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        // More robust conversion using fetch for data URLs
+        try {
+          const res = await fetch(attachment.base64);
+          blob = await res.blob();
+        } catch (convError) {
+          console.warn("Manual blob conversion fallback for:", attachment.name);
+          const base64Data = attachment.base64.split(',')[1] || attachment.base64;
+          const mimeType = attachment.mimeType || 'image/png';
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          blob = new Blob([byteArray], { type: mimeType });
         }
-        const byteArray = new Uint8Array(byteNumbers);
-        blob = new Blob([byteArray], { type: mimeType });
       } else {
         return attachment.url;
       }
@@ -277,10 +283,17 @@ export default function App() {
       const snapshot = await uploadBytes(storageRef, blob);
       const downloadUrl = await getDownloadURL(snapshot.ref);
       return downloadUrl;
-    } catch (e) {
-      console.error("Upload to Storage failed, falling back to original URL:", e);
-      // If the URL is extremely large (base64 > 1MB), we might still hit the Firestore limit
-      // but there's not much we can do if the upload failed.
+    } catch (e: any) {
+      console.error("Upload to Storage failed:", e);
+      
+      // CRITICAL: If the URL is a large base64 string, we MUST NOT return it
+      // as it will crash Firestore with "Document too large".
+      const isLargeBase64 = attachment.url.startsWith('data:') && attachment.url.length > 500000;
+      
+      if (isLargeBase64) {
+        throw new Error(`Échec de l'enregistrement de l'image sur Firebase Storage. Vérifiez vos permissions de stockage ou votre quota. Détails: ${e.message || String(e)}`);
+      }
+      
       return attachment.url; 
     }
   };
@@ -392,6 +405,7 @@ export default function App() {
           type: 'image',
           url: data.base64,
           base64: data.base64,
+          mimeType: 'image/png',
           name: 'Image générée'
         }, user.uid, currentSessionId);
 

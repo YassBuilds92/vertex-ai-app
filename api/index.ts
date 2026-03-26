@@ -503,6 +503,14 @@ function buildCoworkSystemInstruction(
       "Si le sujet porte sur un terme court, ambigu, un mot d'argot ou une reference culturelle, ne cherche jamais le mot seul. Contextualise la requete (langue, pays, domaine, usage) puis ouvre au moins une source avec 'web_fetch' avant d'ecrire."
     );
   }
+  if (originalMessage && requestNeedsMusicCatalogResearch(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Pour un artiste, une discographie ou des titres manquants, commence par chercher le pseudo exact tel qu'ecrit par l'utilisateur, y compris chiffres et variantes de casse, avant d'elargir."
+    );
+    requestSpecificDirectives.push(
+      "Ne conclus jamais qu'un artiste est introuvable apres une seule requete generique. Si une recherche est hors sujet, relance immediatement avec l'alias exact puis avec des angles plateformes/sources (YouTube, Spotify, Deezer, Genius, Apple Music, TrackMusik, etc.), puis ouvre au moins une page artiste via 'web_fetch'."
+    );
+  }
   if (pdfTargets) {
     requestSpecificDirectives.push(
       `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
@@ -579,6 +587,18 @@ function requestNeedsGroundedWriting(message: string): boolean {
   return asksForDocumentation && asksForWriting;
 }
 
+function requestNeedsMusicCatalogResearch(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  const mentionsMusicEntity =
+    /\b(artiste|artist|rappeur|rapper|chanteur|chanteuse|groupe|musique|music|rap|album|albums|ep|mixtape|single|singles|titre|titres|track|tracks|son|sons|morceau|morceaux|chanson|chansons|discographie|discography|freestyle|planete rap|spotify|deezer|apple music|youtube|genius)\b/.test(normalized);
+  const wantsCatalog =
+    /\b(discographie|discography|catalogue|catalog|liste|listing|complet|complete|complets|completes|tous|toutes|manque|manquent|manquants|sorties|repertoire|discog)\b/.test(normalized)
+    || normalized.includes("ceux qu'il me manque")
+    || normalized.includes("tout ce qu'il me manque")
+    || normalized.includes("je les veux tous");
+  return mentionsMusicEntity && wantsCatalog;
+}
+
 function requestIsCurrentAffairs(message: string): boolean {
   const normalized = normalizeCoworkText(message);
   return /\b(actualite|actu|news|briefing|headline|presse|monde|international|france|breaking)\b/.test(normalized);
@@ -621,6 +641,11 @@ function getResearchTargets(message: string): ResearchTargets {
 
   if (requestIsCurrentAffairs(message) || requestNeedsCurrentDateGrounding(message)) {
     targets.webSearches = Math.max(targets.webSearches, 4);
+    targets.webFetches = Math.max(targets.webFetches, 2);
+  }
+
+  if (requestNeedsMusicCatalogResearch(message)) {
+    targets.webSearches = Math.max(targets.webSearches, 3);
     targets.webFetches = Math.max(targets.webFetches, 2);
   }
 
@@ -818,6 +843,7 @@ function normalizeSearchResultUrl(rawUrl: string): string {
 function requestNeedsDeepResearch(message: string): boolean {
   const normalized = normalizeCoworkText(message);
   return requestNeedsGroundedWriting(message)
+    || requestNeedsMusicCatalogResearch(message)
     || /\b(latest|recent|today|aujourd'hui|du jour|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide|recherche|recherches|search|searches)\b/.test(normalized);
 }
 
@@ -868,14 +894,158 @@ function extractXmlTagValue(block: string, tagName: string): string {
   return stripHtml(unwrapXmlValue(match?.[1] || ''));
 }
 
+type SearchResultItem = {
+  title: string;
+  url: string;
+  snippet: string;
+  source: string;
+};
+
+const SEARCH_RESULT_GENERIC_TOKENS = new Set([
+  'artiste',
+  'artist',
+  'artists',
+  'musique',
+  'music',
+  'musical',
+  'musicale',
+  'rap',
+  'rappeur',
+  'rapper',
+  'album',
+  'albums',
+  'single',
+  'singles',
+  'titre',
+  'titres',
+  'title',
+  'titles',
+  'track',
+  'tracks',
+  'song',
+  'songs',
+  'chanson',
+  'chansons',
+  'morceau',
+  'morceaux',
+  'discographie',
+  'discography',
+  'paroles',
+  'lyrics',
+  'official',
+  'officiel',
+  'principaux',
+  'principal',
+  'principales',
+  'principale',
+  'top',
+  'liste',
+  'listing',
+  'complet',
+  'complete',
+  'complets',
+  'completes',
+  'latest',
+  'recent',
+  'recente',
+  'recentes',
+  'today',
+  'aujourdhui',
+  'jour',
+]);
+
+function extractSearchAnchorTokens(query: string): string[] {
+  const tokens = normalizeCoworkText(query).match(/[a-z0-9]+/g) || [];
+  const uniqueTokens = [...new Set(tokens.filter(token => token.length > 1 || /\d/.test(token)))];
+  const anchors = uniqueTokens.filter(token => !SEARCH_RESULT_GENERIC_TOKENS.has(token));
+  return anchors.length > 0 ? anchors : uniqueTokens;
+}
+
+function searchResultHaystack(result: SearchResultItem): { title: string; url: string; snippet: string; all: string } {
+  const title = normalizeCoworkText(result.title || '');
+  const url = normalizeCoworkText(result.url || '');
+  const snippet = normalizeCoworkText(result.snippet || '');
+  return {
+    title,
+    url,
+    snippet,
+    all: `${title} ${url} ${snippet}`.trim(),
+  };
+}
+
+function searchQueryLooksMusicLookup(query: string): boolean {
+  const normalized = normalizeCoworkText(query);
+  return /\b(artiste|artist|rappeur|rapper|chanteur|chanteuse|groupe|musique|music|album|albums|single|singles|titre|titres|track|tracks|song|songs|son|sons|morceau|morceaux|chanson|chansons|discographie|discography|spotify|deezer|apple music|youtube|genius|freestyle|planete rap)\b/.test(normalized);
+}
+
+function scoreSearchResultRelevance(query: string, result: SearchResultItem): number {
+  const anchors = extractSearchAnchorTokens(query);
+  if (anchors.length === 0) return 1;
+
+  const normalizedQuery = normalizeCoworkText(query).replace(/\s+/g, ' ').trim();
+  const haystack = searchResultHaystack(result);
+  let score = 0;
+
+  if (normalizedQuery && haystack.all.includes(normalizedQuery)) {
+    score += 8;
+  }
+
+  for (const token of anchors) {
+    const tokenWeight = /\d/.test(token) ? 6 : token.length >= 7 ? 4 : token.length >= 4 ? 3 : 2;
+    if (haystack.title.includes(token)) score += tokenWeight + 2;
+    else if (haystack.all.includes(token)) score += tokenWeight;
+    if (haystack.url.includes(token)) score += 1.5;
+    if (haystack.snippet.includes(token)) score += 0.75;
+  }
+
+  if (
+    searchQueryLooksMusicLookup(query)
+    && /(spotify|deezer|music\.apple|genius|youtube|trackmusik|chartsinfrance|qobuz|parolesmusik|infoconcert|instagram)/i.test(result.url)
+  ) {
+    score += 2;
+  }
+
+  return score;
+}
+
+function rankSearchResults(query: string, results: SearchResultItem[]): SearchResultItem[] {
+  return [...results]
+    .map((result, index) => ({ result, index, score: scoreSearchResultRelevance(query, result) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ result }) => result);
+}
+
+function resultsLookRelevant(query: string, results: SearchResultItem[]): boolean {
+  if (results.length === 0) return false;
+
+  const topResults = results.slice(0, Math.min(3, results.length));
+  const anchorTokens = extractSearchAnchorTokens(query);
+  if (anchorTokens.length === 0) return true;
+
+  const bestScore = Math.max(...topResults.map(result => scoreSearchResultRelevance(query, result)));
+  const matchedResults = topResults.filter(result => {
+    const haystack = searchResultHaystack(result).all;
+    return anchorTokens.some(token => haystack.includes(token));
+  }).length;
+
+  const needsStrictMatch =
+    anchorTokens.length === 1
+    || anchorTokens.some(token => /\d/.test(token))
+    || searchQueryLooksMusicLookup(query);
+
+  return needsStrictMatch
+    ? bestScore >= 6 && matchedResults >= 1
+    : bestScore >= 4 && matchedResults >= Math.min(2, topResults.length);
+}
+
 function parseRssResults(
   xml: string,
   source: string,
   maxResults: number
-): Array<{ title: string; url: string; snippet: string; source: string }> {
+): SearchResultItem[] {
   const items = [...xml.matchAll(/<item\b[\s\S]*?<\/item>/gi)];
   const seen = new Set<string>();
-  const results: Array<{ title: string; url: string; snippet: string; source: string }> = [];
+  const results: SearchResultItem[] = [];
 
   for (const match of items) {
     if (results.length >= maxResults) break;
@@ -932,7 +1102,7 @@ async function searchViaDuckDuckGo(query: string, maxResults = 5) {
   const html = await response.text();
   const anchorRegex = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   const seen = new Set<string>();
-  const results: Array<{ title: string; url: string; snippet: string; source: string }> = [];
+  const results: SearchResultItem[] = [];
   let match: RegExpExecArray | null;
 
   while ((match = anchorRegex.exec(html)) && results.length < maxResults) {
@@ -1007,31 +1177,56 @@ async function searchWeb(query: string, maxResults = 5) {
     }
     const data: any = await response.json();
     const results = Array.isArray(data.results) ? data.results : [];
-    return results.slice(0, maxResults).map((result: any) => ({
+    const mappedResults = results.slice(0, maxResults).map((result: any) => ({
       title: clipText(result.title || result.url || 'Sans titre', 140),
       url: result.url,
       snippet: clipText(result.content || result.snippet || '', 240),
       source: 'tavily'
     }));
+    return rankSearchResults(query, mappedResults);
   }
 
-  const attempts: Array<() => Promise<Array<{ title: string; url: string; snippet: string; source: string }>>> = [
-    () => searchViaBingRss(query, maxResults),
-    () => searchViaDuckDuckGo(query, maxResults),
-  ];
+  const attempts: Array<{ label: string; run: () => Promise<SearchResultItem[]> }> = searchQueryLooksNewsy(query)
+    ? [
+        { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) },
+        { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
+      ]
+    : [
+        { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
+        { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) },
+      ];
 
   if (searchQueryLooksNewsy(query)) {
-    attempts.push(() => searchViaGoogleNewsRss(query, maxResults));
+    attempts.push({ label: 'google-news-rss', run: () => searchViaGoogleNewsRss(query, maxResults) });
   }
 
   const errors: string[] = [];
+  let bestFallbackResults: SearchResultItem[] | null = null;
+  let bestFallbackScore = Number.NEGATIVE_INFINITY;
+
   for (const attempt of attempts) {
     try {
-      const results = await attempt();
-      if (results.length > 0) return results;
+      const rankedResults = rankSearchResults(query, await attempt.run());
+      if (rankedResults.length === 0) continue;
+
+      const topScore = scoreSearchResultRelevance(query, rankedResults[0]);
+      if (topScore > bestFallbackScore) {
+        bestFallbackResults = rankedResults;
+        bestFallbackScore = topScore;
+      }
+
+      if (resultsLookRelevant(query, rankedResults)) {
+        return rankedResults;
+      }
+
+      errors.push(`${attempt.label}: resultats hors sujet pour "${query}"`);
     } catch (error) {
-      errors.push(parseApiError(error));
+      errors.push(`${attempt.label}: ${parseApiError(error)}`);
     }
+  }
+
+  if (bestFallbackResults && bestFallbackScore > 0) {
+    return bestFallbackResults;
   }
 
   throw new Error(`Aucun resultat exploitable trouve via les fallbacks publics. ${errors.length > 0 ? `Dernieres erreurs: ${errors.join(' | ')}` : ''}`.trim());

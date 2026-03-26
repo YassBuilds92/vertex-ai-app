@@ -483,7 +483,14 @@ app.post('/api/cowork', async (req, res) => {
   let headersSent = false;
   try {
     const { message, history, config } = ChatSchema.parse(req.body);
-    const modelId = config.model || "gemini-3.1-pro-preview";
+    
+    // Model ID mapping
+    let modelId = config.model;
+    if (modelId.includes('gemini-1.5')) modelId = modelId.replace('1.5', '3.1');
+    if (modelId === 'gemini-3.1-pro') modelId = 'gemini-3.1-pro-preview';
+    if (modelId === 'gemini-3.1-flash') modelId = 'gemini-3.1-flash-lite-preview';
+    if (!modelId) modelId = "gemini-3.1-pro-preview";
+
     const ai = createGoogleAI(modelId);
     
     // Tools definition
@@ -533,36 +540,70 @@ app.post('/api/cowork', async (req, res) => {
       iterations++;
       log.info(`Cowork iteration ${iterations} for model ${modelId}`);
 
-      const result = await ai.models.generateContent({
+      const responseStream = await ai.models.generateContentStream({
         model: modelId,
         contents,
         config: genConfig
       });
 
-      const response = result.response;
-      const candidate = response.candidates?.[0];
-      if (!candidate) break;
+      let turnContent = '';
+      let turnThoughts = '';
+      let functionCalls: any[] = [];
+      let turnParts: any[] = [];
 
-      contents.push(candidate.content);
+      for await (const chunk of responseStream) {
+        const candidates = (chunk as any).candidates;
+        if (candidates?.[0]?.content?.parts) {
+          for (const part of candidates[0].content.parts) {
+            turnParts.push(part);
+            if (part.text) {
+              turnContent += part.text;
+              res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+            }
+            if (part.thought) {
+              turnThoughts += (part as any).text || '';
+              res.write(`data: ${JSON.stringify({ thoughts: (part as any).text })}\n\n`);
+            }
+            if (part.functionCall) {
+              functionCalls.push(part.functionCall);
+            }
+          }
+        } else if (chunk.text) {
+          turnContent += chunk.text;
+          res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+        }
+      }
 
-      // Handle function calls
-      const functionCalls = candidate.content.parts.filter(p => p.functionCall);
-      
+      // Record the model's turn in history
+      contents.push({ role: 'model', parts: turnParts });
+
       if (functionCalls.length > 0) {
         const toolResults: any[] = [];
         for (const call of functionCalls) {
-          const tool = localTools.find(t => t.name === (call.functionCall as any).name);
+          const tool = localTools.find(t => t.name === call.name);
           if (tool) {
             log.info(`Executing tool: ${tool.name}`);
-            const output = tool.execute();
-            toolResults.push({
-              functionResponse: {
-                name: tool.name,
-                response: output
-              }
-            });
-            // Notify UI about tool usage
-            res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}...` })}\n\n`);
+            try {
+              const output = tool.execute();
+              toolResults.push({
+                functionResponse: {
+                  name: tool.name,
+                  response: output
+                }
+              });
+              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ ${tool.name} : succès` })}\n\n`);
+            } catch (err) {
+              log.error(`Tool ${tool.name} failed`, err);
+              toolResults.push({
+                functionResponse: {
+                  name: tool.name,
+                  response: { error: String(err) }
+                }
+              });
+            }
+          } else {
+            log.warn(`Unknown tool called: ${call.name}`);
+            // Let the loop continue, the model might handle its own built-in tools if GROUNDING is returned
           }
         }
         
@@ -572,19 +613,12 @@ app.post('/api/cowork', async (req, res) => {
         }
       }
 
-      // If no function calls, or after we've got a final text answer
-      if (candidate.content.parts.some(p => p.text)) {
-        for (const part of candidate.content.parts) {
-          if (part.text) {
-            res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
-          }
-          if (part.thought) {
-             res.write(`data: ${JSON.stringify({ thoughts: (part as any).text })}\n\n`);
-          }
-        }
+      // If no local tools were called or we've reached a final answer
+      if (turnContent === '' && turnThoughts === '' && functionCalls.length === 0) {
+        // Fallback for empty responses
+        res.write(`data: ${JSON.stringify({ text: "Je n'ai pas pu générer de réponse. Veuillez reformuler." })}\n\n`);
       }
-      
-      break; // End of loop if no more tools called
+      break;
     }
 
     res.end();

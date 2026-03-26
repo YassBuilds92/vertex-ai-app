@@ -318,23 +318,59 @@ export default function App() {
         cleanAttachments.push({ ...rest, url: uploadUrl, base64: undefined }); 
       }
 
+      // --- PROMPT REFINEMENT ---
+      let refinedInstruction = undefined;
+      let finalPrompt = textToSend;
+
+      if (overrideMessages) {
+        const lastMsg = overrideMessages[overrideMessages.length - 1];
+        finalPrompt = lastMsg.content;
+      }
+
+      if (isPromptRefinerEnabled && !overrideMessages && finalPrompt.trim()) {
+        setRefiningStatus("Optimisation de votre prompt par l'IA...");
+        try {
+          const refineRes = await fetch('/api/refine', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: finalPrompt })
+          });
+          if (refineRes.ok) {
+            const refineData = await refineRes.json();
+            refinedInstruction = refineData.refinedInstruction;
+          }
+        } catch (e) {
+          console.error("Refinement failed:", e);
+        } finally {
+          setRefiningStatus(null);
+        }
+      }
+
+      // In Image/Video mode, the refined instruction IS the prompt
+      const generationPrompt = (activeMode === 'image' || activeMode === 'video') && refinedInstruction 
+        ? refinedInstruction 
+        : finalPrompt;
+
       // --- BRANCHED LOGIC BASED ON MODE ---
       
-      if (activeMode === 'image' && !overrideMessages) {
+      if (activeMode === 'image') {
         // IMAGE GENERATION FLOW
-        const userMessage: Omit<Message, 'id'> = { 
-          role: 'user', content: textToSend, createdAt: Date.now(), attachments: cleanAttachments 
-        };
-        const tempId = `opt-${Date.now()}`;
-        setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
-        await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ ...userMessage, sessionId: currentSessionId, userId: user.uid }));
-        setPendingAttachments([]);
+        if (!overrideMessages) {
+          const userMessage: Omit<Message, 'id'> = { 
+            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction 
+          };
+          const tempId = `opt-${Date.now()}`;
+          setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
+          const { refinedInstruction: _, ...payload } = userMessage;
+          await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ ...payload, sessionId: currentSessionId, userId: user.uid }));
+          setPendingAttachments([]);
+        }
 
         const response = await fetch('/api/generate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt: textToSend,
+            prompt: generationPrompt,
             model: config.model,
             aspectRatio: config.aspectRatio,
             imageSize: config.imageSize,
@@ -372,21 +408,23 @@ export default function App() {
         return;
       }
 
-      if (activeMode === 'video' && !overrideMessages) {
+      if (activeMode === 'video') {
         // VIDEO GENERATION FLOW
-        const userMessage: Omit<Message, 'id'> = { 
-          role: 'user', content: textToSend, createdAt: Date.now(), attachments: cleanAttachments 
-        };
-        const tempId = `opt-${Date.now()}`;
-        setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
-        await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ ...userMessage, sessionId: currentSessionId, userId: user.uid }));
-        setPendingAttachments([]);
+        if (!overrideMessages) {
+          const userMessage: Omit<Message, 'id'> = { 
+            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments 
+          };
+          const tempId = `opt-${Date.now()}`;
+          setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
+          await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ ...userMessage, sessionId: currentSessionId, userId: user.uid }));
+          setPendingAttachments([]);
+        }
 
         const response = await fetch('/api/generate-video', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt: textToSend,
+            prompt: generationPrompt,
             videoResolution: config.videoResolution,
             videoAspectRatio: config.videoAspectRatio,
             videoDurationSeconds: config.videoDurationSeconds
@@ -409,35 +447,14 @@ export default function App() {
         return;
       }
 
-      // --- CHAT FLOW (Default) ---
-      let refinedInstruction = undefined;
-      if (isPromptRefinerEnabled && !overrideMessages) {
-        setRefiningStatus("Optimisation de votre prompt par l'IA...");
-        try {
-          const refineRes = await fetch('/api/refine', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: textToSend })
-          });
-          if (refineRes.ok) {
-            const refineData = await refineRes.json();
-            refinedInstruction = refineData.refinedInstruction;
-          }
-        } catch (e) {
-          console.error("Refinement failed:", e);
-        } finally {
-          setRefiningStatus(null);
-        }
-      }
-
-      let finalMessage = textToSend;
+      let finalMessage = finalPrompt;
       let finalAttachments = cleanAttachments;
       let finalRefinedInstruction = refinedInstruction;
 
       if (!overrideMessages) {
         const userMessage: Omit<Message, 'id'> = { 
           role: 'user', 
-          content: textToSend, 
+          content: finalPrompt, 
           createdAt: Date.now(), 
           attachments: cleanAttachments,
           refinedInstruction
@@ -453,7 +470,7 @@ export default function App() {
         const lastMsg = overrideMessages[overrideMessages.length - 1];
         finalMessage = lastMsg.content;
         finalAttachments = lastMsg.attachments || [];
-        finalRefinedInstruction = lastMsg.refinedInstruction;
+        finalRefinedInstruction = lastMsg.refinedInstruction || refinedInstruction;
       }
 
       const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : currentMessages;

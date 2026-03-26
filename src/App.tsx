@@ -512,6 +512,10 @@ export default function App() {
             config: {
               model: config?.model || configs.chat.model,
               temperature: config?.temperature ?? 0.1,
+              topP: config?.topP ?? 1.0,
+              topK: config?.topK ?? 1,
+              maxOutputTokens: config?.maxOutputTokens || 65536,
+              systemInstruction: config?.systemInstruction || "Tu es un agent autonome en mode Cowork.",
               googleSearch: !!config?.googleSearch,
               codeExecution: !!config?.codeExecution,
               thinkingLevel: config?.thinkingLevel || 'high'

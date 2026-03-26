@@ -118,14 +118,22 @@ export const useStore = create<AppState>()(
         theme: state.theme 
       }),
       merge: (persistedState: any, currentState) => {
+        const persistedConfigs = (persistedState as any)?.configs || {};
+        
+        // Deep merge each mode's config to ensure no missing fields
+        const mergedConfigs = { ...currentState.configs };
+        for (const mode in currentState.configs) {
+          const m = mode as AppMode;
+          mergedConfigs[m] = {
+            ...currentState.configs[m],
+            ...(persistedConfigs[m] || {})
+          };
+        }
+
         return {
           ...currentState,
           ...(persistedState as any),
-          // Deep merge configs to ensure new modes are added
-          configs: {
-            ...currentState.configs,
-            ...(persistedState as any)?.configs,
-          },
+          configs: mergedConfigs,
         };
       },
     }

@@ -659,6 +659,11 @@ export default function App() {
               codeExecution: config?.codeExecution !== false,
               thinkingLevel: config?.thinkingLevel || 'high',
             },
+            clientContext: {
+              locale: navigator.language || 'fr-FR',
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris',
+              nowIso: new Date().toISOString(),
+            },
           }),
         });
 

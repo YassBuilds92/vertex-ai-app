@@ -90,6 +90,11 @@ const ChatSchema = z.object({
   }),
   attachments: z.array(z.any()).optional(),
   refinedSystemInstruction: z.string().nullable().optional(),
+  clientContext: z.object({
+    locale: z.string().optional(),
+    timeZone: z.string().optional(),
+    nowIso: z.string().optional().nullable(),
+  }).optional(),
 });
 
 // ─── Logging Helper ─────────────────────────────────────────────
@@ -188,10 +193,130 @@ const MAX_PREVIEW_CHARS = 420;
 const MAX_ACTIVITY_ITEMS = 80;
 const MAX_WEB_FETCH_CHARS = 7000;
 
+type ClientContext = {
+  locale?: string;
+  timeZone?: string;
+  nowIso?: string | null;
+};
+
+type RequestClock = {
+  now: Date;
+  locale: string;
+  timeZone: string;
+  absoluteDateTimeLabel: string;
+  dateLabel: string;
+  footerDateLabel: string;
+  searchDateLabel: string;
+  yearLabel: string;
+};
+
+type ResearchTargets = {
+  webSearches: number;
+  webFetches: number;
+};
+
+type PdfQualityTargets = {
+  minSections: number;
+  minWords: number;
+};
+
+function sanitizeLocale(value?: string): string {
+  if (!value) return 'fr-FR';
+  try {
+    new Intl.DateTimeFormat(value).format(new Date());
+    return value;
+  } catch {
+    return 'fr-FR';
+  }
+}
+
+function sanitizeTimeZone(value?: string): string {
+  if (!value) return 'Europe/Paris';
+  try {
+    new Intl.DateTimeFormat('fr-FR', { timeZone: value }).format(new Date());
+    return value;
+  } catch {
+    return 'Europe/Paris';
+  }
+}
+
+function formatInTimeZone(
+  now: Date,
+  locale: string,
+  timeZone: string,
+  options: Intl.DateTimeFormatOptions
+): string {
+  try {
+    return new Intl.DateTimeFormat(locale, { ...options, timeZone }).format(now);
+  } catch {
+    return new Intl.DateTimeFormat('fr-FR', { ...options, timeZone: 'Europe/Paris' }).format(now);
+  }
+}
+
+function resolveRequestClock(clientContext?: ClientContext): RequestClock {
+  const locale = sanitizeLocale(clientContext?.locale);
+  const timeZone = sanitizeTimeZone(clientContext?.timeZone);
+  const parsedNow = clientContext?.nowIso ? new Date(clientContext.nowIso) : null;
+  const now = parsedNow && !Number.isNaN(parsedNow.getTime()) ? parsedNow : new Date();
+
+  return {
+    now,
+    locale,
+    timeZone,
+    absoluteDateTimeLabel: formatInTimeZone(now, 'fr-FR', timeZone, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+    dateLabel: formatInTimeZone(now, 'fr-FR', timeZone, {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }),
+    footerDateLabel: formatInTimeZone(now, 'fr-FR', timeZone, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }),
+    searchDateLabel: formatInTimeZone(now, 'fr-FR', timeZone, {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }),
+    yearLabel: formatInTimeZone(now, 'en-US', timeZone, {
+      year: 'numeric',
+    }),
+  };
+}
+
 function buildCoworkSystemInstruction(
   userInstruction?: string,
-  capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true }
+  capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true },
+  runtime?: { originalMessage?: string; requestClock?: RequestClock }
 ): string {
+  const originalMessage = runtime?.originalMessage || '';
+  const requestClock = runtime?.requestClock;
+  const researchTargets = originalMessage ? getResearchTargets(originalMessage) : null;
+  const pdfTargets = originalMessage ? getPdfQualityTargets(originalMessage) : null;
+  const requestSpecificDirectives: string[] = [];
+
+  if (originalMessage && requestNeedsDeepResearch(originalMessage) && researchTargets) {
+    requestSpecificDirectives.push(
+      `Pour CETTE demande, vise au minimum ${researchTargets.webSearches} recherche(s) web visibles et ${researchTargets.webFetches} lecture(s) de source avant de conclure, sauf blocage web total.`
+    );
+  }
+  if (pdfTargets) {
+    requestSpecificDirectives.push(
+      `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
+    );
+    requestSpecificDirectives.push(
+      "Quand tu appelles 'create_pdf', renseigne aussi 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent."
+    );
+  }
+
   const baseInstruction = `Tu es un agent autonome expert en mode Cowork.
 Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une execution visible, progressive et honnete.
 
@@ -211,13 +336,21 @@ ${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js s
 4. Quand tu pivotes, bloques, ou changes de strategie, annonce-le via 'report_progress'.
 5. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.
 
+### REPERES TEMPORELS :
+${requestClock
+  ? `- Date et heure de reference: ${requestClock.absoluteDateTimeLabel} (${requestClock.timeZone})
+- Quand l'utilisateur dit "aujourd'hui", "du jour", "today" ou "latest", cela signifie: ${requestClock.dateLabel}.
+- N'invente jamais une date ancienne par defaut. Si une source ou une requete mentionne une autre date, compare-la explicitement a ${requestClock.dateLabel}.`
+  : "- Si la demande parle de 'today', 'aujourd'hui' ou 'latest', utilise la date courante exacte de l'environnement et dis-la explicitement."}
+
 ### REGLES CRITIQUES :
 1. Pour creer un PDF : utilise TOUJOURS 'create_pdf'. N'essaie JAMAIS d'ecrire un script Python avec reportlab/fpdf.
 2. Chemins : tous les fichiers generes doivent etre crees dans '/tmp/'.
 3. Livraison : apres avoir cree un fichier, utilise TOUJOURS 'release_file' puis donne le lien Markdown final.
 4. Anti-boucle : si un outil echoue, ne retente pas la meme chose en boucle. Analyse l'erreur et change d'approche.
 5. N'utilise JAMAIS 'write_file' pour fabriquer un faux fichier '.pdf'. Pour un PDF, utilise uniquement 'create_pdf'.
-6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.`;
+6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
+7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -241,6 +374,160 @@ function normalizeCoworkText(value?: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function requestIsCurrentAffairs(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(actualite|actu|news|briefing|headline|presse|monde|international|france|breaking)\b/.test(normalized);
+}
+
+function requestNeedsCurrentDateGrounding(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(today|aujourd'hui|du jour|ce jour|latest|recent|recente|recentes|dernier|derniere|dernieres|maintenant|en ce moment)\b/.test(normalized)
+    || requestIsCurrentAffairs(message);
+}
+
+function extractRequestedSearchCount(message: string): number | null {
+  const normalized = normalizeCoworkText(message);
+  const match = normalized.match(/\b(\d{1,2})\s+(?:recherche|recherches|search|searches)\b/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  return Math.max(1, Math.min(value, 12));
+}
+
+function requestNeedsLongFormPdf(message: string): boolean {
+  if (!requestNeedsPdf(message)) return false;
+  const normalized = normalizeCoworkText(message);
+  if (/\b(attestation|certificat)\b/.test(normalized)) return false;
+  return /\b(tres long|tres longue|long|longue|detaille|detaillee|complet|complete|magnifique|beau|soigne|rapport|briefing|analyse|dossier|actu|actualite|news)\b/.test(normalized);
+}
+
+function getResearchTargets(message: string): ResearchTargets {
+  const normalized = normalizeCoworkText(message);
+  const targets: ResearchTargets = { webSearches: 2, webFetches: 1 };
+
+  if (!requestNeedsDeepResearch(message)) {
+    const explicitSearchCount = extractRequestedSearchCount(message);
+    if (explicitSearchCount) {
+      targets.webSearches = explicitSearchCount;
+      targets.webFetches = explicitSearchCount >= 6 ? 2 : 1;
+    }
+    return targets;
+  }
+
+  if (requestIsCurrentAffairs(message) || requestNeedsCurrentDateGrounding(message)) {
+    targets.webSearches = Math.max(targets.webSearches, 4);
+    targets.webFetches = Math.max(targets.webFetches, 2);
+  }
+
+  if (requestNeedsLongFormPdf(message)) {
+    targets.webSearches = Math.max(targets.webSearches, 5);
+    targets.webFetches = Math.max(targets.webFetches, 2);
+  }
+
+  if (/\b(tres long|tres longue|ultra long|ultra longue|exhaustif|exhaustive|detaille|detaillee|complet|complete|magnifique|soigne|style)\b/.test(normalized) && requestNeedsPdf(message)) {
+    targets.webSearches = Math.max(targets.webSearches, 6);
+    targets.webFetches = Math.max(targets.webFetches, 3);
+  }
+
+  const explicitSearchCount = extractRequestedSearchCount(message);
+  if (explicitSearchCount) {
+    targets.webSearches = Math.max(targets.webSearches, explicitSearchCount);
+    if (explicitSearchCount >= 6) {
+      targets.webFetches = Math.max(targets.webFetches, 3);
+    }
+  }
+
+  return targets;
+}
+
+function getPdfQualityTargets(message: string): PdfQualityTargets | null {
+  if (!requestNeedsPdf(message)) return null;
+  const normalized = normalizeCoworkText(message);
+  if (/\btest\b/.test(normalized) && !requestNeedsLongFormPdf(message) && !requestIsCurrentAffairs(message)) {
+    return null;
+  }
+
+  let minSections = 0;
+  let minWords = 0;
+
+  if (requestIsCurrentAffairs(message) || /\b(rapport|briefing|analyse|dossier|synthese|compte rendu)\b/.test(normalized)) {
+    minSections = Math.max(minSections, 6);
+    minWords = Math.max(minWords, 900);
+  }
+
+  if (requestNeedsLongFormPdf(message)) {
+    minSections = Math.max(minSections, 6);
+    minWords = Math.max(minWords, 900);
+  }
+
+  if (/\b(tres long|tres longue|ultra long|ultra longue|exhaustif|exhaustive|detaille|detaillee|complet|complete|magnifique|soigne|style)\b/.test(normalized) && !/\btest\b/.test(normalized)) {
+    minSections = Math.max(minSections, 8);
+    minWords = Math.max(minWords, 1400);
+  }
+
+  return minSections > 0 ? { minSections, minWords } : null;
+}
+
+function countWords(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).filter(Boolean).length;
+}
+
+function normalizeHexColor(value: string | undefined, fallback = '#0f766e'): string {
+  if (!value) return fallback;
+  const trimmed = value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed;
+  if (/^#[0-9a-f]{3}$/i.test(trimmed)) {
+    return `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`;
+  }
+  return fallback;
+}
+
+const MONTH_NAME_PATTERN = '(?:janvier|fevrier|février|mars|avril|mai|juin|juillet|aout|août|septembre|octobre|novembre|decembre|décembre|january|february|march|april|may|june|july|august|september|october|november|december)';
+
+function queryContainsExplicitDate(query: string): boolean {
+  return new RegExp(`\\b\\d{1,2}\\s+${MONTH_NAME_PATTERN}\\s+\\d{4}\\b`, 'i').test(query)
+    || new RegExp(`\\b${MONTH_NAME_PATTERN}\\s+\\d{1,2},?\\s+\\d{4}\\b`, 'i').test(query)
+    || /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(query)
+    || /\b20\d{2}\b/.test(query);
+}
+
+function stripDateReferencesFromQuery(query: string): string {
+  return query
+    .replace(new RegExp(`\\b\\d{1,2}\\s+${MONTH_NAME_PATTERN}\\s+\\d{4}\\b`, 'gi'), ' ')
+    .replace(new RegExp(`\\b${MONTH_NAME_PATTERN}\\s+\\d{1,2},?\\s+\\d{4}\\b`, 'gi'), ' ')
+    .replace(/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/g, ' ')
+    .replace(/\b20\d{2}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function alignSearchQueryWithRequest(query: string, originalMessage: string, requestClock: RequestClock): string {
+  const baseQuery = query.trim();
+  if (!baseQuery) return requestClock.searchDateLabel;
+  if (!requestNeedsCurrentDateGrounding(originalMessage)) return baseQuery;
+
+  let adjusted = baseQuery;
+  const hadExplicitDate = queryContainsExplicitDate(adjusted);
+  if (hadExplicitDate) {
+    adjusted = stripDateReferencesFromQuery(adjusted);
+  }
+
+  const normalizedAdjusted = normalizeCoworkText(adjusted);
+  const normalizedDate = normalizeCoworkText(requestClock.searchDateLabel);
+  const alreadyAnchoredToToday =
+    normalizedAdjusted.includes(normalizedDate)
+    || normalizedAdjusted.includes(requestClock.yearLabel)
+    || /\b(today|aujourd'hui|du jour|latest|recent|dernier|derniere|dernieres)\b/.test(normalizedAdjusted);
+
+  if (hadExplicitDate || !alreadyAnchoredToToday) {
+    adjusted = `${adjusted} ${requestClock.searchDateLabel}`.trim();
+  }
+
+  return adjusted.replace(/\s+/g, ' ').trim();
 }
 
 function requestNeedsDownloadableArtifact(message: string): boolean {
@@ -327,19 +614,25 @@ function normalizeSearchResultUrl(rawUrl: string): string {
 
 function requestNeedsDeepResearch(message: string): boolean {
   const normalized = normalizeCoworkText(message);
-  return /\b(latest|recent|today|aujourd'hui|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide)\b/.test(normalized);
+  return /\b(latest|recent|today|aujourd'hui|du jour|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide|recherche|recherches|search|searches)\b/.test(normalized);
 }
 
 function buildResearchCompletionPrompt(
   originalMessage: string,
-  stats: { webSearches: number; webFetches: number }
+  stats: { webSearches: number; webFetches: number },
+  requestClock: RequestClock
 ): string | null {
   if (!requestNeedsDeepResearch(originalMessage)) return null;
-  const enoughViaSearchAndRead = stats.webSearches >= 2 && stats.webFetches >= 1;
-  const enoughViaDirectSources = stats.webFetches >= 2;
+  const targets = getResearchTargets(originalMessage);
+  const explicitSearchCount = extractRequestedSearchCount(originalMessage);
+  const enoughViaSearchAndRead =
+    stats.webSearches >= targets.webSearches && stats.webFetches >= targets.webFetches;
+  const enoughViaDirectSources =
+    !explicitSearchCount && stats.webSearches === 0 && stats.webFetches >= Math.max(2, targets.webFetches);
   if (enoughViaSearchAndRead || enoughViaDirectSources) return null;
 
-  const remainingSearches = Math.max(0, 2 - stats.webSearches);
+  const remainingSearches = Math.max(0, targets.webSearches - stats.webSearches);
+  const remainingFetches = Math.max(0, targets.webFetches - stats.webFetches);
   const instructions: string[] = [];
 
   if (stats.webSearches === 0) {
@@ -347,14 +640,17 @@ function buildResearchCompletionPrompt(
   } else if (remainingSearches > 0) {
     instructions.push(`Fais encore ${remainingSearches} recherche(s) 'web_search' avec des angles differents.`);
   }
-  if (stats.webFetches < 1) {
-    instructions.push("Ouvre ensuite au moins une source pertinente via 'web_fetch'.");
+  if (remainingFetches > 0) {
+    instructions.push(`Lis encore ${remainingFetches} source(s) pertinente(s) via 'web_fetch'.`);
   } else if (stats.webSearches === 0 && stats.webFetches < 2) {
     instructions.push("Comme la recherche moteur est bloquee, ouvre encore une deuxieme source pertinente via 'web_fetch'.");
   }
 
   return `La recherche visible est encore insuffisante pour repondre proprement.
 Demande originale: "${originalMessage}"
+Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
+Minimum attendu pour cette demande: ${targets.webSearches} recherche(s) visibles et ${targets.webFetches} lecture(s) de source.
+Etat actuel: ${stats.webSearches} recherche(s) et ${stats.webFetches} lecture(s).
 Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
 Utilise aussi 'report_progress' pour annoncer ce que tu verifies, puis seulement ensuite redige la synthese finale.`;
 }
@@ -462,7 +758,7 @@ async function searchViaDuckDuckGo(query: string, maxResults = 5) {
 
 function searchQueryLooksNewsy(query: string): boolean {
   const normalized = normalizeCoworkText(query);
-  return /\b(actualite|actu|news|aujourd'hui|today|breaking|headline|briefing|rss|presse)\b/.test(normalized);
+  return /\b(actualite|actu|news|aujourd'hui|du jour|today|breaking|headline|briefing|rss|presse|latest|recent|dernieres)\b/.test(normalized);
 }
 
 async function searchViaGoogleNewsRss(query: string, maxResults = 5) {
@@ -949,7 +1245,10 @@ app.post('/api/cowork', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
   };
   try {
-    const { message, history, config } = ChatSchema.parse(req.body);
+    const { message, history, config, clientContext } = ChatSchema.parse(req.body);
+    const requestClock = resolveRequestClock(clientContext);
+    const researchTargets = getResearchTargets(message);
+    const pdfQualityTargets = getPdfQualityTargets(message);
 
     // Model ID mapping
     let modelId = config.model;
@@ -982,11 +1281,14 @@ app.post('/api/cowork', async (req, res) => {
     const formatToolResultPreview = (toolName: string, output: any) => {
       if (toolName === 'web_search') {
         const results = Array.isArray(output?.results) ? output.results : [];
+        const queryPrefix = output?.originalQuery
+          ? `Requete ajustee au ${requestClock.dateLabel}: ${clipText(output?.query || '', 90)}. `
+          : '';
         const summary = results
           .slice(0, 3)
           .map((result: any, index: number) => `${index + 1}. ${clipText(result.title || result.url || 'Sans titre', 80)}`)
           .join(' | ');
-        return summary || clipText(output?.message || output?.error || '', 220);
+        return `${queryPrefix}${summary || clipText(output?.message || output?.error || '', 220)}`.trim();
       }
       if (toolName === 'web_fetch') {
         return clipText(output?.excerpt || output?.content || output?.message || output?.error || '', 240);
@@ -1116,12 +1418,17 @@ app.post('/api/cowork', async (req, res) => {
           required: ["query"]
         },
         execute: async ({ query, maxResults }: { query: string; maxResults?: number }) => {
-          const results = await searchWeb(query, Math.max(1, Math.min(maxResults || 5, 8)));
+          const effectiveQuery = alignSearchQueryWithRequest(query, message, requestClock);
+          const results = await searchWeb(effectiveQuery, Math.max(1, Math.min(maxResults || 5, 8)));
           return {
             success: true,
-            query,
+            query: effectiveQuery,
+            ...(effectiveQuery !== query ? { originalQuery: query } : {}),
             results,
-            message: `${results.length} resultat(s) trouves pour "${query}".`
+            message:
+              effectiveQuery !== query
+                ? `${results.length} resultat(s) trouves pour "${effectiveQuery}". Requete re-alignee sur la date du jour (${requestClock.dateLabel}).`
+                : `${results.length} resultat(s) trouves pour "${effectiveQuery}".`
           };
         }
       }, {
@@ -1172,6 +1479,16 @@ app.post('/api/cowork', async (req, res) => {
           properties: {
             filename: { type: "string", description: "Nom du fichier PDF (ex: rapport.pdf). Sera créé dans /tmp/." },
             title: { type: "string", description: "Titre principal du document." },
+            subtitle: { type: "string", description: "Sous-titre ou chapo du document (optionnel)." },
+            summary: { type: "string", description: "Resume executif ou introduction mise en avant (optionnel)." },
+            accentColor: { type: "string", description: "Couleur d'accent HEX (ex: #0f766e)." },
+            author: { type: "string", description: "Nom de l'auteur ou de la signature (optionnel)." },
+            sources: {
+              type: "array",
+              description: "Liste optionnelle de sources ou liens a afficher en fin de document.",
+              items: { type: "string" }
+            },
+            showPageNumbers: { type: "boolean", description: "Afficher les numeros de page dans le pied de page." },
             sections: {
               type: "array",
               description: "Liste de sections du document. Chaque section a un 'heading' optionnel et un 'body' (texte ou liste à puces séparées par \\n).",
@@ -1186,14 +1503,443 @@ app.post('/api/cowork', async (req, res) => {
           },
           required: ["filename", "title", "sections"]
         },
-        execute: async ({ filename, title, sections }: { filename: string, title: string, sections: Array<{ heading?: string, body: string }> }) => {
+        execute: async ({
+          filename,
+          title,
+          subtitle,
+          summary,
+          accentColor,
+          author,
+          sources,
+          showPageNumbers,
+          sections
+        }: {
+          filename: string;
+          title: string;
+          subtitle?: string;
+          summary?: string;
+          accentColor?: string;
+          author?: string;
+          sources?: string[];
+          showPageNumbers?: boolean;
+          sections: Array<{ heading?: string, body: string }>;
+        }) => {
           const outputPath = path.join('/tmp', filename.endsWith('.pdf') ? filename : `${filename}.pdf`);
+          const effectiveSections = (Array.isArray(sections) ? sections : [])
+            .filter(section => Boolean(section?.heading?.trim() || section?.body?.trim()))
+            .map(section => ({
+              heading: section.heading?.trim(),
+              body: section.body?.trim() || ''
+            }));
+          const effectiveSources = (Array.isArray(sources) ? sources : [])
+            .map(source => source.trim())
+            .filter(Boolean);
+
+          if (effectiveSections.length === 0) {
+            return { success: false, error: "Le PDF doit contenir au moins une section non vide." };
+          }
+
+          const totalWords = countWords(
+            [
+              title,
+              subtitle || '',
+              summary || '',
+              ...effectiveSections.flatMap(section => [section.heading || '', section.body]),
+              ...effectiveSources
+            ].join(' ')
+          );
+
+          if (pdfQualityTargets) {
+            const tooFewSections = effectiveSections.length < pdfQualityTargets.minSections;
+            const tooFewWords = totalWords < pdfQualityTargets.minWords;
+            if (tooFewSections || tooFewWords) {
+              return {
+                success: false,
+                error: `PDF trop court pour la demande. Minimum attendu: ${pdfQualityTargets.minSections} sections utiles et environ ${pdfQualityTargets.minWords} mots. Actuel: ${effectiveSections.length} section(s) et ${totalWords} mots. Elargis le plan, ajoute plus de developpement, de contexte, de synthese et de sources avant de relancer 'create_pdf'.`
+              };
+            }
+          }
 
           return new Promise<any>((resolve, reject) => {
             try {
-              const doc = new PDFDocument({ size: 'A4', margin: 50 });
+              const doc = new PDFDocument({
+                size: 'A4',
+                margins: { top: 72, right: 64, bottom: 64, left: 64 },
+                bufferPages: true,
+                autoFirstPage: false,
+                info: {
+                  Title: title,
+                  Author: author || 'Studio Pro Agent',
+                  Subject: subtitle || title,
+                  Creator: 'Studio Pro Agent'
+                }
+              });
               const stream = fs.createWriteStream(outputPath);
+              const palette = {
+                accent: normalizeHexColor(accentColor, requestNeedsLongFormPdf(message) ? '#0f766e' : '#1d4ed8'),
+                ink: '#0f172a',
+                muted: '#475569',
+                line: '#dbe4ee',
+                panel: '#f8fafc',
+                white: '#ffffff'
+              };
+              const summaryText = clipText(summary || effectiveSections[0]?.body || '', 900);
+              const tocHeadings = effectiveSections
+                .map(section => section.heading)
+                .filter((heading): heading is string => Boolean(heading))
+                .slice(0, 8);
+              const useCoverPage =
+                Boolean(summaryText)
+                || Boolean(subtitle)
+                || Boolean(author)
+                || Boolean(pdfQualityTargets)
+                || effectiveSections.length >= 4;
+              const bodyWidth = () => doc.page.width - doc.page.margins.left - doc.page.margins.right;
+              const pageBottom = () => doc.page.height - doc.page.margins.bottom - 24;
+
+              const drawBodyHeader = () => {
+                doc.save();
+                doc.fillColor(palette.white).rect(0, 0, doc.page.width, 58).fill();
+                doc.fillColor(palette.accent).rect(doc.page.margins.left, 30, 50, 4).fill();
+                doc
+                  .fillColor(palette.ink)
+                  .font('Helvetica-Bold')
+                  .fontSize(9.5)
+                  .text('Studio Pro / Cowork Report', doc.page.margins.left + 60, 24);
+                doc
+                  .fillColor(palette.muted)
+                  .font('Helvetica')
+                  .fontSize(8.5)
+                  .text(requestClock.dateLabel, doc.page.margins.left + 60, 36);
+                doc.restore();
+                doc.y = 86;
+              };
+
+              const ensureSpace = (minHeight = 120) => {
+                if (doc.y + minHeight > pageBottom()) {
+                  doc.addPage();
+                  drawBodyHeader();
+                }
+              };
+
+              const renderParagraph = (text: string) => {
+                const cleaned = text.replace(/\s+/g, ' ').trim();
+                if (!cleaned) return;
+                ensureSpace(72);
+                doc
+                  .fillColor(palette.ink)
+                  .font('Helvetica')
+                  .fontSize(11.5)
+                  .text(cleaned, {
+                    width: bodyWidth(),
+                    align: 'justify',
+                    lineGap: 3
+                  });
+                doc.moveDown(0.75);
+              };
+
+              const renderBullet = (text: string) => {
+                const cleaned = text.replace(/\s+/g, ' ').trim();
+                if (!cleaned) return;
+                ensureSpace(40);
+                const bulletX = doc.page.margins.left + 6;
+                const textX = doc.page.margins.left + 18;
+                const startY = doc.y;
+
+                doc.save();
+                doc.fillColor(palette.accent).circle(bulletX, startY + 7, 2.5).fill();
+                doc.restore();
+
+                doc
+                  .fillColor(palette.ink)
+                  .font('Helvetica')
+                  .fontSize(11.2)
+                  .text(cleaned, textX, startY, {
+                    width: bodyWidth() - 18,
+                    lineGap: 3
+                  });
+                doc.moveDown(0.35);
+              };
+
+              const renderRichText = (body: string) => {
+                let paragraphBuffer: string[] = [];
+                const flushParagraph = () => {
+                  if (paragraphBuffer.length === 0) return;
+                  renderParagraph(paragraphBuffer.join(' '));
+                  paragraphBuffer = [];
+                };
+
+                for (const rawLine of body.split('\n')) {
+                  const line = rawLine.trim();
+                  if (!line) {
+                    flushParagraph();
+                    continue;
+                  }
+                  if (/^(?:[-*]\s+|•\s+)/.test(line)) {
+                    flushParagraph();
+                    renderBullet(line.replace(/^(?:[-*]\s+|•\s+)/, ''));
+                    continue;
+                  }
+                  paragraphBuffer.push(line);
+                }
+
+                flushParagraph();
+              };
+
+              const renderCallout = (heading: string, body: string) => {
+                const cleaned = body.trim();
+                if (!cleaned) return;
+                doc.font('Helvetica').fontSize(11.5);
+                const boxHeight = Math.min(
+                  210,
+                  Math.max(92, doc.heightOfString(cleaned, { width: bodyWidth() - 36, lineGap: 3 }) + 34)
+                );
+                ensureSpace(boxHeight + 20);
+                const startY = doc.y;
+
+                doc.save();
+                doc.lineWidth(1).fillColor(palette.panel).strokeColor(palette.line);
+                doc.roundedRect(doc.page.margins.left, startY, bodyWidth(), boxHeight, 14).fillAndStroke();
+                doc.fillColor(palette.accent).rect(doc.page.margins.left + 18, startY + 18, 42, 4).fill();
+                doc
+                  .fillColor(palette.muted)
+                  .font('Helvetica-Bold')
+                  .fontSize(10)
+                  .text(heading.toUpperCase(), doc.page.margins.left + 18, startY + 28, {
+                    width: bodyWidth() - 36
+                  });
+                doc
+                  .fillColor(palette.ink)
+                  .font('Helvetica')
+                  .fontSize(11.5)
+                  .text(cleaned, doc.page.margins.left + 18, startY + 48, {
+                    width: bodyWidth() - 36,
+                    lineGap: 3,
+                    align: 'justify'
+                  });
+                doc.restore();
+                doc.y = startY + boxHeight + 16;
+              };
+
+              const renderSection = (heading: string | undefined, body: string) => {
+                if (heading) {
+                  ensureSpace(96);
+                  doc.fillColor(palette.accent).rect(doc.page.margins.left, doc.y + 9, 10, 10).fill();
+                  doc
+                    .fillColor(palette.ink)
+                    .font('Helvetica-Bold')
+                    .fontSize(18)
+                    .text(heading, doc.page.margins.left + 20, doc.y, {
+                      width: bodyWidth() - 20
+                    });
+                  doc.moveDown(0.2);
+                  const dividerY = doc.y + 2;
+                  doc.save();
+                  doc.strokeColor(palette.line).lineWidth(1);
+                  doc.moveTo(doc.page.margins.left, dividerY).lineTo(doc.page.width - doc.page.margins.right, dividerY).stroke();
+                  doc.restore();
+                  doc.moveDown(0.7);
+                }
+                renderRichText(body);
+              };
+
               doc.pipe(stream);
+              if (true) {
+                if (useCoverPage) {
+                  doc.addPage();
+                  const coverWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+                  const coverHeight = doc.page.height;
+
+                  doc.save();
+                  doc.fillColor(palette.panel).rect(0, 0, doc.page.width, coverHeight).fill();
+                  doc.fillColor(palette.accent).rect(0, 0, doc.page.width, 152).fill();
+                  doc
+                    .fillColor(palette.white)
+                    .font('Helvetica-Bold')
+                    .fontSize(11)
+                    .text('STUDIO PRO / COWORK', doc.page.margins.left, 54);
+                  doc
+                    .fillColor(palette.white)
+                    .font('Helvetica')
+                    .fontSize(10.5)
+                    .text(requestClock.absoluteDateTimeLabel, doc.page.margins.left, 76);
+                  doc.restore();
+
+                  doc.y = 184;
+                  doc
+                    .fillColor(palette.ink)
+                    .font('Helvetica-Bold')
+                    .fontSize(29)
+                    .text(title, doc.page.margins.left, doc.y, {
+                      width: coverWidth
+                    });
+                  if (subtitle) {
+                    doc.moveDown(0.35);
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica')
+                      .fontSize(14)
+                      .text(subtitle, {
+                        width: coverWidth
+                      });
+                  }
+                  if (author) {
+                    doc.moveDown(0.45);
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica-Bold')
+                      .fontSize(10)
+                      .text(`Par ${author}`, {
+                        width: coverWidth
+                      });
+                  }
+
+                  let nextBoxY = Math.max(doc.y + 26, 336);
+                  if (summaryText) {
+                    doc.font('Helvetica').fontSize(11.5);
+                    const summaryBoxHeight = Math.min(
+                      185,
+                      Math.max(106, doc.heightOfString(summaryText, { width: coverWidth - 40, lineGap: 3 }) + 44)
+                    );
+                    doc.save();
+                    doc.lineWidth(1).fillColor(palette.white).strokeColor(palette.line);
+                    doc.roundedRect(doc.page.margins.left, nextBoxY, coverWidth, summaryBoxHeight, 16).fillAndStroke();
+                    doc.fillColor(palette.accent).rect(doc.page.margins.left + 20, nextBoxY + 18, 46, 4).fill();
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica-Bold')
+                      .fontSize(10)
+                      .text('RESUME EXECUTIF', doc.page.margins.left + 20, nextBoxY + 30, {
+                        width: coverWidth - 40
+                      });
+                    doc
+                      .fillColor(palette.ink)
+                      .font('Helvetica')
+                      .fontSize(11.5)
+                      .text(summaryText, doc.page.margins.left + 20, nextBoxY + 52, {
+                        width: coverWidth - 40,
+                        lineGap: 3,
+                        align: 'justify'
+                      });
+                    doc.restore();
+                    nextBoxY += summaryBoxHeight + 18;
+                  }
+
+                  if (tocHeadings.length > 0 && nextBoxY < doc.page.height - 110) {
+                    const tocHeight = Math.max(112, 42 + tocHeadings.length * 18);
+                    doc.save();
+                    doc.lineWidth(1).fillColor(palette.white).strokeColor(palette.line);
+                    doc.roundedRect(doc.page.margins.left, nextBoxY, coverWidth, tocHeight, 16).fillAndStroke();
+                    doc.fillColor(palette.accent).rect(doc.page.margins.left + 20, nextBoxY + 18, 46, 4).fill();
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica-Bold')
+                      .fontSize(10)
+                      .text('PLAN DU DOCUMENT', doc.page.margins.left + 20, nextBoxY + 30, {
+                        width: coverWidth - 40
+                      });
+
+                    let tocY = nextBoxY + 56;
+                    tocHeadings.forEach((heading, index) => {
+                      doc.fillColor(palette.accent).circle(doc.page.margins.left + 24, tocY + 6, 2.5).fill();
+                      doc
+                        .fillColor(palette.ink)
+                        .font('Helvetica')
+                        .fontSize(11)
+                        .text(`${index + 1}. ${heading}`, doc.page.margins.left + 36, tocY, {
+                          width: coverWidth - 56
+                        });
+                      tocY += 18;
+                    });
+                    doc.restore();
+                  }
+                }
+
+                doc.addPage();
+                drawBodyHeader();
+
+                if (!useCoverPage) {
+                  doc
+                    .fillColor(palette.ink)
+                    .font('Helvetica-Bold')
+                    .fontSize(24)
+                    .text(title, {
+                      width: bodyWidth()
+                    });
+                  if (subtitle) {
+                    doc.moveDown(0.35);
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica')
+                      .fontSize(13)
+                      .text(subtitle, {
+                        width: bodyWidth()
+                      });
+                  }
+                  doc.moveDown(0.6);
+                }
+
+                if (summaryText) {
+                  renderCallout('Resume executif', summaryText);
+                }
+
+                for (const section of effectiveSections) {
+                  renderSection(section.heading, section.body);
+                }
+
+                if (effectiveSources.length > 0) {
+                  renderSection(
+                    'Sources et liens',
+                    effectiveSources.map(source => `- ${source}`).join('\n')
+                  );
+                }
+
+                const bufferedPages = doc.bufferedPageRange();
+                const pageCount = bufferedPages.count;
+
+                for (let pageIndex = 0; pageIndex < bufferedPages.count; pageIndex++) {
+                  doc.switchToPage(bufferedPages.start + pageIndex);
+                  const pageNumber = pageIndex + 1;
+                  const shouldDrawHeader = !useCoverPage || pageNumber > 1;
+
+                  if (shouldDrawHeader) {
+                    doc.save();
+                    doc.strokeColor(palette.line).lineWidth(1);
+                    doc.moveTo(doc.page.margins.left, 60).lineTo(doc.page.width - doc.page.margins.right, 60).stroke();
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica')
+                      .fontSize(8.5)
+                      .text(title, doc.page.margins.left, 42, {
+                        width: doc.page.width - doc.page.margins.left - doc.page.margins.right - 70
+                      });
+                    doc.fillColor(palette.accent).rect(doc.page.width - doc.page.margins.right - 46, 44, 46, 4).fill();
+                    doc.restore();
+                  }
+
+                  if (showPageNumbers !== false) {
+                    doc.save();
+                    doc.strokeColor(palette.line).lineWidth(1);
+                    doc.moveTo(doc.page.margins.left, doc.page.height - 48).lineTo(doc.page.width - doc.page.margins.right, doc.page.height - 48).stroke();
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica')
+                      .fontSize(8)
+                      .text(
+                        `Studio Pro Agent | ${requestClock.footerDateLabel} | Page ${pageNumber}/${pageCount}`,
+                        doc.page.margins.left,
+                        doc.page.height - 36,
+                        {
+                          width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+                          align: 'center'
+                        }
+                      );
+                    doc.restore();
+                  }
+                }
+
+                doc.end();
+              } else {
 
               // Title
               doc.fontSize(22).font('Helvetica-Bold').text(title, { align: 'center' });
@@ -1222,6 +1968,8 @@ app.post('/api/cowork', async (req, res) => {
               doc.fontSize(8).font('Helvetica-Oblique').text(`Généré par Studio Pro Agent — ${new Date().toLocaleDateString('fr-FR')}`, { align: 'center' });
 
               doc.end();
+
+              }
 
               stream.on('finish', () => {
                 resolve({ success: true, path: outputPath, message: `PDF '${filename}' créé avec succès à ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de téléchargement.` });
@@ -1286,6 +2034,9 @@ app.post('/api/cowork', async (req, res) => {
       systemInstruction: buildCoworkSystemInstruction(config.systemInstruction, {
         webSearch: webSearchEnabled,
         executeScript: executeScriptEnabled
+      }, {
+        originalMessage: message,
+        requestClock
       })
     };
     if (tools) genConfig.tools = tools;
@@ -1297,7 +2048,7 @@ app.post('/api/cowork', async (req, res) => {
 
     let contents = [...history, { role: 'user' as const, parts: [{ text: message }] }];
     let iterations = 0;
-    const MAX_ITERATIONS = 15;
+    const MAX_ITERATIONS = Math.max(15, researchTargets.webSearches + researchTargets.webFetches + 6);
     let finalVisibleText = '';
     let latestReleasedFile: { url: string; path?: string } | null = null;
     let latestCreatedArtifactPath: string | null = null;
@@ -1555,7 +2306,7 @@ app.post('/api/cowork', async (req, res) => {
 
       const researchCompletionPrompt =
         webSearchEnabled && !latestReleasedFile?.url && researchCompletionNudges < MAX_RESEARCH_COMPLETION_NUDGES
-          ? buildResearchCompletionPrompt(message, successfulResearchMeta)
+          ? buildResearchCompletionPrompt(message, successfulResearchMeta, requestClock)
           : null;
       if (researchCompletionPrompt) {
         researchCompletionNudges++;

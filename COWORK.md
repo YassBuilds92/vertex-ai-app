@@ -21,8 +21,10 @@ L'agent **Cowork** est une boucle autonome intégrée dans AI Studio. Contrairem
 - [x] Support du streaming des pensées (thoughts).
 - [x] Correction des erreurs de lecture seule sur Vercel.
 - [x] Ajout d'un outil d'exécution de script.
+- [x] Correction de la boucle infinie (Feedback UI + Listing /tmp/).
+- [x] Installation de ReportLab pour PDF.
 
 ## Prochaines Étapes
 1. Déployer la correction de la validation des chemins (priorité `/tmp/`).
-2. Implémenter `execute_script` pour permettre la génération dynamique de PDF via Python.
+2. Améliorer la robustesse de `execute_script` avec des timeouts.
 3. Mettre à jour les instructions système pour une meilleure autonomie.

@@ -552,10 +552,18 @@ app.post('/api/cowork', async (req, res) => {
     const localTools = [
       {
         name: "list_files",
-        description: "Liste les fichiers et dossiers à la racine du projet.",
-        parameters: { type: "object", properties: {} },
-        execute: () => {
-          const files = fs.readdirSync(process.cwd());
+        description: "Liste les fichiers et dossiers dans un répertoire spécifique (par défaut la racine).",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Chemin relatif ou absolu du dossier à lister (ex: /tmp/)." }
+          }
+        },
+        execute: ({ path: folderPath }: { path?: string }) => {
+          const targetDir = folderPath ? resolveAndValidatePath(folderPath) : process.cwd();
+          if (!fs.existsSync(targetDir)) throw new Error(`Le dossier ${folderPath} n'existe pas.`);
+          if (!fs.statSync(targetDir).isDirectory()) throw new Error(`${folderPath} n'est pas un dossier.`);
+          const files = fs.readdirSync(targetDir);
           return { files: files.filter(f => !f.startsWith('.')) };
         }
       },
@@ -598,11 +606,18 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "list_recursive",
-        description: "Liste récursivement tous les fichiers du projet (limité).",
-        parameters: { type: "object", properties: {} },
-        execute: () => {
+        description: "Liste récursivement tous les fichiers à partir d'un dossier spécifique.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Dossier de départ (ex: /tmp/)." }
+          }
+        },
+        execute: ({ path: folderPath }: { path?: string }) => {
+          const rootDir = folderPath ? resolveAndValidatePath(folderPath) : process.cwd();
           const getAllFiles = (dir: string, fileList: string[] = [], depth = 0): string[] => {
             if (depth > 2) return fileList; // Limit depth
+            if (!fs.existsSync(dir)) return fileList;
             const files = fs.readdirSync(dir);
             files.forEach(file => {
               if (file.startsWith('.') || file === 'node_modules' || file === 'dist') return;
@@ -610,12 +625,12 @@ app.post('/api/cowork', async (req, res) => {
               if (fs.statSync(name).isDirectory()) {
                 getAllFiles(name, fileList, depth + 1);
               } else {
-                fileList.push(path.relative(process.cwd(), name));
+                fileList.push(path.relative(rootDir, name));
               }
             });
             return fileList;
           };
-          const allFiles = getAllFiles(process.cwd());
+          const allFiles = getAllFiles(rootDir);
           return { files: allFiles.slice(0, 100) }; // Limit result count
         }
       },
@@ -765,7 +780,11 @@ Si tu crées un fichier, écris-le réellement sur le disque via 'write_file'.`,
                   response: output
                 }
               });
-              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}\n${JSON.stringify(call.args)}\n\n✅ Résultat : succès\n\n` })}\n\n`);
+              const isError = (output as any).success === false || (output as any).error;
+              const statusEmoji = isError ? '❌' : '✅';
+              const statusText = isError ? 'Échec' : 'Succès';
+              const detail = (output as any).error || (output as any).message || '';
+              res.write(`data: ${JSON.stringify({ thoughts: `🛠️ Appel de l'outil : ${tool.name}\n${JSON.stringify(call.args)}\n\n${statusEmoji} Résultat : ${statusText}${detail ? ` (${detail})` : ''}\n\n` })}\n\n`);
             } catch (err: any) {
               log.error(`Tool ${tool.name} failed`, err);
               toolResults.push({

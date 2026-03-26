@@ -623,7 +623,7 @@ export default function App() {
   };
 
   const handleRetry = async (idx: number) => {
-    if (!user || !activeSessionId || activeSessionId === 'local-new') return;
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading) return;
     
     const messages = currentMessages;
     const targetMsg = messages[idx];
@@ -660,7 +660,7 @@ export default function App() {
   };
 
   const handleEdit = async (idx: number, newText: string) => {
-    if (!user || !activeSessionId || activeSessionId === 'local-new') return;
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading) return;
     const targetMsg = currentMessages[idx];
     
     await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId, 'messages', targetMsg.id), {

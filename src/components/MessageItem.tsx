@@ -171,7 +171,8 @@ export const MessageItem = React.memo(({
           {msg.role === 'model' && !isLoading && (
             <button
               onClick={() => onRetry(idx)}
-              className="absolute -right-12 top-10 p-2 text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/5 hover:bg-[var(--app-text)]/10 rounded-lg opacity-0 group-hover/msg:opacity-100 transition-all border border-[var(--app-border)] shadow-lg"
+              disabled={isLoading}
+              className="absolute -right-12 top-10 p-2 text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/5 hover:bg-[var(--app-text)]/10 rounded-lg opacity-0 group-hover/msg:opacity-100 transition-all border border-[var(--app-border)] shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
               title="Régénérer la réponse"
             >
               <RotateCcw size={14} />
@@ -461,14 +462,16 @@ export const MessageItem = React.memo(({
             )}
             <button
               onClick={() => { setEditText(msg.content); setIsEditing(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-lg border border-[var(--app-border)] transition-all"
+              disabled={isLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-lg border border-[var(--app-border)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Pencil size={11} />
               Modifier
             </button>
             <button
               onClick={() => onRetry(idx)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-lg border border-[var(--app-border)] transition-all"
+              disabled={isLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-lg border border-[var(--app-border)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCcw size={11} />
               Renvoyer

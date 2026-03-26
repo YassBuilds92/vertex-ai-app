@@ -31,8 +31,11 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Correction de la regression Vertex AI : suppression de `includeServerSideToolInvocations` dans `/api/cowork` car ce parametre n'est pas supporte par Vertex AI, tout en conservant `googleSearch` / `codeExecution` via `config.tools`.
 - [x] Correction de l'ecran vide Cowork : les erreurs SSE (`data.error`) sont maintenant remontees cote frontend au lieu d'etre ignorees silencieusement.
 - [x] Affinage du garde-fou d'artefact : une simple lecture de fichier ne declenche plus `release_file`; la relance automatique ne s'active que pour les vraies demandes de creation/export.
+- [x] Correction Gemini 3.1 / `thoughtSignature` : la boucle Cowork n'utilise plus `generateContentStream` pour reconstruire l'historique fonctionnel. Chaque tour conserve desormais le `content` complet retourne par Gemini avant de le rejouer a Vertex, ce qui evite l'erreur `function call ... is missing a thought_signature`.
+- [x] Retry Cowork sur quotas : les appels modele de la boucle Cowork passent maintenant par `retryWithBackoff`, ce qui absorbe mieux les erreurs temporaires `RESOURCE_EXHAUSTED` (429) sur les taches type actu du jour + PDF.
 
 ## Prochaines Etapes
 1. Deployer ces corrections sur Vercel et revalider les cas reels `creer moi un pdf test` et `fais-moi l'actu du jour puis fournis un PDF` sur l'URL de production.
-2. Nettoyer les anciennes notes obsoletes pour que le document ne mentionne plus de workaround incompatible Vertex AI.
-3. Ameliorer la robustesse de `execute_script` avec des timeouts et un reporting plus explicite des erreurs.
+2. Mesurer l'impact UX du passage a un streaming par tour (et non plus token par token) dans Cowork, puis reintroduire un streaming plus fin seulement si on peut conserver integralement le `content` Gemini signe.
+3. Nettoyer les anciennes notes obsoletes pour que le document ne mentionne plus de workaround incompatible Vertex AI.
+4. Ameliorer la robustesse de `execute_script` avec des timeouts et un reporting plus explicite des erreurs.

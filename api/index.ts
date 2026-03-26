@@ -887,46 +887,44 @@ app.post('/api/cowork', async (req, res) => {
       iterations++;
       log.info(`Cowork iteration ${iterations} for model ${modelId}`);
 
-      const responseStream = await ai.models.generateContentStream({
+      const response = await retryWithBackoff(() => ai.models.generateContent({
         model: modelId,
         contents,
         config: genConfig
-      });
+      }));
 
-      let turnContent = '';
-      let turnThoughts = '';
-      let functionCalls: any[] = [];
-      let turnParts: any[] = [];
+      const modelTurn = (response as any)?.candidates?.[0]?.content;
+      const turnParts: any[] = modelTurn?.parts
+        ? [...modelTurn.parts]
+        : response.text
+          ? [{ text: response.text }]
+          : [];
+      const functionCalls: any[] = [];
 
-      for await (const chunk of responseStream) {
-        const candidates = (chunk as any).candidates;
-        if (candidates?.[0]?.content?.parts) {
-          for (const part of candidates[0].content.parts) {
-            turnParts.push(part);
-            if (part.thought) {
-              const thoughtText = (part as any).text || part.text || '';
-              if (thoughtText) {
-                turnThoughts += thoughtText;
-                res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
-              }
-            } else if (part.text) {
-              turnContent += part.text;
-              finalVisibleText += part.text;
-              res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
-            }
-            if (part.functionCall) {
-              functionCalls.push(part.functionCall);
-            }
+      for (const part of turnParts) {
+        if (part.thought) {
+          const thoughtText = (part as any).text || part.text || '';
+          if (thoughtText) {
+            res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
           }
-        } else if (chunk.text) {
-          turnContent += chunk.text;
-          finalVisibleText += chunk.text;
-          res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+          continue;
+        }
+
+        if (part.text) {
+          finalVisibleText += part.text;
+          res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+        }
+
+        if (part.functionCall) {
+          functionCalls.push(part.functionCall);
         }
       }
 
-      // Record the model's turn in history
-      contents.push({ role: 'model', parts: turnParts });
+      // Record the exact model turn so Vertex keeps the original thoughtSignature.
+      contents.push({
+        role: modelTurn?.role || 'model',
+        parts: turnParts
+      });
 
       if (functionCalls.length > 0) {
         const toolResults: any[] = [];
@@ -1020,11 +1018,11 @@ app.post('/api/cowork', async (req, res) => {
              log.warn("MAX_ITERATIONS reached but tools were called. Allowing one final summary turn.");
              // We don't increment iterations here, just let it run one more time
              // but we must break AFTER this next turn to avoid infinite loops
-             const finalResponse = await ai.models.generateContent({
+             const finalResponse = await retryWithBackoff(() => ai.models.generateContent({
                 model: modelId,
                 contents,
                 config: { ...genConfig, tools: [] } // Disable tools for the very last turn
-             });
+             }));
              const summaryText = finalResponse.text || "Tâche terminée (limite d'itérations reached).";
              finalVisibleText += summaryText;
              res.write(`data: ${JSON.stringify({ text: summaryText })}\n\n`);
@@ -1064,10 +1062,11 @@ app.post('/api/cowork', async (req, res) => {
     res.end();
   } catch (error) {
     log.error("Cowork error", error);
+    const cleanError = parseApiError(error);
     if (!headersSent) {
-      res.status(500).json({ error: "Cowork failed", message: String(error) });
+      res.status(500).json({ error: "Cowork failed", message: cleanError });
     } else {
-      res.write(`data: ${JSON.stringify({ error: String(error) })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: cleanError })}\n\n`);
       res.end();
     }
   }

@@ -130,6 +130,8 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Couverture musique specialisee reconnue comme vraie preuve : une couverture `music_catalog_lookup` suffisamment solide peut maintenant lever l'exigence de source classique dans `computeCompletionState()`, au lieu de forcer artificiellement un `web_fetch` supplementaire.
 - [x] Timeline Cowork sans chevauchement : le mode `cowork` n'utilise plus la virtualisation des messages dans `src/App.tsx`, ce qui evite les superpositions quand une carte agentique grossit fortement pendant le streaming (timeline, warnings, long texte final). Les autres modes gardent la virtualisation avec une remesure forcee.
 - [x] Validation d'articles d'actu reellement pertinents : le matching strict de `web_fetch` ignore maintenant davantage de mots d'actualite trop generiques (`actualite`, `news`, `headlines`, `monde`, `international`, etc.), ce qui permet a un vrai article date et contextualise de lever `strict_source_missing` sans laisser passer les homepages generiques.
+- [x] Tavily-first + pivot direct deterministic : `web_search` utilise maintenant Tavily comme provider autoritaire quand `TAVILY_API_KEY` est present, renvoie `searchMode`, `directSourceUrls` et `searchDisabledReason`, et n'active plus les moteurs publics par defaut (`ALLOW_PUBLIC_SEARCH_FALLBACKS=false`). Quand Tavily manque, degrade ou faiblit, Cowork pousse explicitement vers `web_fetch` sur des sources fiables au lieu de boucler sur des reformulations.
+- [x] Contrat explicite review -> create pour les PDFs : `create_pdf` attend maintenant `reviewSignature` quand la self-review est requise, et le backend valide via `validateCreatePdfReviewSignature()` que l'export correspond exactement au brouillon relu.
 
 ## Prochaines Etapes
 1. PRIORITE ABSOLUE: faire evoluer Cowork d'une boucle hybride backend-owned vers un agent modele-led, libre, reflexif, visible et auto-dirige.
@@ -145,7 +147,7 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 11. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste un outil librement utilisable par le modele, sans rigidifier le flux global.
 12. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) sans masquer la logique agentique reelle.
 13. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live", la visibilite des decisions, et la conservation exacte du tour Gemini signe.
-14. Configurer `TAVILY_API_KEY` sur Vercel puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
+14. Verifier que `TAVILY_API_KEY` est bien configure sur Vercel, puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
 15. Rejouer en production des demandes de documents formels sans le mot `pdf` (`fais moi une attestation de stage fictive`, `lettre de motivation fictive`, `certificat de travail`) pour verifier qu'un agent plus libre garde un rendu officiel propre sans replonger dans des workflows figes.
 
 ### Revalidation Additionnelle

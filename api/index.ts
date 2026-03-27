@@ -17,6 +17,14 @@ const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const MAX_PAYLOAD = '50mb';
 
+function envFlagEnabled(value?: string): boolean {
+  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
+function allowPublicSearchFallbacks(): boolean {
+  return envFlagEnabled(process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS);
+}
+
 const app = express();
 export default app; // For Vercel
 
@@ -672,7 +680,7 @@ function buildCoworkSystemInstruction(
         : `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
     );
     requestSpecificDirectives.push(
-      "Avant tout export PDF final sur cette demande, fais une passe explicite de self-review avec 'review_pdf_draft', corrige ses points bloquants, puis seulement apres appelle 'create_pdf'."
+      "Avant tout export PDF final sur cette demande, fais une passe explicite de self-review avec 'review_pdf_draft', corrige ses points bloquants, puis seulement apres appelle 'create_pdf'. Reprends exactement la 'signature' retournee par la review et passe-la dans 'create_pdf.reviewSignature'."
     );
     requestSpecificDirectives.push(
       pdfTargets.formalDocument
@@ -693,13 +701,13 @@ Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une 
   - 'review_pdf_draft' : critique un brouillon PDF avant export et dit s'il est pret
   - 'create_pdf' : a utiliser pour tout besoin de PDF
   - 'release_file' : publie un fichier apres creation
-${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables
+${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables; peut aussi renvoyer 'directSourceUrls' si tu dois pivoter vers des sources fiables
 - 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
 ### COMPORTEMENT ATTENDU :
 1. Si l'utilisateur te demande de te documenter, de verifier, ou de traiter un sujet factuel sensible, alterne librement plan interne, recherche, verification et production selon ce qui est utile. Ne te fige pas dans un workflow artificiel.
 2. Tu n'as droit qu'a UN SEUL outil actionnable par tour modele. Tu peux accompagner ce tour d'un 'publish_status' si cela aide reellement la lisibilite.
 3. Utilise 'publish_status' pour exposer un vrai plan courant, un pivot important, une auto-critique de brouillon ou un critere de fin. N'en abuse pas quand cela n'apporte rien.
-4. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, un briefing ou des recommandations, effectue une recherche suffisante AVANT de conclure.${capabilities.webSearch ? "\n5. Pour ces demandes web, explore plusieurs angles differents puis lis au moins une source de qualite 'full' ET pertinente avant la synthese finale.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' echoue ou reste faible, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
+4. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, un briefing ou des recommandations, effectue une recherche suffisante AVANT de conclure.${capabilities.webSearch ? "\n5. Pour ces demandes web, explore plusieurs angles differents puis lis au moins une source de qualite 'full' ET pertinente avant la synthese finale.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' renvoie des 'directSourceUrls', ouvre-les via 'web_fetch' au lieu de reformuler la meme requete.\n   Si 'web_search' echoue ou reste faible, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
 6. Si aucun outil n'est necessaire, livre directement une reponse finale propre sans narration intermediaire.
 7. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.${debugReasoning ? "\n8. Le mode debug autorise 'report_progress' pour tracer la strategie, mais il reste facultatif." : ""}
 
@@ -719,7 +727,8 @@ ${requestClock
 6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
 7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.
 8. Pour un PDF exigeant, un document formel, une demande "soignee" ou "parfaite", tu dois passer par 'review_pdf_draft' AVANT 'create_pdf'. Si la review dit que le brouillon n'est pas pret, corrige-le puis relance la review.
-9. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
+9. Si 'review_pdf_draft' retourne une 'signature', passe cette meme valeur dans 'create_pdf.reviewSignature'. N'invente jamais cette signature et ne la modifie pas.
+10. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -814,6 +823,9 @@ export const __coworkLoopInternals = {
   computeCompletionState,
   buildBlockerPrompt,
   buildPublicToolNarration,
+  buildTavilySearchPlan,
+  buildDirectSourceSearchOutcome,
+  validateCreatePdfReviewSignature,
   getDirectSourceFallbacks,
   getCooldownDelayMs,
   buildCoworkProgressFingerprint,
@@ -825,6 +837,7 @@ export const __coworkLoopInternals = {
   requestRequiresAbuseBlock,
   requestIsPureCreativeComposition,
   assessReadablePageRelevance,
+  searchWeb,
 };
 
 function normalizeCoworkText(value?: string): string {
@@ -1252,6 +1265,90 @@ function reviewPdfDraft(
   };
 }
 
+function validateCreatePdfReviewSignature(options: {
+  reviewRequired: boolean;
+  reviewSignature?: string;
+  latestApprovedPdfReviewSignature: string | null;
+  draftReview: PdfDraftReview;
+}): { ok: true } | { ok: false; response: any } {
+  const { reviewRequired, reviewSignature, latestApprovedPdfReviewSignature, draftReview } = options;
+  if (!reviewRequired) {
+    return { ok: true };
+  }
+
+  const reviewPayload = {
+    ready: draftReview.ready,
+    score: draftReview.score,
+    blockingIssues: draftReview.blockingIssues,
+    improvements: draftReview.improvements
+  };
+
+  if (!reviewSignature) {
+    return {
+      ok: false,
+      response: {
+        success: false,
+        recoverable: true,
+        reviewRequired: true,
+        signature: draftReview.signature,
+        reviewSignatureRequired: true,
+        review: reviewPayload,
+        error: "Cette demande exige une self-review visible. Reprends d'abord la signature retournee par 'review_pdf_draft' et passe-la telle quelle dans 'create_pdf.reviewSignature'."
+      }
+    };
+  }
+
+  if (reviewSignature !== draftReview.signature) {
+    return {
+      ok: false,
+      response: {
+        success: false,
+        recoverable: true,
+        reviewRequired: true,
+        signature: draftReview.signature,
+        reviewSignatureMismatch: true,
+        review: reviewPayload,
+        error: draftReview.ready
+          ? "Le brouillon a change depuis la derniere review. Relance 'review_pdf_draft' sur cette version exacte puis repasse sa signature intacte dans 'create_pdf.reviewSignature'."
+          : `Le brouillon a change et n'est pas encore pret pour l'export. Relance 'review_pdf_draft', corrige les points bloquants (${draftReview.blockingIssues.join('; ')}), puis repasse la nouvelle signature dans 'create_pdf.reviewSignature'.`
+      }
+    };
+  }
+
+  if (latestApprovedPdfReviewSignature !== reviewSignature) {
+    return {
+      ok: false,
+      response: {
+        success: false,
+        recoverable: true,
+        reviewRequired: true,
+        signature: draftReview.signature,
+        reviewSignatureMismatch: true,
+        review: reviewPayload,
+        error: "La signature fournie ne correspond pas a la derniere self-review approuvee. Refais 'review_pdf_draft' sur ce brouillon exact puis reuse la signature retournee sans la modifier."
+      }
+    };
+  }
+
+  if (latestApprovedPdfReviewSignature !== draftReview.signature) {
+    return {
+      ok: false,
+      response: {
+        success: false,
+        recoverable: true,
+        reviewRequired: true,
+        signature: draftReview.signature,
+        review: reviewPayload,
+        error: draftReview.ready
+          ? "Avant l'export PDF final, fais une passe visible avec 'review_pdf_draft' sur ce brouillon exact, puis relance 'create_pdf'."
+          : `Le brouillon n'est pas encore pret pour l'export. Passe par 'review_pdf_draft', corrige les points bloquants (${draftReview.blockingIssues.join('; ')}), puis relance 'create_pdf'.`
+      }
+    };
+  }
+
+  return { ok: true };
+}
+
 function countWords(value: string): number {
   const trimmed = value.trim();
   if (!trimmed) return 0;
@@ -1461,7 +1558,7 @@ function buildStrictResearchFailureMessage(
   return `Je m'arrete proprement: la recherche reste insuffisamment fiable pour repondre a cette demande sensible.
 Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
 Etat obtenu: ${stats.webSearches} recherche(s) validee(s), ${stats.webFetches} source(s) lisible(s), ${stats.degradedSearches} recherche(s) degradee(s), ${stats.blockedQueryFamilies} famille(s) de requetes bloquees.
-Je prefere ne pas broder sans source lue suffisamment fiable.`;
+Je prefere ne pas broder sans source lue suffisamment fiable.${formatDirectSourceHint(originalMessage)}`;
 }
 
 function buildResearchCompletionPrompt(
@@ -1481,7 +1578,7 @@ function buildResearchCompletionPrompt(
     instructions.push("Commence par 'music_catalog_lookup' pour resoudre l'artiste, les titres officiels, l'album et les feats eventuels.");
   }
   if (stats.webSearches === 0) {
-    instructions.push("Si 'web_search' reste bloque, lis directement 2 sources pertinentes via 'web_fetch' (page d'accueil, live, flux RSS, documentation officielle).");
+    instructions.push(`Si 'web_search' reste bloque, ouvre directement 2 sources pertinentes via 'web_fetch'.${formatDirectSourceHint(originalMessage)}`);
   } else if (remainingSearches > 0) {
     instructions.push(`Fais encore ${remainingSearches} recherche(s) 'web_search' avec des angles differents.`);
   }
@@ -1497,7 +1594,7 @@ function buildResearchCompletionPrompt(
     instructions.push("Ne livre pas encore les paroles ou le texte final: termine d'abord la recherche visible puis seulement ensuite redige.");
   }
   instructions.push("Une recherche degradee, hors sujet ou transitoirement indisponible ne compte pas comme preuve.");
-  instructions.push("Repeter une requete quasi identique n'est pas un progres: pivote vraiment d'angle, ouvre une source directe, ou admets que la recherche reste insuffisante.");
+  instructions.push(`Repeter une requete quasi identique n'est pas un progres: pivote vraiment d'angle, ouvre une source directe, ou admets que la recherche reste insuffisante.${formatDirectSourceHint(originalMessage)}`);
 
   return `La recherche visible est encore insuffisante pour repondre proprement.
 Demande originale: "${originalMessage}"
@@ -1532,6 +1629,110 @@ function detectDirectSourceCategory(message: string): DirectSourceCategory {
 function getDirectSourceFallbacks(message: string): string[] {
   const category = detectDirectSourceCategory(message);
   return DIRECT_SOURCE_FALLBACKS[category] || DIRECT_SOURCE_FALLBACKS.general;
+}
+
+function getTrustedDirectSourceDomains(message: string): string[] {
+  return [...new Set(
+    getDirectSourceFallbacks(message)
+      .map((value) => getUrlDomain(value))
+      .filter(Boolean)
+  )];
+}
+
+function formatDirectSourceHint(message: string, max = 3): string {
+  const urls = getDirectSourceFallbacks(message).slice(0, max);
+  return urls.length > 0 ? ` Sources directes a ouvrir via 'web_fetch': ${urls.join(' | ')}.` : '';
+}
+
+function buildTavilySearchPlan(
+  query: string,
+  maxResults = 5,
+  options: SearchOptions = {}
+): TavilySearchPlan {
+  const category = detectDirectSourceCategory(query);
+  const directSourceUrls = getDirectSourceFallbacks(query);
+  const topic: TavilyTopic =
+    searchQueryLooksNewsy(query)
+    || requestIsCurrentAffairs(query)
+    || ['fr_news', 'intl_news', 'economy', 'sport'].includes(category)
+      ? 'news'
+      : 'general';
+  const searchDepth: TavilySearchDepth =
+    options.strictFactual || options.strictMusic || searchQueryLooksMusicLookup(query)
+      ? 'advanced'
+      : 'basic';
+  const includeDomains = [...new Set(
+    (
+      options.strictFactual
+      || ['fr_news', 'intl_news', 'economy', 'tech_docs', 'sport'].includes(category)
+    )
+      ? getTrustedDirectSourceDomains(query)
+      : []
+  )];
+  const requestBody: Record<string, unknown> = {
+    query,
+    max_results: Math.max(1, Math.min(maxResults, 8)),
+    topic,
+    search_depth: searchDepth,
+    include_answer: false,
+    include_raw_content: false,
+  };
+
+  if (searchDepth === 'advanced') {
+    requestBody.chunks_per_source = 3;
+  }
+  if (includeDomains.length > 0) {
+    requestBody.include_domains = includeDomains;
+  }
+  if (topic === 'news') {
+    requestBody.time_range = requestNeedsCurrentDateGrounding(query) ? 'day' : 'week';
+  } else if (category === 'fr_news') {
+    requestBody.country = 'france';
+  }
+
+  return {
+    enabled: Boolean(process.env.TAVILY_API_KEY),
+    requestBody,
+    searchMode: `tavily:${topic}:${searchDepth}`,
+    topic,
+    searchDepth,
+    directSourceUrls,
+    includeDomains,
+  };
+}
+
+function buildDirectSourceSearchOutcome(
+  query: string,
+  options: {
+    quality: SearchQuality;
+    provider: string;
+    searchMode: string;
+    warnings?: string[];
+    error?: string;
+    transient?: boolean;
+    results?: SearchResultItem[];
+    relevanceScore?: number;
+    matchedAnchors?: string[];
+    fallbackUsed?: boolean;
+    searchDisabledReason: string;
+    directSourceUrls?: string[];
+  }
+): SearchOutcome {
+  return {
+    success: false,
+    quality: options.quality,
+    provider: options.provider,
+    searchMode: options.searchMode,
+    results: options.results || [],
+    relevanceScore: Number(options.relevanceScore || 0),
+    matchedAnchors: options.matchedAnchors || [],
+    fallbackUsed: Boolean(options.fallbackUsed),
+    directSourceUrls: options.directSourceUrls || getDirectSourceFallbacks(query),
+    warnings: options.warnings || [],
+    error: options.error,
+    transient: options.transient,
+    searchDisabledReason: options.searchDisabledReason,
+  };
 }
 
 function parseReasoningPayload(args: any): CoworkReasoning | null {
@@ -1843,13 +2044,29 @@ type SearchOutcome = {
   success: boolean;
   quality: SearchQuality;
   provider: string;
+  searchMode: string;
   results: SearchResultItem[];
   relevanceScore: number;
   matchedAnchors: string[];
   fallbackUsed: boolean;
+  directSourceUrls: string[];
   warnings: string[];
   error?: string;
   transient?: boolean;
+  searchDisabledReason?: string;
+};
+
+type TavilyTopic = 'general' | 'news';
+type TavilySearchDepth = 'basic' | 'advanced';
+
+type TavilySearchPlan = {
+  enabled: boolean;
+  requestBody: Record<string, unknown> | null;
+  searchMode: string;
+  topic: TavilyTopic | null;
+  searchDepth: TavilySearchDepth | null;
+  directSourceUrls: string[];
+  includeDomains: string[];
 };
 
 type ReadableFetchQuality = 'full' | 'partial' | 'shell' | 'serp';
@@ -2641,26 +2858,24 @@ function looksLikeTransientSearchIssue(message: string): boolean {
   return /\b(403|429|quota|temporar|unavailable|too many requests|saturation|deadline exceeded|forbidden)\b/.test(normalized);
 }
 
-async function searchViaTavily(query: string, maxResults = 5): Promise<SearchResultItem[]> {
+async function searchViaTavily(plan: TavilySearchPlan): Promise<SearchResultItem[]> {
+  if (!plan.requestBody) {
+    throw new Error('Tavily n est pas configure pour cette recherche.');
+  }
   const response = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${process.env.TAVILY_API_KEY}`
     },
-    body: JSON.stringify({
-      query,
-      max_results: Math.min(maxResults, 8),
-      search_depth: 'advanced',
-      include_answer: false,
-      include_raw_content: false
-    })
+    body: JSON.stringify(plan.requestBody)
   });
   if (!response.ok) {
     throw new Error(`Tavily a renvoye ${response.status}`);
   }
   const data: any = await response.json();
   const results = Array.isArray(data.results) ? data.results : [];
+  const maxResults = Number(plan.requestBody.max_results || 5);
   return results.slice(0, maxResults).map((result: any) => ({
     title: clipText(result.title || result.url || 'Sans titre', 140),
     url: result.url,
@@ -2671,28 +2886,44 @@ async function searchViaTavily(query: string, maxResults = 5): Promise<SearchRes
 
 async function searchWeb(query: string, maxResults = 5, options: SearchOptions = {}): Promise<SearchOutcome> {
   const strictMode = Boolean(options.strictMusic || options.strictFactual || searchQueryLooksMusicLookup(query));
-  const newsy = searchQueryLooksNewsy(query);
+  const newsy = searchQueryLooksNewsy(query) || requestIsCurrentAffairs(query);
+  const tavilyPlan = buildTavilySearchPlan(query, maxResults, options);
+  const publicFallbacksEnabled = allowPublicSearchFallbacks();
   const attempts: Array<{ label: string; run: () => Promise<SearchResultItem[]> }> = [];
-
-  if (process.env.TAVILY_API_KEY) {
-    attempts.push({ label: 'tavily', run: () => searchViaTavily(query, maxResults) });
-  }
-
-  if (newsy) {
-    attempts.push(
-      { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) },
-      { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
-      { label: 'google-news-rss', run: () => searchViaGoogleNewsRss(query, maxResults) }
-    );
-  } else {
-    attempts.push(
-      { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
-      { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) }
-    );
-  }
-
-  const primaryProvider = attempts[0]?.label || 'fallback-public';
   const warnings: string[] = [];
+
+  if (tavilyPlan.enabled) {
+    attempts.push({ label: 'tavily', run: () => searchViaTavily(tavilyPlan) });
+  }
+
+  if (publicFallbacksEnabled) {
+    warnings.push("Fallback public actif: les resultats moteur restants ne comptent jamais comme preuve sans lecture directe via 'web_fetch'.");
+    if (newsy) {
+      attempts.push(
+        { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) },
+        { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
+        { label: 'google-news-rss', run: () => searchViaGoogleNewsRss(query, maxResults) }
+      );
+    } else {
+      attempts.push(
+        { label: 'duckduckgo', run: () => searchViaDuckDuckGo(query, maxResults) },
+        { label: 'bing-rss', run: () => searchViaBingRss(query, maxResults) }
+      );
+    }
+  } else if (!tavilyPlan.enabled) {
+    warnings.push("TAVILY_API_KEY absente: je ne lance pas de moteurs publics par defaut et je te renvoie des sources directes fiables a ouvrir via 'web_fetch'.");
+    return buildDirectSourceSearchOutcome(query, {
+      quality: 'degraded',
+      provider: 'direct-sources',
+      searchMode: 'direct-sources',
+      warnings,
+      error: `Tavily n'est pas configure pour cette recherche. Ouvre directement une source fiable via 'web_fetch'.${formatDirectSourceHint(query)}`,
+      searchDisabledReason: 'missing_tavily_key',
+      directSourceUrls: tavilyPlan.directSourceUrls,
+    });
+  }
+
+  const primaryProvider = attempts[0]?.label || (tavilyPlan.enabled ? 'tavily' : 'direct-sources');
   let sawTransientIssue = false;
   let bestDegraded: (SearchOutcome & { quality: 'degraded' | 'off_topic' }) | null = null;
 
@@ -2706,10 +2937,14 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
         success: assessment.quality === 'relevant' || (!strictMode && assessment.quality === 'degraded'),
         quality: assessment.quality,
         provider: attempt.label,
+        searchMode: attempt.label === 'tavily'
+          ? tavilyPlan.searchMode
+          : `public-fallback:${newsy ? 'news' : 'general'}`,
         results: rankedResults,
         relevanceScore: assessment.bestScore,
         matchedAnchors: assessment.matchedAnchors,
         fallbackUsed: attempt.label !== primaryProvider,
+        directSourceUrls: tavilyPlan.directSourceUrls,
         warnings: [...warnings],
       };
 
@@ -2732,7 +2967,7 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
         };
       }
 
-      warnings.push(`${attempt.label}: resultats ${assessment.quality === 'degraded' ? 'insuffisants' : 'hors sujet'} pour "${query}"`);
+      warnings.push(`${attempt.label}: resultats ${assessment.quality === 'degraded' ? 'insuffisants' : 'hors sujet'} pour "${query}".${attempt.label === 'tavily' ? formatDirectSourceHint(query) : ''}`);
     } catch (error) {
       const message = parseApiError(error);
       warnings.push(`${attempt.label}: ${message}`);
@@ -2743,6 +2978,24 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
   }
 
   if (bestDegraded) {
+    if (!publicFallbacksEnabled && bestDegraded.provider === 'tavily') {
+      return buildDirectSourceSearchOutcome(query, {
+        quality: strictMode && bestDegraded.quality === 'degraded' ? 'degraded' : bestDegraded.quality,
+        provider: 'tavily',
+        searchMode: tavilyPlan.searchMode,
+        results: bestDegraded.results,
+        warnings,
+        error: strictMode
+          ? `La recherche Tavily n'a pas valide suffisamment la requete "${query}". Ouvre maintenant une source directe via 'web_fetch'.`
+          : `La recherche Tavily reste trop faible pour "${query}". Ouvre maintenant une source directe via 'web_fetch'.`,
+        transient: false,
+        relevanceScore: bestDegraded.relevanceScore,
+        matchedAnchors: bestDegraded.matchedAnchors,
+        fallbackUsed: false,
+        searchDisabledReason: 'tavily_low_relevance',
+        directSourceUrls: tavilyPlan.directSourceUrls,
+      });
+    }
     return {
       ...bestDegraded,
       success: bestDegraded.success,
@@ -2755,14 +3008,32 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
   }
 
   const errorMessage = `Aucun resultat exploitable trouve via les moteurs disponibles.${warnings.length > 0 ? ` Dernieres erreurs: ${warnings.join(' | ')}` : ''}`.trim();
+  if (!publicFallbacksEnabled) {
+    return buildDirectSourceSearchOutcome(query, {
+      quality: sawTransientIssue ? 'transient_error' : 'off_topic',
+      provider: tavilyPlan.enabled ? 'tavily' : 'direct-sources',
+      searchMode: tavilyPlan.enabled ? tavilyPlan.searchMode : 'direct-sources',
+      warnings,
+      error: tavilyPlan.enabled
+        ? `${errorMessage}${formatDirectSourceHint(query)}`
+        : `La recherche n'est pas disponible sans Tavily.${formatDirectSourceHint(query)}`,
+      transient: sawTransientIssue,
+      searchDisabledReason: tavilyPlan.enabled
+        ? (sawTransientIssue ? 'tavily_transient_error' : 'tavily_no_relevant_results')
+        : 'missing_tavily_key',
+      directSourceUrls: tavilyPlan.directSourceUrls,
+    });
+  }
   return {
     success: false,
     quality: sawTransientIssue ? 'transient_error' : 'off_topic',
     provider: primaryProvider,
+    searchMode: `public-fallback:${newsy ? 'news' : 'general'}`,
     results: [],
     relevanceScore: 0,
     matchedAnchors: [],
     fallbackUsed: false,
+    directSourceUrls: tavilyPlan.directSourceUrls,
     warnings,
     error: errorMessage,
     transient: sawTransientIssue,
@@ -4016,10 +4287,13 @@ app.post('/api/cowork', async (req, res) => {
         return {
           query: clipText(output?.query || args?.query || '', 140),
           provider: clipText(output?.provider || '', 32),
+          mode: clipText(output?.searchMode || '', 32),
           quality: clipText(output?.quality || '', 20),
           score: Number(output?.relevanceScore || 0),
           anchors: Array.isArray(output?.matchedAnchors) ? output.matchedAnchors.length : 0,
           fallback: Boolean(output?.fallbackUsed),
+          directSources: Array.isArray(output?.directSourceUrls) ? output.directSourceUrls.length : 0,
+          disabledReason: clipText(output?.searchDisabledReason || '', 40),
         };
       }
       if (toolName === 'web_fetch') {
@@ -4055,6 +4329,7 @@ app.post('/api/cowork', async (req, res) => {
       }
       if (toolName === 'web_search') {
         const results = Array.isArray(output?.results) ? output.results : [];
+        const directSources = Array.isArray(output?.directSourceUrls) ? output.directSourceUrls : [];
         const queryPrefix = output?.originalQuery
           ? `Requete ajustee au ${requestClock.dateLabel}: ${clipText(output?.query || '', 90)}. `
           : '';
@@ -4066,7 +4341,10 @@ app.post('/api/cowork', async (req, res) => {
         const warnings = Array.isArray(output?.warnings) && output.warnings.length > 0
           ? ` ${clipText(output.warnings[0], 180)}`
           : '';
-        return `${qualityPrefix}${queryPrefix}${summary || clipText(output?.message || output?.error || '', 220)}${warnings}`.trim();
+        const directHint = directSources.length > 0
+          ? ` Sources directes: ${directSources.slice(0, 3).join(' | ')}`
+          : '';
+        return `${qualityPrefix}${queryPrefix}${summary || clipText(output?.message || output?.error || '', 220)}${warnings}${directHint}`.trim();
       }
       if (toolName === 'web_fetch') {
         const qualityPrefix = output?.quality ? `[${String(output.quality)}${output?.relevance ? `/${String(output.relevance)}` : ''}${output?.domain ? ` ${output.domain}` : ''}] ` : '';
@@ -4287,7 +4565,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       ...(webSearchEnabled ? [{
         name: "web_search",
-        description: "Recherche le web et renvoie une liste concise de resultats (titre, URL, extrait). Utilise cet outil plusieurs fois avec des angles differents si le sujet est ouvert ou d'actualite.",
+        description: "Recherche le web et renvoie une liste concise de resultats (titre, URL, extrait). Si la recherche reste faible ou indisponible, l'outil peut aussi renvoyer des 'directSourceUrls' a ouvrir via 'web_fetch'.",
         parameters: {
           type: "object",
           properties: {
@@ -4309,17 +4587,20 @@ app.post('/api/cowork', async (req, res) => {
             query: effectiveQuery,
             ...(effectiveQuery !== query ? { originalQuery: query } : {}),
             provider: outcome.provider,
+            searchMode: outcome.searchMode,
             quality: outcome.quality,
             relevanceScore: outcome.relevanceScore,
             matchedAnchors: outcome.matchedAnchors,
             fallbackUsed: outcome.fallbackUsed,
+            directSourceUrls: outcome.directSourceUrls,
+            ...(outcome.searchDisabledReason ? { searchDisabledReason: outcome.searchDisabledReason } : {}),
             warnings: outcome.warnings,
             results: outcome.results,
             ...(outcome.error ? { error: outcome.error } : {}),
             message:
               effectiveQuery !== query
-                ? `${resultCount} resultat(s) pour "${effectiveQuery}" via ${outcome.provider}. Qualite: ${outcome.quality}. Requete re-alignee sur la date du jour (${requestClock.dateLabel}).`
-                : `${resultCount} resultat(s) pour "${effectiveQuery}" via ${outcome.provider}. Qualite: ${outcome.quality}.`
+                ? `${resultCount} resultat(s) pour "${effectiveQuery}" via ${outcome.provider}. Qualite: ${outcome.quality}. Mode: ${outcome.searchMode}.${outcome.directSourceUrls.length > 0 ? ` Sources directes: ${outcome.directSourceUrls.slice(0, 3).join(' | ')}.` : ''} Requete re-alignee sur la date du jour (${requestClock.dateLabel}).`
+                : `${resultCount} resultat(s) pour "${effectiveQuery}" via ${outcome.provider}. Qualite: ${outcome.quality}. Mode: ${outcome.searchMode}.${outcome.directSourceUrls.length > 0 ? ` Sources directes: ${outcome.directSourceUrls.slice(0, 3).join(' | ')}.` : ''}`
           };
         }
       }, {
@@ -4433,6 +4714,7 @@ app.post('/api/cowork', async (req, res) => {
             summary: { type: "string", description: "Resume executif ou introduction mise en avant (optionnel)." },
             accentColor: { type: "string", description: "Couleur d'accent HEX (ex: #0f766e)." },
             author: { type: "string", description: "Nom de l'auteur ou de la signature (optionnel)." },
+            reviewSignature: { type: "string", description: "Signature exacte retournee par 'review_pdf_draft' pour ce brouillon. Obligatoire quand la self-review est requise." },
             sources: {
               type: "array",
               description: "Liste optionnelle de sources ou liens a afficher en fin de document.",
@@ -4460,6 +4742,7 @@ app.post('/api/cowork', async (req, res) => {
           summary,
           accentColor,
           author,
+          reviewSignature,
           sources,
           showPageNumbers,
           sections
@@ -4470,6 +4753,7 @@ app.post('/api/cowork', async (req, res) => {
           summary?: string;
           accentColor?: string;
           author?: string;
+          reviewSignature?: string;
           sources?: string[];
           showPageNumbers?: boolean;
           sections: Array<{ heading?: string, body: string }>;
@@ -4499,22 +4783,14 @@ app.post('/api/cowork', async (req, res) => {
             };
           }
 
-          if (reviewRequired && latestApprovedPdfReviewSignature !== draftReview.signature) {
-            return {
-              success: false,
-              recoverable: true,
-              reviewRequired: true,
-              signature: draftReview.signature,
-              review: {
-                ready: draftReview.ready,
-                score: draftReview.score,
-                blockingIssues: draftReview.blockingIssues,
-                improvements: draftReview.improvements
-              },
-              error: draftReview.ready
-                ? "Avant l'export PDF final, fais une passe visible avec 'review_pdf_draft' sur ce brouillon exact, puis relance 'create_pdf'."
-                : `Le brouillon n'est pas encore pret pour l'export. Passe par 'review_pdf_draft', corrige les points bloquants (${draftReview.blockingIssues.join('; ')}), puis relance 'create_pdf'.`
-            };
+          const reviewSignatureGate = validateCreatePdfReviewSignature({
+            reviewRequired,
+            reviewSignature,
+            latestApprovedPdfReviewSignature,
+            draftReview
+          });
+          if (reviewSignatureGate.ok === false) {
+            return reviewSignatureGate.response;
           }
 
           const totalWords = countWords(combinedContent);
@@ -5698,7 +5974,7 @@ app.post('/api/cowork', async (req, res) => {
 
             if (tool.name === 'web_search') {
               if (lastSearchExactKey && toolScope.exactKey === lastSearchExactKey) {
-                const loopMsg = `La requete '${toolScope.label}' est identique a la recherche precedente. Change reellement d'angle, ouvre une source directe via 'web_fetch', ou admets que la recherche reste insuffisante.`;
+                const loopMsg = `La requete '${toolScope.label}' est identique a la recherche precedente. Change reellement d'angle, ouvre une source directe via 'web_fetch', ou admets que la recherche reste insuffisante.${formatDirectSourceHint(message)}`;
                 recordSearchFailure({
                   query: toolScope.label,
                   family: toolScope.familyKey,
@@ -5725,7 +6001,7 @@ app.post('/api/cowork', async (req, res) => {
               }
 
               if (blockedSearchFamilies.has(toolScope.familyKey)) {
-                const loopMsg = `La famille de requetes '${toolScope.label}' est bloquee apres plusieurs recherches faibles. Pivote: autre angle, 'web_fetch' direct, outil specialise, ou conclusion honnete d'insuffisance.`;
+                const loopMsg = `La famille de requetes '${toolScope.label}' est bloquee apres plusieurs recherches faibles. Pivote: autre angle, 'web_fetch' direct, outil specialise, ou conclusion honnete d'insuffisance.${formatDirectSourceHint(message)}`;
                 recordBlockedTool(tool.name, toolScope.familyKey, 'weak_search_family');
                 refreshSessionState();
                 toolResults.push({
@@ -5839,7 +6115,7 @@ app.post('/api/cowork', async (req, res) => {
                       emitEvent('warning', {
                         iteration: iterations,
                         title: 'Pivot requis',
-                        message: `Deux recherches faibles ou plus sur la famille '${clipText(toolScope.label, 120)}'. Change d'angle ou ouvre une source directe.`,
+                        message: `Deux recherches faibles ou plus sur la famille '${clipText(toolScope.label, 120)}'. Change d'angle ou ouvre une source directe.${formatDirectSourceHint(message)}`,
                         toolName: tool.name,
                         meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
                         runMeta
@@ -5870,7 +6146,7 @@ app.post('/api/cowork', async (req, res) => {
                       emitEvent('warning', {
                         iteration: iterations,
                         title: 'Pivot requis',
-                        message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent trop faibles. Ne repete pas la meme famille de requetes.`,
+                        message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent trop faibles. Ne repete pas la meme famille de requetes.${formatDirectSourceHint(message)}`,
                         toolName: tool.name,
                         meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
                         runMeta
@@ -5945,7 +6221,7 @@ app.post('/api/cowork', async (req, res) => {
                 emitEvent('warning', {
                   iteration: iterations,
                   title: 'Recherche degradee',
-                  message: `La requete '${clipText((output as any).query || toolScope.label, 120)}' n'a pas valide suffisamment le sujet. Ce resultat ne compte pas comme preuve.`,
+                  message: `La requete '${clipText((output as any).query || toolScope.label, 120)}' n'a pas valide suffisamment le sujet. Ce resultat ne compte pas comme preuve.${Array.isArray((output as any).directSourceUrls) && (output as any).directSourceUrls.length > 0 ? ` Ouvre plutot: ${(output as any).directSourceUrls.slice(0, 3).join(' | ')}.` : formatDirectSourceHint(message)}`,
                   toolName: tool.name,
                   meta: formatToolResultMeta(tool.name, call.args, output),
                   runMeta
@@ -5982,7 +6258,7 @@ app.post('/api/cowork', async (req, res) => {
                     emitEvent('warning', {
                       iteration: iterations,
                       title: 'Pivot requis',
-                      message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent improductives. Pivote ou conclue proprement.`,
+                      message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent improductives. Pivote ou conclue proprement.${formatDirectSourceHint(message)}`,
                       toolName: tool.name,
                       meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
                       runMeta

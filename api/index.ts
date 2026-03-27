@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -245,6 +246,38 @@ type PdfQualityTargets = {
   minWords: number;
   formalDocument?: boolean;
   requireInventedDetails?: boolean;
+};
+
+type PdfSectionInput = {
+  heading?: string;
+  body?: string | null;
+};
+
+type NormalizedPdfSection = {
+  heading?: string;
+  body: string;
+};
+
+type PdfDraftSnapshot = {
+  title: string;
+  subtitle: string;
+  summary: string;
+  author: string;
+  sections: NormalizedPdfSection[];
+  sources: string[];
+};
+
+type PdfDraftReview = {
+  success: true;
+  ready: boolean;
+  score: number;
+  signature: string;
+  totalWords: number;
+  sectionCount: number;
+  blockingIssues: string[];
+  improvements: string[];
+  strengths: string[];
+  message: string;
 };
 
 type CoworkRunMeta = {
@@ -558,6 +591,9 @@ function buildCoworkSystemInstruction(
         : `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
     );
     requestSpecificDirectives.push(
+      "Avant tout export PDF final sur cette demande, fais une passe explicite de self-review avec 'review_pdf_draft', corrige ses points bloquants, puis seulement apres appelle 'create_pdf'."
+    );
+    requestSpecificDirectives.push(
       pdfTargets.formalDocument
         ? "Quand tu appelles 'create_pdf' pour ce document formel, utilise plusieurs sections courtes et propres (en-tete, objet ou attestation, details, signatures/mentions finales) et garde un ton administratif."
         : "Quand tu appelles 'create_pdf', renseigne aussi 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent."
@@ -573,6 +609,7 @@ Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une 
 - Outils locaux toujours disponibles :
   - 'report_progress' : annonce ce que tu fais, ce que tu as appris, ou ce que tu vas faire ensuite.
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
+  - 'review_pdf_draft' : critique un brouillon PDF avant export et dit s'il est pret
   - 'create_pdf' : a utiliser pour tout besoin de PDF
   - 'release_file' : publie un fichier apres creation
 ${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables
@@ -599,7 +636,8 @@ ${requestClock
 5. N'utilise JAMAIS 'write_file' pour fabriquer un faux fichier '.pdf'. Pour un PDF, utilise uniquement 'create_pdf'.
 6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
 7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.
-8. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
+8. Pour un PDF exigeant, un document formel, une demande "soignee" ou "parfaite", tu dois passer par 'review_pdf_draft' AVANT 'create_pdf'. Si la review dit que le brouillon n'est pas pret, corrige-le puis relance la review.
+9. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -622,7 +660,10 @@ export const __coworkPdfInternals = {
   requestNeedsFormalDocument,
   requestNeedsFictionalDetails,
   requestNeedsPdfArtifact,
+  requestNeedsPdfSelfReview,
   getPdfQualityTargets,
+  buildPdfDraftSnapshot,
+  reviewPdfDraft,
   countTemplatePlaceholders,
   countFormalDocumentSignals
 };
@@ -832,6 +873,182 @@ function getPdfQualityTargets(message: string): PdfQualityTargets | null {
     : null;
 }
 
+function requestNeedsPdfSelfReview(message: string): boolean {
+  return Boolean(getPdfQualityTargets(message));
+}
+
+function normalizePdfSections(sections: PdfSectionInput[] | null | undefined): NormalizedPdfSection[] {
+  return (Array.isArray(sections) ? sections : [])
+    .filter(section => Boolean(section?.heading?.trim() || section?.body?.trim()))
+    .map(section => ({
+      heading: section.heading?.trim() || undefined,
+      body: section.body?.trim() || ''
+    }));
+}
+
+function normalizePdfSources(sources: string[] | null | undefined): string[] {
+  return (Array.isArray(sources) ? sources : [])
+    .map(source => source.trim())
+    .filter(Boolean);
+}
+
+function buildPdfDraftSnapshot(input: {
+  title?: string;
+  subtitle?: string;
+  summary?: string;
+  author?: string;
+  sections?: PdfSectionInput[] | null;
+  sources?: string[] | null;
+}): PdfDraftSnapshot {
+  return {
+    title: input.title?.trim() || '',
+    subtitle: input.subtitle?.trim() || '',
+    summary: input.summary?.trim() || '',
+    author: input.author?.trim() || '',
+    sections: normalizePdfSections(input.sections),
+    sources: normalizePdfSources(input.sources)
+  };
+}
+
+function buildPdfDraftCombinedContent(draft: PdfDraftSnapshot): string {
+  return [
+    draft.title,
+    draft.subtitle,
+    draft.summary,
+    draft.author,
+    ...draft.sections.flatMap(section => [section.heading || '', section.body]),
+    ...draft.sources
+  ].join(' ');
+}
+
+function buildPdfDraftSignature(draft: PdfDraftSnapshot): string {
+  const payload = {
+    title: draft.title,
+    subtitle: draft.subtitle,
+    summary: draft.summary,
+    author: draft.author,
+    sections: draft.sections.map(section => ({
+      heading: section.heading || '',
+      body: section.body
+    })),
+    sources: draft.sources
+  };
+  return createHash('sha1').update(JSON.stringify(payload)).digest('hex').slice(0, 16);
+}
+
+function reviewPdfDraft(
+  message: string,
+  draft: PdfDraftSnapshot,
+  pdfQualityTargets: PdfQualityTargets | null
+): PdfDraftReview {
+  const combinedContent = buildPdfDraftCombinedContent(draft);
+  const totalWords = countWords(combinedContent);
+  const sectionCount = draft.sections.length;
+  const blockingIssues: string[] = [];
+  const improvements: string[] = [];
+  const strengths: string[] = [];
+  const formalDocument = Boolean(pdfQualityTargets?.formalDocument || requestNeedsFormalDocument(message));
+  const requireInventedDetails = Boolean(pdfQualityTargets?.requireInventedDetails || requestNeedsFictionalDetails(message));
+
+  if (!draft.title) {
+    blockingIssues.push("ajoute un titre explicite et finalise");
+  } else {
+    strengths.push("titre principal defini");
+  }
+
+  if (sectionCount === 0) {
+    blockingIssues.push("ajoute au moins une section utile");
+  } else {
+    strengths.push(`${sectionCount} bloc(s) present(s)`);
+  }
+
+  if (pdfQualityTargets && sectionCount < pdfQualityTargets.minSections) {
+    blockingIssues.push(`passe de ${sectionCount} a au moins ${pdfQualityTargets.minSections} sections utiles`);
+  }
+
+  if (pdfQualityTargets && totalWords < pdfQualityTargets.minWords) {
+    blockingIssues.push(`developpe le contenu jusqu'a environ ${pdfQualityTargets.minWords} mots (actuel: ${totalWords})`);
+  } else if (totalWords > 0) {
+    strengths.push(`${totalWords} mots de contenu reel`);
+  }
+
+  if (formalDocument) {
+    const formalSignalCount = countFormalDocumentSignals(combinedContent);
+    if (formalSignalCount < 4) {
+      blockingIssues.push("renforce le caractere officiel avec emetteur, beneficiaire/sujet, periode/contexte et validation finale date/lieu/signature");
+    } else {
+      strengths.push("structure de document officiel detectee");
+    }
+  }
+
+  if (requireInventedDetails) {
+    const placeholderCount = countTemplatePlaceholders(combinedContent);
+    if (placeholderCount > 0) {
+      blockingIssues.push("remplace tous les placeholders par des details fictifs credibles");
+    } else {
+      strengths.push("aucun placeholder restant");
+    }
+  }
+
+  if (!formalDocument && (requestNeedsLongFormPdf(message) || requestNeedsDeepResearch(message)) && !draft.summary) {
+    blockingIssues.push("ajoute un resume executif clair avant le corps du PDF");
+  } else if (!formalDocument && draft.summary) {
+    strengths.push("resume executif present");
+  }
+
+  if (!formalDocument && (requestIsCurrentAffairs(message) || requestNeedsDeepResearch(message) || requestNeedsStrictFactualSearch(message)) && draft.sources.length === 0) {
+    blockingIssues.push("ajoute au moins une source explicite pour soutenir le PDF");
+  } else if (draft.sources.length > 0) {
+    strengths.push(`${draft.sources.length} source(s) mentionnee(s)`);
+  }
+
+  const sectionWordCounts = draft.sections.map(section => countWords([section.heading || '', section.body].join(' ')));
+  const largestSectionWords = sectionWordCounts.length > 0 ? Math.max(...sectionWordCounts) : 0;
+  if (totalWords >= 300 && sectionCount > 1 && largestSectionWords / Math.max(totalWords, 1) > 0.72) {
+    blockingIssues.push("reequilibre le document: un seul bloc porte encore presque tout le contenu");
+  }
+
+  const largeUntitledSections = draft.sections.filter(section => !section.heading && countWords(section.body) >= (formalDocument ? 32 : 80)).length;
+  if (largeUntitledSections > 0) {
+    improvements.push("ajoute des intertitres aux blocs encore trop massifs");
+  }
+
+  if (formalDocument && !draft.author) {
+    improvements.push("precise un signataire ou une mention de signature si c'est coherent");
+  }
+
+  let score = 100;
+  score -= Math.min(72, blockingIssues.length * 18);
+  score -= Math.min(20, improvements.length * 5);
+  score = Math.max(0, Math.min(100, score));
+
+  const ready = blockingIssues.length === 0;
+  const messageParts = ready
+    ? [
+        `Review PDF prete (${score}/100).`,
+        strengths.length > 0 ? `Points forts: ${strengths.join(', ')}.` : '',
+        improvements.length > 0 ? `Derniers plus possibles: ${improvements.join(', ')}.` : ''
+      ]
+    : [
+        `Review PDF non prete (${score}/100).`,
+        `Bloquants: ${blockingIssues.join('; ')}.`,
+        improvements.length > 0 ? `Ameliorations secondaires: ${improvements.join(', ')}.` : ''
+      ];
+
+  return {
+    success: true,
+    ready,
+    score,
+    signature: buildPdfDraftSignature(draft),
+    totalWords,
+    sectionCount,
+    blockingIssues,
+    improvements,
+    strengths,
+    message: messageParts.filter(Boolean).join(' ')
+  };
+}
+
 function countWords(value: string): number {
   const trimmed = value.trim();
   if (!trimmed) return 0;
@@ -933,10 +1150,15 @@ function buildArtifactCompletionPrompt(
   }
 
   const needsPdfArtifact = requestNeedsPdfArtifact(originalMessage);
+  const requiresPdfSelfReview = requestNeedsPdfSelfReview(originalMessage);
   const nextStep = createdArtifactPath
     ? `Le fichier semble deja etre cree ici: '${createdArtifactPath}'. Utilise maintenant 'release_file' avec ce chemin, puis reponds uniquement avec le lien Markdown final.`
     : needsPdfArtifact
-      ? "Tu n'as pas encore cree ni livre le document PDF demande. Utilise maintenant 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
+      ? (
+          requiresPdfSelfReview
+            ? "Tu n'as pas encore cree ni livre le document PDF demande. Fais d'abord 'review_pdf_draft' sur ton brouillon, corrige les points bloquants, puis utilise 'create_pdf', ensuite 'release_file', puis reponds uniquement avec le lien Markdown final."
+            : "Tu n'as pas encore cree ni livre le document PDF demande. Utilise maintenant 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
+        )
       : "Tu n'as pas encore livre le fichier demande. Cree-le si necessaire, utilise 'release_file', puis reponds uniquement avec le lien Markdown final.";
 
   return `La tache n'est PAS terminee.
@@ -2860,6 +3082,12 @@ app.post('/api/cowork', async (req, res) => {
       if (toolName === 'web_fetch') {
         return { url: clipText(args?.url || '', 180) };
       }
+      if (toolName === 'review_pdf_draft') {
+        return {
+          title: clipText(args?.title || '', 120),
+          sections: Array.isArray(args?.sections) ? args.sections.length : 0
+        };
+      }
       if (toolName === 'report_progress') {
         return {
           stage: clipText(args?.stage || '', 80),
@@ -2884,6 +3112,13 @@ app.post('/api/cowork', async (req, res) => {
           domain: clipText(output?.domain || '', 40),
           quality: clipText(output?.quality || '', 20),
           searchPage: Boolean(output?.isSearchPage),
+        };
+      }
+      if (toolName === 'review_pdf_draft') {
+        return {
+          ready: Boolean(output?.ready),
+          score: Number(output?.score || 0),
+          signature: clipText(output?.signature || '', 24)
         };
       }
       return formatToolMeta(toolName, args);
@@ -2919,8 +3154,16 @@ app.post('/api/cowork', async (req, res) => {
         const qualityPrefix = output?.quality ? `[${String(output.quality)}${output?.domain ? ` ${output.domain}` : ''}] ` : '';
         return `${qualityPrefix}${clipText(output?.excerpt || output?.content || output?.message || output?.error || '', 220)}`.trim();
       }
+      if (toolName === 'review_pdf_draft') {
+        const blocking = Array.isArray(output?.blockingIssues) ? output.blockingIssues.length : 0;
+        const improvements = Array.isArray(output?.improvements) ? output.improvements.length : 0;
+        const readiness = output?.ready ? 'Pret' : 'A corriger';
+        return `${readiness} | score ${Number(output?.score || 0)}/100 | ${blocking} bloquant(s) | ${improvements} amelioration(s)`;
+      }
       return clipText(output?.message || output?.error || output, 240);
     };
+
+    let latestApprovedPdfReviewSignature: string | null = null;
 
     const localTools = [
       {
@@ -3126,6 +3369,65 @@ app.post('/api/cowork', async (req, res) => {
         }
       }] : []),
       {
+        name: "review_pdf_draft",
+        description: "Relit un brouillon de PDF avant export. A utiliser avant 'create_pdf' pour les PDF exigeants, longs, soignes ou les documents formels. Retourne un score, des points forts et les points bloquants a corriger.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Titre principal du document." },
+            subtitle: { type: "string", description: "Sous-titre ou chapo du document (optionnel)." },
+            summary: { type: "string", description: "Resume executif ou introduction mise en avant (optionnel)." },
+            author: { type: "string", description: "Auteur ou signataire pressenti (optionnel)." },
+            sources: {
+              type: "array",
+              description: "Liste optionnelle de sources ou liens a afficher en fin de document.",
+              items: { type: "string" }
+            },
+            sections: {
+              type: "array",
+              description: "Liste de sections du document. Chaque section a un 'heading' optionnel et un 'body'.",
+              items: {
+                type: "object",
+                properties: {
+                  heading: { type: "string", description: "Titre de la section (optionnel)." },
+                  body: { type: "string", description: "Contenu texte de la section." }
+                }
+              }
+            }
+          },
+          required: ["title", "sections"]
+        },
+        execute: async ({
+          title,
+          subtitle,
+          summary,
+          author,
+          sources,
+          sections
+        }: {
+          title: string;
+          subtitle?: string;
+          summary?: string;
+          author?: string;
+          sources?: string[];
+          sections: PdfSectionInput[];
+        }) => {
+          const draft = buildPdfDraftSnapshot({
+            title,
+            subtitle,
+            summary,
+            author,
+            sources,
+            sections
+          });
+          const review = reviewPdfDraft(message, draft, pdfQualityTargets);
+          if (review.ready) {
+            latestApprovedPdfReviewSignature = review.signature;
+          }
+          return review;
+        }
+      },
+      {
         name: "release_file",
         description: "Upload de façon sécurisée un fichier vers le cloud et génère un lien de téléchargement public (valable 7 jours). À utiliser après avoir créé un fichier (ex: PDF, rapport) que l'utilisateur doit uvoir télécharger.",
         parameters: {
@@ -3148,7 +3450,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_pdf",
-        description: "Crée un fichier PDF directement. Utilise cet outil pour générer des PDFs au lieu d'écrire un script Python. Supporte : titre, sous-titres, paragraphes, listes à puces. Le fichier est créé dans /tmp/.",
+        description: "Crée un fichier PDF directement. Utilise cet outil pour générer des PDFs au lieu d'écrire un script Python. Pour les PDF exigeants ou documents formels, passe d'abord par 'review_pdf_draft'. Le fichier est créé dans /tmp/.",
         parameters: {
           type: "object",
           properties: {
@@ -3200,27 +3502,46 @@ app.post('/api/cowork', async (req, res) => {
           sections: Array<{ heading?: string, body: string }>;
         }) => {
           const outputPath = path.join('/tmp', filename.endsWith('.pdf') ? filename : `${filename}.pdf`);
-          const effectiveSections = (Array.isArray(sections) ? sections : [])
-            .filter(section => Boolean(section?.heading?.trim() || section?.body?.trim()))
-            .map(section => ({
-              heading: section.heading?.trim(),
-              body: section.body?.trim() || ''
-            }));
-          const effectiveSources = (Array.isArray(sources) ? sources : [])
-            .map(source => source.trim())
-            .filter(Boolean);
+          const draft = buildPdfDraftSnapshot({
+            title,
+            subtitle,
+            summary,
+            author,
+            sections,
+            sources
+          });
+          const effectiveSections = draft.sections;
+          const effectiveSources = draft.sources;
           const formalDocumentLayout = Boolean(pdfQualityTargets?.formalDocument || requestNeedsFormalDocument(message));
           const requireInventedDetails = Boolean(pdfQualityTargets?.requireInventedDetails || requestNeedsFictionalDetails(message));
-          const combinedContent = [
-            title,
-            subtitle || '',
-            summary || '',
-            ...effectiveSections.flatMap(section => [section.heading || '', section.body]),
-            ...effectiveSources
-          ].join(' ');
+          const combinedContent = buildPdfDraftCombinedContent(draft);
+          const draftReview = reviewPdfDraft(message, draft, pdfQualityTargets);
+          const reviewRequired = requestNeedsPdfSelfReview(message);
 
           if (effectiveSections.length === 0) {
-            return { success: false, error: "Le PDF doit contenir au moins une section non vide." };
+            return {
+              success: false,
+              recoverable: true,
+              error: "Le PDF doit contenir au moins une section non vide."
+            };
+          }
+
+          if (reviewRequired && latestApprovedPdfReviewSignature !== draftReview.signature) {
+            return {
+              success: false,
+              recoverable: true,
+              reviewRequired: true,
+              signature: draftReview.signature,
+              review: {
+                ready: draftReview.ready,
+                score: draftReview.score,
+                blockingIssues: draftReview.blockingIssues,
+                improvements: draftReview.improvements
+              },
+              error: draftReview.ready
+                ? "Avant l'export PDF final, fais une passe visible avec 'review_pdf_draft' sur ce brouillon exact, puis relance 'create_pdf'."
+                : `Le brouillon n'est pas encore pret pour l'export. Passe par 'review_pdf_draft', corrige les points bloquants (${draftReview.blockingIssues.join('; ')}), puis relance 'create_pdf'.`
+            };
           }
 
           const totalWords = countWords(combinedContent);
@@ -3230,6 +3551,7 @@ app.post('/api/cowork', async (req, res) => {
             if (formalSignalCount < 4) {
               return {
                 success: false,
+                recoverable: true,
                 error: "Document formel trop pauvre ou trop generique. Ajoute des blocs distincts pour l'emetteur, le beneficiaire ou sujet, la periode ou le contexte, puis une validation finale avec date/lieu/signature avant de relancer 'create_pdf'."
               };
             }
@@ -3240,6 +3562,7 @@ app.post('/api/cowork', async (req, res) => {
             if (placeholderCount > 0) {
               return {
                 success: false,
+                recoverable: true,
                 error: "L'utilisateur a demande un document fictif complet, mais le brouillon contient encore des placeholders ([...], <...> ou lignes a remplir). Remplace-les par des details credibles avant de relancer 'create_pdf'."
               };
             }
@@ -3251,6 +3574,7 @@ app.post('/api/cowork', async (req, res) => {
             if (tooFewSections || tooFewWords) {
               return {
                 success: false,
+                recoverable: true,
                 error: `PDF trop court pour la demande. Minimum attendu: ${pdfQualityTargets.minSections} sections utiles et environ ${pdfQualityTargets.minWords} mots. Actuel: ${effectiveSections.length} section(s) et ${totalWords} mots. Elargis le plan, ajoute plus de developpement, de contexte, de synthese et de sources avant de relancer 'create_pdf'.`
               };
             }
@@ -4145,6 +4469,7 @@ app.post('/api/cowork', async (req, res) => {
               const output = await tool.execute(call.args);
               const isError = (output as any).success === false || (output as any).error;
               const transientIssue = isError && isTransientToolIssue(tool.name, (output as any).error || (output as any).message || output);
+              const recoverableIssue = isError && Boolean((output as any).recoverable);
               const searchQuality = tool.name === 'web_search'
                 ? ((output as any).quality as SearchQuality | undefined) || (isError ? 'off_topic' : 'relevant')
                 : null;
@@ -4152,8 +4477,11 @@ app.post('/api/cowork', async (req, res) => {
                 ? ((output as any).quality as ReadableFetchQuality | undefined) || 'serp'
                 : null;
               const hasReliableFetch = tool.name === 'web_fetch' && readableQualityScore(fetchQuality || 'serp') >= 2;
+              const reviewNotReady = tool.name === 'review_pdf_draft' && (output as any).ready === false;
               const warningResult =
-                transientIssue
+                recoverableIssue
+                || transientIssue
+                || reviewNotReady
                 || (tool.name === 'web_search' && searchQuality !== 'relevant')
                 || (tool.name === 'web_fetch' && !hasReliableFetch);
 
@@ -4176,7 +4504,9 @@ app.post('/api/cowork', async (req, res) => {
               }
 
               if (isError) {
-                recordToolFailure(toolScope, transientIssue);
+                if (!recoverableIssue) {
+                  recordToolFailure(toolScope, transientIssue);
+                }
                 if (tool.name === 'web_search') {
                   runMeta.degradedSearches += 1;
                   successfulResearchMeta.degradedSearches += 1;
@@ -4237,7 +4567,7 @@ app.post('/api/cowork', async (req, res) => {
                 iteration: iterations,
                 toolName: tool.name,
                 status: isError
-                  ? (transientIssue ? 'warning' : 'error')
+                  ? ((transientIssue || recoverableIssue) ? 'warning' : 'error')
                   : (warningResult ? 'warning' : 'success'),
                 resultPreview: formatToolResultPreview(tool.name, output),
                 meta: formatToolResultMeta(tool.name, call.args, output),
@@ -4249,6 +4579,24 @@ app.post('/api/cowork', async (req, res) => {
                   title: 'Source degradee',
                   message: `L'outil ${tool.name} a rencontre un incident transitoire sur '${clipText(toolScope.label, 120)}'. Cowork peut tenter une autre piste sans bloquer cette strategie.`,
                   runState: 'running',
+                  runMeta
+                });
+              } else if (isError && recoverableIssue) {
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: tool.name === 'create_pdf' ? 'PDF a retravailler' : 'Correction requise',
+                  message: clipText((output as any).error || (output as any).message || 'Le brouillon doit encore etre ameliore.', 320),
+                  toolName: tool.name,
+                  meta: formatToolResultMeta(tool.name, call.args, output),
+                  runMeta
+                });
+              } else if (reviewNotReady) {
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: 'Self-review negative',
+                  message: clipText((output as any).message || 'Le brouillon PDF doit etre corrige avant export.', 320),
+                  toolName: tool.name,
+                  meta: formatToolResultMeta(tool.name, call.args, output),
                   runMeta
                 });
               } else if (tool.name === 'web_search' && searchQuality && searchQuality !== 'relevant') {

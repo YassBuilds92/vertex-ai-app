@@ -64,6 +64,7 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Timeline recherche honnete : `runMeta` expose maintenant `validatedSearches`, `degradedSearches` et `blockedQueryFamilies`, les `tool_result` degradés passent en warning ambre, et les warnings affichent le provider, la famille bloquee et la raison du pivot.
 
 - [x] Documents formels PDF fiabilises : Cowork reconnait maintenant les demandes type `attestation`, `certificat` ou `lettre` meme sans le mot `pdf`, force une structure minimale en plusieurs blocs, interdit les placeholders quand le document doit etre fictif, et rend ces livrables avec une mise en page plus "document officiel" que "report".
+- [x] Self-review PDF obligatoire : pour les PDF exigeants, Cowork passe maintenant par `review_pdf_draft` avant `create_pdf`, memorise la signature du brouillon valide, refuse l'export tant que la review correspondante n'a pas eu lieu, et traite ces refus comme des corrections iteratives plutot que comme des echecs terminaux.
 
 ## Prochaines Etapes
 1. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet, que la timeline revient apres reload, et que les compteurs tokens/euros montent correctement.

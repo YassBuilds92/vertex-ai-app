@@ -10,7 +10,7 @@ import {
 
 import {
   auth, db, googleProvider, signInWithPopup, onAuthStateChanged,
-  doc, collection, onSnapshot, query, orderBy, setDoc, addDoc, updateDoc, deleteDoc, getDoc,
+  doc, collection, onSnapshot, query, orderBy, setDoc, updateDoc, deleteDoc, getDoc,
   OperationType, handleFirestoreError, User as FirebaseUser, cleanForFirestore
 } from './firebase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -33,12 +33,18 @@ import {
   sanitizeCoworkMessageForStorage,
   saveCoworkSessionSnapshot,
 } from './utils/cowork';
+import {
+  clearSessionSnapshots,
+  hydrateSessionMessages,
+  saveSessionSnapshot,
+} from './utils/sessionSnapshots';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as accès à des outils pour accomplir des tâches complexes. Analyse, propose et exécute.";
+const createClientMessageId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 export default function App() {
   const { 
@@ -178,11 +184,13 @@ export default function App() {
     const q = query(collection(db, 'users', user.uid, 'sessions', activeSessionId, 'messages'), orderBy('createdAt', 'asc'));
     return onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-      const hydratedMessages =
-        activeMode === 'cowork'
-          ? hydrateCoworkMessages(fetchedMessages, user.uid, activeSessionId)
-          : fetchedMessages;
+      let hydratedMessages = fetchedMessages;
+      if (activeMode === 'cowork') {
+        hydratedMessages = hydrateCoworkMessages(hydratedMessages, user.uid, activeSessionId);
+      }
+      hydratedMessages = hydrateSessionMessages(hydratedMessages, user.uid, activeSessionId);
       setCurrentMessages(hydratedMessages);
+      clearSessionSnapshots(user.uid, activeSessionId, fetchedMessages.map(message => message.id));
 
       const liveId = liveCoworkMessageRef.current?.id;
       if (liveId && coworkFlushTargetRef.current?.sessionId === activeSessionId) {
@@ -195,7 +203,10 @@ export default function App() {
       
       // Clean up optimistic messages that have landed in Firestore
       setOptimisticMessages(prev => prev.filter(om => 
-        !hydratedMessages.some(fm => fm.role === om.role && fm.content === om.content && Math.abs(fm.createdAt - om.createdAt) < 5000)
+        !hydratedMessages.some(fm =>
+          fm.id === om.id
+          || (fm.role === om.role && fm.content === om.content && Math.abs(fm.createdAt - om.createdAt) < 5000)
+        )
       ));
       
       setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: hydratedMessages } : s));
@@ -277,6 +288,28 @@ export default function App() {
       });
     } catch (error) {
       console.warn('Session timestamp update failed:', error);
+    }
+  }, [user]);
+
+  const persistSessionMessage = useCallback(async (sessionId: string, message: Message) => {
+    if (!user || !sessionId || sessionId === 'local-new') return false;
+
+    saveSessionSnapshot(user.uid, sessionId, message);
+
+    try {
+      await setDoc(
+        doc(db, 'users', user.uid, 'sessions', sessionId, 'messages', message.id),
+        cleanForFirestore({
+          ...message,
+          sessionId,
+          userId: user.uid,
+        })
+      );
+      clearSessionSnapshots(user.uid, sessionId, [message.id]);
+      return true;
+    } catch (error) {
+      console.warn('Message persistence degraded, keeping local snapshot only:', error);
+      return false;
     }
   }, [user]);
 
@@ -566,12 +599,22 @@ export default function App() {
       let currentSessionId = activeSessionId;
       if (user && (currentSessionId === 'local-new' || !currentSessionId)) {
         const newId = Date.now().toString();
-        await setDoc(doc(db, 'users', user.uid, 'sessions', newId), {
+        const sessionPayload = {
           title: customTitle || textToSend.slice(0, 30) || 'Nouvelle conversation',
           updatedAt: Date.now(),
           mode: activeMode,
           userId: user.uid,
           systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || ''
+        };
+        try {
+          await setDoc(doc(db, 'users', user.uid, 'sessions', newId), sessionPayload);
+        } catch (error) {
+          console.warn('Session creation degraded, continuing with local state:', error);
+        }
+        setSessions(prev => {
+          const nextSession: ChatSession = { id: newId, messages: [], ...sessionPayload };
+          const withoutCurrent = prev.filter(session => session.id !== newId);
+          return [nextSession, ...withoutCurrent];
         });
         setCustomTitle(null);
         currentSessionId = newId;
@@ -627,13 +670,12 @@ export default function App() {
       if (activeMode === 'image') {
         // IMAGE GENERATION FLOW
         if (!overrideMessages) {
-          const userMessage: Omit<Message, 'id'> = { 
+          const userMessage: Message = {
+            id: createClientMessageId('msg'),
             role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction 
           };
-          const tempId = `opt-${Date.now()}`;
-          setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
-          const { refinedInstruction: _, ...payload } = userMessage;
-          await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ ...payload, sessionId: currentSessionId, userId: user.uid }));
+          setOptimisticMessages(prev => [...prev, userMessage]);
+          await persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
 
@@ -660,14 +702,17 @@ export default function App() {
         
         const generatedImageUrl = data.url;
 
-        await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({
+        const modelMessage: Message = {
+          id: createClientMessageId('model'),
           role: 'model',
           content: "Image générée avec succès.",
           attachments: [{ id: Date.now().toString(), type: 'image', url: generatedImageUrl, name: 'Image générée' }],
           createdAt: Date.now(),
-          sessionId: currentSessionId,
-          userId: user.uid
-        }));
+        };
+        const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
+        if (!persistedModel) {
+          setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
+        }
         
         setIsLoading(false);
         return;
@@ -675,18 +720,15 @@ export default function App() {
 
       if (activeMode === 'cowork') {
         if (!overrideMessages) {
-          const userMessage: Omit<Message, 'id'> = {
+          const userMessage: Message = {
+            id: createClientMessageId('msg'),
             role: 'user',
             content: finalPrompt,
             createdAt: Date.now(),
             attachments: cleanAttachments,
           };
-          const tempId = `opt-${Date.now()}`;
-          setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
-          await addDoc(
-            collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'),
-            cleanForFirestore({ ...userMessage, sessionId: currentSessionId, userId: user.uid })
-          );
+          setOptimisticMessages(prev => [...prev, userMessage]);
+          await persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
 
@@ -812,12 +854,12 @@ export default function App() {
       if (activeMode === 'video') {
         // VIDEO GENERATION FLOW
         if (!overrideMessages) {
-          const userMessage: Omit<Message, 'id'> = { 
+          const userMessage: Message = {
+            id: createClientMessageId('msg'),
             role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments 
           };
-          const tempId = `opt-${Date.now()}`;
-          setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
-          await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ ...userMessage, sessionId: currentSessionId, userId: user.uid }));
+          setOptimisticMessages(prev => [...prev, userMessage]);
+          await persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
 
@@ -835,14 +877,17 @@ export default function App() {
         if (!response.ok) throw new Error('Erreur génération vidéo');
         const data = await response.json();
         
-        await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({
+        const modelMessage: Message = {
+          id: createClientMessageId('model'),
           role: 'model',
           content: "Vidéo générée avec succès.",
           attachments: [{ id: Date.now().toString(), type: 'video', url: data.url, name: 'Vidéo générée' }],
           createdAt: Date.now(),
-          sessionId: currentSessionId,
-          userId: user.uid
-        }));
+        };
+        const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
+        if (!persistedModel) {
+          setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
+        }
         
         setIsLoading(false);
         return;
@@ -853,19 +898,16 @@ export default function App() {
       let finalRefinedInstruction = refinedInstruction;
 
       if (!overrideMessages) {
-        const userMessage: Omit<Message, 'id'> = { 
+        const userMessage: Message = {
+          id: createClientMessageId('msg'),
           role: 'user', 
           content: finalPrompt, 
           createdAt: Date.now(), 
           attachments: cleanAttachments,
           refinedInstruction
         };
-        const tempId = `opt-${Date.now()}`;
-        setOptimisticMessages(prev => [...prev, { ...userMessage, id: tempId } as Message]);
-        const { refinedInstruction: _, ...firestorePayload } = userMessage;
-        await addDoc(collection(db, 'users', user.uid, 'sessions', currentSessionId, 'messages'), cleanForFirestore({ 
-          ...firestorePayload, sessionId: currentSessionId, userId: user.uid 
-        }));
+        setOptimisticMessages(prev => [...prev, userMessage]);
+        await persistSessionMessage(currentSessionId, userMessage);
         setPendingAttachments([]);
       } else {
         const lastMsg = overrideMessages[overrideMessages.length - 1];
@@ -916,7 +958,6 @@ export default function App() {
       let buffer = '';
 
       const modelMsgId = Date.now().toString();
-      const modelMsgRef = doc(db, 'users', user.uid, 'sessions', currentSessionId, 'messages', modelMsgId);
 
       setStreamingContent('');
       setStreamingThoughts('');
@@ -946,9 +987,17 @@ export default function App() {
 
       if (thoughts) setExpandedThoughts(prev => ({ ...prev, [modelMsgId]: true }));
 
-      await setDoc(modelMsgRef, cleanForFirestore({
-        role: 'model', content: fullContent, thoughts: thoughts, createdAt: Date.now(), sessionId: currentSessionId, userId: user.uid
-      }));
+      const modelMessage: Message = {
+        id: modelMsgId,
+        role: 'model',
+        content: fullContent,
+        thoughts,
+        createdAt: Date.now(),
+      };
+      const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
+      if (!persistedModel) {
+        setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
+      }
 
     } catch (error: any) {
       if (isCoworkRun && liveCoworkMessageRef.current) {
@@ -1021,6 +1070,7 @@ export default function App() {
       deleteDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId, 'messages', id))
     ));
     clearCoworkSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
+    clearSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
 
     handleSend('', historyToProcess);
   };
@@ -1034,10 +1084,11 @@ export default function App() {
     });
 
     const messagesToDelete = currentMessages.slice(idx + 1).map(m => m.id);
-    await Promise.all(messagesToDelete.map(id => 
+    await Promise.all(messagesToDelete.map(id =>
       deleteDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId, 'messages', id))
     ));
     clearCoworkSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
+    clearSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
 
     const historyToProcess = [...currentMessages.slice(0, idx), { ...targetMsg, content: newText }];
     handleSend('', historyToProcess);

@@ -27,3 +27,4 @@ test_output*.txt
 !CLAUDE.md
 !README.md
 !AI_LEARNINGS.md
+.vercel

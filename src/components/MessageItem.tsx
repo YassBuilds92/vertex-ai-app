@@ -109,6 +109,7 @@ function getActivityIcon(item: ActivityItem) {
     return Wrench;
   }
   if (item.kind === 'warning') return AlertTriangle;
+  if (item.kind === 'reasoning') return BrainCircuit;
   if (item.kind === 'narration') return Bot;
   return Clock3;
 }
@@ -147,8 +148,14 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
     validatedSearches: 0,
     degradedSearches: 0,
     blockedQueryFamilies: 0,
+    validatedSources: 0,
+    blockerCount: 0,
     retryCount: 0,
     queueWaitMs: 0,
+    phase: 'analysis',
+    completionScore: 0,
+    modelCompletionScore: 0,
+    taskComplete: false,
     inputTokens: 0,
     outputTokens: 0,
     thoughtTokens: 0,
@@ -157,6 +164,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
     estimatedCostUsd: 0,
     estimatedCostEur: 0,
   };
+  const visibleItems = items.filter((item) => item.kind !== 'tool_call');
 
   if (items.length === 0 && !live && !msg.runState) return null;
 
@@ -168,17 +176,31 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
             <StateIcon size={13} className={cn(runState === 'running' && 'animate-spin')} />
             {stateMeta.label}
           </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-            <Wrench size={12} />
-            {runMeta.toolCalls} outil{runMeta.toolCalls > 1 ? 's' : ''}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-sky-500/18 bg-sky-500/[0.05] text-[11px] text-sky-200">
+            <BrainCircuit size={12} />
+            {runMeta.phase || 'analysis'}
           </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-500/18 bg-indigo-500/[0.05] text-[11px] text-indigo-100">
             <Sparkles size={12} />
-            {formatCompactNumber(runMeta.totalTokens)} tokens
+            {runMeta.completionScore || 0}% complet
           </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-            <AlertCircle size={12} />
-            {formatEuroEstimate(runMeta.estimatedCostEur)}
+          <div className={cn(
+            'inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px]',
+            runMeta.taskComplete
+              ? 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200'
+              : 'border-white/8 bg-white/[0.03] text-[var(--app-text-muted)]'
+          )}>
+            <CheckCircle2 size={12} />
+            {runMeta.taskComplete ? 'Pret a livrer' : 'En verification'}
+          </div>
+          <div className={cn(
+            'inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px]',
+            runMeta.blockerCount > 0
+              ? 'border-amber-500/20 bg-amber-500/[0.06] text-amber-200'
+              : 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200'
+          )}>
+            <AlertTriangle size={12} />
+            {runMeta.blockerCount || 0} blocage{runMeta.blockerCount > 1 ? 's' : ''}
           </div>
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
             <Search size={12} />
@@ -203,8 +225,8 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
             {runMeta.webFetches} source{runMeta.webFetches > 1 ? 's' : ''}
           </div>
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-            <Clock3 size={12} />
-            iteration {runMeta.iterations || 0}
+            <Globe size={12} />
+            {runMeta.validatedSources || 0} source{runMeta.validatedSources > 1 ? 's' : ''} validee{runMeta.validatedSources > 1 ? 's' : ''}
           </div>
           {runMeta.retryCount > 0 && (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-[11px] text-amber-200">
@@ -215,7 +237,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
         </div>
 
         <div className="p-4 md:p-5 flex flex-col gap-3">
-          {(runMeta.totalTokens > 0 || runMeta.queueWaitMs > 0) && (
+          {(runMeta.totalTokens > 0 || runMeta.queueWaitMs > 0 || runMeta.toolCalls > 0) && (
             <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-3 text-[12px] text-[var(--app-text-muted)]">
               <span className="text-[var(--app-text)]/88">
                 Input {formatCompactNumber(runMeta.inputTokens)} • Output {formatCompactNumber(runMeta.outputTokens)}
@@ -230,35 +252,35 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
               )}
             </div>
           )}
-          {items.length === 0 ? (
+          {visibleItems.length === 0 ? (
             <div className="rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3 text-sm text-[var(--app-text-muted)] italic">
               Initialisation de l'activite Cowork...
             </div>
           ) : (
-            items.map((item, index) => {
+            visibleItems.map((item, index) => {
               const Icon = getActivityIcon(item);
               const tone =
                 item.kind === 'warning'
                   ? 'border-amber-500/25 bg-amber-500/[0.08]'
+                  : item.kind === 'reasoning'
+                    ? 'border-sky-500/22 bg-sky-500/[0.06]'
                   : item.kind === 'tool_result' && item.status === 'warning'
                     ? 'border-amber-500/22 bg-amber-500/[0.07]'
                   : item.kind === 'tool_result' && item.status === 'success'
                     ? 'border-emerald-500/20 bg-emerald-500/[0.06]'
                     : item.kind === 'tool_result' && item.status === 'error'
                       ? 'border-rose-500/20 bg-rose-500/[0.08]'
-                      : item.kind === 'tool_call'
-                        ? 'border-sky-500/18 bg-sky-500/[0.05]'
-                        : item.kind === 'narration'
+                      : item.kind === 'narration'
                           ? 'border-indigo-500/20 bg-indigo-500/[0.05]'
                           : 'border-white/8 bg-white/[0.03]';
 
               return (
                 <div key={item.id} className="relative pl-10">
-                  {index < items.length - 1 && (
+                  {index < visibleItems.length - 1 && (
                     <div className="absolute left-[15px] top-6 bottom-[-18px] w-px bg-gradient-to-b from-indigo-500/30 to-transparent" />
                   )}
                   <div className="absolute left-0 top-2 w-8 h-8 rounded-2xl border border-white/8 bg-black/30 flex items-center justify-center text-[var(--app-text-muted)]">
-                    <Icon size={14} className={cn(item.kind === 'tool_call' && 'text-sky-300', item.kind === 'warning' && 'text-amber-300', item.kind === 'tool_result' && item.status === 'warning' && 'text-amber-300')} />
+                    <Icon size={14} className={cn(item.kind === 'reasoning' && 'text-sky-300', item.kind === 'warning' && 'text-amber-300', item.kind === 'tool_result' && item.status === 'warning' && 'text-amber-300')} />
                   </div>
                   <div className={cn('rounded-2xl border px-4 py-3.5 shadow-sm', tone)}>
                     <div className="flex items-start justify-between gap-3">
@@ -271,9 +293,6 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                             {item.message}
                           </p>
                         )}
-                      </div>
-                      <div className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
-                        #{item.iteration}
                       </div>
                     </div>
 

@@ -79,8 +79,17 @@ service cloud.firestore {
           'toolCalls',
           'webSearches',
           'webFetches',
+          'validatedSearches',
+          'degradedSearches',
+          'blockedQueryFamilies',
+          'validatedSources',
+          'blockerCount',
           'retryCount',
           'queueWaitMs',
+          'phase',
+          'completionScore',
+          'modelCompletionScore',
+          'taskComplete',
           'inputTokens',
           'outputTokens',
           'thoughtTokens',
@@ -94,8 +103,17 @@ service cloud.firestore {
         (!('toolCalls' in data.runMeta) || data.runMeta.toolCalls is number) &&
         (!('webSearches' in data.runMeta) || data.runMeta.webSearches is number) &&
         (!('webFetches' in data.runMeta) || data.runMeta.webFetches is number) &&
+        (!('validatedSearches' in data.runMeta) || data.runMeta.validatedSearches is number) &&
+        (!('degradedSearches' in data.runMeta) || data.runMeta.degradedSearches is number) &&
+        (!('blockedQueryFamilies' in data.runMeta) || data.runMeta.blockedQueryFamilies is number) &&
+        (!('validatedSources' in data.runMeta) || data.runMeta.validatedSources is number) &&
+        (!('blockerCount' in data.runMeta) || data.runMeta.blockerCount is number) &&
         (!('retryCount' in data.runMeta) || data.runMeta.retryCount is number) &&
         (!('queueWaitMs' in data.runMeta) || data.runMeta.queueWaitMs is number) &&
+        (!('phase' in data.runMeta) || data.runMeta.phase is string) &&
+        (!('completionScore' in data.runMeta) || data.runMeta.completionScore is number) &&
+        (!('modelCompletionScore' in data.runMeta) || data.runMeta.modelCompletionScore is number) &&
+        (!('taskComplete' in data.runMeta) || data.runMeta.taskComplete is bool) &&
         (!('inputTokens' in data.runMeta) || data.runMeta.inputTokens is number) &&
         (!('outputTokens' in data.runMeta) || data.runMeta.outputTokens is number) &&
         (!('thoughtTokens' in data.runMeta) || data.runMeta.thoughtTokens is number) &&

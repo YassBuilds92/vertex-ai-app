@@ -289,8 +289,14 @@ type CoworkRunMeta = {
   validatedSearches: number;
   degradedSearches: number;
   blockedQueryFamilies: number;
+  validatedSources: number;
+  blockerCount: number;
   retryCount: number;
   queueWaitMs: number;
+  phase: string;
+  completionScore: number;
+  modelCompletionScore: number;
+  taskComplete: boolean;
   inputTokens: number;
   outputTokens: number;
   thoughtTokens: number;
@@ -313,6 +319,8 @@ type RetryKind = 'quota' | 'concurrency' | 'server';
 type RetryOptions = {
   maxRetries?: number;
   baseDelayMs?: number;
+  exactDelaysMs?: number[];
+  jitter?: boolean;
   onRetry?: (context: {
     attempt: number;
     maxRetries: number;
@@ -339,8 +347,14 @@ function createEmptyCoworkRunMeta(): CoworkRunMeta {
     validatedSearches: 0,
     degradedSearches: 0,
     blockedQueryFamilies: 0,
+    validatedSources: 0,
+    blockerCount: 0,
     retryCount: 0,
     queueWaitMs: 0,
+    phase: 'analysis',
+    completionScore: 0,
+    modelCompletionScore: 0,
+    taskComplete: false,
     inputTokens: 0,
     outputTokens: 0,
     thoughtTokens: 0,
@@ -349,6 +363,60 @@ function createEmptyCoworkRunMeta(): CoworkRunMeta {
     estimatedCostUsd: 0,
     estimatedCostEur: 0
   };
+}
+
+function clampPercentage(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeCoworkPhase(value?: string | null): CoworkPhase {
+  const normalized = normalizeCoworkText(value || '');
+  if (normalized.includes('research') || normalized.includes('recherche')) return 'research';
+  if (normalized.includes('verif')) return 'verification';
+  if (normalized.includes('prod') || normalized.includes('redaction') || normalized.includes('draft')) return 'production';
+  if (normalized.includes('livr') || normalized.includes('deliv')) return 'delivery';
+  if (normalized.includes('complete') || normalized.includes('termine')) return 'completed';
+  return 'analysis';
+}
+
+function createEmptyCoworkSessionState(): CoworkSessionState {
+  return {
+    factsCollected: [],
+    sourcesValidated: [],
+    searchesFailed: [],
+    toolsBlocked: [],
+    phase: 'analysis',
+    modelCompletionScore: 0,
+    completionScore: 0,
+    modelTaskComplete: false,
+    effectiveTaskComplete: false,
+    blockers: [],
+    consecutiveDegradedSearches: {},
+    cooldowns: {},
+    lastReasoning: null,
+    reasoningReady: false,
+    pendingFinalAnswer: false,
+  };
+}
+
+function getCooldownDelayMs(attempts: number): number {
+  const ladder = [2000, 4000, 8000, 16000];
+  return ladder[Math.max(0, Math.min(ladder.length - 1, attempts - 1))];
+}
+
+function dedupeStrings(values: string[], max = 8): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const trimmed = clipText(value, 220)?.trim();
+    if (!trimmed) continue;
+    const key = normalizeCoworkText(trimmed);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+    if (result.length >= max) break;
+  }
+  return result;
 }
 
 function roundMetric(value: number, digits = 6): number {
@@ -607,7 +675,7 @@ Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une 
 - Node.js UNIQUEMENT : cet environnement ne dispose QUE de Node.js. Python n'est PAS installe et ne sera jamais disponible.
 - Ta sortie finale doit rester propre. Pour parler de ce que tu fais pendant l'execution, utilise l'outil 'report_progress' au lieu de polluer la reponse finale.
 - Outils locaux toujours disponibles :
-  - 'report_progress' : annonce ce que tu fais, ce que tu as appris, ou ce que tu vas faire ensuite.
+  - 'report_progress' : ETAPE OBLIGATOIRE avant tout outil actionnable. Tu dois y fournir exactement: 'what_i_know', 'what_i_need', 'why_this_tool', 'expected_result', 'fallback_plan', puis 'completion.score', 'completion.taskComplete' et 'completion.phase'.
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
   - 'review_pdf_draft' : critique un brouillon PDF avant export et dit s'il est pret
   - 'create_pdf' : a utiliser pour tout besoin de PDF
@@ -615,11 +683,13 @@ Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une 
 ${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables
 - 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
 ### COMPORTEMENT ATTENDU :
-1. Commence les taches non triviales par 'report_progress' pour annoncer ton plan immediat et decomposer la demande en sous-problemes verifiables.
+1. Commence chaque tour utile par 'report_progress'. Le backend refuse les tours sans raisonnement structure quand une action reste necessaire.
 2. Si l'utilisateur te demande de te documenter, de verifier, de prendre ton temps, ou de produire un contenu creatif base sur un terme, un contexte culturel ou de l'argot, tu dois suivre: plan -> recherche -> verification -> production.
-3. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, une actualite, un briefing ou des recommandations, tu dois effectuer plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n4. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' sur une source pertinente avant la synthese finale.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' echoue ou est bloque, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
-5. Quand tu pivotes, bloques, ou changes de strategie, annonce-le via 'report_progress'.
-6. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.
+3. Tu n'as droit qu'a UN SEUL outil actionnable par tour modele. Si tu dois agir, fais d'abord 'report_progress', puis choisis un seul outil parmi 'web_search', 'web_fetch', 'music_catalog_lookup', 'review_pdf_draft', 'create_pdf', 'release_file', etc.
+4. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, une actualite, un briefing ou des recommandations, tu dois effectuer plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n5. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' de qualite 'full' sur une source pertinente avant la synthese finale.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' echoue ou reste faible, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
+6. Quand tu pivotes, bloques, ou changes de strategie, annonce-le via 'report_progress'.
+7. Dans 'completion.score', indique ton estimation de completude en pourcentage. Mets 'completion.taskComplete' a true uniquement si tu penses pouvoir livrer MAINTENANT sans autre outil.
+8. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.
 
 ### REPERES TEMPORELS :
 ${requestClock
@@ -666,6 +736,15 @@ export const __coworkPdfInternals = {
   reviewPdfDraft,
   countTemplatePlaceholders,
   countFormalDocumentSignals
+};
+
+export const __coworkLoopInternals = {
+  createEmptyCoworkSessionState,
+  computeCompletionState,
+  buildBlockerPrompt,
+  getDirectSourceFallbacks,
+  getCooldownDelayMs,
+  normalizeCoworkPhase,
 };
 
 function normalizeCoworkText(value?: string): string {
@@ -1307,6 +1386,206 @@ Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
 Utilise aussi 'report_progress' pour annoncer ce que tu verifies, puis seulement ensuite redige la synthese finale.`;
 }
 
+function detectDirectSourceCategory(message: string): DirectSourceCategory {
+  const normalized = normalizeCoworkText(message);
+  if (/\b(sport|match|football|foot|ligue|ligue 1|champions league|nba|nfl|tennis|rugby|mercato)\b/.test(normalized)) {
+    return 'sport';
+  }
+  if (/\b(economie|economique|marche|marches|bourse|finance|financier|business|inflation|taux|petrole|entreprise)\b/.test(normalized)) {
+    return 'economy';
+  }
+  if (/\b(api|sdk|documentation|docs?|version|release|modele|model|vertex|gemini|google ai|developpeur|developer|tech|technologie)\b/.test(normalized)) {
+    return 'tech_docs';
+  }
+  if (/\b(france|francais|francaise|paris|elysee|assemblee|matignon|municipales)\b/.test(normalized)) {
+    return 'fr_news';
+  }
+  if (/\b(monde|international|iran|ukraine|israel|liban|g7|onu|europe|usa|etats unis)\b/.test(normalized)) {
+    return 'intl_news';
+  }
+  return requestIsCurrentAffairs(message) ? 'fr_news' : 'general';
+}
+
+function getDirectSourceFallbacks(message: string): string[] {
+  const category = detectDirectSourceCategory(message);
+  return DIRECT_SOURCE_FALLBACKS[category] || DIRECT_SOURCE_FALLBACKS.general;
+}
+
+function parseReasoningPayload(args: any): CoworkReasoning | null {
+  if (!args || typeof args !== 'object') return null;
+  const completion = args.completion;
+  if (!completion || typeof completion !== 'object') return null;
+  const requiredFields = [
+    'what_i_know',
+    'what_i_need',
+    'why_this_tool',
+    'expected_result',
+    'fallback_plan'
+  ];
+  const hasAll = requiredFields.every((field) => typeof args[field] === 'string' && args[field].trim().length > 0);
+  if (!hasAll) return null;
+  if (typeof completion.score !== 'number' || typeof completion.taskComplete !== 'boolean') return null;
+  return {
+    what_i_know: clipText(args.what_i_know, 500),
+    what_i_need: clipText(args.what_i_need, 500),
+    why_this_tool: clipText(args.why_this_tool, 500),
+    expected_result: clipText(args.expected_result, 500),
+    fallback_plan: clipText(args.fallback_plan, 500),
+    completion: {
+      score: clampPercentage(Number(completion.score || 0)),
+      taskComplete: Boolean(completion.taskComplete),
+      phase: normalizeCoworkPhase(String(completion.phase || 'analysis'))
+    }
+  };
+}
+
+function summarizeReasoning(reasoning: CoworkReasoning): string {
+  return [
+    `Je sais: ${reasoning.what_i_know}`,
+    `Il manque: ${reasoning.what_i_need}`,
+    `Pourquoi cet outil: ${reasoning.why_this_tool}`,
+    `Attendu: ${reasoning.expected_result}`,
+    `Plan B: ${reasoning.fallback_plan}`
+  ].join('\n');
+}
+
+function computeCompletionState(options: CompletionComputationOptions): CoworkSessionState {
+  const {
+    originalMessage,
+    state,
+    research,
+    latestCreatedArtifactPath,
+    latestReleasedFile,
+    latestApprovedPdfReviewSignature
+  } = options;
+
+  const nextState: CoworkSessionState = {
+    ...state,
+    factsCollected: [...state.factsCollected],
+    sourcesValidated: [...state.sourcesValidated],
+    searchesFailed: [...state.searchesFailed],
+    toolsBlocked: [...state.toolsBlocked],
+    blockers: [],
+  };
+
+  const blockers: CoworkBlocker[] = [];
+  const targets = getResearchTargets(originalMessage);
+  const fallbackUrls = getDirectSourceFallbacks(originalMessage);
+  const explicitSearchCount = extractRequestedSearchCount(originalMessage);
+  const hasValidatedSource = nextState.sourcesValidated.length > 0;
+  const enoughResearchViaSearches =
+    research.webSearches >= targets.webSearches && research.webFetches >= targets.webFetches;
+  const enoughResearchViaDirectSources =
+    !explicitSearchCount && research.webSearches === 0 && research.webFetches >= Math.max(2, targets.webFetches);
+
+  if (!nextState.lastReasoning) {
+    blockers.push({
+      code: 'missing_reasoning',
+      message: "Commence par 'report_progress' avec le raisonnement structure obligatoire avant d'agir.",
+      hard: true,
+    });
+  }
+
+  if (requestNeedsDeepResearch(originalMessage) && !(enoughResearchViaSearches || enoughResearchViaDirectSources)) {
+    blockers.push({
+      code: 'research_incomplete',
+      message: `La recherche reste insuffisante: ${research.webSearches}/${targets.webSearches} recherche(s) validee(s), ${research.webFetches}/${targets.webFetches} source(s) validante(s).`,
+      hard: true,
+      fallbackUrls,
+    });
+  }
+
+  if (requestNeedsStrictFactualSearch(originalMessage) && !hasValidatedSource) {
+    blockers.push({
+      code: 'strict_source_missing',
+      message: "Au moins une source lue via 'web_fetch' avec qualite 'full' est obligatoire avant de conclure.",
+      hard: true,
+      fallbackUrls,
+    });
+  }
+
+  if (requestNeedsPdfArtifact(originalMessage)) {
+    if (requestNeedsPdfSelfReview(originalMessage) && !latestApprovedPdfReviewSignature) {
+      blockers.push({
+        code: 'pdf_review_required',
+        message: "Le brouillon PDF n'a pas encore ete valide par 'review_pdf_draft'.",
+        hard: true,
+      });
+    }
+    if (!latestCreatedArtifactPath) {
+      blockers.push({
+        code: 'artifact_not_created',
+        message: "Le fichier demande n'a pas encore ete cree.",
+        hard: true,
+      });
+    }
+    if (!latestReleasedFile?.url) {
+      blockers.push({
+        code: 'artifact_not_released',
+        message: "Le fichier existe peut-etre, mais il n'a pas encore ete publie via 'release_file'.",
+        hard: true,
+      });
+    }
+  }
+
+  const baseScore = requestNeedsDeepResearch(originalMessage)
+    ? (
+        Math.min(1, research.webSearches / Math.max(1, targets.webSearches)) * 30
+        + Math.min(1, research.webFetches / Math.max(1, targets.webFetches)) * 30
+        + Math.min(1, nextState.sourcesValidated.length / Math.max(1, requestNeedsStrictFactualSearch(originalMessage) ? 1 : 2)) * 15
+      )
+    : 55;
+  const artifactScore = requestNeedsPdfArtifact(originalMessage)
+    ? (latestApprovedPdfReviewSignature ? 10 : 0) + (latestCreatedArtifactPath ? 7 : 0) + (latestReleasedFile?.url ? 8 : 0)
+    : 15;
+  const blockerPenalty = blockers.reduce((sum, blocker) => sum + (blocker.hard ? 10 : 5), 0);
+  nextState.completionScore = clampPercentage(Math.max(
+    nextState.modelCompletionScore,
+    baseScore + artifactScore - blockerPenalty
+  ));
+  nextState.blockers = blockers;
+  nextState.effectiveTaskComplete = nextState.modelTaskComplete && blockers.length === 0;
+  nextState.pendingFinalAnswer = nextState.effectiveTaskComplete;
+  nextState.phase = nextState.effectiveTaskComplete ? 'completed' : nextState.phase;
+
+  return nextState;
+}
+
+function buildBlockerPrompt(
+  originalMessage: string,
+  requestClock: RequestClock,
+  state: CoworkSessionState
+): string | null {
+  if (state.blockers.length === 0) {
+    if (state.pendingFinalAnswer) {
+      return `La tache est maintenant consideree comme complete par le backend.
+Demande originale: "${originalMessage}"
+Tu as assez d'informations. Reponds maintenant proprement a l'utilisateur, sans appeler d'outil supplementaire.`;
+    }
+    return null;
+  }
+
+  const blockerLines = state.blockers.map((blocker, index) => {
+    const fallback = blocker.fallbackUrls?.length
+      ? ` Sources directes a privilegier: ${blocker.fallbackUrls.slice(0, 3).join(' | ')}.`
+      : '';
+    const wait = blocker.waitMs ? ` Attends encore ${formatWaitDuration(blocker.waitMs)} sur ce scope avant de retenter.` : '';
+    return `${index + 1}. ${blocker.message}${fallback}${wait}`;
+  }).join('\n');
+
+  return `La tache n'est pas encore complete.
+Demande originale: "${originalMessage}"
+Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
+Etat backend: phase=${state.phase}, completion=${state.completionScore}%, modele=${state.modelCompletionScore}%, source(s) validee(s)=${state.sourcesValidated.length}.
+Bloquants a lever:
+${blockerLines}
+
+Consigne obligatoire:
+- Commence par 'report_progress' avec le schema structure complet.
+- Si tu dois agir ensuite, choisis UN SEUL outil actionnable.
+- Si la recherche moteur est bloquee, pivote vers 'web_fetch' sur une source directe au lieu de reformuler la meme requete.`;
+}
+
 function unwrapXmlValue(value: string): string {
   return value.replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '').trim();
 }
@@ -1402,6 +1681,133 @@ type MusicResearchProgress = {
   blockedQueryFamilies: number;
   musicCatalogCompleted?: boolean;
   musicCatalogCoverage?: MusicCatalogCoverage | null;
+};
+
+type CoworkPhase =
+  | 'analysis'
+  | 'research'
+  | 'verification'
+  | 'production'
+  | 'delivery'
+  | 'completed';
+
+type CoworkReasoning = {
+  what_i_know: string;
+  what_i_need: string;
+  why_this_tool: string;
+  expected_result: string;
+  fallback_plan: string;
+  completion: {
+    score: number;
+    taskComplete: boolean;
+    phase: CoworkPhase;
+  };
+};
+
+type CoworkValidatedSource = {
+  url: string;
+  domain: string;
+  kind: 'web_fetch' | 'music_catalog_lookup';
+};
+
+type CoworkSearchFailure = {
+  query: string;
+  family: string;
+  provider?: string;
+  quality?: SearchQuality;
+  transient?: boolean;
+  reason: string;
+};
+
+type CoworkBlockedTool = {
+  toolName: string;
+  scope: string;
+  reason: string;
+  until?: number;
+};
+
+type CoworkBlocker = {
+  code: string;
+  message: string;
+  hard?: boolean;
+  fallbackUrls?: string[];
+  waitMs?: number;
+  scope?: string;
+};
+
+type ToolCooldownState = {
+  attempts: number;
+  until: number;
+  reason: string;
+};
+
+type CoworkSessionState = {
+  factsCollected: string[];
+  sourcesValidated: CoworkValidatedSource[];
+  searchesFailed: CoworkSearchFailure[];
+  toolsBlocked: CoworkBlockedTool[];
+  phase: CoworkPhase;
+  modelCompletionScore: number;
+  completionScore: number;
+  modelTaskComplete: boolean;
+  effectiveTaskComplete: boolean;
+  blockers: CoworkBlocker[];
+  consecutiveDegradedSearches: Record<string, number>;
+  cooldowns: Record<string, ToolCooldownState>;
+  lastReasoning: CoworkReasoning | null;
+  reasoningReady: boolean;
+  pendingFinalAnswer: boolean;
+};
+
+type CompletionComputationOptions = {
+  originalMessage: string;
+  requestClock: RequestClock;
+  state: CoworkSessionState;
+  research: MusicResearchProgress;
+  latestCreatedArtifactPath: string | null;
+  latestReleasedFile: { url: string; path?: string } | null;
+  latestApprovedPdfReviewSignature: string | null;
+};
+
+type DirectSourceCategory =
+  | 'fr_news'
+  | 'intl_news'
+  | 'economy'
+  | 'tech_docs'
+  | 'sport'
+  | 'general';
+
+const DIRECT_SOURCE_FALLBACKS: Record<DirectSourceCategory, string[]> = {
+  fr_news: [
+    'https://www.franceinfo.fr/',
+    'https://www.lemonde.fr/',
+    'https://www.france24.com/fr/'
+  ],
+  intl_news: [
+    'https://www.reuters.com/world/',
+    'https://www.bbc.com/news',
+    'https://www.france24.com/en/'
+  ],
+  economy: [
+    'https://www.reuters.com/business/',
+    'https://www.lesechos.fr/',
+    'https://www.boursorama.com/actualite-economique/'
+  ],
+  tech_docs: [
+    'https://ai.google.dev/gemini-api/docs',
+    'https://cloud.google.com/vertex-ai/generative-ai/docs',
+    'https://developers.googleblog.com/'
+  ],
+  sport: [
+    'https://www.lequipe.fr/',
+    'https://www.bbc.com/sport',
+    'https://www.eurosport.fr/'
+  ],
+  general: [
+    'https://www.franceinfo.fr/',
+    'https://www.reuters.com/',
+    'https://www.bbc.com/news'
+  ]
 };
 
 const MUSIC_PLATFORM_DOMAINS = [
@@ -2762,6 +3168,8 @@ function classifyRetryableError(error: any): { retryable: boolean; kind: RetryKi
 async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const maxRetries = options.maxRetries ?? 3;
   const baseDelayMs = options.baseDelayMs ?? 1000;
+  const exactDelaysMs = options.exactDelaysMs;
+  const useJitter = options.jitter !== false;
   let lastError: any;
 
   for (let i = 0; i <= maxRetries; i++) {
@@ -2773,9 +3181,11 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions =
 
       if (classified.retryable && i < maxRetries) {
         const multiplier = classified.kind === 'concurrency' ? 2.5 : classified.kind === 'server' ? 1.5 : 1;
-        const exponentialDelay = baseDelayMs * multiplier * Math.pow(2, i);
-        const jitter = Math.floor(Math.random() * Math.min(1200, exponentialDelay * 0.35));
-        const delayMs = Math.min(15_000, Math.round(exponentialDelay + jitter));
+        const exponentialDelay = exactDelaysMs?.[i] ?? (baseDelayMs * multiplier * Math.pow(2, i));
+        const jitter = useJitter
+          ? Math.floor(Math.random() * Math.min(1200, exponentialDelay * 0.35))
+          : 0;
+        const delayMs = Math.min(16_000, Math.round(exponentialDelay + jitter));
 
         log.warn(`Transient ${classified.kind} failure. Retrying in ${delayMs}ms... (Attempt ${i + 1}/${maxRetries})`, {
           message: classified.message
@@ -3089,9 +3499,11 @@ app.post('/api/cowork', async (req, res) => {
         };
       }
       if (toolName === 'report_progress') {
+        const completion = args?.completion || {};
         return {
-          stage: clipText(args?.stage || '', 80),
-          nextAction: clipText(args?.nextAction || '', 120)
+          phase: clipText(completion?.phase || '', 40),
+          score: clampPercentage(Number(completion?.score || 0)),
+          taskComplete: Boolean(completion?.taskComplete)
         };
       }
       return undefined;
@@ -3168,21 +3580,48 @@ app.post('/api/cowork', async (req, res) => {
     const localTools = [
       {
         name: "report_progress",
-        description: "Annonce l'etape courante, ce qui a ete compris, ou ce qui va etre fait ensuite. Utilise cet outil pour parler pendant l'execution sans polluer la reponse finale.",
+        description: "Raisonnement structure obligatoire avant tout outil actionnable. Fournit l'etat des connaissances, le manque precise, le pourquoi du prochain outil, le resultat attendu, le plan B, et un score de completude.",
         parameters: {
           type: "object",
           properties: {
-            stage: { type: "string", description: "Nom court de l'etape (ex: Recherche, Analyse, Livraison)." },
-            message: { type: "string", description: "Ce que tu es en train de faire ou ce que tu viens d'apprendre." },
-            nextAction: { type: "string", description: "Prochaine action prevue." }
+            what_i_know: { type: "string", description: "Ce que tu sais deja de maniere concise." },
+            what_i_need: { type: "string", description: "Ce qu'il manque precisement avant de conclure." },
+            why_this_tool: { type: "string", description: "Pourquoi le prochain outil aidera concretement." },
+            expected_result: { type: "string", description: "Ce que tu esperes obtenir de ce prochain outil." },
+            fallback_plan: { type: "string", description: "Que faire si le prochain outil echoue ou revient degrade." },
+            completion: {
+              type: "object",
+              properties: {
+                score: { type: "number", description: "Estimation de completude en pourcentage, de 0 a 100." },
+                taskComplete: { type: "boolean", description: "true uniquement si tu estimes pouvoir livrer sans autre outil." },
+                phase: { type: "string", description: "Une des phases: analysis, research, verification, production, delivery, completed." }
+              },
+              required: ["score", "taskComplete", "phase"]
+            }
           },
-          required: ["message"]
+          required: [
+            "what_i_know",
+            "what_i_need",
+            "why_this_tool",
+            "expected_result",
+            "fallback_plan",
+            "completion"
+          ]
         },
-        execute: ({ stage, message, nextAction }: { stage?: string; message: string; nextAction?: string }) => ({
+        execute: (args: {
+          what_i_know: string;
+          what_i_need: string;
+          why_this_tool: string;
+          expected_result: string;
+          fallback_plan: string;
+          completion: {
+            score: number;
+            taskComplete: boolean;
+            phase: string;
+          };
+        }) => ({
           success: true,
-          stage: stage || 'Progression',
-          message,
-          nextAction: nextAction || null
+          reasoning: parseReasoningPayload(args)
         })
       },
       {
@@ -4144,15 +4583,12 @@ app.post('/api/cowork', async (req, res) => {
 
     let contents = [...history, { role: 'user' as const, parts: [{ text: message }] }];
     let iterations = 0;
-    const MAX_ITERATIONS = Math.max(15, researchTargets.webSearches + researchTargets.webFetches + 6);
+    const FAILSAFE_MAX_ITERATIONS = 50;
     let finalVisibleText = '';
     let latestReleasedFile: { url: string; path?: string } | null = null;
     let latestCreatedArtifactPath: string | null = null;
-    let artifactCompletionNudges = 0;
-    const MAX_ARTIFACT_COMPLETION_NUDGES = 2;
-    let researchCompletionNudges = 0;
-    const MAX_RESEARCH_COMPLETION_NUDGES = 2;
     const runMeta = createEmptyCoworkRunMeta();
+    let sessionState = createEmptyCoworkSessionState();
 
     const toolFailureScopes = new Map<string, number>();
     const MAX_TOOL_FAILURES = 2;
@@ -4167,6 +4603,49 @@ app.post('/api/cowork', async (req, res) => {
     const blockedSearchFamilies = new Set<string>();
     const weakSearchFamilies = new Map<string, number>();
     let lastSearchExactKey: string | null = null;
+
+    const syncRunMeta = () => {
+      runMeta.phase = sessionState.phase;
+      runMeta.completionScore = sessionState.completionScore;
+      runMeta.modelCompletionScore = sessionState.modelCompletionScore;
+      runMeta.taskComplete = sessionState.effectiveTaskComplete;
+      runMeta.blockerCount = sessionState.blockers.length;
+      runMeta.validatedSources = sessionState.sourcesValidated.length;
+      runMeta.blockedQueryFamilies = blockedSearchFamilies.size;
+    };
+
+    const refreshSessionState = () => {
+      sessionState = computeCompletionState({
+        originalMessage: message,
+        requestClock,
+        state: sessionState,
+        research: successfulResearchMeta,
+        latestCreatedArtifactPath,
+        latestReleasedFile,
+        latestApprovedPdfReviewSignature
+      });
+      syncRunMeta();
+    };
+
+    const recordBlockedTool = (toolName: string, scope: string, reason: string, until?: number) => {
+      sessionState.toolsBlocked = [
+        ...sessionState.toolsBlocked.filter(item => !(item.toolName === toolName && item.scope === scope)),
+        { toolName, scope, reason, until }
+      ].slice(-12);
+    };
+
+    const addValidatedSource = (source: CoworkValidatedSource) => {
+      if (sessionState.sourcesValidated.some(item => item.url === source.url)) return;
+      sessionState.sourcesValidated = [...sessionState.sourcesValidated, source].slice(-12);
+    };
+
+    const addFacts = (...values: string[]) => {
+      sessionState.factsCollected = dedupeStrings([...sessionState.factsCollected, ...values], 10);
+    };
+
+    const recordSearchFailure = (failure: CoworkSearchFailure) => {
+      sessionState.searchesFailed = [...sessionState.searchesFailed, failure].slice(-16);
+    };
 
     const getToolFailureScope = (toolName: string, args: any) => {
       if (toolName === 'web_search') {
@@ -4226,8 +4705,10 @@ app.post('/api/cowork', async (req, res) => {
     const recordWeakSearch = (scope: { exactKey: string; familyKey: string }) => {
       const nextWeakCount = (weakSearchFamilies.get(scope.familyKey) || 0) + 1;
       weakSearchFamilies.set(scope.familyKey, nextWeakCount);
+      sessionState.consecutiveDegradedSearches[scope.familyKey] = nextWeakCount;
       if (nextWeakCount >= 2) {
         blockedSearchFamilies.add(scope.familyKey);
+        recordBlockedTool('web_search', scope.familyKey, 'weak_search_family');
       }
       runMeta.blockedQueryFamilies = blockedSearchFamilies.size;
       successfulResearchMeta.blockedQueryFamilies = blockedSearchFamilies.size;
@@ -4237,6 +4718,7 @@ app.post('/api/cowork', async (req, res) => {
     const clearWeakSearch = (scope: { exactKey: string; familyKey: string }) => {
       weakSearchFamilies.delete(scope.familyKey);
       blockedSearchFamilies.delete(scope.familyKey);
+      delete sessionState.consecutiveDegradedSearches[scope.familyKey];
       runMeta.blockedQueryFamilies = blockedSearchFamilies.size;
       successfulResearchMeta.blockedQueryFamilies = blockedSearchFamilies.size;
     };
@@ -4246,6 +4728,34 @@ app.post('/api/cowork', async (req, res) => {
       const normalized = normalizeCoworkText(parseApiError(errorLike));
       return /\b(403|429|quota|simultan|concurrent|temporar|indisponible|unavailable|deadline exceeded|too many requests|saturation)\b/.test(normalized);
     };
+
+    const getActiveCooldown = (scopeKey: string): ToolCooldownState | null => {
+      const cooldown = sessionState.cooldowns[scopeKey];
+      if (!cooldown) return null;
+      if (cooldown.until <= Date.now()) {
+        delete sessionState.cooldowns[scopeKey];
+        return null;
+      }
+      return cooldown;
+    };
+
+    const registerTransientCooldown = (scopeKey: string, reason: string) => {
+      const current = sessionState.cooldowns[scopeKey];
+      const attempts = Math.min(4, (current?.attempts || 0) + 1);
+      const delayMs = getCooldownDelayMs(attempts);
+      sessionState.cooldowns[scopeKey] = {
+        attempts,
+        until: Date.now() + delayMs,
+        reason
+      };
+      return delayMs;
+    };
+
+    const clearTransientCooldown = (scopeKey: string) => {
+      delete sessionState.cooldowns[scopeKey];
+    };
+
+    refreshSessionState();
 
     const gateKey = sessionId ? `session:${sessionId}` : `ip:${req.ip || 'unknown'}`;
     const gate = await acquireCoworkRunGate(gateKey);
@@ -4264,28 +4774,15 @@ app.post('/api/cowork', async (req, res) => {
     emitEvent('status', {
       iteration: 0,
       title: 'Initialisation',
-      message: 'Cowork prepare la tache et attend le premier tour du modele.',
+      message: 'Cowork prepare la tache.',
       runState: 'running',
       runMeta
     });
 
-    while (iterations < MAX_ITERATIONS) {
+    while (iterations < FAILSAFE_MAX_ITERATIONS) {
       iterations++;
       log.info(`Cowork iteration ${iterations} for model ${modelId}`);
       runMeta.iterations = Math.max(runMeta.iterations, iterations);
-      emitEvent('status', {
-        iteration: iterations,
-        title: `Iteration ${iterations}`,
-        message: iterations === 1
-          ? (
-              requestNeedsDeepResearch(message)
-                ? "Analyse initiale, decomposition de la demande et plan de verification."
-                : "Analyse initiale de la demande."
-            )
-          : "Cowork poursuit l'execution.",
-        runState: 'running',
-        runMeta
-      });
 
       const response = await retryWithBackoff(() => ai.models.generateContent({
         model: modelId,
@@ -4293,29 +4790,24 @@ app.post('/api/cowork', async (req, res) => {
         config: genConfig
       }), {
         maxRetries: 3,
-        baseDelayMs: 1200,
-        onRetry: async ({ attempt, maxRetries, delayMs, kind, message: retryMessage }) => {
+        exactDelaysMs: [2000, 4000, 8000],
+        jitter: false,
+        onRetry: async ({ delayMs, kind, message: retryMessage }) => {
           runMeta.retryCount += 1;
-          emitEvent('status', {
+          emitEvent('warning', {
             iteration: iterations,
-            title: 'Retry intelligent',
+            title: 'Attente modele',
             message:
               kind === 'concurrency'
-                ? `Collision ou saturation simultanee detectee. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`
+                ? `Saturation simultanee detectee. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
                 : kind === 'server'
-                  ? `Le modele est temporairement indisponible. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`
-                  : `Quota ou limite temporaire detecte. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`,
-            runState: 'running',
+                  ? `Le modele est temporairement indisponible. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
+                  : `Quota ou limite temporaire detecte. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`,
             runMeta
           });
         }
       });
       accumulateUsageTotals(runMeta, modelId, response);
-      emitEvent('status', {
-        iteration: iterations,
-        runState: 'running',
-        runMeta
-      });
 
       const modelTurn = (response as any)?.candidates?.[0]?.content;
       const turnParts: any[] = modelTurn?.parts
@@ -4360,13 +4852,48 @@ app.post('/api/cowork', async (req, res) => {
       });
 
       if (functionCalls.length > 0) {
+        const reportCalls = functionCalls.filter(call => call.name === 'report_progress');
+        const actionableCalls = functionCalls.filter(call => call.name !== 'report_progress');
+        const reportIndex = functionCalls.findIndex(call => call.name === 'report_progress');
+        const firstActionableIndex = functionCalls.findIndex(call => call.name !== 'report_progress');
+        let turnViolation: string | null = null;
+
+        if (reportCalls.length > 1) {
+          turnViolation = "N'envoie qu'un seul 'report_progress' par tour.";
+        } else if (actionableCalls.length > 1) {
+          turnViolation = "N'appelle qu'un seul outil actionnable par tour.";
+        } else if (actionableCalls.length === 1 && reportCalls.length !== 1) {
+          turnViolation = "Tu dois appeler 'report_progress' juste avant l'outil actionnable.";
+        } else if (reportCalls.length === 1 && actionableCalls.length === 1 && reportIndex > firstActionableIndex) {
+          turnViolation = "'report_progress' doit venir avant l'outil actionnable, jamais apres.";
+        }
+
+        if (turnViolation) {
+          sessionState.lastReasoning = null;
+          sessionState.reasoningReady = false;
+          refreshSessionState();
+          emitEvent('warning', {
+            iteration: iterations,
+            title: 'Tour refuse',
+            message: turnViolation,
+            runMeta
+          });
+          contents.push({
+            role: 'user',
+            parts: [{ text: `${turnViolation}\nReprends proprement avec un seul 'report_progress' structure, puis au besoin un seul outil actionnable.` }]
+          });
+          continue;
+        }
+
         const toolResults: any[] = [];
+        let abortToolTurn = false;
 
         for (const call of functionCalls) {
           const tool = localTools.find(t => t.name === call.name);
           if (tool) {
             if (tool.name === 'report_progress') {
               const output = await tool.execute(call.args);
+              const reasoning = (output as any)?.reasoning as CoworkReasoning | null;
               toolResults.push({
                 functionResponse: {
                   ...(call.id ? { id: call.id } : {}),
@@ -4375,24 +4902,81 @@ app.post('/api/cowork', async (req, res) => {
                 }
               });
               clearToolFailures(getToolFailureScope(tool.name, call.args));
-              emitEvent('narration', {
+              if (!reasoning) {
+                sessionState.lastReasoning = null;
+                sessionState.reasoningReady = false;
+                refreshSessionState();
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: 'Raisonnement invalide',
+                  message: "Le 'report_progress' ne respecte pas le schema obligatoire.",
+                  runMeta
+                });
+                contents.push({
+                  role: 'user',
+                  parts: [{ text: "Le 'report_progress' est invalide. Renvoye-le avec: what_i_know, what_i_need, why_this_tool, expected_result, fallback_plan, completion.score, completion.taskComplete, completion.phase." }]
+                });
+                abortToolTurn = true;
+                break;
+              }
+
+              sessionState.lastReasoning = reasoning;
+              sessionState.reasoningReady = true;
+              sessionState.phase = reasoning.completion.phase;
+              sessionState.modelCompletionScore = reasoning.completion.score;
+              sessionState.modelTaskComplete = reasoning.completion.taskComplete;
+              addFacts(reasoning.what_i_know);
+              refreshSessionState();
+              emitEvent('reasoning', {
                 iteration: iterations,
-                title: clipText(output.stage || 'Progression', 80),
-                message: clipText(
-                  [output.message, output.nextAction ? `Ensuite: ${output.nextAction}` : '']
-                    .filter(Boolean)
-                    .join(' '),
-                  900
-                )
+                title: `Phase ${reasoning.completion.phase}`,
+                message: summarizeReasoning(reasoning),
+                meta: {
+                  phase: reasoning.completion.phase,
+                  completion: `${reasoning.completion.score}%`,
+                  taskComplete: reasoning.completion.taskComplete,
+                  blockers: sessionState.blockers.length
+                },
+                runMeta
               });
               continue;
             }
 
             const toolScope = getToolFailureScope(tool.name, call.args);
+            const activeCooldown = getActiveCooldown(toolScope.familyKey);
+            if (activeCooldown) {
+              const waitMs = Math.max(0, activeCooldown.until - Date.now());
+              recordBlockedTool(tool.name, toolScope.familyKey, 'cooldown_active', activeCooldown.until);
+              refreshSessionState();
+              toolResults.push({
+                functionResponse: {
+                  ...(call.id ? { id: call.id } : {}),
+                  name: tool.name,
+                  response: {
+                    success: false,
+                    transient: true,
+                    error: `Le scope '${toolScope.label}' est temporairement en cooldown.`,
+                    waitMs
+                  }
+                }
+              });
+              emitEvent('warning', {
+                iteration: iterations,
+                title: 'Cooldown actif',
+                message: `Attends encore ${formatWaitDuration(waitMs)} avant de retenter '${clipText(toolScope.label, 120)}'. Pivote sur une autre source ou un autre scope.`,
+                toolName: tool.name,
+                meta: { scope: clipText(toolScope.label, 120), waitMs },
+                runMeta
+              });
+              continue;
+            }
+
             const currentFailureCount = getToolFailureCount(toolScope);
             if (currentFailureCount >= MAX_TOOL_FAILURES) {
               log.warn(`Anti-loop: tool ${tool.name} scope ${toolScope.label} has failed ${currentFailureCount} times, blocking and injecting guidance`);
               const loopMsg = `L'outil '${tool.name}' est actuellement bloque pour '${toolScope.label}' apres ${currentFailureCount} echecs proches. Change d'angle, de requete ou de source au lieu d'insister.`;
+              recordBlockedTool(tool.name, toolScope.familyKey, 'echecs_proches');
+              refreshSessionState();
               toolResults.push({
                 functionResponse: {
                   ...(call.id ? { id: call.id } : {}),
@@ -4414,6 +4998,13 @@ app.post('/api/cowork', async (req, res) => {
             if (tool.name === 'web_search') {
               if (lastSearchExactKey && toolScope.exactKey === lastSearchExactKey) {
                 const loopMsg = `La requete '${toolScope.label}' est identique a la recherche precedente. Change reellement d'angle, ouvre une source directe via 'web_fetch', ou admets que la recherche reste insuffisante.`;
+                recordSearchFailure({
+                  query: toolScope.label,
+                  family: toolScope.familyKey,
+                  quality: 'degraded',
+                  reason: 'duplicate_query'
+                });
+                refreshSessionState();
                 toolResults.push({
                   functionResponse: {
                     ...(call.id ? { id: call.id } : {}),
@@ -4434,6 +5025,8 @@ app.post('/api/cowork', async (req, res) => {
 
               if (blockedSearchFamilies.has(toolScope.familyKey)) {
                 const loopMsg = `La famille de requetes '${toolScope.label}' est bloquee apres plusieurs recherches faibles. Pivote: autre angle, 'web_fetch' direct, outil specialise, ou conclusion honnete d'insuffisance.`;
+                recordBlockedTool(tool.name, toolScope.familyKey, 'weak_search_family');
+                refreshSessionState();
                 toolResults.push({
                   functionResponse: {
                     ...(call.id ? { id: call.id } : {}),
@@ -4476,14 +5069,14 @@ app.post('/api/cowork', async (req, res) => {
               const fetchQuality = tool.name === 'web_fetch'
                 ? ((output as any).quality as ReadableFetchQuality | undefined) || 'serp'
                 : null;
-              const hasReliableFetch = tool.name === 'web_fetch' && readableQualityScore(fetchQuality || 'serp') >= 2;
+              const hasValidatingFetch = tool.name === 'web_fetch' && fetchQuality === 'full';
               const reviewNotReady = tool.name === 'review_pdf_draft' && (output as any).ready === false;
               const warningResult =
                 recoverableIssue
                 || transientIssue
                 || reviewNotReady
                 || (tool.name === 'web_search' && searchQuality !== 'relevant')
-                || (tool.name === 'web_fetch' && !hasReliableFetch);
+                || (tool.name === 'web_fetch' && !hasValidatingFetch);
 
               if (tool.name === 'web_search') {
                 lastSearchExactKey = toolScope.exactKey;
@@ -4507,9 +5100,21 @@ app.post('/api/cowork', async (req, res) => {
                 if (!recoverableIssue) {
                   recordToolFailure(toolScope, transientIssue);
                 }
+                if (transientIssue) {
+                  const delayMs = registerTransientCooldown(toolScope.familyKey, parseApiError((output as any).error || output));
+                  recordBlockedTool(tool.name, toolScope.familyKey, 'cooldown_active', Date.now() + delayMs);
+                }
                 if (tool.name === 'web_search') {
                   runMeta.degradedSearches += 1;
                   successfulResearchMeta.degradedSearches += 1;
+                  recordSearchFailure({
+                    query: String((output as any).query || toolScope.label),
+                    family: toolScope.familyKey,
+                    provider: (output as any).provider,
+                    quality: searchQuality || 'off_topic',
+                    transient: transientIssue,
+                    reason: String((output as any).error || (output as any).message || 'search_failed')
+                  });
                   if (!transientIssue) {
                     const weakCount = recordWeakSearch(toolScope);
                     if (weakCount >= 2) {
@@ -4526,6 +5131,7 @@ app.post('/api/cowork', async (req, res) => {
                 }
               } else {
                 clearToolFailures(toolScope);
+                clearTransientCooldown(toolScope.familyKey);
                 if (tool.name === 'web_search') {
                   if (searchQuality === 'relevant') {
                     successfulResearchMeta.webSearches += 1;
@@ -4534,6 +5140,13 @@ app.post('/api/cowork', async (req, res) => {
                   } else {
                     runMeta.degradedSearches += 1;
                     successfulResearchMeta.degradedSearches += 1;
+                    recordSearchFailure({
+                      query: String((output as any).query || toolScope.label),
+                      family: toolScope.familyKey,
+                      provider: (output as any).provider,
+                      quality: searchQuality || 'degraded',
+                      reason: 'degraded_result'
+                    });
                     const weakCount = recordWeakSearch(toolScope);
                     if (weakCount >= 2) {
                       emitEvent('warning', {
@@ -4547,15 +5160,23 @@ app.post('/api/cowork', async (req, res) => {
                     }
                   }
                 }
-                if (tool.name === 'web_fetch' && hasReliableFetch) {
+                if (tool.name === 'web_fetch' && hasValidatingFetch) {
                   successfulResearchMeta.webFetches += 1;
+                  addValidatedSource({
+                    url: String((output as any).url || (call.args as any)?.url || ''),
+                    domain: String((output as any).domain || ''),
+                    kind: 'web_fetch'
+                  });
+                  addFacts(String((output as any).title || ''), String((output as any).excerpt || ''));
                 }
                 if (tool.name === 'music_catalog_lookup') {
                   successfulResearchMeta.musicCatalogCoverage = (output as any).coverage || null;
                   successfulResearchMeta.musicCatalogCompleted = !(output as any).partial;
+                  addFacts(String((output as any).message || ''));
                 }
               }
 
+              refreshSessionState();
               toolResults.push({
                 functionResponse: {
                   ...(call.id ? { id: call.id } : {}),
@@ -4574,11 +5195,13 @@ app.post('/api/cowork', async (req, res) => {
                 runMeta
               });
               if (isError && transientIssue) {
-                emitEvent('status', {
+                const waitMs = Math.max(0, (sessionState.cooldowns[toolScope.familyKey]?.until || 0) - Date.now());
+                emitEvent('warning', {
                   iteration: iterations,
                   title: 'Source degradee',
-                  message: `L'outil ${tool.name} a rencontre un incident transitoire sur '${clipText(toolScope.label, 120)}'. Cowork peut tenter une autre piste sans bloquer cette strategie.`,
-                  runState: 'running',
+                  message: `L'outil ${tool.name} a rencontre un incident transitoire sur '${clipText(toolScope.label, 120)}'. Cooldown ${formatWaitDuration(waitMs)} avant retentative sur ce scope.`,
+                  toolName: tool.name,
+                  meta: { scope: clipText(toolScope.label, 120), waitMs },
                   runMeta
                 });
               } else if (isError && recoverableIssue) {
@@ -4608,11 +5231,11 @@ app.post('/api/cowork', async (req, res) => {
                   meta: formatToolResultMeta(tool.name, call.args, output),
                   runMeta
                 });
-              } else if (tool.name === 'web_fetch' && !hasReliableFetch) {
+              } else if (tool.name === 'web_fetch' && !hasValidatingFetch) {
                 emitEvent('warning', {
                   iteration: iterations,
-                  title: 'Source partielle',
-                  message: `La lecture de '${clipText((output as any).url || toolScope.label, 120)}' reste trop partielle pour valider proprement la recherche.`,
+                  title: 'Source non validante',
+                  message: `La lecture de '${clipText((output as any).url || toolScope.label, 120)}' est ${fetchQuality || 'partielle'} et ne valide pas encore la recherche.`,
                   toolName: tool.name,
                   meta: formatToolResultMeta(tool.name, call.args, output),
                   runMeta
@@ -4621,9 +5244,19 @@ app.post('/api/cowork', async (req, res) => {
             } catch (err: any) {
               const transientIssue = isTransientToolIssue(tool.name, err);
               const failureCount = recordToolFailure(toolScope, transientIssue);
+              if (transientIssue) {
+                const delayMs = registerTransientCooldown(toolScope.familyKey, parseApiError(err));
+                recordBlockedTool(tool.name, toolScope.familyKey, 'cooldown_active', Date.now() + delayMs);
+              }
               if (tool.name === 'web_search') {
                 runMeta.degradedSearches += 1;
                 successfulResearchMeta.degradedSearches += 1;
+                recordSearchFailure({
+                  query: toolScope.label,
+                  family: toolScope.familyKey,
+                  transient: transientIssue,
+                  reason: parseApiError(err)
+                });
                 if (!transientIssue) {
                   const weakCount = recordWeakSearch(toolScope);
                   if (weakCount >= 2) {
@@ -4638,6 +5271,7 @@ app.post('/api/cowork', async (req, res) => {
                   }
                 }
               }
+              refreshSessionState();
               log.error(`Tool ${tool.name} failed${transientIssue ? ' transiently' : ` (attempt ${failureCount})`}`, err);
               toolResults.push({
                 functionResponse: {
@@ -4655,11 +5289,13 @@ app.post('/api/cowork', async (req, res) => {
                 runMeta
               });
               if (transientIssue) {
-                emitEvent('status', {
+                const waitMs = Math.max(0, (sessionState.cooldowns[toolScope.familyKey]?.until || 0) - Date.now());
+                emitEvent('warning', {
                   iteration: iterations,
-                  title: 'Source degradee',
-                  message: `L'outil ${tool.name} a rencontre un incident transitoire sur '${clipText(toolScope.label, 120)}'. Cowork peut poursuivre avec une autre source.`,
-                  runState: 'running',
+                  title: 'Cooldown active',
+                  message: `L'outil ${tool.name} a rencontre un incident transitoire sur '${clipText(toolScope.label, 120)}'. Cooldown ${formatWaitDuration(waitMs)} avant retentative sur ce scope.`,
+                  toolName: tool.name,
+                  meta: { scope: clipText(toolScope.label, 120), waitMs },
                   runMeta
                 });
               }
@@ -4682,123 +5318,81 @@ app.post('/api/cowork', async (req, res) => {
           }
         }
 
+        if (abortToolTurn) {
+          continue;
+        }
+
         if (toolResults.length > 0) {
           contents.push({ role: 'user', parts: toolResults });
-          // If we are at the last iteration and tools were called, we give one MORE turn 
-          // to let the model summarize the results, otherwise it stops abruptly.
-          if (iterations >= MAX_ITERATIONS) {
-            log.warn("MAX_ITERATIONS reached but tools were called. Allowing one final summary turn.");
-            emitEvent('warning', {
-              iteration: iterations,
-              title: 'Limite d iterations',
-              message: "Cowork atteint sa limite d'iterations et force un dernier tour de synthese.",
-              runMeta
-            });
-            const finalResponse = await retryWithBackoff(() => ai.models.generateContent({
-              model: modelId,
-              contents,
-              config: { ...genConfig, tools: [] }
-            }), {
-              maxRetries: 3,
-              baseDelayMs: 1200,
-              onRetry: async ({ attempt, maxRetries, delayMs, kind, message: retryMessage }) => {
-                runMeta.retryCount += 1;
-                emitEvent('status', {
-                  iteration: iterations,
-                  title: 'Retry intelligent',
-                  message:
-                    kind === 'concurrency'
-                      ? `Dernier tour retarde par une saturation simultanee. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`
-                      : kind === 'server'
-                        ? `Dernier tour retarde par une indisponibilite temporaire. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`
-                        : `Dernier tour retarde par un quota temporaire. Nouvelle tentative dans ${formatWaitDuration(delayMs)} (${attempt}/${maxRetries}). ${retryMessage}`,
-                  runState: 'running',
-                  runMeta
-                });
-              }
-            });
-            accumulateUsageTotals(runMeta, modelId, finalResponse);
-            emitEvent('status', {
-              iteration: iterations,
-              runState: 'running',
-              runMeta
-            });
-            const summaryText = finalResponse.text || "Tache terminee (limite d'iterations atteinte).";
-            finalVisibleText += summaryText;
-            emitEvent('text_delta', { iteration: iterations, text: summaryText, runMeta });
-            break;
+          refreshSessionState();
+          const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
+          if (blockerPrompt) {
+            if (sessionState.blockers.length > 0) {
+              emitEvent('warning', {
+                iteration: iterations,
+                title: 'Blocage restant',
+                message: sessionState.blockers[0]?.message || 'Un blocage doit encore etre leve avant la livraison finale.',
+                meta: {
+                  blockers: sessionState.blockers.length,
+                  completion: sessionState.completionScore
+                },
+                runMeta
+              });
+            }
+            contents.push({ role: 'user', parts: [{ text: blockerPrompt }] });
           }
-          continue; // Next iteration with tool results
+          continue;
         }
       }
 
-      const researchCompletionPrompt =
-        webSearchEnabled && !latestReleasedFile?.url && researchCompletionNudges < MAX_RESEARCH_COMPLETION_NUDGES
-          ? buildResearchCompletionPrompt(message, successfulResearchMeta, requestClock)
-          : null;
-      if (researchCompletionPrompt) {
-        researchCompletionNudges++;
-        log.warn(`Cowork research follow-up ${researchCompletionNudges}: more visible research required.`);
-        emitEvent('warning', {
-          iteration: iterations,
-          title: 'Recherche insuffisante',
-          message: "Cowork doit encore effectuer des recherches visibles avant de conclure.",
-          runMeta
-        });
-        contents.push({
-          role: 'user',
-          parts: [{ text: researchCompletionPrompt }]
-        });
-        continue;
+      refreshSessionState();
+
+      if (!iterationVisibleText.trim()) {
+        const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
+        if (blockerPrompt) {
+          contents.push({ role: 'user', parts: [{ text: blockerPrompt }] });
+          continue;
+        }
       }
 
-      const strictResearchFailureMessage =
-        webSearchEnabled && !latestReleasedFile?.url && researchCompletionNudges >= MAX_RESEARCH_COMPLETION_NUDGES
-          ? buildStrictResearchFailureMessage(message, successfulResearchMeta, requestClock)
-          : null;
-      if (strictResearchFailureMessage) {
-        emitEvent('warning', {
-          iteration: iterations,
-          title: 'Recherche insuffisante',
-          message: "Cowork s'arrete proprement: les recherches valides restent insuffisantes pour conclure.",
-          meta: {
-            validated: successfulResearchMeta.webSearches,
-            degraded: successfulResearchMeta.degradedSearches,
-            blockedFamilies: successfulResearchMeta.blockedQueryFamilies,
-          },
-          runMeta
-        });
-        finalVisibleText += strictResearchFailureMessage;
-        emitEvent('text_delta', { iteration: iterations, text: strictResearchFailureMessage, runMeta });
+      if (iterationVisibleText.trim()) {
+        if (!sessionState.effectiveTaskComplete) {
+          const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
+          emitEvent('warning', {
+            iteration: iterations,
+            title: 'Finalisation refusee',
+            message: sessionState.blockers[0]?.message || "La tache n'est pas encore complete.",
+            runMeta
+          });
+          contents.push({
+            role: 'user',
+            parts: [{ text: blockerPrompt || "La tache n'est pas encore complete. Reprends avec un 'report_progress' structure." }]
+          });
+          continue;
+        }
+
+        finalVisibleText += iterationVisibleText;
+        sessionState.pendingFinalAnswer = false;
+        sessionState.phase = 'completed';
+        refreshSessionState();
+        emitEvent('text_delta', { iteration: iterations, text: iterationVisibleText, runMeta });
         break;
       }
+    }
 
-      const artifactCompletionPrompt = buildArtifactCompletionPrompt(
-        message,
-        latestCreatedArtifactPath,
-        latestReleasedFile
-      );
-      if (artifactCompletionPrompt && artifactCompletionNudges < MAX_ARTIFACT_COMPLETION_NUDGES) {
-        artifactCompletionNudges++;
-        log.warn(`Cowork artifact follow-up ${artifactCompletionNudges}: file requested but not yet delivered.`);
-        emitEvent('warning', {
-          iteration: iterations,
-          title: 'Livraison incomplete',
-          message: "Le fichier demande n'a pas encore ete livre. Relance guidee de l'agent...",
-          runMeta
-        });
-        contents.push({
-          role: 'user',
-          parts: [{ text: artifactCompletionPrompt }]
-        });
-        continue;
-      }
-
-      if (iterationVisibleText) {
-        finalVisibleText += iterationVisibleText;
-        emitEvent('text_delta', { iteration: iterations, text: iterationVisibleText, runMeta });
-      }
-      break;
+    if (!finalVisibleText.trim() && iterations >= FAILSAFE_MAX_ITERATIONS) {
+      refreshSessionState();
+      const blockerSummary = sessionState.blockers.map((blocker) => blocker.message).join(' ');
+      finalVisibleText = blockerSummary
+        ? `Je m'arrete proprement: Cowork a atteint son garde-fou de ${FAILSAFE_MAX_ITERATIONS} tours sans lever tous les blocages. ${blockerSummary}`
+        : `Je m'arrete proprement: Cowork a atteint son garde-fou de ${FAILSAFE_MAX_ITERATIONS} tours sans produire de livraison finale exploitable.`;
+      emitEvent('warning', {
+        iteration: iterations,
+        title: 'Failsafe',
+        message: `Garde-fou atteint apres ${FAILSAFE_MAX_ITERATIONS} tours internes.`,
+        runMeta
+      });
+      emitEvent('text_delta', { iteration: iterations, text: finalVisibleText, runMeta });
     }
 
     if (!finalVisibleText.trim()) {

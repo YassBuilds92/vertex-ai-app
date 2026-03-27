@@ -19,6 +19,15 @@ export type CoworkStreamEvent =
       runMeta?: Partial<RunMeta>;
     }
   | {
+      type: 'reasoning';
+      timestamp?: number;
+      iteration?: number;
+      title?: string;
+      message?: string;
+      meta?: Record<string, ActivityMetaValue>;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
       type: 'narration';
       timestamp?: number;
       iteration?: number;
@@ -94,8 +103,14 @@ export function createEmptyRunMeta(): RunMeta {
     validatedSearches: 0,
     degradedSearches: 0,
     blockedQueryFamilies: 0,
+    validatedSources: 0,
+    blockerCount: 0,
     retryCount: 0,
     queueWaitMs: 0,
+    phase: 'analysis',
+    completionScore: 0,
+    modelCompletionScore: 0,
+    taskComplete: false,
     inputTokens: 0,
     outputTokens: 0,
     thoughtTokens: 0,
@@ -151,8 +166,14 @@ function mergeRunMeta(current?: Partial<RunMeta>, incoming?: Partial<RunMeta>): 
     validatedSearches: Math.max(Number(current?.validatedSearches || 0), Number(incoming?.validatedSearches || 0)),
     degradedSearches: Math.max(Number(current?.degradedSearches || 0), Number(incoming?.degradedSearches || 0)),
     blockedQueryFamilies: Math.max(Number(current?.blockedQueryFamilies || 0), Number(incoming?.blockedQueryFamilies || 0)),
+    validatedSources: Math.max(Number(current?.validatedSources || 0), Number(incoming?.validatedSources || 0)),
+    blockerCount: Math.max(Number(current?.blockerCount || 0), Number(incoming?.blockerCount || 0)),
     retryCount: Math.max(Number(current?.retryCount || 0), Number(incoming?.retryCount || 0)),
     queueWaitMs: Math.max(Number(current?.queueWaitMs || 0), Number(incoming?.queueWaitMs || 0)),
+    phase: String(incoming?.phase || current?.phase || 'analysis'),
+    completionScore: Math.max(Number(current?.completionScore || 0), Number(incoming?.completionScore || 0)),
+    modelCompletionScore: Math.max(Number(current?.modelCompletionScore || 0), Number(incoming?.modelCompletionScore || 0)),
+    taskComplete: Boolean(incoming?.taskComplete || current?.taskComplete || false),
     inputTokens: Math.max(Number(current?.inputTokens || 0), Number(incoming?.inputTokens || 0)),
     outputTokens: Math.max(Number(current?.outputTokens || 0), Number(incoming?.outputTokens || 0)),
     thoughtTokens: Math.max(Number(current?.thoughtTokens || 0), Number(incoming?.thoughtTokens || 0)),
@@ -207,6 +228,17 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
         );
       }
       return next;
+
+    case 'reasoning':
+      return pushActivity(
+        next,
+        createActivityItem(next, 'reasoning', iteration, timestamp, {
+          title: event.title || 'Raisonnement',
+          message: event.message,
+          meta: event.meta,
+          status: 'info',
+        })
+      );
 
     case 'narration':
       return pushActivity(

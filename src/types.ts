@@ -50,8 +50,14 @@ export interface RunMeta {
   validatedSearches: number;
   degradedSearches: number;
   blockedQueryFamilies: number;
+  validatedSources: number;
+  blockerCount: number;
   retryCount: number;
   queueWaitMs: number;
+  phase: string;
+  completionScore: number;
+  modelCompletionScore: number;
+  taskComplete: boolean;
   inputTokens: number;
   outputTokens: number;
   thoughtTokens: number;
@@ -63,6 +69,7 @@ export interface RunMeta {
 
 export type ActivityKind =
   | 'status'
+  | 'reasoning'
   | 'narration'
   | 'tool_call'
   | 'tool_result'

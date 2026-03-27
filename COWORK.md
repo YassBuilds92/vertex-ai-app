@@ -73,6 +73,7 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Stabilisation du streaming et des réponses : correction du bug de l'ancienne réponse qui persistait lors d'un nouvel envoi grâce à un reset synchrone du state `streamingContent`.
 - [x] Amélioration UX du bloc de réflexion : ajout d'une `min-h` stable, d'un `ThinkingIndicator` plus explicite et d'animations de transition pour supprimer les sauts d'écran lors du passage de l'analyse à la réponse.
 - [x] Automatisation des liens YouTube : détection automatique des URLs YouTube (pasting), extraction en pièce jointe type `youtube`, retrait du lien du texte et récupération du titre via la nouvelle route backend `/api/metadata`.
+- [x] Correction de la ReferenceError au démarrage : réorganisation des déclarations dans `App.tsx` pour s'assurer que `displayedMessages` et `activeSession` sont initialisés avant d'être utilisés dans les hooks (TDZ).
 
 ## Prochaines Etapes
 1. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet, que la timeline revient apres reload, et que les compteurs tokens/euros montent correctement.

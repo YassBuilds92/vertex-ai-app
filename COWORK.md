@@ -123,12 +123,17 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Finalisation propre sans `report_progress` : quand le modele livre enfin un vrai texte visible en mode normal, Cowork marque ce tour comme tentative de livraison (`markVisibleDeliveryAttempt`) puis accepte la reponse si les blocages backend sont leves. Cela corrige les boucles `Finalisation refusee` apres `create_pdf` + `release_file`.
 - [x] Narration publique derivee des outils : si Gemini appelle un outil sans texte exploitable, Cowork emet maintenant une narration lisible (`Recherche`, `Verification`, `Relecture`, `Mise en page`, `Livraison`, etc.) a partir de l'outil reel, ce qui rend la boucle visible sans exposer le raisonnement brut.
 
+- [x] Plan public modele-led : Cowork dispose maintenant d'un outil `publish_status` en mode normal pour exposer publiquement la phase, le focus, la prochaine action, le pivot et le critere de fin sans passer par `report_progress` ni par du texte final parasite.
+- [x] Veto backend limite aux blocages durs : `research_incomplete` n'est plus un veto de livraison. Le backend continue de scorer et de verifier, mais `effectiveTaskComplete` ne depend plus que des vrais blockers durs (source/artefact/review), ce qui rapproche la boucle d'un mode "backend verifie, modele decide".
+- [x] Fin des nudges backend systematiques : apres un appel d'outil, Cowork laisse maintenant Gemini repartir des vrais `functionResponse` sans injecter a chaque tour un message `user` de cadrage. Les rappels backend ne reviennent que sur tour vide, no-op, finalisation prematuree ou blocage dur explicite.
+- [x] Couverture musique specialisee reconnue comme vraie preuve : une couverture `music_catalog_lookup` suffisamment solide peut maintenant lever l'exigence de source classique dans `computeCompletionState()`, au lieu de forcer artificiellement un `web_fetch` supplementaire.
+
 ## Prochaines Etapes
 1. PRIORITE ABSOLUE: faire evoluer Cowork d'une boucle hybride backend-owned vers un agent modele-led, libre, reflexif, visible et auto-dirige.
-2. Remplacer progressivement les gates backend trop directifs par une logique "backend verifie, modele decide", avec blocage uniquement sur les contraintes dures.
-3. Reintroduire une reflexion visible propre en mode normal: plan courant, prochaine action, raison du pivot, auto-critique avant livraison, sans exposer de chain-of-thought brut.
-4. Donner au modele une conscience claire et complete de l'inventaire d'outils, de leurs schemas et de leurs usages, sans lui imposer de sequence artificielle.
-5. Permettre une vraie declaration de fin par le modele (`fini` / `bloque`) avec veto backend seulement en cas de blocker dur, explicite et justifiable.
+2. Aller au bout du basculement "backend verifie, modele decide" en supprimant les derniers reflexes backend encore mecaniques, notamment certaines consignes systeme trop prescriptives et les phases encore derivees cote serveur.
+3. Muscler `publish_status` pour qu'il couvre aussi l'auto-critique avant livraison, la raison de pivot et l'eventuelle declaration honnete de blocage, toujours sans chain-of-thought brut.
+4. Donner au modele une conscience encore plus claire de l'inventaire d'outils, de leurs schemas et de leurs usages, sans lui imposer de sequence artificielle.
+5. Permettre une vraie declaration de fin ou de blocage par le modele (`fini` / `bloque`) avec veto backend seulement en cas de blocker dur, explicite et justifiable.
 6. Rendre la timeline plus fidele a la vraie autonomie de l'agent: moins de cosmétique, plus d'etat reel, de plan et de decisions.
 7. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'on retrouve une boucle de recherche -> ecriture -> critique -> amelioration -> PDF -> livraison, sans logique mecanique parasite.
 8. Revalider en production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que la liberte de l'agent reste compatible avec la stabilite produit.

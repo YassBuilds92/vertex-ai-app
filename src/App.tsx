@@ -32,7 +32,6 @@ import {
   hydrateCoworkMessages,
   sanitizeCoworkMessageForStorage,
   saveCoworkSessionSnapshot,
-  |
 } from './utils/cowork';
 import {
   clearSessionSnapshots,

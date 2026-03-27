@@ -82,6 +82,10 @@ export default function App() {
   const [refiningStatus, setRefiningStatus] = useState<string | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   const [liveCoworkMessage, setLiveCoworkMessage] = useState<Message | null>(null);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState('');
+  const [customTitle, setCustomTitle] = useState<string | null>(null);
+  const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -93,6 +97,32 @@ export default function App() {
   const coworkStorageModeRef = useRef<'rich' | 'legacy'>('rich');
   const coworkStorageWarningShownRef = useRef(false);
   const sendInFlightRef = useRef(false);
+
+  const activeSession = sessions.find(s => s.id === activeSessionId) || { 
+    id: 'local-new', 
+    title: customTitle || 'Nouvelle conversation', 
+    messages: [], 
+    updatedAt: Date.now(), 
+    mode: activeMode, 
+    userId: user?.uid || '', 
+    systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || '' 
+  };
+
+  const displayedMessages = React.useMemo(() => {
+    const merged = new Map<string, Message>();
+
+    for (const message of currentMessages) {
+      merged.set(message.id, message);
+    }
+    for (const message of optimisticMessages) {
+      merged.set(message.id, message);
+    }
+    if (liveCoworkMessage && coworkFlushTargetRef.current?.sessionId === activeSessionId) {
+      merged.set(liveCoworkMessage.id, liveCoworkMessage);
+    }
+
+    return Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt);
+  }, [activeSessionId, currentMessages, optimisticMessages, liveCoworkMessage]);
 
   const activateMode = useCallback((mode: AppMode) => {
     setActiveMode(mode);
@@ -226,19 +256,6 @@ export default function App() {
   }, [user, activeMode, activeSessionId]);
 
 
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleInput, setTitleInput] = useState('');
-  const [customTitle, setCustomTitle] = useState<string | null>(null);
-  const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
-  const activeSession = sessions.find(s => s.id === activeSessionId) || { 
-    id: 'local-new', 
-    title: customTitle || 'Nouvelle conversation', 
-    messages: [], 
-    updatedAt: Date.now(), 
-    mode: activeMode, 
-    userId: user?.uid || '', 
-    systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || '' 
-  };
 
   const handleNewChat = useCallback(() => {
     setPendingAttachments([]);
@@ -460,21 +477,6 @@ export default function App() {
     a.click();
   };
 
-  const displayedMessages = React.useMemo(() => {
-    const merged = new Map<string, Message>();
-
-    for (const message of currentMessages) {
-      merged.set(message.id, message);
-    }
-    for (const message of optimisticMessages) {
-      merged.set(message.id, message);
-    }
-    if (liveCoworkMessage && coworkFlushTargetRef.current?.sessionId === activeSessionId) {
-      merged.set(liveCoworkMessage.id, liveCoworkMessage);
-    }
-
-    return Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt);
-  }, [activeSessionId, currentMessages, optimisticMessages, liveCoworkMessage]);
 
   // --- IMAGE COMPRESSION HELPER ---
   const compressImage = async (base64: string, maxWidth = 1024, maxHeight = 1024, quality = 0.8): Promise<string> => {

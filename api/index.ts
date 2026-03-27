@@ -2251,13 +2251,24 @@ function readableQualityScore(value: ReadableFetchQuality): number {
 }
 
 const SEARCH_RESULT_GENERIC_TOKENS = new Set([
+  'actu',
+  'actus',
+  'actualite',
+  'actualites',
   'artiste',
   'artist',
   'artists',
+  'headline',
+  'headlines',
+  'international',
+  'internationale',
+  'internationales',
   'musique',
   'music',
   'musical',
   'musicale',
+  'monde',
+  'news',
   'rap',
   'rappeur',
   'rapper',
@@ -2300,6 +2311,7 @@ const SEARCH_RESULT_GENERIC_TOKENS = new Set([
   'recentes',
   'today',
   'aujourdhui',
+  'world',
   'jour',
 ]);
 

@@ -521,6 +521,17 @@ export default function App() {
     estimateSize: () => 100,
     overscan: 5,
   });
+  const shouldVirtualizeMessages = activeMode !== 'cowork';
+
+  useEffect(() => {
+    if (!shouldVirtualizeMessages) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      rowVirtualizer.measure();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [shouldVirtualizeMessages, rowVirtualizer, displayedMessages.length, streamingContent, streamingThoughts, isLoading]);
 
   // --- ATTACHMENTS HELPERS ---
   const uploadAttachment = async (attachment: Attachment, userId: string, sessionId: string): Promise<string> => {
@@ -1182,6 +1193,22 @@ export default function App() {
     } catch (e) { console.error(e); } finally { setIsGeneratingTitle(false); }
   };
 
+  const renderMessageRow = (msg: Message, index: number) => (
+    <div key={msg.id || index} className="py-4">
+      <MessageItem
+        msg={msg}
+        idx={index}
+        isLast={index === displayedMessages.length - 1}
+        isLoading={isLoading}
+        isExpanded={!!expandedThoughts[msg.id]}
+        onToggleThoughts={() => setExpandedThoughts(p => ({ ...p, [msg.id]: !p[msg.id] }))}
+        setSelectedImage={setSelectedImage}
+        onEdit={handleEdit}
+        onRetry={handleRetry}
+      />
+    </div>
+  );
+
 
   return (
     <div className={cn(
@@ -1318,46 +1345,52 @@ export default function App() {
           ) : (
             <>
               <main ref={parentRef} className="flex-1 overflow-y-auto relative">
-                <div
-                  style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: '100%',
-                    position: 'relative',
-                  }}
-                  className="max-w-4xl mx-auto px-4 md:px-10"
-                >
-                  {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-                    const msg = displayedMessages[virtualItem.index];
-                    if (!msg) return null;
-                    return (
-                      <div
-                        key={msg.id || virtualItem.key}
-                        data-index={virtualItem.index}
-                        ref={rowVirtualizer.measureElement}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          transform: `translateY(${virtualItem.start}px)`,
-                        }}
-                        className="py-4"
-                      >
-                        <MessageItem
-                          msg={msg}
-                          idx={virtualItem.index}
-                          isLast={virtualItem.index === displayedMessages.length - 1}
-                          isLoading={isLoading}
-                          isExpanded={!!expandedThoughts[msg.id]}
-                          onToggleThoughts={() => setExpandedThoughts(p => ({...p, [msg.id]: !p[msg.id]}))}
-                          setSelectedImage={setSelectedImage}
-                          onEdit={handleEdit}
-                          onRetry={handleRetry}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
+                {shouldVirtualizeMessages ? (
+                  <div
+                    style={{
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                      width: '100%',
+                      position: 'relative',
+                    }}
+                    className="max-w-4xl mx-auto px-4 md:px-10"
+                  >
+                    {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                      const msg = displayedMessages[virtualItem.index];
+                      if (!msg) return null;
+                      return (
+                        <div
+                          key={msg.id || virtualItem.key}
+                          data-index={virtualItem.index}
+                          ref={rowVirtualizer.measureElement}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            transform: `translateY(${virtualItem.start}px)`,
+                          }}
+                          className="py-4"
+                        >
+                          <MessageItem
+                            msg={msg}
+                            idx={virtualItem.index}
+                            isLast={virtualItem.index === displayedMessages.length - 1}
+                            isLoading={isLoading}
+                            isExpanded={!!expandedThoughts[msg.id]}
+                            onToggleThoughts={() => setExpandedThoughts(p => ({ ...p, [msg.id]: !p[msg.id] }))}
+                            setSelectedImage={setSelectedImage}
+                            onEdit={handleEdit}
+                            onRetry={handleRetry}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="max-w-4xl mx-auto px-4 md:px-10">
+                    {displayedMessages.map((msg, index) => renderMessageRow(msg, index))}
+                  </div>
+                )}
                  {/* Refining Status */}
                  {refiningStatus && (
                    <div className="max-w-4xl mx-auto px-4 md:px-10 py-4 flex items-center gap-3 text-indigo-400">

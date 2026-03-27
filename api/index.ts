@@ -766,10 +766,6 @@ ${requestClock
 ${trimmedInstruction}`;
 }
 
-function buildCoworkAbuseBlockMessage(): string {
-  return "Je ne peux pas aider pour une version qui attaque ou humilie des groupes. Si tu veux, je peux te le recadrer en texte dur contre les comportements, l'hypocrisie et les divisions, sans cibler des groupes entiers.";
-}
-
 function getCoworkPublicPhase(phase: CoworkPhase, executionMode: CoworkExecutionMode): string {
   if (executionMode === 'creative_single_turn') return phase === 'completed' ? 'completed' : 'composition';
   if (phase === 'analysis' || phase === 'production') return 'composition';
@@ -802,7 +798,6 @@ export const __coworkLoopInternals = {
   getCooldownDelayMs,
   normalizeCoworkPhase,
   classifyCoworkExecutionMode,
-  requestRequiresAbuseBlock,
   requestIsPureCreativeComposition,
   assessReadablePageRelevance,
 };
@@ -871,17 +866,6 @@ function requestIsPureCreativeComposition(message: string): boolean {
   if (requestNeedsMusicCatalogResearch(message)) return false;
   if (requestNeedsExternalGrounding(message)) return false;
   return !/\b(fichier|document|pdf|api|sdk|documentation|docs?|version|release|package|repo|code|source|vercel|firebase|session|prompt system|system prompt|du jour|today|latest)\b/.test(normalized);
-}
-
-function requestRequiresAbuseBlock(message: string): boolean {
-  const normalized = normalizeCoworkText(message);
-  const attackIntent =
-    /\b(insulte|insulter|insultes|demolis|demolir|demonte|demonter|humilie|humilier|termine(?:-les| les| tout le monde)?|salement|sans pitie|mechant|violent|haineux|dechire|massacre|fume|ecrase|detruis|detruire|dehumanise|dehumaniser|kaffar|takfir|sale|grandes putes|putes?|merde)\b/.test(normalized);
-  if (!attackIntent) return false;
-
-  const protectedOrGroupTargets =
-    /\b(musulmans?|chiites?|salafistes?|juifs?|juives?|chretiens?|chretiennes?|athees?|agnostiques?|maghrebins?|arabes?|irakiens?|iraniens?|marocains?|algeriens?|tunisiens?|noirs?|blancs?|asiatiques?|femmes?|hommes?|immigres?|etrangers?)\b/.test(normalized);
-  return protectedOrGroupTargets;
 }
 
 function classifyCoworkExecutionMode(message: string): CoworkExecutionMode {
@@ -3642,7 +3626,6 @@ app.post('/api/cowork', async (req, res) => {
     const researchTargets = getResearchTargets(message);
     const pdfQualityTargets = getPdfQualityTargets(message);
     const executionMode = classifyCoworkExecutionMode(message);
-    const abuseBlocked = requestRequiresAbuseBlock(message);
 
     // Model ID mapping
     let modelId = config.model;
@@ -4784,34 +4767,6 @@ app.post('/api/cowork', async (req, res) => {
     runMeta.executionMode = executionMode;
     runMeta.publicPhase = getCoworkPublicPhase('analysis', executionMode);
     let sessionState = createEmptyCoworkSessionState();
-
-    if (abuseBlocked) {
-      const blockedMessage = buildCoworkAbuseBlockMessage();
-      runMeta.phase = 'completed';
-      runMeta.publicPhase = 'completed';
-      runMeta.completionScore = 100;
-      runMeta.modelCompletionScore = 100;
-      runMeta.taskComplete = true;
-      emitEvent('status', {
-        iteration: 0,
-        title: 'Recadrage',
-        message: "La demande a ete stoppee avant execution et reformulee proprement.",
-        runState: 'running',
-        runMeta
-      });
-      emitEvent('text_delta', {
-        iteration: 0,
-        text: blockedMessage,
-        runMeta
-      });
-      emitEvent('done', {
-        iteration: 0,
-        runState: 'completed',
-        runMeta
-      });
-      res.end();
-      return;
-    }
 
     if (executionMode === 'creative_single_turn') {
       runMeta.phase = 'composition';

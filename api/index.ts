@@ -794,10 +794,13 @@ export const __coworkLoopInternals = {
   createEmptyCoworkSessionState,
   computeCompletionState,
   buildBlockerPrompt,
+  buildPublicToolNarration,
   getDirectSourceFallbacks,
   getCooldownDelayMs,
+  markVisibleDeliveryAttempt,
   normalizeCoworkPhase,
   classifyCoworkExecutionMode,
+  requestRequiresAbuseBlock,
   requestIsPureCreativeComposition,
   assessReadablePageRelevance,
 };
@@ -812,6 +815,15 @@ function normalizeCoworkText(value?: string): string {
 function requestAsksForWriting(message: string): boolean {
   const normalized = normalizeCoworkText(message);
   return /\b(punchline|punchlines|rap|texte|paroles|lyrics|son|couplet|refrain|ecris|ecrire|redige|rediger|genere|generer|compose|composer|freestyle|topline)\b/.test(normalized);
+}
+
+function requestRequiresAbuseBlock(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  const targetsGroup =
+    /\b(musulmans?|chiites?|sunnites?|juifs?|chretiens?|catholiques?|protestants?|ath[ea]es?|gays?|lgbt|lesbiennes?|homosexuels?|trans|transgenres?|arabes?|maghrebins?|noirs?|blancs?|asiatiques?|roms?|gitans?|immigres?|etrangers?|femmes?|hommes?)\b/.test(normalized);
+  const abuseIntent =
+    /\b(insulte|insulter|humilie|humilier|dehumanise|dehumaniser|deteste|detester|hais|haissez|haine|nique|degage|degagez|massacre|massacrer|termine|terminer|extermine|exterminer|bute|buter|tue|tuer|ecrase|ecraser)\b/.test(normalized);
+  return targetsGroup && abuseIntent;
 }
 
 function requestMentionsConcreteExternalSubject(message: string): boolean {
@@ -1864,6 +1876,136 @@ type DirectSourceCategory =
   | 'tech_docs'
   | 'sport'
   | 'general';
+
+function getPublicToolNarrationTarget(toolName: string, args: any): string | null {
+  let rawTarget: unknown = null;
+  switch (toolName) {
+    case 'web_search':
+      rawTarget = args?.query ?? args?.q;
+      break;
+    case 'web_fetch':
+      rawTarget = args?.url;
+      break;
+    case 'music_catalog_lookup':
+      rawTarget = args?.artist ?? args?.name ?? args?.query;
+      break;
+    case 'review_pdf_draft':
+      rawTarget = args?.title ?? args?.subtitle;
+      break;
+    case 'create_pdf':
+      rawTarget = args?.title ?? args?.filename ?? args?.path;
+      break;
+    case 'release_file':
+    case 'write_file':
+      rawTarget = args?.path ?? args?.filename;
+      break;
+    default:
+      rawTarget = args?.path ?? args?.url ?? args?.query ?? args?.title ?? args?.filename ?? args?.name;
+      break;
+  }
+
+  if (typeof rawTarget !== 'string') return null;
+  const clipped = clipText(rawTarget.trim(), 120)?.trim();
+  return clipped || null;
+}
+
+function buildPublicToolNarration(
+  toolName: string,
+  args: any
+): { title: string; message: string } | null {
+  const target = getPublicToolNarrationTarget(toolName, args);
+
+  switch (toolName) {
+    case 'web_search':
+      return {
+        title: 'Recherche',
+        message: target
+          ? `Je lance une recherche ciblee sur '${target}'.`
+          : "Je lance une recherche ciblee pour cadrer le sujet."
+      };
+    case 'web_fetch':
+      return {
+        title: 'Verification',
+        message: target
+          ? `J'ouvre une source pour verifier: ${target}.`
+          : "J'ouvre une source pour verifier le point cle."
+      };
+    case 'music_catalog_lookup':
+      return {
+        title: 'Catalogue',
+        message: target
+          ? `Je recoupe maintenant le catalogue de '${target}'.`
+          : "Je recoupe maintenant le catalogue musical demande."
+      };
+    case 'review_pdf_draft':
+      return {
+        title: 'Relecture',
+        message: target
+          ? `Je relis le brouillon PDF '${target}' avant export.`
+          : "Je relis le brouillon PDF avant export."
+      };
+    case 'create_pdf':
+      return {
+        title: 'Mise en page',
+        message: target
+          ? `Je passe maintenant le contenu en PDF: '${target}'.`
+          : "Je passe maintenant le contenu en PDF."
+      };
+    case 'release_file':
+      return {
+        title: 'Livraison',
+        message: target
+          ? `Je publie '${target}' pour generer le lien de telechargement.`
+          : "Je publie le fichier pour generer le lien de telechargement."
+      };
+    case 'read_file':
+      return {
+        title: 'Lecture',
+        message: target
+          ? `Je lis '${target}' pour recuperer le contexte utile.`
+          : "Je lis le fichier utile avant de continuer."
+      };
+    case 'list_files':
+    case 'list_recursive':
+      return {
+        title: 'Exploration',
+        message: "J'explore les fichiers utiles avant de continuer."
+      };
+    case 'write_file':
+      return {
+        title: 'Preparation',
+        message: target
+          ? `Je prepare maintenant le fichier '${target}'.`
+          : "Je prepare maintenant le fichier demande."
+      };
+    default:
+      return null;
+  }
+}
+
+function markVisibleDeliveryAttempt(
+  state: CoworkSessionState,
+  executionMode: CoworkExecutionMode,
+  visibleText: string
+): boolean {
+  if (executionMode === 'creative_single_turn') return false;
+  if (!visibleText.trim()) return false;
+
+  let changed = false;
+  if (!state.modelTaskComplete) {
+    state.modelTaskComplete = true;
+    changed = true;
+  }
+  if (state.modelCompletionScore < 100) {
+    state.modelCompletionScore = 100;
+    changed = true;
+  }
+  if (state.phase !== 'delivery' && state.phase !== 'completed') {
+    state.phase = 'delivery';
+    changed = true;
+  }
+  return changed;
+}
 
 const DIRECT_SOURCE_FALLBACKS: Record<DirectSourceCategory, string[]> = {
   fr_news: [
@@ -3627,6 +3769,41 @@ app.post('/api/cowork', async (req, res) => {
     const pdfQualityTargets = getPdfQualityTargets(message);
     const executionMode = classifyCoworkExecutionMode(message);
 
+    if (requestRequiresAbuseBlock(message)) {
+      const runMeta = createEmptyCoworkRunMeta();
+      runMeta.executionMode = executionMode;
+      runMeta.phase = 'completed';
+      runMeta.publicPhase = 'completed';
+      runMeta.completionScore = 100;
+      runMeta.modelCompletionScore = 100;
+      runMeta.taskComplete = true;
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      headersSent = true;
+
+      emitEvent('status', {
+        iteration: 0,
+        title: 'Recadrage',
+        message: "Cowork refuse la version qui vise a humilier ou dehumaniser un groupe.",
+        runState: 'running',
+        runMeta
+      });
+      emitEvent('text_delta', {
+        iteration: 0,
+        text: "Je ne vais pas ecrire un texte contre un groupe de personnes. Si tu veux, je peux te faire un texte nerveux contre un comportement, une hypocrisie, une ideologie ou un systeme sans viser une population.",
+        runMeta
+      });
+      emitEvent('done', {
+        iteration: 0,
+        runState: 'completed',
+        runMeta
+      });
+      res.end();
+      return;
+    }
+
     // Model ID mapping
     let modelId = config.model;
     if (modelId.includes('gemini-1.5')) modelId = modelId.replace('1.5', '3.1');
@@ -5113,6 +5290,7 @@ app.post('/api/cowork', async (req, res) => {
       }
       const hasFunctionCalls = functionCalls.length > 0;
       let iterationVisibleText = '';
+      let iterationNarrationEmitted = false;
 
       for (const part of turnParts) {
         if (part.thought) {
@@ -5129,6 +5307,7 @@ app.post('/api/cowork', async (req, res) => {
               iteration: iterations,
               message: clipText(part.text, 900)
             });
+            iterationNarrationEmitted = true;
           } else {
             iterationVisibleText += part.text;
           }
@@ -5345,6 +5524,17 @@ app.post('/api/cowork', async (req, res) => {
             if (tool.name === 'web_fetch') runMeta.webFetches += 1;
 
             log.info(`Executing tool: ${tool.name}`, call.args);
+            if (!iterationNarrationEmitted) {
+              const narration = buildPublicToolNarration(tool.name, call.args);
+              if (narration) {
+                emitEvent('narration', {
+                  iteration: iterations,
+                  title: narration.title,
+                  message: narration.message
+                });
+                iterationNarrationEmitted = true;
+              }
+            }
             emitEvent('tool_call', {
               iteration: iterations,
               toolName: tool.name,
@@ -5663,6 +5853,9 @@ app.post('/api/cowork', async (req, res) => {
       }
 
       if (iterationVisibleText.trim()) {
+        if (markVisibleDeliveryAttempt(sessionState, executionMode, iterationVisibleText)) {
+          refreshSessionState();
+        }
         if (!sessionState.effectiveTaskComplete) {
           const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
           if (handleNoProgress('blocked_visible_text', blockerPrompt)) {

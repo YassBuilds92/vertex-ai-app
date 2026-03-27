@@ -80,10 +80,12 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] No-op detection : la boucle memorise `stalledTurns`, `lastProgressFingerprint` et `lastActionSignature`, puis s'arrete proprement apres 3 tours sans progres concret au lieu de consommer 20-30 appels modele.
 - [x] `web_fetch` pertinent ou rien : une lecture ne compte plus comme source validante uniquement parce qu'elle est `full`; il faut maintenant `quality=full` ET `relevance=relevant` contre la demande ou la derniere requete de recherche.
 - [x] Completion backend-owned + UI compacte : `completionScore` n'est plus gonfle par l'auto-confiance du modele, `runMeta` expose `executionMode` / `publicPhase`, les `thoughts` Cowork sont caches par defaut et les compteurs debug lourds ne sont plus affiches en vue normale.
+- [x] Finalisation propre sans `report_progress` : quand le modele livre enfin un vrai texte visible en mode normal, Cowork marque ce tour comme tentative de livraison (`markVisibleDeliveryAttempt`) puis accepte la reponse si les blocages backend sont leves. Cela corrige les boucles `Finalisation refusee` apres `create_pdf` + `release_file`.
+- [x] Narration publique derivee des outils : si Gemini appelle un outil sans texte exploitable, Cowork emet maintenant une narration lisible (`Recherche`, `Verification`, `Relecture`, `Mise en page`, `Livraison`, etc.) a partir de l'outil reel, ce qui rend la boucle visible sans exposer le raisonnement brut.
 
 ## Prochaines Etapes
-1. Revalider en production le cas exact du screenshot pour verifier que le prompt haineux est bloque avant outils/recherche et qu'un recadrage bref est envoye sans narration morale.
-2. Revalider en production un prompt creatif large du style `fais un son couplet unique hyper enerve sur la cancel culture et les divisions` pour verifier le routage `creative_single_turn` avec `0 web_search`, `0 web_fetch` et une seule vraie reponse finale.
+1. Revalider en production le cas exact du screenshot pour verifier les deux branches: blocage amont si le prompt vise un groupe, et finalisation propre si le prompt reste legitime mais demande `recherche -> ecriture -> PDF`.
+2. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'apres `review_pdf_draft -> create_pdf -> release_file`, Cowork livre bien le texte final ou le lien sans repasser par `Finalisation refusee`.
 3. Rejouer en production un cas no-op volontaire pour verifier qu'apres 3 tours sans progres concret Cowork s'arrete honnêtement au lieu d'enchainer les iterations.
 4. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet, que la timeline revient apres reload, et que les compteurs tokens/euros montent correctement.
 5. Rejouer en production le cas `Tariq Ramadan il va aller en prison ?` pour verifier que `taskComplete=true` est bien refuse tant qu'aucune source `web_fetch` `full` ET `relevant` n'a ete lue, puis accepte apres validation.
@@ -94,3 +96,8 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 10. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
 11. Configurer `TAVILY_API_KEY` sur Vercel puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
 12. Rejouer en production des demandes de documents formels sans le mot `pdf` (`fais moi une attestation de stage fictive`, `lettre de motivation fictive`, `certificat de travail`) pour verifier que Cowork n'exporte plus de placeholders, que `review_pdf_draft` reste obligatoire, et que le layout "document officiel" est preserve.
+
+### Revalidation Additionnelle
+1. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'apres `review_pdf_draft -> create_pdf -> release_file`, Cowork livre bien le texte final ou le lien sans repasser par `Finalisation refusee`.
+2. Verifier en production qu'un tour final texte sans `report_progress` est bien accepte quand les blocages backend sont leves, au lieu d'etre compte comme `blocked_visible_text`.
+3. Verifier que les nouvelles narrations publiques (`Recherche`, `Verification`, `Relecture`, `Mise en page`, `Livraison`) apparaissent bien meme quand Gemini appelle un outil sans texte d'accompagnement.

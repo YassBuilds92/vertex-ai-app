@@ -505,6 +505,8 @@ assert.equal(
     ready: true,
     score: 92,
     signature: 'review-ok-123',
+    engine: 'pdfkit' as const,
+    compiler: null,
     totalWords: 240,
     sectionCount: 4,
     blockingIssues: [],

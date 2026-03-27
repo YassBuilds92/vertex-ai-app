@@ -138,6 +138,11 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Brouillon PDF incrementiel persistant : Cowork dispose maintenant d'un `activePdfDraft` par session, construit via `begin_pdf_draft` / `append_to_draft` / `get_pdf_draft`, ce qui supprime la logique one-shot pour les PDF longs.
 - [x] Cap produit PDF honnete : les demandes explicites au-dela de `3000` mots sont maintenant plafonnees a `~3000` mots par session, annoncees proprement, puis construites par tranches plutot que simulees visuellement.
 - [x] PDF thematiques + audit anti-pages vides : `create_pdf` accepte `theme` (`legal`, `news`, `report`), applique des rendus distincts, active la cover seulement si le volume le justifie, et rejette/rerend les sorties contenant des pages body vides.
+- [x] Migration hybride PDF vers LaTeX externe : Cowork peut maintenant choisir `engine=latex` pour les PDF premium/news/report et conserver `pdfkit` pour les documents simples/formels. Le client de compilation externe vit dans `api/pdf/latex.ts` et parle a un provider HTTP compatible YtoTech au lieu d'embarquer TinyTeX dans la Function Vercel.
+- [x] Brouillon `.tex` stateful : `begin_pdf_draft` / `append_to_draft` / `get_pdf_draft` exposent maintenant `engine`, `compiler`, `signature`, `sourceMode` et un `sourcePreview` pour les brouillons LaTeX. Un draft LaTeX peut etre genere depuis les sections/meta ou pilote en source libre via `latexSource`.
+- [x] Review LaTeX compilee + cachee : `review_pdf_draft` tente une vraie compilation de controle quand le moteur vaut `latex`, remonte `compileLogPreview`, met en cache le PDF signe et laisse `create_pdf` reutiliser ce cache si la signature approuvee est inchangée.
+- [x] Anti-boucle PDF renforce : `create_pdf` detecte maintenant `alreadyCreated`, refuse un troisieme echec sur la meme signature LaTeX sans modification materielle, et bloque les recreations inutiles apres un `release_file` reussi sur le meme artefact.
+- [x] Config runtime LaTeX explicite : ajout de `LATEX_RENDER_PROVIDER`, `LATEX_RENDER_BASE_URL` et `LATEX_RENDER_TIMEOUT_MS` dans `.env.example` et `/api/status`, avec une suite de tests dedies (`test-latex-provider.ts`) pour succes / erreur / timeout du provider externe.
 
 ## Prochaines Etapes
 1. PRIORITE ABSOLUE: faire evoluer Cowork d'une boucle hybride backend-owned vers un agent modele-led, libre, reflexif, visible et auto-dirige.
@@ -155,6 +160,8 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 13. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live", la visibilite des decisions, et la conservation exacte du tour Gemini signe.
 14. Verifier que `TAVILY_API_KEY` est bien configure sur Vercel, puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
 15. Rejouer en production des demandes de documents formels sans le mot `pdf` (`fais moi une attestation de stage fictive`, `lettre de motivation fictive`, `certificat de travail`) pour verifier qu'un agent plus libre garde un rendu officiel propre sans replonger dans des workflows figes.
+16. Configurer en production `LATEX_RENDER_PROVIDER` / `LATEX_RENDER_BASE_URL` / `LATEX_RENDER_TIMEOUT_MS`, puis rejouer les cas premium (`actu magazine`, `rapport thematique`, `pdf beau`) pour valider le chemin LaTeX externe sur Vercel.
+17. Observer les vrais taux d'echec du provider LaTeX externe (timeouts, 4xx/5xx, logs de compilation), puis ajuster si besoin la politique de retry et les messages de pivot plutot que de degrader silencieusement vers `pdfkit`.
 
 ### Revalidation Additionnelle
 1. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'apres `review_pdf_draft -> create_pdf -> release_file`, Cowork livre bien le texte final ou le lien sans repasser par `Finalisation refusee`.

@@ -6,6 +6,11 @@ import path from 'node:path';
 process.env.VERCEL = '1';
 
 const { __coworkPdfInternals } = await import('./api/index.ts');
+const {
+  buildLatexSourceSignature,
+  countLatexSections,
+  stripLatexToPlainText,
+} = await import('./api/pdf/latex.ts');
 
 const {
   extractRequestedWordCount,
@@ -59,6 +64,10 @@ const draft = createActivePdfDraft(
 assert.equal(draft.targetWords, 3000);
 assert.equal(draft.cappedWords, true);
 assert.equal(draft.theme, 'news');
+assert.equal(draft.engine, 'latex');
+assert.equal(draft.compiler, 'xelatex');
+assert.equal(draft.sourceMode, 'generated');
+assert.ok((draft.latexSource || '').includes('\\documentclass'));
 
 const reviewedDraft = {
   ...draft,
@@ -75,6 +84,45 @@ const appendedStats = buildPdfDraftStats(appendedDraft);
 assert.equal(appendedDraft.approvedReviewSignature, null);
 assert.ok(appendedStats.wordCount > draft.wordCount);
 assert.ok(appendedStats.sectionCount >= 2);
+assert.equal(appendedStats.engine, 'latex');
+assert.equal(appendedStats.compiler, 'xelatex');
+assert.equal(appendedStats.signature, buildLatexSourceSignature(appendedDraft.latexSource || '', appendedDraft.compiler));
+
+const legalDraft = createActivePdfDraft(
+  attestationPrompt,
+  {
+    title: 'Attestation de stage',
+    sections: [{ heading: 'Bloc 1', body: 'Un contenu administratif bref mais complet.' }]
+  },
+  targets
+);
+assert.equal(legalDraft.engine, 'pdfkit');
+assert.equal(legalDraft.compiler, null);
+
+const rawLatexSource = String.raw`\documentclass{article}
+\usepackage{geometry}
+\begin{document}
+\section*{Introduction}
+Texte principal sur plusieurs lignes.
+\section*{Conclusion}
+Fin du document.
+\end{document}`;
+const rawLatexDraft = createActivePdfDraft(
+  'fais un beau dossier magazine latex',
+  {
+    title: 'Dossier magazine',
+    engine: 'latex',
+    compiler: 'xelatex',
+    latexSource: rawLatexSource,
+  },
+  getPdfQualityTargets('fais un beau dossier magazine latex')
+);
+const rawLatexStats = buildPdfDraftStats(rawLatexDraft);
+assert.equal(rawLatexDraft.engine, 'latex');
+assert.equal(rawLatexDraft.sourceMode, 'raw');
+assert.equal(rawLatexStats.signature, buildLatexSourceSignature(rawLatexSource, 'xelatex'));
+assert.ok(countLatexSections(rawLatexDraft.latexSource || '') >= 2);
+assert.ok(stripLatexToPlainText(rawLatexDraft.latexSource || '').includes('Texte principal'));
 
 assert.equal(countTemplatePlaceholders('[NOM DU TUTEUR] <DATE> ____'), 3);
 assert.ok(

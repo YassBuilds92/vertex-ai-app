@@ -816,6 +816,8 @@ export const __coworkLoopInternals = {
   buildPublicToolNarration,
   getDirectSourceFallbacks,
   getCooldownDelayMs,
+  buildCoworkProgressFingerprint,
+  registerCoworkProgressState,
   markVisibleDeliveryAttempt,
   getCoworkPublicPhase,
   normalizeCoworkPhase,
@@ -1623,6 +1625,51 @@ function summarizePublicStatus(status: CoworkPublicStatus): string {
 
 function getHardCoworkBlockers(blockers: CoworkBlocker[]): CoworkBlocker[] {
   return blockers.filter(blocker => blocker.hard);
+}
+
+function buildCoworkProgressFingerprint(input: {
+  executionMode: CoworkExecutionMode;
+  research: Pick<MusicResearchProgress, 'webSearches' | 'webFetches'>;
+  validatedSourceCount: number;
+  latestApprovedPdfReviewSignature: string | null;
+  latestCreatedArtifactPath: string | null;
+  latestReleasedFileUrl: string | null;
+  phase: CoworkPhase;
+  modelTaskComplete: boolean;
+  effectiveTaskComplete: boolean;
+  pendingFinalAnswer: boolean;
+  blockers: CoworkBlocker[];
+}): string {
+  return JSON.stringify({
+    executionMode: input.executionMode,
+    webSearches: input.research.webSearches,
+    webFetches: input.research.webFetches,
+    validatedSources: input.validatedSourceCount,
+    latestApprovedPdfReviewSignature: input.latestApprovedPdfReviewSignature,
+    latestCreatedArtifactPath: input.latestCreatedArtifactPath,
+    latestReleasedFileUrl: input.latestReleasedFileUrl,
+    phase: input.phase,
+    modelTaskComplete: input.modelTaskComplete,
+    effectiveTaskComplete: input.effectiveTaskComplete,
+    pendingFinalAnswer: input.pendingFinalAnswer,
+    blockers: getHardCoworkBlockers(input.blockers).map(blocker => blocker.code).sort(),
+  });
+}
+
+function registerCoworkProgressState(
+  state: CoworkSessionState,
+  fingerprint: string,
+  actionSignature: string
+): number {
+  const sameProgress = state.lastProgressFingerprint === fingerprint;
+  if (sameProgress) {
+    state.stalledTurns += 1;
+  } else {
+    state.stalledTurns = 0;
+  }
+  state.lastProgressFingerprint = fingerprint;
+  state.lastActionSignature = actionSignature;
+  return state.stalledTurns;
 }
 
 function computeCompletionState(options: CompletionComputationOptions): CoworkSessionState {
@@ -5183,29 +5230,26 @@ app.post('/api/cowork', async (req, res) => {
       syncRunMeta();
     };
 
-    const buildProgressFingerprint = () => JSON.stringify({
+    const buildProgressFingerprint = () => buildCoworkProgressFingerprint({
       executionMode,
-      webSearches: successfulResearchMeta.webSearches,
-      webFetches: successfulResearchMeta.webFetches,
-      validatedSources: sessionState.sourcesValidated.length,
+      research: {
+        webSearches: successfulResearchMeta.webSearches,
+        webFetches: successfulResearchMeta.webFetches,
+      },
+      validatedSourceCount: sessionState.sourcesValidated.length,
+      latestApprovedPdfReviewSignature,
       latestCreatedArtifactPath: latestCreatedArtifactPath || null,
-      latestReleasedFile: latestReleasedFile?.url || null,
+      latestReleasedFileUrl: latestReleasedFile?.url || null,
       phase: sessionState.phase,
-      blockers: getHardCoworkBlockers(sessionState.blockers).map(blocker => blocker.code).sort(),
+      modelTaskComplete: sessionState.modelTaskComplete,
+      effectiveTaskComplete: sessionState.effectiveTaskComplete,
+      pendingFinalAnswer: sessionState.pendingFinalAnswer,
+      blockers: sessionState.blockers,
     });
 
     const registerProgressState = (actionSignature: string) => {
       const fingerprint = buildProgressFingerprint();
-      const sameProgress = sessionState.lastProgressFingerprint === fingerprint;
-      const sameAction = sessionState.lastActionSignature === actionSignature;
-      if (sameProgress && sameAction) {
-        sessionState.stalledTurns += 1;
-      } else {
-        sessionState.stalledTurns = 0;
-      }
-      sessionState.lastProgressFingerprint = fingerprint;
-      sessionState.lastActionSignature = actionSignature;
-      return sessionState.stalledTurns;
+      return registerCoworkProgressState(sessionState, fingerprint, actionSignature);
     };
 
     const handleNoProgress = (actionSignature: string, blockerPrompt?: string | null) => {

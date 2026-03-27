@@ -196,6 +196,7 @@ const MAX_ACTIVITY_ITEMS = 80;
 const MAX_WEB_FETCH_CHARS = 7000;
 const LONG_CONTEXT_THRESHOLD_TOKENS = 200_000;
 const USD_TO_EUR_RATE = 0.866626; // ECB reference rate on 2026-03-26: 1 EUR = 1.1539 USD.
+const COWORK_DEBUG_REASONING = process.env.COWORK_DEBUG_REASONING === '1';
 
 const MODEL_PRICING_USD_PER_1M: Record<string, {
   input: { standard: number; longContext: number };
@@ -293,6 +294,8 @@ type CoworkRunMeta = {
   blockerCount: number;
   retryCount: number;
   queueWaitMs: number;
+  executionMode: CoworkExecutionMode;
+  publicPhase: string;
   phase: string;
   completionScore: number;
   modelCompletionScore: number;
@@ -351,6 +354,8 @@ function createEmptyCoworkRunMeta(): CoworkRunMeta {
     blockerCount: 0,
     retryCount: 0,
     queueWaitMs: 0,
+    executionMode: 'research_loop',
+    publicPhase: 'analysis',
     phase: 'analysis',
     completionScore: 0,
     modelCompletionScore: 0,
@@ -371,6 +376,7 @@ function clampPercentage(value: number): number {
 
 function normalizeCoworkPhase(value?: string | null): CoworkPhase {
   const normalized = normalizeCoworkText(value || '');
+  if (normalized.includes('compo') || normalized.includes('drafting') || normalized.includes('polish')) return 'composition';
   if (normalized.includes('research') || normalized.includes('recherche')) return 'research';
   if (normalized.includes('verif')) return 'verification';
   if (normalized.includes('prod') || normalized.includes('redaction') || normalized.includes('draft')) return 'production';
@@ -396,6 +402,9 @@ function createEmptyCoworkSessionState(): CoworkSessionState {
     lastReasoning: null,
     reasoningReady: false,
     pendingFinalAnswer: false,
+    stalledTurns: 0,
+    lastProgressFingerprint: null,
+    lastActionSignature: null,
   };
 }
 
@@ -591,10 +600,13 @@ function resolveRequestClock(clientContext?: ClientContext): RequestClock {
 function buildCoworkSystemInstruction(
   userInstruction?: string,
   capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true },
-  runtime?: { originalMessage?: string; requestClock?: RequestClock }
+  runtime?: { originalMessage?: string; requestClock?: RequestClock },
+  behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean }
 ): string {
   const originalMessage = runtime?.originalMessage || '';
   const requestClock = runtime?.requestClock;
+  const executionMode = behavior?.executionMode || 'research_loop';
+  const debugReasoning = Boolean(behavior?.debugReasoning);
   const researchTargets = originalMessage ? getResearchTargets(originalMessage) : null;
   const pdfTargets = originalMessage ? getPdfQualityTargets(originalMessage) : null;
   const requestSpecificDirectives: string[] = [];
@@ -612,7 +624,7 @@ function buildCoworkSystemInstruction(
       "Si le sujet porte sur un terme court, ambigu, un mot d'argot ou une reference culturelle, ne cherche jamais le mot seul. Contextualise la requete (langue, pays, domaine, usage) puis ouvre au moins une source avec 'web_fetch' avant d'ecrire."
     );
     requestSpecificDirectives.push(
-      "Tant que la recherche visible n'est pas suffisante, n'ecris pas de paroles finales, meme partielles. Utilise d'abord 'report_progress', puis accumule des recherches et des sources."
+      "Tant que la recherche visible n'est pas suffisante, n'ecris pas de paroles finales, meme partielles. Accumule d'abord des recherches et des sources."
     );
   }
   if (originalMessage && requestNeedsStrictFactualSearch(originalMessage)) {
@@ -673,9 +685,8 @@ Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une 
 
 ### ENVIRONNEMENT TECHNIQUE :
 - Node.js UNIQUEMENT : cet environnement ne dispose QUE de Node.js. Python n'est PAS installe et ne sera jamais disponible.
-- Ta sortie finale doit rester propre. Pour parler de ce que tu fais pendant l'execution, utilise l'outil 'report_progress' au lieu de polluer la reponse finale.
+- Ta sortie finale doit rester propre. N'expose pas ton raisonnement interne a l'utilisateur.
 - Outils locaux toujours disponibles :
-  - 'report_progress' : ETAPE OBLIGATOIRE avant tout outil actionnable. Tu dois y fournir exactement: 'what_i_know', 'what_i_need', 'why_this_tool', 'expected_result', 'fallback_plan', puis 'completion.score', 'completion.taskComplete' et 'completion.phase'.
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
   - 'review_pdf_draft' : critique un brouillon PDF avant export et dit s'il est pret
   - 'create_pdf' : a utiliser pour tout besoin de PDF
@@ -683,13 +694,11 @@ Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une 
 ${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables
 - 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
 ### COMPORTEMENT ATTENDU :
-1. Commence chaque tour utile par 'report_progress'. Le backend refuse les tours sans raisonnement structure quand une action reste necessaire.
-2. Si l'utilisateur te demande de te documenter, de verifier, de prendre ton temps, ou de produire un contenu creatif base sur un terme, un contexte culturel ou de l'argot, tu dois suivre: plan -> recherche -> verification -> production.
-3. Tu n'as droit qu'a UN SEUL outil actionnable par tour modele. Si tu dois agir, fais d'abord 'report_progress', puis choisis un seul outil parmi 'web_search', 'web_fetch', 'music_catalog_lookup', 'review_pdf_draft', 'create_pdf', 'release_file', etc.
-4. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, une actualite, un briefing ou des recommandations, tu dois effectuer plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n5. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' de qualite 'full' sur une source pertinente avant la synthese finale.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' echoue ou reste faible, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
-6. Quand tu pivotes, bloques, ou changes de strategie, annonce-le via 'report_progress'.
-7. Dans 'completion.score', indique ton estimation de completude en pourcentage. Mets 'completion.taskComplete' a true uniquement si tu penses pouvoir livrer MAINTENANT sans autre outil.
-8. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.
+1. Si l'utilisateur te demande de te documenter, de verifier, ou de traiter un sujet factuel sensible, suis: plan interne -> recherche -> verification -> production.
+2. Tu n'as droit qu'a UN SEUL outil actionnable par tour modele.
+3. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, un briefing ou des recommandations, effectue plusieurs recherches ciblees AVANT de conclure.${capabilities.webSearch ? "\n4. Pour ces demandes web, fais plusieurs 'web_search' avec des angles differents puis au moins un 'web_fetch' de qualite 'full' ET pertinent sur une source pertinente avant la synthese finale.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' echoue ou reste faible, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
+5. Si aucun outil n'est necessaire, livre directement une reponse finale propre sans narration intermediaire.
+6. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.${debugReasoning ? "\n7. Le mode debug autorise 'report_progress' pour tracer la strategie, mais il reste facultatif." : ""}
 
 ### REPERES TEMPORELS :
 ${requestClock
@@ -720,6 +729,53 @@ ${requestClock
 ${trimmedInstruction}`;
 }
 
+function buildCreativeSingleTurnSystemInstruction(
+  userInstruction?: string,
+  runtime?: { originalMessage?: string; requestClock?: RequestClock }
+): string {
+  const requestClock = runtime?.requestClock;
+  const baseInstruction = `Tu es Cowork en mode composition creative mono-appel.
+Ton travail est de reflechir en interne, sans afficher ton raisonnement brut, puis de livrer directement une version finale soignee.
+
+### COMPORTEMENT ATTENDU :
+1. Planifie mentalement la structure avant d'ecrire.
+2. Redige un premier brouillon interne.
+3. Fais une auto-critique interne sur le rythme, la coherence, les rimes et l'impact.
+4. Polishe la version finale avant de repondre.
+5. Ne montre JAMAIS ces etapes a l'utilisateur. Ne donne que le resultat final.
+6. N'appelle aucun outil. N'invente ni source ni actualite si tu n'en as pas besoin.
+
+### REPERES TEMPORELS :
+${requestClock
+  ? `- Date et heure de reference: ${requestClock.absoluteDateTimeLabel} (${requestClock.timeZone}).`
+  : "- Utilise la date courante exacte si elle est indispensable, sinon n'ancre pas artificiellement le texte dans un fait externe."}
+
+### REGLES CRITIQUES :
+1. Si la demande cible des groupes pour les insulter ou les dehumaniser, n'ecris pas cette version.
+2. Si un detail factuel recent n'est pas certain, reste general ou demande une reformulation plus precise dans la reponse finale.
+3. La sortie finale doit etre uniquement le texte livre a l'utilisateur, sans prefacer par des explications sur ton processus.`;
+
+  const trimmedInstruction = userInstruction?.trim();
+  if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
+    return baseInstruction;
+  }
+
+  return `${baseInstruction}
+
+### CONSIGNES SUPPLEMENTAIRES :
+${trimmedInstruction}`;
+}
+
+function buildCoworkAbuseBlockMessage(): string {
+  return "Je ne peux pas aider pour une version qui attaque ou humilie des groupes. Si tu veux, je peux te le recadrer en texte dur contre les comportements, l'hypocrisie et les divisions, sans cibler des groupes entiers.";
+}
+
+function getCoworkPublicPhase(phase: CoworkPhase, executionMode: CoworkExecutionMode): string {
+  if (executionMode === 'creative_single_turn') return phase === 'completed' ? 'completed' : 'composition';
+  if (phase === 'analysis' || phase === 'production') return 'composition';
+  return phase;
+}
+
 function buildCoworkFallbackMessage(releasedFile: { url: string; path?: string } | null): string | null {
   if (!releasedFile?.url) return null;
   const fileName = releasedFile.path ? path.basename(releasedFile.path) : 'le-fichier';
@@ -745,6 +801,10 @@ export const __coworkLoopInternals = {
   getDirectSourceFallbacks,
   getCooldownDelayMs,
   normalizeCoworkPhase,
+  classifyCoworkExecutionMode,
+  requestRequiresAbuseBlock,
+  requestIsPureCreativeComposition,
+  assessReadablePageRelevance,
 };
 
 function normalizeCoworkText(value?: string): string {
@@ -759,9 +819,30 @@ function requestAsksForWriting(message: string): boolean {
   return /\b(punchline|punchlines|rap|texte|paroles|lyrics|son|couplet|refrain|ecris|ecrire|redige|rediger|genere|generer|compose|composer|freestyle|topline)\b/.test(normalized);
 }
 
+function requestMentionsConcreteExternalSubject(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(?:defendre|soutenir|plaider(?:\s+pour)?|repondre a|reponds a|clasher|clashe|attaquer|attaque|denoncer|denonce|charger|charge)\s+(?!mon\b|ma\b|mes\b|ton\b|ta\b|tes\b|notre\b|nos\b|votre\b|vos\b|leur\b|leurs\b|le\b|la\b|les\b|un\b|une\b|des\b|du\b|de la\b|de l(?:['\u2019])|ce\b|cet\b|cette\b|ces\b|moi\b|toi\b|nous\b|vous\b)[a-z0-9'.\u2019-][a-z0-9'.\u2019-]*(?:\s+[a-z0-9'.\u2019-][a-z0-9'.\u2019-]*){0,5}\b/.test(normalized);
+}
+
 function requestMentionsResearchIntent(message: string): boolean {
   const normalized = normalizeCoworkText(message);
   return /\b(documente(?:\s|-)?toi|documente|renseigne(?:\s|-)?toi|renseigne|verifie|verification|verifier|cherche|chercher|recherche|rechercher|creuse|creuser|fouille|fouiller|investigue|investiguer|analyse|analyser|etudie|etudier|apprends?(?:\s+sur)?|informe(?:\s|-)?toi|informe|sources?|references?|contexte|signification|definition|veut dire|argot|slang|terme|expression|autour de lui|autour d'elle|autour d'eux|ce qui se dit|tout ce qu(?:['\u2019])il y a autour|tout ce qu(?:['\u2019])il y a sur lui|tout ce qu(?:['\u2019])il y a sur elle)\b/.test(normalized);
+}
+
+function requestNeedsExternalGrounding(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  const asksForWriting = requestAsksForWriting(message);
+  const explicitResearchIntent = requestMentionsResearchIntent(message);
+  const legalOrCaseSignals =
+    /\b(proces|tribunal|justice|plainte|plaignant|plaignante|accusation|accuse|accusee|condamn|verdict|jugement|cour|mandat|arret|prison|viol|agression|police|avocat|extrad|detention)\b/.test(normalized);
+  const documentarySignals =
+    /\b(documentation|docs?|version|release|sortie|mise a jour|update|benchmark|compar|compare|comparatif|roadmap|api|sdk|modele|model)\b/.test(normalized);
+
+  if (requestNeedsMusicCatalogResearch(message)) return true;
+  if (documentarySignals || legalOrCaseSignals) return true;
+  if (!asksForWriting) return explicitResearchIntent || requestNeedsCurrentDateGrounding(message);
+
+  return explicitResearchIntent || legalOrCaseSignals || requestMentionsConcreteExternalSubject(message);
 }
 
 function requestNeedsTopicalCreativeResearch(message: string): boolean {
@@ -774,18 +855,43 @@ function requestNeedsTopicalCreativeResearch(message: string): boolean {
     || requestNeedsCurrentDateGrounding(message)
     || /\b(affaire|dossier|proces|tribunal|justice|plainte|accusation|accuse|polemique|controverse|buzz|reaction|reactions|suite a|en ce moment|du moment)\b/.test(normalized);
   const stanceVerbPattern = /\b(defendre|defense|soutenir|soutien|plaider|plaidoyer|repondre a|reponds a|reponds|clasher|clashe|attaque|attaquer|denoncer|denonce|charger|charge)\b/;
-  const looksLikeConcreteExternalSubject =
-    /\b(?:defendre|soutenir|plaider(?:\s+pour)?|repondre a|reponds a|clasher|clashe|attaquer|attaque|denoncer|denonce|charger|charge)\s+(?!mon\b|ma\b|mes\b|ton\b|ta\b|tes\b|notre\b|nos\b|votre\b|vos\b|leur\b|leurs\b|le\b|la\b|les\b|un\b|une\b|des\b|du\b|de la\b|de l(?:['\u2019])|ce\b|cet\b|cette\b|ces\b|moi\b|toi\b|nous\b|vous\b)[a-z0-9'.\u2019-][a-z0-9'.\u2019-]*(?:\s+[a-z0-9'.\u2019-][a-z0-9'.\u2019-]*){0,5}\b/.test(normalized);
+  const looksLikeConcreteExternalSubject = requestMentionsConcreteExternalSubject(message);
 
   return recentContextSignals || (stanceVerbPattern.test(normalized) && looksLikeConcreteExternalSubject);
 }
 
 function requestNeedsGroundedWriting(message: string): boolean {
-  return requestAsksForWriting(message)
-    && (
-      requestMentionsResearchIntent(message)
-      || requestNeedsTopicalCreativeResearch(message)
-    );
+  return requestAsksForWriting(message) && requestNeedsExternalGrounding(message);
+}
+
+function requestIsPureCreativeComposition(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  if (!requestAsksForWriting(message)) return false;
+  if (requestNeedsDownloadableArtifact(message) || requestNeedsPdfArtifact(message)) return false;
+  if (requestNeedsMusicCatalogResearch(message)) return false;
+  if (requestNeedsExternalGrounding(message)) return false;
+  return !/\b(fichier|document|pdf|api|sdk|documentation|docs?|version|release|package|repo|code|source|vercel|firebase|session|prompt system|system prompt|du jour|today|latest)\b/.test(normalized);
+}
+
+function requestRequiresAbuseBlock(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  const attackIntent =
+    /\b(insulte|insulter|insultes|demolis|demolir|demonte|demonter|humilie|humilier|termine(?:-les| les| tout le monde)?|salement|sans pitie|mechant|violent|haineux|dechire|massacre|fume|ecrase|detruis|detruire|dehumanise|dehumaniser|kaffar|takfir|sale|grandes putes|putes?|merde)\b/.test(normalized);
+  if (!attackIntent) return false;
+
+  const protectedOrGroupTargets =
+    /\b(musulmans?|chiites?|salafistes?|juifs?|juives?|chretiens?|chretiennes?|athees?|agnostiques?|maghrebins?|arabes?|irakiens?|iraniens?|marocains?|algeriens?|tunisiens?|noirs?|blancs?|asiatiques?|femmes?|hommes?|immigres?|etrangers?)\b/.test(normalized);
+  return protectedOrGroupTargets;
+}
+
+function classifyCoworkExecutionMode(message: string): CoworkExecutionMode {
+  if (requestNeedsDownloadableArtifact(message) || requestNeedsPdfArtifact(message)) {
+    return 'artifact_loop';
+  }
+  if (requestIsPureCreativeComposition(message)) {
+    return 'creative_single_turn';
+  }
+  return 'research_loop';
 }
 
 function requestNeedsMusicCatalogResearch(message: string): boolean {
@@ -802,8 +908,8 @@ function requestNeedsMusicCatalogResearch(message: string): boolean {
 
 function requestNeedsStrictFactualSearch(message: string): boolean {
   const normalized = normalizeCoworkText(message);
-  return requestNeedsCurrentDateGrounding(message)
-    || requestNeedsGroundedWriting(message)
+  return (!requestAsksForWriting(message) && requestNeedsCurrentDateGrounding(message))
+    || requestNeedsExternalGrounding(message)
     || /\b(proces|tribunal|justice|plainte|plaignant|plaignante|accusation|accuse|accusee|condamn|verdict|jugement|cour|mandat|arret|prison|viol|agression|police|avocat|extrad|detention)\b/.test(normalized)
     || /\b(documentation|docs?|version|release|sortie|mise a jour|update|benchmark|compar|compare|comparatif|roadmap|api|sdk|modele|model)\b/.test(normalized);
 }
@@ -1295,7 +1401,6 @@ function normalizeSearchResultUrl(rawUrl: string): string {
 function requestNeedsDeepResearch(message: string): boolean {
   const normalized = normalizeCoworkText(message);
   return requestNeedsStrictFactualSearch(message)
-    || requestNeedsGroundedWriting(message)
     || requestNeedsMusicCatalogResearch(message)
     || /\b(latest|recent|today|aujourd'hui|du jour|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide|recherche|recherches|search|searches)\b/.test(normalized);
 }
@@ -1383,7 +1488,7 @@ Minimum attendu pour cette demande: ${targets.webSearches} recherche(s) visibles
 Etat actuel: ${stats.webSearches} recherche(s) validee(s), ${stats.webFetches} lecture(s) fiable(s), ${stats.degradedSearches} recherche(s) degradee(s), ${stats.blockedQueryFamilies} famille(s) bloquee(s).
 ${stats.musicCatalogCoverage ? `Couverture musique actuelle: ${stats.musicCatalogCoverage.distinctDomains} domaine(s), page catalogue=${stats.musicCatalogCoverage.hasCatalogPage ? 'oui' : 'non'}, tracklist album=${stats.musicCatalogCoverage.hasAlbumTracklist ? 'oui' : 'non'}.` : ''}
 Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
-Utilise aussi 'report_progress' pour annoncer ce que tu verifies, puis seulement ensuite redige la synthese finale.`;
+Redige la synthese finale seulement apres avoir fini ces verifications.`;
 }
 
 function detectDirectSourceCategory(message: string): DirectSourceCategory {
@@ -1478,14 +1583,6 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
   const enoughResearchViaDirectSources =
     !explicitSearchCount && research.webSearches === 0 && research.webFetches >= Math.max(2, targets.webFetches);
 
-  if (!nextState.lastReasoning) {
-    blockers.push({
-      code: 'missing_reasoning',
-      message: "Commence par 'report_progress' avec le raisonnement structure obligatoire avant d'agir.",
-      hard: true,
-    });
-  }
-
   if (requestNeedsDeepResearch(originalMessage) && !(enoughResearchViaSearches || enoughResearchViaDirectSources)) {
     blockers.push({
       code: 'research_incomplete',
@@ -1539,10 +1636,7 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
     ? (latestApprovedPdfReviewSignature ? 10 : 0) + (latestCreatedArtifactPath ? 7 : 0) + (latestReleasedFile?.url ? 8 : 0)
     : 15;
   const blockerPenalty = blockers.reduce((sum, blocker) => sum + (blocker.hard ? 10 : 5), 0);
-  nextState.completionScore = clampPercentage(Math.max(
-    nextState.modelCompletionScore,
-    baseScore + artifactScore - blockerPenalty
-  ));
+  nextState.completionScore = clampPercentage(Math.max(0, baseScore + artifactScore - blockerPenalty));
   nextState.blockers = blockers;
   nextState.effectiveTaskComplete = nextState.modelTaskComplete && blockers.length === 0;
   nextState.pendingFinalAnswer = nextState.effectiveTaskComplete;
@@ -1581,7 +1675,6 @@ Bloquants a lever:
 ${blockerLines}
 
 Consigne obligatoire:
-- Commence par 'report_progress' avec le schema structure complet.
 - Si tu dois agir ensuite, choisis UN SEUL outil actionnable.
 - Si la recherche moteur est bloquee, pivote vers 'web_fetch' sur une source directe au lieu de reformuler la meme requete.`;
 }
@@ -1630,6 +1723,7 @@ type SearchOutcome = {
 };
 
 type ReadableFetchQuality = 'full' | 'partial' | 'shell' | 'serp';
+type FetchRelevance = 'relevant' | 'degraded' | 'off_topic';
 
 type ReadablePage = {
   url: string;
@@ -1639,6 +1733,9 @@ type ReadablePage = {
   excerpt: string;
   source: string;
   quality: ReadableFetchQuality;
+  relevance: FetchRelevance;
+  relevanceScore: number;
+  matchedAnchors: string[];
   domain: string;
   isSearchPage: boolean;
   isCatalogEvidence: boolean;
@@ -1679,12 +1776,16 @@ type MusicResearchProgress = {
   webFetches: number;
   degradedSearches: number;
   blockedQueryFamilies: number;
+  validatedFetches?: number;
   musicCatalogCompleted?: boolean;
   musicCatalogCoverage?: MusicCatalogCoverage | null;
 };
 
+type CoworkExecutionMode = 'creative_single_turn' | 'research_loop' | 'artifact_loop';
+
 type CoworkPhase =
   | 'analysis'
+  | 'composition'
   | 'research'
   | 'verification'
   | 'production'
@@ -1757,6 +1858,9 @@ type CoworkSessionState = {
   lastReasoning: CoworkReasoning | null;
   reasoningReady: boolean;
   pendingFinalAnswer: boolean;
+  stalledTurns: number;
+  lastProgressFingerprint: string | null;
+  lastActionSignature: string | null;
 };
 
 type CompletionComputationOptions = {
@@ -2109,6 +2213,29 @@ function resultsLookRelevant(query: string, results: SearchResultItem[], options
   return assessSearchResults(query, results, options).quality === 'relevant';
 }
 
+function assessReadablePageRelevance(
+  query: string | undefined,
+  page: Pick<ReadablePage, 'title' | 'url' | 'excerpt' | 'source'>,
+  options: { strict?: boolean } = {}
+): SearchAssessment {
+  const normalizedQuery = query?.trim();
+  if (!normalizedQuery) {
+    return {
+      quality: 'relevant',
+      bestScore: 1,
+      matchedAnchors: [],
+      matchedResults: 1,
+    };
+  }
+
+  return assessSearchResults(normalizedQuery, [{
+    title: page.title,
+    url: page.url,
+    snippet: `${page.excerpt}`,
+    source: page.source,
+  }], options);
+}
+
 function parseRssResults(
   xml: string,
   source: string,
@@ -2360,7 +2487,11 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
   };
 }
 
-async function fetchDirectReadablePage(parsed: URL, headers: Record<string, string>): Promise<ReadablePage> {
+async function fetchDirectReadablePage(
+  parsed: URL,
+  headers: Record<string, string>,
+  contextQuery?: string
+): Promise<ReadablePage> {
   const direct = await fetch(parsed.toString(), { headers, redirect: 'follow' });
   if (!direct.ok) {
     throw new Error(`Impossible de lire ${parsed.toString()} (${direct.status})`);
@@ -2375,6 +2506,12 @@ async function fetchDirectReadablePage(parsed: URL, headers: Record<string, stri
     ? stripHtml(rawText)
     : rawText.replace(/\s+/g, ' ').trim();
   const quality = getReadablePageQuality(parsed.toString(), content);
+  const relevance = assessReadablePageRelevance(contextQuery, {
+    title: clipText(title || parsed.hostname, 160),
+    url: parsed.toString(),
+    excerpt: normalizeReadableExcerpt(content),
+    source: contentType.includes('text/html') ? 'direct-html' : 'direct-text',
+  }, { strict: contextQuery ? requestNeedsStrictFactualSearch(contextQuery) : false });
 
   return {
     url: parsed.toString(),
@@ -2384,13 +2521,20 @@ async function fetchDirectReadablePage(parsed: URL, headers: Record<string, stri
     excerpt: normalizeReadableExcerpt(content),
     source: contentType.includes('text/html') ? 'direct-html' : 'direct-text',
     quality,
+    relevance: relevance.quality,
+    relevanceScore: relevance.bestScore,
+    matchedAnchors: relevance.matchedAnchors,
     domain: stripWww(parsed.hostname),
     isSearchPage: quality === 'serp',
     isCatalogEvidence: quality === 'full' && !isLikelySearchEngineUrl(parsed.toString())
   };
 }
 
-async function fetchJinaReadablePage(parsed: URL, headers: Record<string, string>): Promise<ReadablePage> {
+async function fetchJinaReadablePage(
+  parsed: URL,
+  headers: Record<string, string>,
+  contextQuery?: string
+): Promise<ReadablePage> {
   const jinaUrl = `https://r.jina.ai/http://${parsed.host}${parsed.pathname}${parsed.search}`;
   const response = await fetch(jinaUrl, { headers, redirect: 'follow' });
   if (!response.ok) {
@@ -2401,6 +2545,12 @@ async function fetchJinaReadablePage(parsed: URL, headers: Record<string, string
   const title = parseJinaTitle(rawText) || parsed.hostname;
   const content = rawText.replace(/\r/g, '').trim();
   const quality = getReadablePageQuality(parsed.toString(), content);
+  const relevance = assessReadablePageRelevance(contextQuery, {
+    title: clipText(title, 160),
+    url: parsed.toString(),
+    excerpt: normalizeReadableExcerpt(content),
+    source: 'jina-ai',
+  }, { strict: contextQuery ? requestNeedsStrictFactualSearch(contextQuery) : false });
 
   return {
     url: parsed.toString(),
@@ -2410,13 +2560,16 @@ async function fetchJinaReadablePage(parsed: URL, headers: Record<string, string
     excerpt: normalizeReadableExcerpt(content),
     source: 'jina-ai',
     quality,
+    relevance: relevance.quality,
+    relevanceScore: relevance.bestScore,
+    matchedAnchors: relevance.matchedAnchors,
     domain: stripWww(parsed.hostname),
     isSearchPage: quality === 'serp',
     isCatalogEvidence: quality === 'full' && !isLikelySearchEngineUrl(parsed.toString())
   };
 }
 
-async function fetchReadableUrlDetailed(url: string): Promise<ReadablePage> {
+async function fetchReadableUrlDetailed(url: string, contextQuery?: string): Promise<ReadablePage> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -2439,7 +2592,7 @@ async function fetchReadableUrlDetailed(url: string): Promise<ReadablePage> {
 
   if (!preferJina) {
     try {
-      directPage = await fetchDirectReadablePage(parsed, headers);
+      directPage = await fetchDirectReadablePage(parsed, headers, contextQuery);
     } catch (error) {
       errors.push(parseApiError(error));
     }
@@ -2452,7 +2605,7 @@ async function fetchReadableUrlDetailed(url: string): Promise<ReadablePage> {
     || (isMusicPlatformDomain(stripWww(parsed.hostname)) && readableQualityScore(directPage.quality) < 3)
   ) {
     try {
-      jinaPage = await fetchJinaReadablePage(parsed, headers);
+      jinaPage = await fetchJinaReadablePage(parsed, headers, contextQuery);
     } catch (error) {
       errors.push(parseApiError(error));
     }
@@ -2460,7 +2613,7 @@ async function fetchReadableUrlDetailed(url: string): Promise<ReadablePage> {
 
   if (!directPage && !preferJina) {
     try {
-      directPage = await fetchDirectReadablePage(parsed, headers);
+      directPage = await fetchDirectReadablePage(parsed, headers, contextQuery);
     } catch (error) {
       errors.push(parseApiError(error));
     }
@@ -2477,8 +2630,8 @@ async function fetchReadableUrlDetailed(url: string): Promise<ReadablePage> {
   return bestPage;
 }
 
-async function fetchReadableUrl(url: string) {
-  const page = await fetchReadableUrlDetailed(url);
+async function fetchReadableUrl(url: string, contextQuery?: string) {
+  const page = await fetchReadableUrlDetailed(url, contextQuery);
   return {
     url: page.url,
     title: page.title,
@@ -2486,6 +2639,9 @@ async function fetchReadableUrl(url: string) {
     excerpt: page.excerpt,
     source: page.source,
     quality: page.quality,
+    relevance: page.relevance,
+    relevanceScore: page.relevanceScore,
+    matchedAnchors: page.matchedAnchors,
     domain: page.domain,
     isCatalogEvidence: page.isCatalogEvidence
   };
@@ -3485,6 +3641,8 @@ app.post('/api/cowork', async (req, res) => {
     const requestClock = resolveRequestClock(clientContext);
     const researchTargets = getResearchTargets(message);
     const pdfQualityTargets = getPdfQualityTargets(message);
+    const executionMode = classifyCoworkExecutionMode(message);
+    const abuseBlocked = requestRequiresAbuseBlock(message);
 
     // Model ID mapping
     let modelId = config.model;
@@ -3495,9 +3653,10 @@ app.post('/api/cowork', async (req, res) => {
 
     const ai = createGoogleAI(modelId);
 
-    const webSearchEnabled = config.googleSearch !== false;
+    const webSearchEnabled = executionMode !== 'creative_single_turn' && config.googleSearch !== false;
     const executeScriptEnabled = config.codeExecution !== false;
     const strictFactualSearch = requestNeedsStrictFactualSearch(message);
+    let lastSuccessfulSearchQuery: string | null = null;
 
     const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
     const formatToolMeta = (toolName: string, args: any) => {
@@ -3544,6 +3703,9 @@ app.post('/api/cowork', async (req, res) => {
         return {
           domain: clipText(output?.domain || '', 40),
           quality: clipText(output?.quality || '', 20),
+          relevance: clipText(output?.relevance || '', 20),
+          score: Number(output?.relevanceScore || 0),
+          anchors: Array.isArray(output?.matchedAnchors) ? output.matchedAnchors.length : 0,
           searchPage: Boolean(output?.isSearchPage),
         };
       }
@@ -3584,7 +3746,7 @@ app.post('/api/cowork', async (req, res) => {
         return `${qualityPrefix}${queryPrefix}${summary || clipText(output?.message || output?.error || '', 220)}${warnings}`.trim();
       }
       if (toolName === 'web_fetch') {
-        const qualityPrefix = output?.quality ? `[${String(output.quality)}${output?.domain ? ` ${output.domain}` : ''}] ` : '';
+        const qualityPrefix = output?.quality ? `[${String(output.quality)}${output?.relevance ? `/${String(output.relevance)}` : ''}${output?.domain ? ` ${output.domain}` : ''}] ` : '';
         return `${qualityPrefix}${clipText(output?.excerpt || output?.content || output?.message || output?.error || '', 220)}`.trim();
       }
       if (toolName === 'review_pdf_draft') {
@@ -3599,9 +3761,9 @@ app.post('/api/cowork', async (req, res) => {
     let latestApprovedPdfReviewSignature: string | null = null;
 
     const localTools = [
-      {
+      ...(COWORK_DEBUG_REASONING && executionMode !== 'creative_single_turn' ? [{
         name: "report_progress",
-        description: "Raisonnement structure obligatoire avant tout outil actionnable. Fournit l'etat des connaissances, le manque precise, le pourquoi du prochain outil, le resultat attendu, le plan B, et un score de completude.",
+        description: "Outil debug de raisonnement structure. Fournit l'etat des connaissances, le manque precise, le pourquoi du prochain outil, le resultat attendu, le plan B, et un score de completude.",
         parameters: {
           type: "object",
           properties: {
@@ -3615,7 +3777,7 @@ app.post('/api/cowork', async (req, res) => {
               properties: {
                 score: { type: "number", description: "Estimation de completude en pourcentage, de 0 a 100." },
                 taskComplete: { type: "boolean", description: "true uniquement si tu estimes pouvoir livrer sans autre outil." },
-                phase: { type: "string", description: "Une des phases: analysis, research, verification, production, delivery, completed." }
+                phase: { type: "string", description: "Une des phases: analysis, composition, research, verification, production, delivery, completed." }
               },
               required: ["score", "taskComplete", "phase"]
             }
@@ -3644,7 +3806,8 @@ app.post('/api/cowork', async (req, res) => {
           success: true,
           reasoning: parseReasoningPayload(args)
         })
-      },
+      }
+      ] : []),
       {
         name: "music_catalog_lookup",
         description: "Resout un artiste musical et compare les titres deja possedes avec les sorties officielles confirmees (singles, album, feats optionnels). A utiliser en premier pour les demandes du type 'qu'est-ce qu'il me manque ?'.",
@@ -3820,11 +3983,11 @@ app.post('/api/cowork', async (req, res) => {
           required: ["url"]
         },
         execute: async ({ url }: { url: string }) => {
-          const page = await fetchReadableUrl(url);
+          const page = await fetchReadableUrl(url, lastSuccessfulSearchQuery || message);
           return {
             success: true,
             ...page,
-            message: `Source lue avec succes: ${page.title} (${page.quality}).`
+            message: `Source lue avec succes: ${page.title} (${page.quality}/${page.relevance}).`
           };
         }
       }] : []),
@@ -4572,7 +4735,7 @@ app.post('/api/cowork', async (req, res) => {
       }] : [])
     ];
 
-    const tools = localTools.length > 0 ? [{
+    const tools = executionMode === 'creative_single_turn' ? undefined : localTools.length > 0 ? [{
       functionDeclarations: localTools.map(t => ({
         name: t.name,
         description: t.description,
@@ -4587,13 +4750,21 @@ app.post('/api/cowork', async (req, res) => {
       maxOutputTokens: config.maxOutputTokens || 65536,
       thinkingLevel: config.thinkingLevel || 'high', // ENABLE THINKING
       maxThoughtTokens: config.maxThoughtTokens || 4096,
-      systemInstruction: buildCoworkSystemInstruction(config.systemInstruction, {
-        webSearch: webSearchEnabled,
-        executeScript: executeScriptEnabled
-      }, {
-        originalMessage: message,
-        requestClock
-      })
+      systemInstruction: executionMode === 'creative_single_turn'
+        ? buildCreativeSingleTurnSystemInstruction(config.systemInstruction, {
+            originalMessage: message,
+            requestClock
+          })
+        : buildCoworkSystemInstruction(config.systemInstruction, {
+            webSearch: webSearchEnabled,
+            executeScript: executeScriptEnabled
+          }, {
+            originalMessage: message,
+            requestClock
+          }, {
+            executionMode,
+            debugReasoning: COWORK_DEBUG_REASONING
+          })
     };
     if (tools) genConfig.tools = tools;
 
@@ -4606,10 +4777,97 @@ app.post('/api/cowork', async (req, res) => {
     let iterations = 0;
     const FAILSAFE_MAX_ITERATIONS = 50;
     let finalVisibleText = '';
+    let finalTextEmitted = false;
     let latestReleasedFile: { url: string; path?: string } | null = null;
     let latestCreatedArtifactPath: string | null = null;
     const runMeta = createEmptyCoworkRunMeta();
+    runMeta.executionMode = executionMode;
+    runMeta.publicPhase = getCoworkPublicPhase('analysis', executionMode);
     let sessionState = createEmptyCoworkSessionState();
+
+    if (abuseBlocked) {
+      const blockedMessage = buildCoworkAbuseBlockMessage();
+      runMeta.phase = 'completed';
+      runMeta.publicPhase = 'completed';
+      runMeta.completionScore = 100;
+      runMeta.modelCompletionScore = 100;
+      runMeta.taskComplete = true;
+      emitEvent('status', {
+        iteration: 0,
+        title: 'Recadrage',
+        message: "La demande a ete stoppee avant execution et reformulee proprement.",
+        runState: 'running',
+        runMeta
+      });
+      emitEvent('text_delta', {
+        iteration: 0,
+        text: blockedMessage,
+        runMeta
+      });
+      emitEvent('done', {
+        iteration: 0,
+        runState: 'completed',
+        runMeta
+      });
+      res.end();
+      return;
+    }
+
+    if (executionMode === 'creative_single_turn') {
+      runMeta.phase = 'composition';
+      runMeta.publicPhase = 'composition';
+      emitEvent('status', {
+        iteration: 0,
+        title: 'Composition',
+        message: 'Plan interne, redaction et relecture en cours.',
+        runState: 'running',
+        runMeta
+      });
+
+      const response = await retryWithBackoff(() => ai.models.generateContent({
+        model: modelId,
+        contents,
+        config: genConfig
+      }), {
+        maxRetries: 3,
+        exactDelaysMs: [2000, 4000, 8000],
+        jitter: false,
+        onRetry: async ({ delayMs, kind, message: retryMessage }) => {
+          runMeta.retryCount += 1;
+          emitEvent('warning', {
+            iteration: 1,
+            title: 'Attente modele',
+            message:
+              kind === 'concurrency'
+                ? `Saturation simultanee detectee. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
+                : kind === 'server'
+                  ? `Le modele est temporairement indisponible. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
+                  : `Quota ou limite temporaire detecte. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`,
+            runMeta
+          });
+        }
+      });
+
+      accumulateUsageTotals(runMeta, modelId, response);
+      const singleTurnText = String(response.text || '').trim() || "Je n'ai pas pu finaliser ce texte proprement dans ce tour.";
+      runMeta.phase = 'completed';
+      runMeta.publicPhase = 'completed';
+      runMeta.completionScore = 100;
+      runMeta.modelCompletionScore = 100;
+      runMeta.taskComplete = true;
+      emitEvent('text_delta', {
+        iteration: 1,
+        text: singleTurnText,
+        runMeta
+      });
+      emitEvent('done', {
+        iteration: 1,
+        runState: 'completed',
+        runMeta
+      });
+      res.end();
+      return;
+    }
 
     const toolFailureScopes = new Map<string, number>();
     const MAX_TOOL_FAILURES = 2;
@@ -4626,7 +4884,9 @@ app.post('/api/cowork', async (req, res) => {
     let lastSearchExactKey: string | null = null;
 
     const syncRunMeta = () => {
+      runMeta.executionMode = executionMode;
       runMeta.phase = sessionState.phase;
+      runMeta.publicPhase = getCoworkPublicPhase(sessionState.phase, executionMode);
       runMeta.completionScore = sessionState.completionScore;
       runMeta.modelCompletionScore = sessionState.modelCompletionScore;
       runMeta.taskComplete = sessionState.effectiveTaskComplete;
@@ -4646,6 +4906,60 @@ app.post('/api/cowork', async (req, res) => {
         latestApprovedPdfReviewSignature
       });
       syncRunMeta();
+    };
+
+    const buildProgressFingerprint = () => JSON.stringify({
+      executionMode,
+      webSearches: successfulResearchMeta.webSearches,
+      webFetches: successfulResearchMeta.webFetches,
+      validatedSources: sessionState.sourcesValidated.length,
+      latestCreatedArtifactPath: latestCreatedArtifactPath || null,
+      latestReleasedFile: latestReleasedFile?.url || null,
+      phase: sessionState.phase,
+      blockers: sessionState.blockers.map(blocker => blocker.code).sort(),
+    });
+
+    const registerProgressState = (actionSignature: string) => {
+      const fingerprint = buildProgressFingerprint();
+      const sameProgress = sessionState.lastProgressFingerprint === fingerprint;
+      const sameAction = sessionState.lastActionSignature === actionSignature;
+      if (sameProgress && sameAction) {
+        sessionState.stalledTurns += 1;
+      } else {
+        sessionState.stalledTurns = 0;
+      }
+      sessionState.lastProgressFingerprint = fingerprint;
+      sessionState.lastActionSignature = actionSignature;
+      return sessionState.stalledTurns;
+    };
+
+    const handleNoProgress = (actionSignature: string, blockerPrompt?: string | null) => {
+      const stalledTurns = registerProgressState(actionSignature);
+      if (stalledTurns <= 0) return false;
+
+      const message =
+        stalledTurns === 1
+          ? "Aucun progres concret sur ce tour. Passe a une vraie action utile ou change d'angle."
+          : stalledTurns === 2
+            ? "Toujours aucun progres concret. La prochaine repetition similaire arretera proprement la boucle."
+            : "Je m'arrete proprement: Cowork tourne sans progres concret. Je coupe la boucle au lieu de consommer d'autres appels modele.";
+
+      emitEvent('warning', {
+        iteration: iterations,
+        title: 'Aucun progres',
+        message,
+        meta: { stalledTurns, action: clipText(actionSignature, 120) },
+        runMeta
+      });
+
+      if (stalledTurns >= 3) {
+        finalVisibleText = blockerPrompt
+          ? `${message}\n\n${blockerPrompt}`
+          : message;
+        return true;
+      }
+
+      return false;
     };
 
     const recordBlockedTool = (toolName: string, scope: string, reason: string, until?: number) => {
@@ -4848,7 +5162,7 @@ app.post('/api/cowork', async (req, res) => {
       for (const part of turnParts) {
         if (part.thought) {
           const thoughtText = (part as any).text || part.text || '';
-          if (thoughtText) {
+          if (thoughtText && COWORK_DEBUG_REASONING) {
             emitEvent('thought', { iteration: iterations, text: thoughtText });
           }
           continue;
@@ -4879,13 +5193,15 @@ app.post('/api/cowork', async (req, res) => {
         const firstActionableIndex = functionCalls.findIndex(call => call.name !== 'report_progress');
         let turnViolation: string | null = null;
 
-        if (reportCalls.length > 1) {
+        if (!COWORK_DEBUG_REASONING && reportCalls.length > 0) {
+          turnViolation = "'report_progress' n'est pas disponible dans le mode normal. Agis directement avec un outil utile ou reponds.";
+        } else if (reportCalls.length > 1) {
           turnViolation = "N'envoie qu'un seul 'report_progress' par tour.";
         } else if (actionableCalls.length > 1) {
           turnViolation = "N'appelle qu'un seul outil actionnable par tour.";
-        } else if (actionableCalls.length === 1 && reportCalls.length !== 1) {
+        } else if (COWORK_DEBUG_REASONING && actionableCalls.length === 1 && reportCalls.length !== 1) {
           turnViolation = "Tu dois appeler 'report_progress' juste avant l'outil actionnable.";
-        } else if (reportCalls.length === 1 && actionableCalls.length === 1 && reportIndex > firstActionableIndex) {
+        } else if (COWORK_DEBUG_REASONING && reportCalls.length === 1 && actionableCalls.length === 1 && reportIndex > firstActionableIndex) {
           turnViolation = "'report_progress' doit venir avant l'outil actionnable, jamais apres.";
         }
 
@@ -4901,7 +5217,7 @@ app.post('/api/cowork', async (req, res) => {
           });
           contents.push({
             role: 'user',
-            parts: [{ text: `${turnViolation}\nReprends proprement avec un seul 'report_progress' structure, puis au besoin un seul outil actionnable.` }]
+            parts: [{ text: COWORK_DEBUG_REASONING ? `${turnViolation}\nReprends proprement avec un seul 'report_progress' structure, puis au besoin un seul outil actionnable.` : `${turnViolation}\nReprends avec un seul outil actionnable utile, ou reponds directement si aucun outil n'est necessaire.` }]
           });
           continue;
         }
@@ -4948,18 +5264,20 @@ app.post('/api/cowork', async (req, res) => {
               sessionState.modelTaskComplete = reasoning.completion.taskComplete;
               addFacts(reasoning.what_i_know);
               refreshSessionState();
-              emitEvent('reasoning', {
-                iteration: iterations,
-                title: `Phase ${reasoning.completion.phase}`,
-                message: summarizeReasoning(reasoning),
-                meta: {
-                  phase: reasoning.completion.phase,
-                  completion: `${reasoning.completion.score}%`,
-                  taskComplete: reasoning.completion.taskComplete,
-                  blockers: sessionState.blockers.length
-                },
-                runMeta
-              });
+              if (COWORK_DEBUG_REASONING) {
+                emitEvent('reasoning', {
+                  iteration: iterations,
+                  title: `Phase ${reasoning.completion.phase}`,
+                  message: summarizeReasoning(reasoning),
+                  meta: {
+                    phase: reasoning.completion.phase,
+                    completion: `${reasoning.completion.score}%`,
+                    taskComplete: reasoning.completion.taskComplete,
+                    blockers: sessionState.blockers.length
+                  },
+                  runMeta
+                });
+              }
               continue;
             }
 
@@ -5090,7 +5408,10 @@ app.post('/api/cowork', async (req, res) => {
               const fetchQuality = tool.name === 'web_fetch'
                 ? ((output as any).quality as ReadableFetchQuality | undefined) || 'serp'
                 : null;
-              const hasValidatingFetch = tool.name === 'web_fetch' && fetchQuality === 'full';
+              const fetchRelevance = tool.name === 'web_fetch'
+                ? ((output as any).relevance as FetchRelevance | undefined) || 'off_topic'
+                : null;
+              const hasValidatingFetch = tool.name === 'web_fetch' && fetchQuality === 'full' && fetchRelevance === 'relevant';
               const reviewNotReady = tool.name === 'review_pdf_draft' && (output as any).ready === false;
               const warningResult =
                 recoverableIssue
@@ -5101,6 +5422,9 @@ app.post('/api/cowork', async (req, res) => {
 
               if (tool.name === 'web_search') {
                 lastSearchExactKey = toolScope.exactKey;
+                if (!isError && typeof (output as any).query === 'string') {
+                  lastSuccessfulSearchQuery = String((output as any).query);
+                }
               }
 
               if (!isError && tool.name === 'release_file' && typeof (output as any).url === 'string') {
@@ -5183,6 +5507,7 @@ app.post('/api/cowork', async (req, res) => {
                 }
                 if (tool.name === 'web_fetch' && hasValidatingFetch) {
                   successfulResearchMeta.webFetches += 1;
+                  successfulResearchMeta.validatedFetches = (successfulResearchMeta.validatedFetches || 0) + 1;
                   addValidatedSource({
                     url: String((output as any).url || (call.args as any)?.url || ''),
                     domain: String((output as any).domain || ''),
@@ -5256,7 +5581,7 @@ app.post('/api/cowork', async (req, res) => {
                 emitEvent('warning', {
                   iteration: iterations,
                   title: 'Source non validante',
-                  message: `La lecture de '${clipText((output as any).url || toolScope.label, 120)}' est ${fetchQuality || 'partielle'} et ne valide pas encore la recherche.`,
+                  message: `La lecture de '${clipText((output as any).url || toolScope.label, 120)}' est ${fetchQuality || 'partielle'} avec pertinence ${fetchRelevance || 'off_topic'} et ne valide pas encore la recherche.`,
                   toolName: tool.name,
                   meta: formatToolResultMeta(tool.name, call.args, output),
                   runMeta
@@ -5347,6 +5672,9 @@ app.post('/api/cowork', async (req, res) => {
           contents.push({ role: 'user', parts: toolResults });
           refreshSessionState();
           const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
+          if (handleNoProgress(functionCalls.map(call => call.name).join('+') || 'tool_turn', blockerPrompt)) {
+            break;
+          }
           if (blockerPrompt) {
             if (sessionState.blockers.length > 0) {
               emitEvent('warning', {
@@ -5370,6 +5698,9 @@ app.post('/api/cowork', async (req, res) => {
 
       if (!iterationVisibleText.trim()) {
         const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
+        if (handleNoProgress('empty_turn', blockerPrompt)) {
+          break;
+        }
         if (blockerPrompt) {
           contents.push({ role: 'user', parts: [{ text: blockerPrompt }] });
           continue;
@@ -5379,6 +5710,9 @@ app.post('/api/cowork', async (req, res) => {
       if (iterationVisibleText.trim()) {
         if (!sessionState.effectiveTaskComplete) {
           const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
+          if (handleNoProgress('blocked_visible_text', blockerPrompt)) {
+            break;
+          }
           emitEvent('warning', {
             iteration: iterations,
             title: 'Finalisation refusee',
@@ -5387,7 +5721,7 @@ app.post('/api/cowork', async (req, res) => {
           });
           contents.push({
             role: 'user',
-            parts: [{ text: blockerPrompt || "La tache n'est pas encore complete. Reprends avec un 'report_progress' structure." }]
+            parts: [{ text: blockerPrompt || "La tache n'est pas encore complete. Reprends avec une action utile ou une reponse finale seulement si tous les blocages sont leves." }]
           });
           continue;
         }
@@ -5397,6 +5731,7 @@ app.post('/api/cowork', async (req, res) => {
         sessionState.phase = 'completed';
         refreshSessionState();
         emitEvent('text_delta', { iteration: iterations, text: iterationVisibleText, runMeta });
+        finalTextEmitted = true;
         break;
       }
     }
@@ -5414,6 +5749,7 @@ app.post('/api/cowork', async (req, res) => {
         runMeta
       });
       emitEvent('text_delta', { iteration: iterations, text: finalVisibleText, runMeta });
+      finalTextEmitted = true;
     }
 
     if (!finalVisibleText.trim()) {
@@ -5421,7 +5757,13 @@ app.post('/api/cowork', async (req, res) => {
       if (fallbackMessage) {
         finalVisibleText = fallbackMessage;
         emitEvent('text_delta', { iteration: iterations, text: fallbackMessage, runMeta });
+        finalTextEmitted = true;
       }
+    }
+
+    if (finalVisibleText.trim() && !finalTextEmitted) {
+      emitEvent('text_delta', { iteration: iterations, text: finalVisibleText, runMeta });
+      finalTextEmitted = true;
     }
 
     emitEvent('done', {

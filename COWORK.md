@@ -9,7 +9,7 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - **IA** : Gemini 3.1 Pro Preview (Vertex AI).
 
 ## Outils Locaux (localTools)
-- `report_progress` : narration visible entre les etapes, sans polluer la reponse finale.
+- `report_progress` : outil debug optionnel pour tracer la strategie. Il n'est plus obligatoire en mode normal.
 - `music_catalog_lookup` : lookup musique/discographie specialise (catalogue officiel, titres manquants, album-only, feats optionnels, couverture par sources).
 - `list_files` : Liste les fichiers a la racine.
 - `read_file` : Lit le contenu d'un fichier (securise).
@@ -74,14 +74,23 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Amélioration UX du bloc de réflexion : ajout d'une `min-h` stable, d'un `ThinkingIndicator` plus explicite et d'animations de transition pour supprimer les sauts d'écran lors du passage de l'analyse à la réponse.
 - [x] Automatisation des liens YouTube : détection automatique des URLs YouTube (pasting), extraction en pièce jointe type `youtube`, retrait du lien du texte et récupération du titre via la nouvelle route backend `/api/metadata`.
 - [x] Correction de la ReferenceError au démarrage : réorganisation des déclarations dans `App.tsx` pour s'assurer que `displayedMessages` et `activeSession` sont initialisés avant d'être utilisés dans les hooks (TDZ).
+- [x] Routeur d'execution Cowork : `/api/cowork` choisit maintenant entre `creative_single_turn`, `research_loop` et `artifact_loop` au lieu d'envoyer toutes les demandes dans la meme boucle outillee.
+- [x] Mode creatif mono-appel : les textes creatifs sans besoin externe passent maintenant par un seul appel modele avec plan interne cache, redaction, auto-relecture et polish, sans `web_search` force ni timeline pseudo-agentique.
+- [x] Blocage discret des prompts haineux : Cowork coupe desormais en amont les demandes visant a humilier/deshumaniser des groupes, sans lancer d'outils ni de recherche, puis propose un recadrage bref vers une critique des comportements/systemes.
+- [x] No-op detection : la boucle memorise `stalledTurns`, `lastProgressFingerprint` et `lastActionSignature`, puis s'arrete proprement apres 3 tours sans progres concret au lieu de consommer 20-30 appels modele.
+- [x] `web_fetch` pertinent ou rien : une lecture ne compte plus comme source validante uniquement parce qu'elle est `full`; il faut maintenant `quality=full` ET `relevance=relevant` contre la demande ou la derniere requete de recherche.
+- [x] Completion backend-owned + UI compacte : `completionScore` n'est plus gonfle par l'auto-confiance du modele, `runMeta` expose `executionMode` / `publicPhase`, les `thoughts` Cowork sont caches par defaut et les compteurs debug lourds ne sont plus affiches en vue normale.
 
 ## Prochaines Etapes
-1. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet, que la timeline revient apres reload, et que les compteurs tokens/euros montent correctement.
-2. Rejouer en production le cas `Tariq Ramadan il va aller en prison ?` pour verifier que `taskComplete=true` est bien refuse tant qu'aucune source `web_fetch` `full` n'a ete lue, puis accepte apres validation.
-3. Rejouer en production le cas `actu du jour stp` et `Iran : actualité brûlante` pour verifier qu'apres 2 recherches degradees la boucle pivote vraiment vers des URLs directes au lieu de reformuler la meme requete.
-4. Rejouer en production le cas `fais un son pour defendre Tariq Ramadan` et les variantes `cherche toute l'actu sur lui puis fais un son` pour verifier que Cowork fait bien `plan -> recherche -> verification -> production` au lieu d'ecrire des paroles des l'iteration 1.
-5. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste robuste quand Apple Music sert une page US/EN, et qu'il n'annonce jamais une liste exhaustive quand `coverage.partial` devrait rester vrai.
-6. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) pour ne plus dependre uniquement d'un lien Markdown dans le texte final.
-7. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
-8. Configurer `TAVILY_API_KEY` sur Vercel puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
-9. Rejouer en production des demandes de documents formels sans le mot `pdf` (`fais moi une attestation de stage fictive`, `lettre de motivation fictive`, `certificat de travail`) pour verifier que Cowork n'exporte plus de placeholders, que `review_pdf_draft` reste obligatoire, et que le layout "document officiel" est preserve.
+1. Revalider en production le cas exact du screenshot pour verifier que le prompt haineux est bloque avant outils/recherche et qu'un recadrage bref est envoye sans narration morale.
+2. Revalider en production un prompt creatif large du style `fais un son couplet unique hyper enerve sur la cancel culture et les divisions` pour verifier le routage `creative_single_turn` avec `0 web_search`, `0 web_fetch` et une seule vraie reponse finale.
+3. Rejouer en production un cas no-op volontaire pour verifier qu'apres 3 tours sans progres concret Cowork s'arrete honnêtement au lieu d'enchainer les iterations.
+4. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet, que la timeline revient apres reload, et que les compteurs tokens/euros montent correctement.
+5. Rejouer en production le cas `Tariq Ramadan il va aller en prison ?` pour verifier que `taskComplete=true` est bien refuse tant qu'aucune source `web_fetch` `full` ET `relevant` n'a ete lue, puis accepte apres validation.
+6. Rejouer en production le cas `actu du jour stp` et `Iran : actualite brulante` pour verifier qu'apres 2 recherches degradees la boucle pivote vraiment vers des URLs directes au lieu de reformuler la meme requete.
+7. Rejouer en production le cas `fais un son pour defendre Tariq Ramadan` et les variantes `cherche toute l'actu sur lui puis fais un son` pour verifier que Cowork fait bien `plan -> recherche -> verification -> production` au lieu d'ecrire des paroles des l'iteration 1.
+8. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste robuste quand Apple Music sert une page US/EN, et qu'il n'annonce jamais une liste exhaustive quand `coverage.partial` devrait rester vrai.
+9. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) pour ne plus dependre uniquement d'un lien Markdown dans le texte final.
+10. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
+11. Configurer `TAVILY_API_KEY` sur Vercel puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
+12. Rejouer en production des demandes de documents formels sans le mot `pdf` (`fais moi une attestation de stage fictive`, `lettre de motivation fictive`, `certificat de travail`) pour verifier que Cowork n'exporte plus de placeholders, que `review_pdf_draft` reste obligatoire, et que le layout "document officiel" est preserve.

@@ -163,6 +163,8 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
     blockerCount: 0,
     retryCount: 0,
     queueWaitMs: 0,
+    executionMode: 'research_loop' as const,
+    publicPhase: 'analysis',
     phase: 'analysis',
     completionScore: 0,
     modelCompletionScore: 0,
@@ -175,7 +177,8 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
     estimatedCostUsd: 0,
     estimatedCostEur: 0,
   };
-  const visibleItems = items.filter((item) => item.kind !== 'tool_call');
+  const isCompactCowork = Boolean(runMeta.executionMode);
+  const visibleItems = items.filter((item) => item.kind !== 'tool_call' && (!isCompactCowork || item.kind !== 'reasoning'));
 
   if (items.length === 0 && !live && !msg.runState) return null;
 
@@ -189,7 +192,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
           </div>
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-sky-500/18 bg-sky-500/[0.05] text-[11px] text-sky-200">
             <BrainCircuit size={12} />
-            {runMeta.phase || 'analysis'}
+            {runMeta.publicPhase || runMeta.phase || 'analysis'}
           </div>
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-500/18 bg-indigo-500/[0.05] text-[11px] text-indigo-100">
             <Sparkles size={12} />
@@ -213,42 +216,46 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
             <AlertTriangle size={12} />
             {runMeta.blockerCount || 0} blocage{runMeta.blockerCount > 1 ? 's' : ''}
           </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-            <Search size={12} />
-            {runMeta.webSearches} recherche{runMeta.webSearches > 1 ? 's' : ''}
-          </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] text-[11px] text-emerald-200">
-            <CheckCircle2 size={12} />
-            {runMeta.validatedSearches} valide{runMeta.validatedSearches > 1 ? 'es' : ''}
-          </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-[11px] text-amber-200">
-            <AlertTriangle size={12} />
-            {runMeta.degradedSearches} degradee{runMeta.degradedSearches > 1 ? 's' : ''}
-          </div>
-          {runMeta.blockedQueryFamilies > 0 && (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-rose-500/20 bg-rose-500/[0.07] text-[11px] text-rose-200">
-              <AlertCircle size={12} />
-              {runMeta.blockedQueryFamilies} famille{runMeta.blockedQueryFamilies > 1 ? 's' : ''} bloquee{runMeta.blockedQueryFamilies > 1 ? 's' : ''}
-            </div>
-          )}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-            <Globe size={12} />
-            {runMeta.webFetches} source{runMeta.webFetches > 1 ? 's' : ''}
-          </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-            <Globe size={12} />
-            {runMeta.validatedSources || 0} source{runMeta.validatedSources > 1 ? 's' : ''} validee{runMeta.validatedSources > 1 ? 's' : ''}
-          </div>
-          {runMeta.retryCount > 0 && (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-amber-200">
-              <AlertTriangle size={12} />
-              retry {runMeta.retryCount}
-            </div>
+          {!isCompactCowork && (
+            <>
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+                <Search size={12} />
+                {runMeta.webSearches} recherche{runMeta.webSearches > 1 ? 's' : ''}
+              </div>
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] text-[11px] text-emerald-200">
+                <CheckCircle2 size={12} />
+                {runMeta.validatedSearches} valide{runMeta.validatedSearches > 1 ? 'es' : ''}
+              </div>
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-[11px] text-amber-200">
+                <AlertTriangle size={12} />
+                {runMeta.degradedSearches} degradee{runMeta.degradedSearches > 1 ? 's' : ''}
+              </div>
+              {runMeta.blockedQueryFamilies > 0 && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-rose-500/20 bg-rose-500/[0.07] text-[11px] text-rose-200">
+                  <AlertCircle size={12} />
+                  {runMeta.blockedQueryFamilies} famille{runMeta.blockedQueryFamilies > 1 ? 's' : ''} bloquee{runMeta.blockedQueryFamilies > 1 ? 's' : ''}
+                </div>
+              )}
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+                <Globe size={12} />
+                {runMeta.webFetches} source{runMeta.webFetches > 1 ? 's' : ''}
+              </div>
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+                <Globe size={12} />
+                {runMeta.validatedSources || 0} source{runMeta.validatedSources > 1 ? 's' : ''} validee{runMeta.validatedSources > 1 ? 's' : ''}
+              </div>
+              {runMeta.retryCount > 0 && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-amber-200">
+                  <AlertTriangle size={12} />
+                  retry {runMeta.retryCount}
+                </div>
+              )}
+            </>
           )}
         </div>
 
         <div className="p-4 md:p-5 flex flex-col gap-3">
-          {(runMeta.totalTokens > 0 || runMeta.queueWaitMs > 0 || runMeta.toolCalls > 0) && (
+          {!isCompactCowork && (runMeta.totalTokens > 0 || runMeta.queueWaitMs > 0 || runMeta.toolCalls > 0) && (
             <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-3 text-[12px] text-[var(--app-text-muted)]">
               <span className="text-[var(--app-text)]/88">
                 Input {formatCompactNumber(runMeta.inputTokens)} • Output {formatCompactNumber(runMeta.outputTokens)}
@@ -370,6 +377,7 @@ export const MessageItem = React.memo(({
   const [showRefined, setShowRefined] = useState(false);
   const [editText, setEditText] = useState(msg.content);
   const [isCollapsed, setIsCollapsed] = useState(msg.role === 'user' && msg.content && msg.content.length > 800);
+  const isCoworkMessage = Boolean(msg.runMeta?.executionMode || (msg.activity?.length ?? 0) > 0 || msg.runState);
 
   const handleCopyMsg = () => {
     navigator.clipboard.writeText(msg.content);
@@ -521,7 +529,7 @@ export const MessageItem = React.memo(({
               )}
 
               {/* Section Thoughts : visible immédiatement dès le streaming, ou si la réponse finale a des thoughts */}
-              {((isLoading && isLast) || msg.thoughts || (msg.thoughtImages?.length ?? 0) > 0) && (
+              {!isCoworkMessage && (((isLoading && isLast) || msg.thoughts || (msg.thoughtImages?.length ?? 0) > 0)) && (
                 <div className="flex flex-col gap-2">
                   {isLoading && isLast ? (
                     /* Pendant le streaming : toggle fonctionnel + auto-ouvert dès l'envoi */

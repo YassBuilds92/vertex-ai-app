@@ -54,6 +54,8 @@ export interface RunMeta {
   blockerCount: number;
   retryCount: number;
   queueWaitMs: number;
+  executionMode: 'creative_single_turn' | 'research_loop' | 'artifact_loop';
+  publicPhase: string;
   phase: string;
   completionScore: number;
   modelCompletionScore: number;

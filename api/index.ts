@@ -243,6 +243,8 @@ type ResearchTargets = {
 type PdfQualityTargets = {
   minSections: number;
   minWords: number;
+  formalDocument?: boolean;
+  requireInventedDetails?: boolean;
 };
 
 type CoworkRunMeta = {
@@ -539,12 +541,26 @@ function buildCoworkSystemInstruction(
       "Tu n'as le droit d'affirmer 'voila tout ce qu'il te manque' que si la couverture est suffisante. Sinon, dis explicitement que la liste est partielle et separe bien: deja possedes, manquants confirmes, titres d'album, feats/freestyles optionnels, points incertains."
     );
   }
-  if (pdfTargets) {
+  if (originalMessage && requestNeedsFormalDocument(originalMessage)) {
     requestSpecificDirectives.push(
-      `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
+      "Pour ce document formel, ne livre jamais un seul pave de texte. Structure le contenu en plusieurs blocs distincts et lisibles: identification/en-tete, corps redige, puis validation finale (date, lieu, signature, cachet ou mentions equivalentes)."
     );
     requestSpecificDirectives.push(
-      "Quand tu appelles 'create_pdf', renseigne aussi 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent."
+      requestNeedsFictionalDetails(originalMessage)
+        ? "Comme le document est demande comme fictif, invente des noms, dates, entreprise, contexte et signataire credibles. N'utilise pas de placeholders entre crochets sauf si l'utilisateur demande explicitement un modele vierge."
+        : "Si des informations manquent, isole-les proprement dans une mention finale ou une courte liste de champs a completer, sans laisser tout le document sous forme de gabarit brut."
+    );
+  }
+  if (pdfTargets) {
+    requestSpecificDirectives.push(
+      pdfTargets.formalDocument
+        ? `Pour CETTE demande documentaire, vise au minimum ${pdfTargets.minSections} blocs utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'. Le rendu doit ressembler a un vrai document officiel, pas a un rapport generique.`
+        : `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
+    );
+    requestSpecificDirectives.push(
+      pdfTargets.formalDocument
+        ? "Quand tu appelles 'create_pdf' pour ce document formel, utilise plusieurs sections courtes et propres (en-tete, objet ou attestation, details, signatures/mentions finales) et garde un ton administratif."
+        : "Quand tu appelles 'create_pdf', renseigne aussi 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent."
     );
   }
 
@@ -582,7 +598,8 @@ ${requestClock
 4. Anti-boucle : si un outil echoue, ne retente pas la meme chose en boucle. Analyse l'erreur et change d'approche.
 5. N'utilise JAMAIS 'write_file' pour fabriquer un faux fichier '.pdf'. Pour un PDF, utilise uniquement 'create_pdf'.
 6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
-7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
+7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.
+8. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -600,6 +617,15 @@ function buildCoworkFallbackMessage(releasedFile: { url: string; path?: string }
   const fileName = releasedFile.path ? path.basename(releasedFile.path) : 'le-fichier';
   return `Voici votre fichier : [Telecharger ${fileName}](${releasedFile.url})`;
 }
+
+export const __coworkPdfInternals = {
+  requestNeedsFormalDocument,
+  requestNeedsFictionalDetails,
+  requestNeedsPdfArtifact,
+  getPdfQualityTargets,
+  countTemplatePlaceholders,
+  countFormalDocumentSignals
+};
 
 function normalizeCoworkText(value?: string): string {
   return (value || '')
@@ -689,6 +715,22 @@ function requestNeedsLongFormPdf(message: string): boolean {
   return /\b(tres long|tres longue|long|longue|detaille|detaillee|complet|complete|magnifique|beau|soigne|rapport|briefing|analyse|dossier|actu|actualite|news)\b/.test(normalized);
 }
 
+function requestNeedsFormalDocument(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(attestation|certificat|lettre|courrier|declaration|convention|contrat|devis|facture)\b/.test(normalized);
+}
+
+function requestNeedsFictionalDetails(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(fictif|fictive|fictionnel|fictionnelle|imaginaire|invente|inventee|simule|simulee|faux|fausse)\b/.test(normalized);
+}
+
+function requestNeedsPdfArtifact(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  if (requestNeedsPdf(message) || requestNeedsFormalDocument(message)) return true;
+  return /\b(presentation|brochure|plaquette|cv)\b/.test(normalized);
+}
+
 function getResearchTargets(message: string): ResearchTargets {
   const normalized = normalizeCoworkText(message);
   const targets: ResearchTargets = { webSearches: 2, webFetches: 1 };
@@ -749,14 +791,21 @@ function getResearchTargets(message: string): ResearchTargets {
 }
 
 function getPdfQualityTargets(message: string): PdfQualityTargets | null {
-  if (!requestNeedsPdf(message)) return null;
+  if (!requestNeedsPdfArtifact(message)) return null;
   const normalized = normalizeCoworkText(message);
-  if (/\btest\b/.test(normalized) && !requestNeedsLongFormPdf(message) && !requestIsCurrentAffairs(message)) {
+  const formalDocument = requestNeedsFormalDocument(message);
+  const requireInventedDetails = requestNeedsFictionalDetails(message);
+  if (/\btest\b/.test(normalized) && !requestNeedsLongFormPdf(message) && !requestIsCurrentAffairs(message) && !formalDocument) {
     return null;
   }
 
   let minSections = 0;
   let minWords = 0;
+
+  if (formalDocument) {
+    minSections = Math.max(minSections, 3);
+    minWords = Math.max(minWords, requireInventedDetails ? 200 : 140);
+  }
 
   if (requestIsCurrentAffairs(message) || /\b(rapport|briefing|analyse|dossier|synthese|compte rendu)\b/.test(normalized)) {
     minSections = Math.max(minSections, 6);
@@ -773,7 +822,14 @@ function getPdfQualityTargets(message: string): PdfQualityTargets | null {
     minWords = Math.max(minWords, 1400);
   }
 
-  return minSections > 0 ? { minSections, minWords } : null;
+  return minSections > 0
+    ? {
+        minSections,
+        minWords,
+        formalDocument,
+        requireInventedDetails
+      }
+    : null;
 }
 
 function countWords(value: string): number {
@@ -851,6 +907,22 @@ function requestNeedsPdf(message: string): boolean {
   return /\bpdf\b/.test(normalizeCoworkText(message));
 }
 
+function countTemplatePlaceholders(value: string): number {
+  return value.match(/\[[^\]\n]{2,80}\]|<[^>\n]{2,80}>|_{4,}/g)?.length || 0;
+}
+
+function countFormalDocumentSignals(value: string): number {
+  const normalized = normalizeCoworkText(value);
+  const signals = [
+    /\b(soussigne|certifie|atteste|declare|nous certifions|nous attestons)\b/,
+    /\b(entreprise|societe|etablissement|organisme|employeur|tuteur|service)\b/,
+    /\b(stage|stagiaire|etudiant|etudiante|beneficiaire|formation|mission|poste|bts)\b/,
+    /\b(periode|du\s+\d{1,2}|debut|fin|au sein de|depuis le|jusqu'au|jusqu au)\b/,
+    /\b(fait a|fait au|signature|cachet|responsable|directeur|gerant|gerante|rh)\b/
+  ];
+  return signals.reduce((count, pattern) => count + (pattern.test(normalized) ? 1 : 0), 0);
+}
+
 function buildArtifactCompletionPrompt(
   originalMessage: string,
   createdArtifactPath: string | null,
@@ -860,10 +932,11 @@ function buildArtifactCompletionPrompt(
     return null;
   }
 
+  const needsPdfArtifact = requestNeedsPdfArtifact(originalMessage);
   const nextStep = createdArtifactPath
     ? `Le fichier semble deja etre cree ici: '${createdArtifactPath}'. Utilise maintenant 'release_file' avec ce chemin, puis reponds uniquement avec le lien Markdown final.`
-    : requestNeedsPdf(originalMessage)
-      ? "Tu n'as pas encore cree ni livre le PDF demande. Utilise maintenant 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
+    : needsPdfArtifact
+      ? "Tu n'as pas encore cree ni livre le document PDF demande. Utilise maintenant 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
       : "Tu n'as pas encore livre le fichier demande. Cree-le si necessaire, utilise 'release_file', puis reponds uniquement avec le lien Markdown final.";
 
   return `La tache n'est PAS terminee.
@@ -3136,20 +3209,41 @@ app.post('/api/cowork', async (req, res) => {
           const effectiveSources = (Array.isArray(sources) ? sources : [])
             .map(source => source.trim())
             .filter(Boolean);
+          const formalDocumentLayout = Boolean(pdfQualityTargets?.formalDocument || requestNeedsFormalDocument(message));
+          const requireInventedDetails = Boolean(pdfQualityTargets?.requireInventedDetails || requestNeedsFictionalDetails(message));
+          const combinedContent = [
+            title,
+            subtitle || '',
+            summary || '',
+            ...effectiveSections.flatMap(section => [section.heading || '', section.body]),
+            ...effectiveSources
+          ].join(' ');
 
           if (effectiveSections.length === 0) {
             return { success: false, error: "Le PDF doit contenir au moins une section non vide." };
           }
 
-          const totalWords = countWords(
-            [
-              title,
-              subtitle || '',
-              summary || '',
-              ...effectiveSections.flatMap(section => [section.heading || '', section.body]),
-              ...effectiveSources
-            ].join(' ')
-          );
+          const totalWords = countWords(combinedContent);
+
+          if (formalDocumentLayout) {
+            const formalSignalCount = countFormalDocumentSignals(combinedContent);
+            if (formalSignalCount < 4) {
+              return {
+                success: false,
+                error: "Document formel trop pauvre ou trop generique. Ajoute des blocs distincts pour l'emetteur, le beneficiaire ou sujet, la periode ou le contexte, puis une validation finale avec date/lieu/signature avant de relancer 'create_pdf'."
+              };
+            }
+          }
+
+          if (requireInventedDetails) {
+            const placeholderCount = countTemplatePlaceholders(combinedContent);
+            if (placeholderCount > 0) {
+              return {
+                success: false,
+                error: "L'utilisateur a demande un document fictif complet, mais le brouillon contient encore des placeholders ([...], <...> ou lignes a remplir). Remplace-les par des details credibles avant de relancer 'create_pdf'."
+              };
+            }
+          }
 
           if (pdfQualityTargets) {
             const tooFewSections = effectiveSections.length < pdfQualityTargets.minSections;
@@ -3178,28 +3272,37 @@ app.post('/api/cowork', async (req, res) => {
               });
               const stream = fs.createWriteStream(outputPath);
               const palette = {
-                accent: normalizeHexColor(accentColor, requestNeedsLongFormPdf(message) ? '#0f766e' : '#1d4ed8'),
+                accent: normalizeHexColor(accentColor, formalDocumentLayout ? '#334155' : requestNeedsLongFormPdf(message) ? '#0f766e' : '#1d4ed8'),
                 ink: '#0f172a',
                 muted: '#475569',
                 line: '#dbe4ee',
-                panel: '#f8fafc',
+                panel: formalDocumentLayout ? '#ffffff' : '#f8fafc',
                 white: '#ffffff'
               };
-              const summaryText = clipText(summary || effectiveSections[0]?.body || '', 900);
+              const summaryText = formalDocumentLayout
+                ? clipText(summary || '', 420)
+                : clipText(summary || effectiveSections[0]?.body || '', 900);
               const tocHeadings = effectiveSections
                 .map(section => section.heading)
                 .filter((heading): heading is string => Boolean(heading))
                 .slice(0, 8);
               const useCoverPage =
-                Boolean(summaryText)
-                || Boolean(subtitle)
-                || Boolean(author)
-                || Boolean(pdfQualityTargets)
-                || effectiveSections.length >= 4;
+                !formalDocumentLayout
+                && (
+                  Boolean(summaryText)
+                  || Boolean(subtitle)
+                  || Boolean(author)
+                  || Boolean(pdfQualityTargets)
+                  || effectiveSections.length >= 4
+                );
               const bodyWidth = () => doc.page.width - doc.page.margins.left - doc.page.margins.right;
               const pageBottom = () => doc.page.height - doc.page.margins.bottom - 24;
 
               const drawBodyHeader = () => {
+                if (formalDocumentLayout) {
+                  doc.y = 72;
+                  return;
+                }
                 doc.save();
                 doc.fillColor(palette.white).rect(0, 0, doc.page.width, 58).fill();
                 doc.fillColor(palette.accent).rect(doc.page.margins.left, 30, 50, 4).fill();
@@ -3231,13 +3334,13 @@ app.post('/api/cowork', async (req, res) => {
                 doc
                   .fillColor(palette.ink)
                   .font('Helvetica')
-                  .fontSize(11.5)
+                  .fontSize(formalDocumentLayout ? 11.2 : 11.5)
                   .text(cleaned, {
                     width: bodyWidth(),
-                    align: 'justify',
-                    lineGap: 3
+                    align: formalDocumentLayout ? 'left' : 'justify',
+                    lineGap: formalDocumentLayout ? 4 : 3
                   });
-                doc.moveDown(0.75);
+                doc.moveDown(formalDocumentLayout ? 0.95 : 0.75);
               };
 
               const renderBullet = (text: string) => {
@@ -3255,10 +3358,10 @@ app.post('/api/cowork', async (req, res) => {
                 doc
                   .fillColor(palette.ink)
                   .font('Helvetica')
-                  .fontSize(11.2)
+                  .fontSize(formalDocumentLayout ? 11 : 11.2)
                   .text(cleaned, textX, startY, {
                     width: bodyWidth() - 18,
-                    lineGap: 3
+                    lineGap: formalDocumentLayout ? 4 : 3
                   });
                 doc.moveDown(0.35);
               };
@@ -3291,6 +3394,10 @@ app.post('/api/cowork', async (req, res) => {
               const renderCallout = (heading: string, body: string) => {
                 const cleaned = body.trim();
                 if (!cleaned) return;
+                if (formalDocumentLayout) {
+                  renderParagraph(cleaned);
+                  return;
+                }
                 doc.font('Helvetica').fontSize(11.5);
                 const boxHeight = Math.min(
                   210,
@@ -3325,22 +3432,39 @@ app.post('/api/cowork', async (req, res) => {
 
               const renderSection = (heading: string | undefined, body: string) => {
                 if (heading) {
-                  ensureSpace(96);
-                  doc.fillColor(palette.accent).rect(doc.page.margins.left, doc.y + 9, 10, 10).fill();
-                  doc
-                    .fillColor(palette.ink)
-                    .font('Helvetica-Bold')
-                    .fontSize(18)
-                    .text(heading, doc.page.margins.left + 20, doc.y, {
-                      width: bodyWidth() - 20
-                    });
-                  doc.moveDown(0.2);
-                  const dividerY = doc.y + 2;
-                  doc.save();
-                  doc.strokeColor(palette.line).lineWidth(1);
-                  doc.moveTo(doc.page.margins.left, dividerY).lineTo(doc.page.width - doc.page.margins.right, dividerY).stroke();
-                  doc.restore();
-                  doc.moveDown(0.7);
+                  ensureSpace(formalDocumentLayout ? 74 : 96);
+                  if (formalDocumentLayout) {
+                    doc
+                      .fillColor(palette.ink)
+                      .font('Helvetica-Bold')
+                      .fontSize(12.5)
+                      .text(heading.toUpperCase(), {
+                        width: bodyWidth()
+                      });
+                    doc.moveDown(0.15);
+                    const dividerY = doc.y + 1;
+                    doc.save();
+                    doc.strokeColor(palette.line).lineWidth(1);
+                    doc.moveTo(doc.page.margins.left, dividerY).lineTo(doc.page.width - doc.page.margins.right, dividerY).stroke();
+                    doc.restore();
+                    doc.moveDown(0.55);
+                  } else {
+                    doc.fillColor(palette.accent).rect(doc.page.margins.left, doc.y + 9, 10, 10).fill();
+                    doc
+                      .fillColor(palette.ink)
+                      .font('Helvetica-Bold')
+                      .fontSize(18)
+                      .text(heading, doc.page.margins.left + 20, doc.y, {
+                        width: bodyWidth() - 20
+                      });
+                    doc.moveDown(0.2);
+                    const dividerY = doc.y + 2;
+                    doc.save();
+                    doc.strokeColor(palette.line).lineWidth(1);
+                    doc.moveTo(doc.page.margins.left, dividerY).lineTo(doc.page.width - doc.page.margins.right, dividerY).stroke();
+                    doc.restore();
+                    doc.moveDown(0.7);
+                  }
                 }
                 renderRichText(body);
               };
@@ -3458,9 +3582,53 @@ app.post('/api/cowork', async (req, res) => {
                 }
 
                 doc.addPage();
-                drawBodyHeader();
+                if (formalDocumentLayout) {
+                  doc.y = 62;
+                  doc
+                    .fillColor(palette.muted)
+                    .font('Helvetica')
+                    .fontSize(10)
+                    .text(requestClock.dateLabel, {
+                      width: bodyWidth(),
+                      align: 'right'
+                    });
+                  if (author) {
+                    doc.moveDown(0.2);
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica')
+                      .fontSize(10)
+                      .text(author, {
+                        width: bodyWidth(),
+                        align: 'right'
+                      });
+                  }
+                  doc.moveDown(1.1);
+                  doc
+                    .fillColor(palette.ink)
+                    .font('Helvetica-Bold')
+                    .fontSize(20)
+                    .text(title, {
+                      width: bodyWidth(),
+                      align: 'center'
+                    });
+                  if (subtitle) {
+                    doc.moveDown(0.35);
+                    doc
+                      .fillColor(palette.muted)
+                      .font('Helvetica')
+                      .fontSize(11.5)
+                      .text(subtitle, {
+                        width: bodyWidth(),
+                        align: 'center'
+                      });
+                  }
+                  doc.moveDown(1.1);
+                } else {
+                  drawBodyHeader();
+                }
 
-                if (!useCoverPage) {
+                if (!useCoverPage && !formalDocumentLayout) {
                   doc
                     .fillColor(palette.ink)
                     .font('Helvetica-Bold')
@@ -3482,7 +3650,7 @@ app.post('/api/cowork', async (req, res) => {
                 }
 
                 if (summaryText) {
-                  renderCallout('Resume executif', summaryText);
+                  renderCallout(formalDocumentLayout ? 'Introduction' : 'Resume executif', summaryText);
                 }
 
                 for (const section of effectiveSections) {
@@ -3502,7 +3670,7 @@ app.post('/api/cowork', async (req, res) => {
                 for (let pageIndex = 0; pageIndex < bufferedPages.count; pageIndex++) {
                   doc.switchToPage(bufferedPages.start + pageIndex);
                   const pageNumber = pageIndex + 1;
-                  const shouldDrawHeader = !useCoverPage || pageNumber > 1;
+                  const shouldDrawHeader = !formalDocumentLayout && (!useCoverPage || pageNumber > 1);
 
                   if (shouldDrawHeader) {
                     doc.save();
@@ -3519,7 +3687,7 @@ app.post('/api/cowork', async (req, res) => {
                     doc.restore();
                   }
 
-                  if (showPageNumbers !== false) {
+                  if (showPageNumbers !== false && (!formalDocumentLayout || pageCount > 1)) {
                     doc.save();
                     doc.strokeColor(palette.line).lineWidth(1);
                     doc.moveTo(doc.page.margins.left, doc.page.height - 48).lineTo(doc.page.width - doc.page.margins.right, doc.page.height - 48).stroke();
@@ -3528,7 +3696,9 @@ app.post('/api/cowork', async (req, res) => {
                       .font('Helvetica')
                       .fontSize(8)
                       .text(
-                        `Studio Pro Agent | ${requestClock.footerDateLabel} | Page ${pageNumber}/${pageCount}`,
+                        formalDocumentLayout
+                          ? `Page ${pageNumber}/${pageCount}`
+                          : `Studio Pro Agent | ${requestClock.footerDateLabel} | Page ${pageNumber}/${pageCount}`,
                         doc.page.margins.left,
                         doc.page.height - 36,
                         {

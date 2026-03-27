@@ -32,6 +32,7 @@ import {
   hydrateCoworkMessages,
   sanitizeCoworkMessageForStorage,
   saveCoworkSessionSnapshot,
+  |
 } from './utils/cowork';
 import {
   clearSessionSnapshots,
@@ -166,6 +167,16 @@ export default function App() {
       setSessions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), messages: [] } as ChatSession)));
     });
   }, [user]);
+
+  // Auto-scroll logic to maintain focus on the latest message/streaming content
+  useEffect(() => {
+    if (isLoading || displayedMessages.length > 0) {
+      const scrollTimer = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }, 100);
+      return () => clearTimeout(scrollTimer);
+    }
+  }, [displayedMessages.length, streamingContent, streamingThoughts, isLoading]);
 
   useEffect(() => {
     if (!user) {
@@ -589,10 +600,21 @@ export default function App() {
   const handleSend = async (textToSend: string, overrideMessages?: Message[]) => {
     if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading || sendInFlightRef.current) return;
     
+    // Clear old response state immediately to prevent "phantom" previous responses
+    setStreamingContent('');
+    setStreamingThoughts('');
+    setExpandedThoughts(prev => {
+      const { streaming, ...rest } = prev;
+      return rest;
+    });
+    setLiveCoworkMessage(null);
+    liveCoworkMessageRef.current = null;
+    
     const isCoworkRun = activeMode === 'cowork';
     sendInFlightRef.current = true;
     setIsLoading(true);
     setStreamingThoughtsExpanded(true);
+    setExpandedThoughts(prev => ({ ...prev, streaming: true }));
     abortControllerRef.current = new AbortController();
 
     try {

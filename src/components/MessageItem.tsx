@@ -134,6 +134,17 @@ function formatDurationMs(value: number) {
   return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
 }
 
+const ThinkingIndicator = () => (
+  <div className="flex items-center gap-3 px-4 py-2 bg-indigo-500/10 rounded-full border border-indigo-500/20 shadow-sm shadow-indigo-500/5">
+    <div className="flex gap-1.5">
+      <motion.div animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0 }} className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+      <motion.div animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.2 }} className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+      <motion.div animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.4 }} className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+    </div>
+    <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-[0.15em] animate-pulse">Analyse</span>
+  </div>
+);
+
 const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean }) => {
   const items = msg.activity || [];
   const runState = msg.runState || 'running';
@@ -229,7 +240,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
             {runMeta.validatedSources || 0} source{runMeta.validatedSources > 1 ? 's' : ''} validee{runMeta.validatedSources > 1 ? 's' : ''}
           </div>
           {runMeta.retryCount > 0 && (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-[11px] text-amber-200">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-amber-200">
               <AlertTriangle size={12} />
               retry {runMeta.retryCount}
             </div>
@@ -268,9 +279,9 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                     ? 'border-amber-500/22 bg-amber-500/[0.07]'
                   : item.kind === 'tool_result' && item.status === 'success'
                     ? 'border-emerald-500/20 bg-emerald-500/[0.06]'
-                    : item.kind === 'tool_result' && item.status === 'error'
-                      ? 'border-rose-500/20 bg-rose-500/[0.08]'
-                      : item.kind === 'narration'
+                  : item.kind === 'tool_result' && item.status === 'error'
+                    ? 'border-rose-500/20 bg-rose-500/[0.08]'
+                    : item.kind === 'narration'
                           ? 'border-indigo-500/20 bg-indigo-500/[0.05]'
                           : 'border-white/8 bg-white/[0.03]';
 
@@ -389,7 +400,7 @@ export const MessageItem = React.memo(({
       <div className={cn(
         "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-1 transition-all duration-300",
         msg.role === 'user' 
-          ? "bg-[var(--app-text)]/[0.05] border border-[var(--app-border)] shadow-md text-[var(--app-text)]" 
+          ? "bg-[var(--app-text)]/[0.05] border border border-[var(--app-border)] shadow-md text-[var(--app-text)]" 
           : "bg-gradient-to-br from-indigo-500/20 to-purple-500/15 border border-indigo-500/15 text-indigo-500 shadow-md shadow-indigo-500/5"
       )}>
         {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
@@ -529,18 +540,20 @@ export const MessageItem = React.memo(({
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: 'auto' }}
                             exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+                            transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
                             className="overflow-hidden"
                             layout
                           >
                             {msg.thoughts ? (
                               <ThinkingBox thoughts={msg.thoughts} live />
                             ) : (
-                              /* Pas encore de tokens de réflexion : dots d'attente */
-                              <div className="p-5 bg-[var(--app-text)]/[0.02] border border-indigo-500/10 rounded-2xl flex items-center gap-3">
-                                <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0 }} className="w-2 h-2 rounded-full bg-indigo-400/60" />
-                                <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.2 }} className="w-2 h-2 rounded-full bg-indigo-400/60" />
-                                <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.4 }} className="w-2 h-2 rounded-full bg-indigo-400/60" />
+                              /* Pas encore de tokens de réflexion : loader d'attente */
+                              <div className="p-8 bg-indigo-500/[0.04] border border-indigo-500/20 rounded-[2rem] flex flex-col items-center justify-center gap-4 min-h-[160px] shadow-inner shadow-indigo-500/5 animate-in fade-in zoom-in-95 duration-500">
+                                <ThinkingIndicator />
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className="text-xs font-semibold text-indigo-400 animate-pulse">Intelligence en éveil...</span>
+                                  <span className="text-[10px] text-indigo-400/50 font-medium text-center max-w-[200px]">Initialisation des neurones et préparation du raisonnement cognitif</span>
+                                </div>
                               </div>
                             )}
                           </motion.div>
@@ -564,6 +577,7 @@ export const MessageItem = React.memo(({
                             animate={{ opacity: 1, height: 'auto' }}
                             exit={{ opacity: 0, height: 0 }}
                             className="overflow-hidden mt-2"
+                            layout
                           >
                             <ThinkingBox thoughts={msg.thoughts || ''} />
                           </motion.div>

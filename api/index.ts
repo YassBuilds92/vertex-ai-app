@@ -3340,6 +3340,27 @@ app.post('/api/generate-video', async (req, res) => {
   }
 });
 
+app.get('/api/metadata', async (req, res) => {
+  try {
+    const url = req.query.url as string;
+    if (!url) return res.status(400).json({ error: "URL manquante" });
+
+    // Simple fetch to get page title
+    const response = await fetch(url);
+    const html = await response.text();
+    const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+    let title = titleMatch ? titleMatch[1] : "Vidéo YouTube";
+    
+    // Clean up title (remove " - YouTube")
+    title = title.replace(/ - YouTube$/i, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+
+    res.json({ title });
+  } catch (error) {
+    log.error("Metadata fetch error", error);
+    res.status(500).json({ error: "Failed to fetch metadata" });
+  }
+});
+
 app.post('/api/upload', async (req, res) => {
   try {
     const { base64, fileName, mimeType } = z.object({

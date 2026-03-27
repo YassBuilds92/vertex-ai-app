@@ -56,39 +56,47 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       processFiles(e.clipboardData.files);
     } else {
       const clipboardText = e.clipboardData.getData('text');
-      const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/;
-      const match = clipboardText.match(ytRegex);
-      if (match) {
+      // Regex for standard, shorts, live, and mobile YouTube URLs
+      const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/|live\/)|youtu\.be\/|m\.youtube\.com\/watch\?v=)([^&\s\?]+)/g;
+      const matches = Array.from(clipboardText.matchAll(ytRegex));
+      
+      if (matches.length > 0) {
         e.preventDefault();
-        const url = match[0].startsWith('http') ? match[0] : `https://${match[0]}`;
-        if (!pendingAttachments.some(a => a.url === url)) {
-          const id = Math.random().toString(36).substring(7);
-          setPendingAttachments(prev => [...prev, {
-            id,
-            type: 'youtube',
-            url: url,
-            name: `Chargement du titre...`
-          }]);
+        let remainingText = clipboardText;
 
-          // Fetch real title from backend
-          fetch(`/api/metadata?url=${encodeURIComponent(url)}`)
-            .then(res => res.json())
-            .then(data => {
-              if (data.title) {
+        matches.forEach(match => {
+          const url = match[0].startsWith('http') ? match[0] : `https://${match[0]}`;
+          if (!pendingAttachments.some(a => a.url === url)) {
+            const id = Math.random().toString(36).substring(7);
+            setPendingAttachments(prev => [...prev, {
+              id,
+              type: 'youtube',
+              url: url,
+              name: `Chargement du titre...`
+            }]);
+
+            // Fetch real title from backend
+            fetch(`/api/metadata?url=${encodeURIComponent(url)}`)
+              .then(res => res.json())
+              .then(data => {
+                if (data.title) {
+                  setPendingAttachments(prev => prev.map(a => 
+                    a.id === id ? { ...a, name: data.title } : a
+                  ));
+                }
+              })
+              .catch(() => {
                 setPendingAttachments(prev => prev.map(a => 
-                  a.id === id ? { ...a, name: data.title } : a
+                  a.id === id ? { ...a, name: 'Vidéo YouTube' } : a
                 ));
-              }
-            })
-            .catch(() => {
-              setPendingAttachments(prev => prev.map(a => 
-                a.id === id ? { ...a, name: 'Vidéo YouTube' } : a
-              ));
-            });
-        }
-        const newText = clipboardText.replace(match[0], '').trim();
-        if (newText) {
-          setText(prev => prev + newText);
+              });
+          }
+          // Remove the link from the remaining text
+          remainingText = remainingText.replace(match[0], '').trim();
+        });
+
+        if (remainingText || text) {
+          setText(prev => (prev + ' ' + remainingText).trim());
           setTimeout(() => {
             if (textareaRef.current) {
               textareaRef.current.style.height = 'auto';

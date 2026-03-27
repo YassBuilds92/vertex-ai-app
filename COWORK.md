@@ -3,6 +3,46 @@
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 
+## Priorite Principale
+- La priorite PRINCIPALE du projet est de faire de Cowork un agent **totalement libre, reflexif, visible et auto-dirige**.
+- Toute modification qui s'ecarte de cette direction ne doit PAS etre retenue par defaut. Si un changement reduit l'autonomie, la visibilite, la reflexivite ou la capacite de decision de l'agent, il est considere comme hors philosophie produit sauf validation explicite de Yassine.
+- Le but n'est pas de "simuler" une boucle agentique avec un backend qui pense a la place du modele. Le but est de laisser l'IA piloter reellement son travail dans un cadre de securite clair.
+
+## Philosophie Produit
+- Cowork doit fonctionner comme une IA placee dans un **bac a sable riche en outils**: web, fichiers, recherche, lecture, ecriture, execution, artefacts, verification, et tout autre outil utile a la tache.
+- L'IA doit avoir conscience de **tous** les outils disponibles, de leur role, de leurs limites, et de la bonne facon de les utiliser.
+- L'orchestrateur doit **mettre les outils a disposition**, conserver l'etat, appliquer les garde-fous durs, et exposer l'activite. Il ne doit pas micro-manager la strategie du modele ni lui imposer une fausse reflexion.
+- Le modele doit pouvoir:
+  - choisir lui-meme la prochaine action utile,
+  - decider quand rechercher, relire, verifier, produire ou livrer,
+  - changer d'angle si une voie echoue,
+  - s'auto-critiquer avant livraison,
+  - declarer honnetement quand il a fini ou quand il est bloque.
+- La reflexion doit etre **visible** pour l'utilisateur sous une forme propre et utile: phases, plan courant, action en cours, raisons concretes du pivot, auto-critique, et criteres de fin. On veut de la transparence d'execution, pas une boite noire.
+- La liberte de l'agent est la norme. Les contraintes backend doivent rester minimales et se limiter a:
+  - la securite,
+  - le sandbox,
+  - les limites de cout/temps,
+  - l'anti-boucle dur,
+  - la validation factuelle minimale sur les sujets sensibles.
+- On privilegie toujours une architecture ou **le modele decide** et **le backend verifie**, plutot qu'une architecture ou le backend dicte la methode exacte.
+
+## Regles de Conception Non Negociables
+- Ne pas cacher artificiellement l'agent derriere une UX qui donne l'impression qu'il "fait semblant". Si l'agent planifie, teste, pivote ou se critique, cela doit etre visible proprement.
+- Ne pas transformer Cowork en workflow rigide a etapes fixes sauf contrainte de securite explicite.
+- Ne pas retirer un outil ou en masquer l'existence au modele sans bonne raison.
+- Ne pas imposer des sequences inutiles du type "tu dois toujours faire X puis Y puis Z" si le modele peut choisir une meilleure strategie.
+- Ne pas refuser une finalisation juste parce qu'elle ne correspond pas a une logique backend trop mecanique, si le resultat est reellement pret et que les garde-fous durs sont respectes.
+- Toute regression vers un agent plus opaque, plus contraint, plus scripté ou moins auto-dirige doit etre traitee comme une regression produit.
+
+## Direction Architecturale Cible
+- Backend mince, modele fort: le backend fournit le sandbox, l'inventaire des outils, l'etat persistant, la telemetrie, les garde-fous durs et la serialisation des runs.
+- Strategie modele-led: le modele choisit son plan, ses appels d'outil, ses iterations, ses pivots, son auto-review et sa condition de fin.
+- Visibilite maximale utile: timeline lisible, plan courant, rationale courte par action, etat des outils, blocages reels, et synthese finale.
+- Outils decouvrables: Cowork doit connaitre clairement la liste des outils disponibles, leurs schemas d'entree/sortie et les cas d'usage typiques, sans etre force de les appeler.
+- Fin de boucle honnete: l'agent doit pouvoir dire "j'ai fini" ou "je suis bloque", et le backend ne doit bloquer que pour une raison dure, explicite et justifiable.
+- L'effet recherche/relecture/amelioration doit venir d'une vraie boucle du modele, pas d'un theatre de statuts.
+
 ## Architecture
 - **Frontend** : React (Zustand pour l'etat). Le mode `cowork` envoie des requetes a `/api/cowork`.
 - **Backend** : Express (Node.js). La route `/api/cowork` gere une boucle d'iteration (jusqu'a 15 tours) avec evenements SSE types (`status`, `narration`, `tool_call`, `tool_result`, `warning`, `text_delta`, `done`, `error`) et conservation stricte du tour modele Gemini 3.1 pour les `thoughtSignature`.
@@ -84,18 +124,21 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Narration publique derivee des outils : si Gemini appelle un outil sans texte exploitable, Cowork emet maintenant une narration lisible (`Recherche`, `Verification`, `Relecture`, `Mise en page`, `Livraison`, etc.) a partir de l'outil reel, ce qui rend la boucle visible sans exposer le raisonnement brut.
 
 ## Prochaines Etapes
-1. Revalider en production le cas exact du screenshot pour verifier les deux branches: blocage amont si le prompt vise un groupe, et finalisation propre si le prompt reste legitime mais demande `recherche -> ecriture -> PDF`.
-2. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'apres `review_pdf_draft -> create_pdf -> release_file`, Cowork livre bien le texte final ou le lien sans repasser par `Finalisation refusee`.
-3. Rejouer en production un cas no-op volontaire pour verifier qu'apres 3 tours sans progres concret Cowork s'arrete honnêtement au lieu d'enchainer les iterations.
-4. Revalider sur production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que le PDF s'ouvre hors onglet, que la timeline revient apres reload, et que les compteurs tokens/euros montent correctement.
-5. Rejouer en production le cas `Tariq Ramadan il va aller en prison ?` pour verifier que `taskComplete=true` est bien refuse tant qu'aucune source `web_fetch` `full` ET `relevant` n'a ete lue, puis accepte apres validation.
-6. Rejouer en production le cas `actu du jour stp` et `Iran : actualite brulante` pour verifier qu'apres 2 recherches degradees la boucle pivote vraiment vers des URLs directes au lieu de reformuler la meme requete.
-7. Rejouer en production le cas `fais un son pour defendre Tariq Ramadan` et les variantes `cherche toute l'actu sur lui puis fais un son` pour verifier que Cowork fait bien `plan -> recherche -> verification -> production` au lieu d'ecrire des paroles des l'iteration 1.
-8. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste robuste quand Apple Music sert une page US/EN, et qu'il n'annonce jamais une liste exhaustive quand `coverage.partial` devrait rester vrai.
-9. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) pour ne plus dependre uniquement d'un lien Markdown dans le texte final.
-10. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live" et la conservation exacte du tour Gemini signe.
-11. Configurer `TAVILY_API_KEY` sur Vercel puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
-12. Rejouer en production des demandes de documents formels sans le mot `pdf` (`fais moi une attestation de stage fictive`, `lettre de motivation fictive`, `certificat de travail`) pour verifier que Cowork n'exporte plus de placeholders, que `review_pdf_draft` reste obligatoire, et que le layout "document officiel" est preserve.
+1. PRIORITE ABSOLUE: faire evoluer Cowork d'une boucle hybride backend-owned vers un agent modele-led, libre, reflexif, visible et auto-dirige.
+2. Remplacer progressivement les gates backend trop directifs par une logique "backend verifie, modele decide", avec blocage uniquement sur les contraintes dures.
+3. Reintroduire une reflexion visible propre en mode normal: plan courant, prochaine action, raison du pivot, auto-critique avant livraison, sans exposer de chain-of-thought brut.
+4. Donner au modele une conscience claire et complete de l'inventaire d'outils, de leurs schemas et de leurs usages, sans lui imposer de sequence artificielle.
+5. Permettre une vraie declaration de fin par le modele (`fini` / `bloque`) avec veto backend seulement en cas de blocker dur, explicite et justifiable.
+6. Rendre la timeline plus fidele a la vraie autonomie de l'agent: moins de cosmétique, plus d'etat reel, de plan et de decisions.
+7. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'on retrouve une boucle de recherche -> ecriture -> critique -> amelioration -> PDF -> livraison, sans logique mecanique parasite.
+8. Revalider en production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que la liberte de l'agent reste compatible avec la stabilite produit.
+9. Rejouer en production les cas factuels sensibles (`Tariq Ramadan il va aller en prison ?`, `actu du jour stp`, `Iran : actualite brulante`) pour verifier qu'un agent plus libre reste honnete, source, et capable de pivoter sans broder.
+10. Rejouer en production les cas de recherche creative ancree dans le reel (`cherche toute l'actu sur lui puis fais un son`) pour verifier que l'agent choisit lui-meme la bonne profondeur de recherche avant d'ecrire.
+11. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste un outil librement utilisable par le modele, sans rigidifier le flux global.
+12. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) sans masquer la logique agentique reelle.
+13. Reintroduire un streaming modele plus fin uniquement si on peut recuperer a la fois le ressenti "live", la visibilite des decisions, et la conservation exacte du tour Gemini signe.
+14. Configurer `TAVILY_API_KEY` sur Vercel puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
+15. Rejouer en production des demandes de documents formels sans le mot `pdf` (`fais moi une attestation de stage fictive`, `lettre de motivation fictive`, `certificat de travail`) pour verifier qu'un agent plus libre garde un rendu officiel propre sans replonger dans des workflows figes.
 
 ### Revalidation Additionnelle
 1. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'apres `review_pdf_draft -> create_pdf -> release_file`, Cowork livre bien le texte final ou le lien sans repasser par `Finalisation refusee`.

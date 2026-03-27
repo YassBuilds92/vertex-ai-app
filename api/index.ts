@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -250,11 +250,17 @@ type ResearchTargets = {
   webFetches: number;
 };
 
+type PdfTheme = 'legal' | 'news' | 'report';
+
 type PdfQualityTargets = {
   minSections: number;
   minWords: number;
   formalDocument?: boolean;
   requireInventedDetails?: boolean;
+  requestedWordCount?: number | null;
+  cappedWordCount?: boolean;
+  maxWords?: number;
+  theme?: PdfTheme;
 };
 
 type PdfSectionInput = {
@@ -274,6 +280,32 @@ type PdfDraftSnapshot = {
   author: string;
   sections: NormalizedPdfSection[];
   sources: string[];
+};
+
+type ActivePdfDraft = PdfDraftSnapshot & {
+  draftId: string;
+  filename: string;
+  theme: PdfTheme;
+  accentColor?: string;
+  requestedWordCount: number | null;
+  targetWords: number;
+  cappedWords: boolean;
+  wordCount: number;
+  approvedReviewSignature: string | null;
+};
+
+type PdfDraftStats = {
+  draftId: string;
+  theme: PdfTheme;
+  wordCount: number;
+  targetWords: number;
+  requestedWordCount: number | null;
+  cappedWords: boolean;
+  sectionCount: number;
+  titledSectionCount: number;
+  sourceCount: number;
+  missingWords: number;
+  approvedReviewSignature: string | null;
 };
 
 type PdfDraftReview = {
@@ -399,6 +431,7 @@ function createEmptyCoworkSessionState(): CoworkSessionState {
     sourcesValidated: [],
     searchesFailed: [],
     toolsBlocked: [],
+    activePdfDraft: null,
     phase: 'analysis',
     modelCompletionScore: 0,
     completionScore: 0,
@@ -679,13 +712,23 @@ function buildCoworkSystemInstruction(
         ? `Pour CETTE demande documentaire, vise au minimum ${pdfTargets.minSections} blocs utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'. Le rendu doit ressembler a un vrai document officiel, pas a un rapport generique.`
         : `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
     );
+    if (pdfTargets.cappedWordCount && pdfTargets.requestedWordCount) {
+      requestSpecificDirectives.push(
+        `L'utilisateur demande ${pdfTargets.requestedWordCount} mots, mais tu dois plafonner honnetement le PDF a environ ${pdfTargets.minWords} mots pour cette session. Dis-le clairement via 'publish_status' si utile et ne simule jamais la longueur avec des pages vides.`
+      );
+    }
     requestSpecificDirectives.push(
       "Avant tout export PDF final sur cette demande, fais une passe explicite de self-review avec 'review_pdf_draft', corrige ses points bloquants, puis seulement apres appelle 'create_pdf'. Reprends exactement la 'signature' retournee par la review et passe-la dans 'create_pdf.reviewSignature'."
     );
     requestSpecificDirectives.push(
       pdfTargets.formalDocument
         ? "Quand tu appelles 'create_pdf' pour ce document formel, utilise plusieurs sections courtes et propres (en-tete, objet ou attestation, details, signatures/mentions finales) et garde un ton administratif."
-        : "Quand tu appelles 'create_pdf', renseigne aussi 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent."
+        : "Pour un PDF long, commence par 'begin_pdf_draft', ajoute le contenu section par section avec 'append_to_draft' (idealement 300 a 600 mots par ajout), relis avec 'get_pdf_draft' si besoin, puis passe a 'review_pdf_draft' et enfin a 'create_pdf'."
+    );
+    requestSpecificDirectives.push(
+      pdfTargets.formalDocument
+        ? "Choisis un theme 'legal' par defaut pour les documents officiels, sauf demande explicite contraire."
+        : "Quand tu appelles 'create_pdf', renseigne aussi 'theme', 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent. Theme par defaut: 'news' pour l'actu, sinon 'report'."
     );
   }
 
@@ -698,6 +741,7 @@ Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une 
 - Outils locaux toujours disponibles :
   - 'publish_status' : partage publiquement ta phase, ton focus, ta prochaine action et ton critere de fin, sans exposer de chain-of-thought
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
+  - 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft' : construisent un brouillon PDF incremental persistant
   - 'review_pdf_draft' : critique un brouillon PDF avant export et dit s'il est pret
   - 'create_pdf' : a utiliser pour tout besoin de PDF
   - 'release_file' : publie un fichier apres creation
@@ -728,7 +772,9 @@ ${requestClock
 7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.
 8. Pour un PDF exigeant, un document formel, une demande "soignee" ou "parfaite", tu dois passer par 'review_pdf_draft' AVANT 'create_pdf'. Si la review dit que le brouillon n'est pas pret, corrige-le puis relance la review.
 9. Si 'review_pdf_draft' retourne une 'signature', passe cette meme valeur dans 'create_pdf.reviewSignature'. N'invente jamais cette signature et ne la modifie pas.
-10. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
+10. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.
+11. Pour un PDF long, utilise prioritairement le trio 'begin_pdf_draft' -> 'append_to_draft' -> 'get_pdf_draft' avant la self-review finale.
+12. Ne tente jamais de satisfaire une demande de 9000 mots en un seul tour ou avec du padding visuel. Respecte le cap de session et annonce-le proprement.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -807,13 +853,20 @@ function buildCoworkFallbackMessage(releasedFile: { url: string; path?: string }
 }
 
 export const __coworkPdfInternals = {
+  extractRequestedWordCount,
+  normalizePdfTheme,
+  resolvePdfTheme,
   requestNeedsFormalDocument,
   requestNeedsFictionalDetails,
   requestNeedsPdfArtifact,
   requestNeedsPdfSelfReview,
   getPdfQualityTargets,
   buildPdfDraftSnapshot,
+  createActivePdfDraft,
+  appendToActivePdfDraft,
+  buildPdfDraftStats,
   reviewPdfDraft,
+  renderPdfArtifact,
   countTemplatePlaceholders,
   countFormalDocumentSignals
 };
@@ -1047,6 +1100,60 @@ function getResearchTargets(message: string): ResearchTargets {
   return targets;
 }
 
+const PDF_SESSION_WORD_CAP = 3000;
+const PDF_APPEND_WORD_MIN = 300;
+const PDF_APPEND_WORD_MAX = 600;
+
+function extractRequestedWordCount(message: string): number | null {
+  const normalized = normalizeCoworkText(message);
+  const match = normalized.match(/\b(\d{2,5})\s*(?:mots?|words?)\b/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  return Math.max(100, Math.min(value, 12000));
+}
+
+function normalizePdfTheme(value: string | undefined, fallback: PdfTheme = 'report'): PdfTheme {
+  const normalized = normalizeCoworkText(value || '');
+  if (normalized.includes('legal') || normalized.includes('jurid') || normalized.includes('officiel') || normalized.includes('formal')) {
+    return 'legal';
+  }
+  if (normalized.includes('news') || normalized.includes('magazine') || normalized.includes('presse') || normalized.includes('editorial')) {
+    return 'news';
+  }
+  if (normalized.includes('report') || normalized.includes('corporate') || normalized.includes('rapport')) {
+    return 'report';
+  }
+  return fallback;
+}
+
+function resolvePdfTheme(
+  message: string,
+  options: { formalDocument?: boolean; explicitTheme?: string } = {}
+): PdfTheme {
+  if (options.explicitTheme) {
+    return normalizePdfTheme(options.explicitTheme, 'report');
+  }
+  if (options.formalDocument) {
+    return 'legal';
+  }
+  if (requestIsCurrentAffairs(message) || /\b(news|revue de presse|magazine|presse|editorial|journal)\b/.test(normalizeCoworkText(message))) {
+    return 'news';
+  }
+  return 'report';
+}
+
+function resolvePdfLengthPolicy(message: string, baselineWords: number) {
+  const requestedWordCount = extractRequestedWordCount(message);
+  const clampedRequested = requestedWordCount ? Math.min(requestedWordCount, PDF_SESSION_WORD_CAP) : null;
+  const targetWords = Math.max(baselineWords, clampedRequested || 0);
+  return {
+    requestedWordCount,
+    targetWords,
+    cappedWords: Boolean(requestedWordCount && requestedWordCount > PDF_SESSION_WORD_CAP),
+  };
+}
+
 function getPdfQualityTargets(message: string): PdfQualityTargets | null {
   if (!requestNeedsPdfArtifact(message)) return null;
   const normalized = normalizeCoworkText(message);
@@ -1079,12 +1186,22 @@ function getPdfQualityTargets(message: string): PdfQualityTargets | null {
     minWords = Math.max(minWords, 1400);
   }
 
+  const lengthPolicy = resolvePdfLengthPolicy(message, minWords);
+  if (lengthPolicy.targetWords > 0) {
+    minWords = Math.max(minWords, lengthPolicy.targetWords);
+    minSections = Math.max(minSections, Math.ceil(lengthPolicy.targetWords / 500));
+  }
+
   return minSections > 0
     ? {
         minSections,
         minWords,
         formalDocument,
-        requireInventedDetails
+        requireInventedDetails,
+        requestedWordCount: lengthPolicy.requestedWordCount,
+        cappedWordCount: lengthPolicy.cappedWords,
+        maxWords: PDF_SESSION_WORD_CAP,
+        theme: resolvePdfTheme(message, { formalDocument })
       }
     : null;
 }
@@ -1150,6 +1267,129 @@ function buildPdfDraftSignature(draft: PdfDraftSnapshot): string {
     sources: draft.sources
   };
   return createHash('sha1').update(JSON.stringify(payload)).digest('hex').slice(0, 16);
+}
+
+function activePdfDraftToSnapshot(draft: ActivePdfDraft): PdfDraftSnapshot {
+  return {
+    title: draft.title,
+    subtitle: draft.subtitle,
+    summary: draft.summary,
+    author: draft.author,
+    sections: draft.sections,
+    sources: draft.sources
+  };
+}
+
+function buildPdfDraftStats(draft: ActivePdfDraft): PdfDraftStats {
+  const snapshot = activePdfDraftToSnapshot(draft);
+  const sectionCount = draft.sections.length;
+  return {
+    draftId: draft.draftId,
+    theme: draft.theme,
+    wordCount: countWords(buildPdfDraftCombinedContent(snapshot)),
+    targetWords: draft.targetWords,
+    requestedWordCount: draft.requestedWordCount,
+    cappedWords: draft.cappedWords,
+    sectionCount,
+    titledSectionCount: draft.sections.filter(section => Boolean(section.heading)).length,
+    sourceCount: draft.sources.length,
+    missingWords: Math.max(0, draft.targetWords - draft.wordCount),
+    approvedReviewSignature: draft.approvedReviewSignature
+  };
+}
+
+function buildPdfLengthCapMessage(targetWords: number, requestedWordCount: number | null, cappedWords: boolean): string | undefined {
+  if (!cappedWords || !requestedWordCount) return undefined;
+  return `La demande visait ${requestedWordCount} mots, mais Cowork est plafonne a environ ${targetWords} mots par session PDF. Construis un document dense dans cette limite et annonce-la honnetement.`;
+}
+
+function sanitizePdfFilenameBase(value: string | undefined, fallback = 'document-cowork'): string {
+  const normalized = (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function refreshActivePdfDraft(draft: ActivePdfDraft): ActivePdfDraft {
+  return {
+    ...draft,
+    wordCount: countWords(buildPdfDraftCombinedContent(activePdfDraftToSnapshot(draft)))
+  };
+}
+
+function createActivePdfDraft(
+  message: string,
+  input: {
+    filename?: string;
+    title: string;
+    subtitle?: string;
+    summary?: string;
+    author?: string;
+    theme?: string;
+    accentColor?: string;
+    sources?: string[] | null;
+    sections?: PdfSectionInput[] | null;
+  },
+  pdfQualityTargets: PdfQualityTargets | null
+): ActivePdfDraft {
+  const snapshot = buildPdfDraftSnapshot(input);
+  const targetWords = Math.max(pdfQualityTargets?.minWords || 0, countWords(buildPdfDraftCombinedContent(snapshot)));
+  const nextDraft = refreshActivePdfDraft({
+    draftId: randomUUID(),
+    filename: sanitizePdfFilenameBase(input.filename || input.title || 'document-cowork'),
+    theme: normalizePdfTheme(input.theme, resolvePdfTheme(message, {
+      formalDocument: pdfQualityTargets?.formalDocument,
+      explicitTheme: input.theme
+    })),
+    accentColor: input.accentColor?.trim() || undefined,
+    requestedWordCount: pdfQualityTargets?.requestedWordCount ?? null,
+    targetWords,
+    cappedWords: Boolean(pdfQualityTargets?.cappedWordCount),
+    approvedReviewSignature: null,
+    wordCount: 0,
+    ...snapshot
+  });
+  return nextDraft;
+}
+
+function appendToActivePdfDraft(
+  message: string,
+  draft: ActivePdfDraft,
+  input: {
+    subtitle?: string;
+    summary?: string;
+    author?: string;
+    theme?: string;
+    accentColor?: string;
+    filename?: string;
+    sources?: string[] | null;
+    sections?: PdfSectionInput[] | null;
+  }
+): ActivePdfDraft {
+  const normalizedSections = normalizePdfSections(input.sections);
+  const normalizedSources = normalizePdfSources(input.sources);
+  const snapshot = buildPdfDraftSnapshot({
+    title: draft.title,
+    subtitle: input.subtitle ?? draft.subtitle,
+    summary: input.summary ?? draft.summary,
+    author: input.author ?? draft.author,
+    sections: [...draft.sections, ...normalizedSections],
+    sources: Array.from(new Set([...draft.sources, ...normalizedSources]))
+  });
+
+  return refreshActivePdfDraft({
+    ...draft,
+    ...snapshot,
+    filename: sanitizePdfFilenameBase(input.filename || draft.filename || draft.title),
+    theme: input.theme
+      ? normalizePdfTheme(input.theme, draft.theme)
+      : draft.theme || resolvePdfTheme(message, { formalDocument: requestNeedsFormalDocument(message) }),
+    accentColor: input.accentColor?.trim() || draft.accentColor,
+    approvedReviewSignature: null
+  });
 }
 
 function reviewPdfDraft(
@@ -1438,6 +1678,617 @@ function countFormalDocumentSignals(value: string): number {
     /\b(fait a|fait au|signature|cachet|responsable|directeur|gerant|gerante|rh)\b/
   ];
   return signals.reduce((count, pattern) => count + (pattern.test(normalized) ? 1 : 0), 0);
+}
+
+type RenderedPdfArtifactResult = {
+  path: string;
+  pageCount: number;
+  blankBodyPageCount: number;
+  usedCoverPage: boolean;
+  theme: PdfTheme;
+};
+
+async function renderPdfArtifact(options: {
+  outputPath: string;
+  title: string;
+  subtitle?: string;
+  summary?: string;
+  author?: string;
+  accentColor?: string;
+  showPageNumbers?: boolean;
+  sections: NormalizedPdfSection[];
+  sources: string[];
+  requestClock: RequestClock;
+  message: string;
+  pdfQualityTargets: PdfQualityTargets | null;
+  theme?: PdfTheme;
+}): Promise<RenderedPdfArtifactResult> {
+  const theme = normalizePdfTheme(
+    options.theme,
+    resolvePdfTheme(options.message, {
+      formalDocument: Boolean(options.pdfQualityTargets?.formalDocument)
+    })
+  );
+  const formalDocumentLayout = theme === 'legal' || Boolean(options.pdfQualityTargets?.formalDocument || requestNeedsFormalDocument(options.message));
+  const totalWords = countWords([
+    options.title,
+    options.subtitle || '',
+    options.summary || '',
+    ...options.sections.flatMap(section => [section.heading || '', section.body]),
+    ...options.sources
+  ].join(' '));
+  const canUseCoverPage =
+    !formalDocumentLayout
+    && (
+      (theme === 'news' && totalWords >= 800 && options.sections.length >= 4)
+      || (theme === 'report' && totalWords >= 900 && options.sections.length >= 4)
+    );
+
+  const renderOnce = (useCoverPage: boolean) => new Promise<RenderedPdfArtifactResult>((resolve, reject) => {
+    try {
+      fs.rmSync(options.outputPath, { force: true });
+    } catch {}
+
+    const doc = new PDFDocument({
+      size: 'A4',
+      margins: { top: 72, right: 64, bottom: 64, left: 64 },
+      bufferPages: true,
+      autoFirstPage: false,
+      info: {
+        Title: options.title,
+        Author: options.author || 'Studio Pro Agent',
+        Subject: options.subtitle || options.title,
+        Creator: 'Studio Pro Agent'
+      }
+    });
+    const stream = fs.createWriteStream(options.outputPath);
+
+    const themeConfig = theme === 'legal'
+      ? {
+          accent: normalizeHexColor(options.accentColor, '#1e3a8a'),
+          ink: '#0f172a',
+          muted: '#334155',
+          line: '#cbd5e1',
+          panel: '#ffffff',
+          white: '#ffffff',
+          titleFont: 'Times-Bold',
+          headingFont: 'Times-Bold',
+          bodyFont: 'Times-Roman',
+          masthead: 'DOCUMENT OFFICIEL',
+          summaryLabel: 'Introduction',
+          bodyAlign: 'left' as const,
+        }
+      : theme === 'news'
+        ? {
+            accent: normalizeHexColor(options.accentColor, '#b91c1c'),
+            ink: '#111827',
+            muted: '#4b5563',
+            line: '#d1d5db',
+            panel: '#f9fafb',
+            white: '#ffffff',
+            titleFont: 'Helvetica-Bold',
+            headingFont: 'Helvetica-Bold',
+            bodyFont: 'Helvetica',
+            masthead: 'COWORK NEWS DESK',
+            summaryLabel: 'Chapo',
+            bodyAlign: 'justify' as const,
+          }
+        : {
+            accent: normalizeHexColor(options.accentColor, '#1d4ed8'),
+            ink: '#0f172a',
+            muted: '#475569',
+            line: '#dbe4ee',
+            panel: '#f8fafc',
+            white: '#ffffff',
+            titleFont: 'Helvetica-Bold',
+            headingFont: 'Helvetica-Bold',
+            bodyFont: 'Helvetica',
+            masthead: 'STUDIO PRO / COWORK REPORT',
+            summaryLabel: 'Resume executif',
+            bodyAlign: 'justify' as const,
+          };
+
+    const summaryText = formalDocumentLayout
+      ? clipText(options.summary || '', 420)
+      : clipText(options.summary || options.sections[0]?.body || '', theme === 'news' ? 640 : 900);
+    const tocHeadings = options.sections
+      .map(section => section.heading)
+      .filter((heading): heading is string => Boolean(heading))
+      .slice(0, 8);
+    const useToc = useCoverPage && tocHeadings.length >= 5 && totalWords >= 1200;
+    const pageMetrics: Array<{ kind: 'cover' | 'body'; bodyBlocks: number }> = [];
+
+    const bodyWidth = () => doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const pageBottom = () => doc.page.height - doc.page.margins.bottom - 24;
+    const markPage = (kind: 'cover' | 'body') => {
+      pageMetrics.push({ kind, bodyBlocks: 0 });
+    };
+    const markBodyContent = () => {
+      if (pageMetrics.length === 0) markPage('body');
+      const current = pageMetrics[pageMetrics.length - 1];
+      current.bodyBlocks += 1;
+    };
+    const drawBodyHeader = () => {
+      if (formalDocumentLayout) {
+        doc.y = 72;
+        return;
+      }
+
+      doc.save();
+      doc.fillColor(themeConfig.white).rect(0, 0, doc.page.width, theme === 'news' ? 68 : 58).fill();
+      if (theme === 'news') {
+        doc.fillColor(themeConfig.accent).rect(0, 0, doc.page.width, 10).fill();
+        doc
+          .fillColor(themeConfig.ink)
+          .font(themeConfig.headingFont)
+          .fontSize(11.5)
+          .text(themeConfig.masthead, doc.page.margins.left, 22);
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.bodyFont)
+          .fontSize(9)
+          .text(options.requestClock.dateLabel, doc.page.margins.left, 38);
+      } else {
+        doc.fillColor(themeConfig.accent).rect(doc.page.margins.left, 30, 50, 4).fill();
+        doc
+          .fillColor(themeConfig.ink)
+          .font(themeConfig.headingFont)
+          .fontSize(9.5)
+          .text(themeConfig.masthead, doc.page.margins.left + 60, 24);
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.bodyFont)
+          .fontSize(8.5)
+          .text(options.requestClock.dateLabel, doc.page.margins.left + 60, 36);
+      }
+      doc.restore();
+      doc.y = theme === 'news' ? 92 : 86;
+    };
+    const addBodyPage = () => {
+      doc.addPage();
+      markPage('body');
+      drawBodyHeader();
+    };
+    const ensureSpace = (minHeight = 120) => {
+      if (doc.y + minHeight > pageBottom()) {
+        addBodyPage();
+      }
+    };
+    const renderParagraph = (text: string) => {
+      const cleaned = text.replace(/\s+/g, ' ').trim();
+      if (!cleaned) return;
+      ensureSpace(theme === 'legal' ? 72 : 60);
+      markBodyContent();
+      doc
+        .fillColor(themeConfig.ink)
+        .font(themeConfig.bodyFont)
+        .fontSize(formalDocumentLayout ? 11.2 : 11.4)
+        .text(cleaned, {
+          width: bodyWidth(),
+          align: themeConfig.bodyAlign,
+          lineGap: formalDocumentLayout ? 4 : 3
+        });
+      doc.moveDown(formalDocumentLayout ? 0.95 : 0.72);
+    };
+    const renderBullet = (text: string) => {
+      const cleaned = text.replace(/\s+/g, ' ').trim();
+      if (!cleaned) return;
+      ensureSpace(40);
+      markBodyContent();
+      const bulletX = doc.page.margins.left + 6;
+      const textX = doc.page.margins.left + 18;
+      const startY = doc.y;
+
+      doc.save();
+      doc.fillColor(themeConfig.accent).circle(bulletX, startY + 7, 2.5).fill();
+      doc.restore();
+
+      doc
+        .fillColor(themeConfig.ink)
+        .font(themeConfig.bodyFont)
+        .fontSize(formalDocumentLayout ? 11 : 11.1)
+        .text(cleaned, textX, startY, {
+          width: bodyWidth() - 18,
+          lineGap: formalDocumentLayout ? 4 : 3
+        });
+      doc.moveDown(0.35);
+    };
+    const renderRichText = (body: string) => {
+      let paragraphBuffer: string[] = [];
+      const flushParagraph = () => {
+        if (paragraphBuffer.length === 0) return;
+        renderParagraph(paragraphBuffer.join(' '));
+        paragraphBuffer = [];
+      };
+
+      for (const rawLine of body.split('\n')) {
+        const line = rawLine.trim();
+        if (!line) {
+          flushParagraph();
+          continue;
+        }
+        if (/^(?:[-*]\s+|â€¢\s+)/.test(line)) {
+          flushParagraph();
+          renderBullet(line.replace(/^(?:[-*]\s+|â€¢\s+)/, ''));
+          continue;
+        }
+        paragraphBuffer.push(line);
+      }
+
+      flushParagraph();
+    };
+    const renderCallout = (heading: string, body: string) => {
+      const cleaned = body.trim();
+      if (!cleaned) return;
+      if (formalDocumentLayout) {
+        renderParagraph(cleaned);
+        return;
+      }
+
+      doc.font(themeConfig.bodyFont).fontSize(11.4);
+      const computedHeight = doc.heightOfString(cleaned, {
+        width: bodyWidth() - 36,
+        lineGap: 3
+      });
+      const boxHeight = Math.min(180, Math.max(72, computedHeight + 34));
+      ensureSpace(boxHeight + 18);
+      markBodyContent();
+      const startY = doc.y;
+
+      doc.save();
+      if (theme === 'news') {
+        doc.fillColor(themeConfig.panel).rect(doc.page.margins.left, startY, bodyWidth(), boxHeight).fill();
+        doc.fillColor(themeConfig.accent).rect(doc.page.margins.left, startY, 8, boxHeight).fill();
+      } else {
+        doc.lineWidth(1).fillColor(themeConfig.panel).strokeColor(themeConfig.line);
+        doc.roundedRect(doc.page.margins.left, startY, bodyWidth(), boxHeight, 14).fillAndStroke();
+        doc.fillColor(themeConfig.accent).rect(doc.page.margins.left + 18, startY + 18, 42, 4).fill();
+      }
+      doc
+        .fillColor(themeConfig.muted)
+        .font(themeConfig.headingFont)
+        .fontSize(10)
+        .text(heading.toUpperCase(), doc.page.margins.left + 20, startY + 18, {
+          width: bodyWidth() - 40
+        });
+      doc
+        .fillColor(themeConfig.ink)
+        .font(themeConfig.bodyFont)
+        .fontSize(11.4)
+        .text(cleaned, doc.page.margins.left + 20, startY + 40, {
+          width: bodyWidth() - 40,
+          lineGap: 3,
+          align: themeConfig.bodyAlign
+        });
+      doc.restore();
+      doc.y = startY + boxHeight + 16;
+    };
+    const renderSection = (heading: string | undefined, body: string) => {
+      if (heading) {
+        ensureSpace(formalDocumentLayout ? 74 : 78);
+        if (formalDocumentLayout) {
+          markBodyContent();
+          doc
+            .fillColor(themeConfig.ink)
+            .font(themeConfig.headingFont)
+            .fontSize(12.5)
+            .text(heading.toUpperCase(), {
+              width: bodyWidth()
+            });
+          doc.moveDown(0.15);
+          const dividerY = doc.y + 1;
+          doc.save();
+          doc.strokeColor(themeConfig.line).lineWidth(1);
+          doc.moveTo(doc.page.margins.left, dividerY).lineTo(doc.page.width - doc.page.margins.right, dividerY).stroke();
+          doc.restore();
+          doc.moveDown(0.55);
+        } else if (theme === 'news') {
+          markBodyContent();
+          doc.fillColor(themeConfig.accent).rect(doc.page.margins.left, doc.y + 8, 24, 3).fill();
+          doc
+            .fillColor(themeConfig.ink)
+            .font(themeConfig.headingFont)
+            .fontSize(17)
+            .text(heading.toUpperCase(), doc.page.margins.left, doc.y + 12, {
+              width: bodyWidth()
+            });
+          doc.moveDown(0.55);
+        } else {
+          markBodyContent();
+          doc.fillColor(themeConfig.accent).rect(doc.page.margins.left, doc.y + 9, 10, 10).fill();
+          doc
+            .fillColor(themeConfig.ink)
+            .font(themeConfig.headingFont)
+            .fontSize(18)
+            .text(heading, doc.page.margins.left + 20, doc.y, {
+              width: bodyWidth() - 20
+            });
+          doc.moveDown(0.2);
+          const dividerY = doc.y + 2;
+          doc.save();
+          doc.strokeColor(themeConfig.line).lineWidth(1);
+          doc.moveTo(doc.page.margins.left, dividerY).lineTo(doc.page.width - doc.page.margins.right, dividerY).stroke();
+          doc.restore();
+          doc.moveDown(0.7);
+        }
+      }
+      renderRichText(body);
+    };
+
+    doc.pipe(stream);
+
+    if (useCoverPage) {
+      doc.addPage();
+      markPage('cover');
+      const coverWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+      doc.save();
+      if (theme === 'news') {
+        doc.fillColor(themeConfig.white).rect(0, 0, doc.page.width, doc.page.height).fill();
+        doc.fillColor(themeConfig.accent).rect(0, 0, doc.page.width, 22).fill();
+      } else {
+        doc.fillColor(themeConfig.panel).rect(0, 0, doc.page.width, doc.page.height).fill();
+        doc.fillColor(themeConfig.accent).rect(0, 0, doc.page.width, 152).fill();
+      }
+      doc.restore();
+
+      doc
+        .fillColor(theme === 'news' ? themeConfig.ink : themeConfig.white)
+        .font(themeConfig.headingFont)
+        .fontSize(theme === 'news' ? 12 : 11)
+        .text(themeConfig.masthead, doc.page.margins.left, theme === 'news' ? 50 : 54);
+      doc
+        .fillColor(themeConfig.muted)
+        .font(themeConfig.bodyFont)
+        .fontSize(10.5)
+        .text(options.requestClock.absoluteDateTimeLabel, doc.page.margins.left, theme === 'news' ? 70 : 76);
+
+      doc.y = theme === 'news' ? 140 : 184;
+      doc
+        .fillColor(themeConfig.ink)
+        .font(themeConfig.titleFont)
+        .fontSize(theme === 'news' ? 30 : 29)
+        .text(options.title, doc.page.margins.left, doc.y, { width: coverWidth });
+      if (options.subtitle) {
+        doc.moveDown(0.35);
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.bodyFont)
+          .fontSize(theme === 'news' ? 14.5 : 14)
+          .text(options.subtitle, { width: coverWidth });
+      }
+      if (options.author) {
+        doc.moveDown(0.45);
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.headingFont)
+          .fontSize(10)
+          .text(`Par ${options.author}`, { width: coverWidth });
+      }
+
+      let nextBoxY = Math.max(doc.y + 26, theme === 'news' ? 300 : 336);
+      if (summaryText) {
+        const summaryBoxHeight = Math.min(
+          170,
+          Math.max(92, doc.heightOfString(summaryText, { width: coverWidth - 40, lineGap: 3 }) + 42)
+        );
+        doc.save();
+        doc.lineWidth(1).fillColor(themeConfig.white).strokeColor(themeConfig.line);
+        if (theme === 'news') {
+          doc.rect(doc.page.margins.left, nextBoxY, coverWidth, summaryBoxHeight).fillAndStroke();
+        } else {
+          doc.roundedRect(doc.page.margins.left, nextBoxY, coverWidth, summaryBoxHeight, 16).fillAndStroke();
+        }
+        doc.fillColor(themeConfig.accent).rect(doc.page.margins.left + 20, nextBoxY + 18, 46, 4).fill();
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.headingFont)
+          .fontSize(10)
+          .text(themeConfig.summaryLabel.toUpperCase(), doc.page.margins.left + 20, nextBoxY + 30, {
+            width: coverWidth - 40
+          });
+        doc
+          .fillColor(themeConfig.ink)
+          .font(themeConfig.bodyFont)
+          .fontSize(11.4)
+          .text(summaryText, doc.page.margins.left + 20, nextBoxY + 52, {
+            width: coverWidth - 40,
+            lineGap: 3,
+            align: themeConfig.bodyAlign
+          });
+        doc.restore();
+        nextBoxY += summaryBoxHeight + 18;
+      }
+
+      if (useToc && nextBoxY < doc.page.height - 120) {
+        const tocHeight = Math.max(112, 42 + tocHeadings.length * 18);
+        doc.save();
+        doc.lineWidth(1).fillColor(themeConfig.white).strokeColor(themeConfig.line);
+        if (theme === 'news') {
+          doc.rect(doc.page.margins.left, nextBoxY, coverWidth, tocHeight).fillAndStroke();
+        } else {
+          doc.roundedRect(doc.page.margins.left, nextBoxY, coverWidth, tocHeight, 16).fillAndStroke();
+        }
+        doc.fillColor(themeConfig.accent).rect(doc.page.margins.left + 20, nextBoxY + 18, 46, 4).fill();
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.headingFont)
+          .fontSize(10)
+          .text('PLAN DU DOCUMENT', doc.page.margins.left + 20, nextBoxY + 30, {
+            width: coverWidth - 40
+          });
+        let tocY = nextBoxY + 56;
+        tocHeadings.forEach((heading, index) => {
+          doc.fillColor(themeConfig.accent).circle(doc.page.margins.left + 24, tocY + 6, 2.5).fill();
+          doc
+            .fillColor(themeConfig.ink)
+            .font(themeConfig.bodyFont)
+            .fontSize(11)
+            .text(`${index + 1}. ${heading}`, doc.page.margins.left + 36, tocY, {
+              width: coverWidth - 56
+            });
+          tocY += 18;
+        });
+        doc.restore();
+      }
+    }
+
+    addBodyPage();
+    if (formalDocumentLayout) {
+      doc.y = 62;
+      doc
+        .fillColor(themeConfig.muted)
+        .font(themeConfig.bodyFont)
+        .fontSize(10)
+        .text(options.requestClock.dateLabel, {
+          width: bodyWidth(),
+          align: 'right'
+        });
+      if (options.author) {
+        doc.moveDown(0.2);
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.bodyFont)
+          .fontSize(10)
+          .text(options.author, {
+            width: bodyWidth(),
+            align: 'right'
+          });
+      }
+      doc.moveDown(1.1);
+      markBodyContent();
+      doc
+        .fillColor(themeConfig.ink)
+        .font(themeConfig.titleFont)
+        .fontSize(20)
+        .text(options.title, {
+          width: bodyWidth(),
+          align: 'center'
+        });
+      if (options.subtitle) {
+        doc.moveDown(0.35);
+        markBodyContent();
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.bodyFont)
+          .fontSize(11.5)
+          .text(options.subtitle, {
+            width: bodyWidth(),
+            align: 'center'
+          });
+      }
+      doc.moveDown(1.1);
+    } else if (!useCoverPage) {
+      markBodyContent();
+      doc
+        .fillColor(themeConfig.ink)
+        .font(themeConfig.titleFont)
+        .fontSize(theme === 'news' ? 26 : 24)
+        .text(options.title, { width: bodyWidth() });
+      if (options.subtitle) {
+        doc.moveDown(0.35);
+        markBodyContent();
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.bodyFont)
+          .fontSize(13)
+          .text(options.subtitle, { width: bodyWidth() });
+      }
+      doc.moveDown(0.6);
+    }
+
+    if (summaryText) {
+      renderCallout(formalDocumentLayout ? 'Introduction' : themeConfig.summaryLabel, summaryText);
+    }
+
+    for (const section of options.sections) {
+      renderSection(section.heading, section.body);
+    }
+
+    if (options.sources.length > 0) {
+      renderSection('Sources et liens', options.sources.map(source => `- ${source}`).join('\n'));
+    }
+
+    const bufferedPages = doc.bufferedPageRange();
+    const pageCount = bufferedPages.count;
+    const blankBodyPageCount = pageMetrics.filter(page => page.kind === 'body' && page.bodyBlocks === 0).length;
+
+    for (let pageIndex = 0; pageIndex < bufferedPages.count; pageIndex++) {
+      doc.switchToPage(bufferedPages.start + pageIndex);
+      const pageNumber = pageIndex + 1;
+      const shouldDrawHeader = !formalDocumentLayout && (!useCoverPage || pageNumber > 1);
+
+      if (shouldDrawHeader) {
+        doc.save();
+        doc.strokeColor(themeConfig.line).lineWidth(1);
+        doc.moveTo(doc.page.margins.left, theme === 'news' ? 70 : 60).lineTo(doc.page.width - doc.page.margins.right, theme === 'news' ? 70 : 60).stroke();
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.bodyFont)
+          .fontSize(8.5)
+          .text(options.title, doc.page.margins.left, theme === 'news' ? 48 : 42, {
+            width: doc.page.width - doc.page.margins.left - doc.page.margins.right - 70
+          });
+        doc.fillColor(themeConfig.accent).rect(doc.page.width - doc.page.margins.right - 46, theme === 'news' ? 50 : 44, 46, 4).fill();
+        doc.restore();
+      }
+
+      if (options.showPageNumbers !== false && (!formalDocumentLayout || pageCount > 1)) {
+        doc.save();
+        doc.strokeColor(themeConfig.line).lineWidth(1);
+        doc.moveTo(doc.page.margins.left, doc.page.height - 48).lineTo(doc.page.width - doc.page.margins.right, doc.page.height - 48).stroke();
+        doc
+          .fillColor(themeConfig.muted)
+          .font(themeConfig.bodyFont)
+          .fontSize(8)
+          .text(
+            formalDocumentLayout
+              ? `Page ${pageNumber}/${pageCount}`
+              : `${themeConfig.masthead} | ${options.requestClock.footerDateLabel} | Page ${pageNumber}/${pageCount}`,
+            doc.page.margins.left,
+            doc.page.height - 36,
+            {
+              width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+              align: 'center'
+            }
+          );
+        doc.restore();
+      }
+    }
+
+    doc.end();
+
+    stream.on('finish', () => {
+      if (blankBodyPageCount > 0) {
+        try {
+          fs.rmSync(options.outputPath, { force: true });
+        } catch {}
+        const error = new Error(`Le rendu PDF a produit ${blankBodyPageCount} page(s) vide(s).`);
+        (error as any).recoverable = true;
+        (error as any).blankBodyPageCount = blankBodyPageCount;
+        reject(error);
+        return;
+      }
+
+      resolve({
+        path: options.outputPath,
+        pageCount,
+        blankBodyPageCount,
+        usedCoverPage: useCoverPage,
+        theme
+      });
+    });
+    stream.on('error', reject);
+  });
+
+  try {
+    return await renderOnce(canUseCoverPage);
+  } catch (error: any) {
+    if (canUseCoverPage && Number(error?.blankBodyPageCount || 0) > 0) {
+      return renderOnce(false);
+    }
+    throw error;
+  }
 }
 
 function buildArtifactCompletionPrompt(
@@ -1832,6 +2683,7 @@ function buildCoworkProgressFingerprint(input: {
   executionMode: CoworkExecutionMode;
   research: Pick<MusicResearchProgress, 'webSearches' | 'webFetches'>;
   validatedSourceCount: number;
+  activePdfDraft: ActivePdfDraft | null;
   latestApprovedPdfReviewSignature: string | null;
   latestCreatedArtifactPath: string | null;
   latestReleasedFileUrl: string | null;
@@ -1846,6 +2698,11 @@ function buildCoworkProgressFingerprint(input: {
     webSearches: input.research.webSearches,
     webFetches: input.research.webFetches,
     validatedSources: input.validatedSourceCount,
+    activePdfDraftId: input.activePdfDraft?.draftId || null,
+    activePdfDraftWords: input.activePdfDraft?.wordCount || 0,
+    activePdfDraftSections: input.activePdfDraft?.sections.length || 0,
+    activePdfDraftSignature: input.activePdfDraft ? buildPdfDraftSignature(activePdfDraftToSnapshot(input.activePdfDraft)) : null,
+    activePdfDraftApprovedSignature: input.activePdfDraft?.approvedReviewSignature || null,
     latestApprovedPdfReviewSignature: input.latestApprovedPdfReviewSignature,
     latestCreatedArtifactPath: input.latestCreatedArtifactPath,
     latestReleasedFileUrl: input.latestReleasedFileUrl,
@@ -1889,6 +2746,7 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
     sourcesValidated: [...state.sourcesValidated],
     searchesFailed: [...state.searchesFailed],
     toolsBlocked: [...state.toolsBlocked],
+    activePdfDraft: state.activePdfDraft ? { ...state.activePdfDraft, sections: [...state.activePdfDraft.sections], sources: [...state.activePdfDraft.sources] } : null,
     blockers: [],
   };
 
@@ -2203,6 +3061,7 @@ type CoworkSessionState = {
   sourcesValidated: CoworkValidatedSource[];
   searchesFailed: CoworkSearchFailure[];
   toolsBlocked: CoworkBlockedTool[];
+  activePdfDraft: ActivePdfDraft | null;
   phase: CoworkPhase;
   modelCompletionScore: number;
   completionScore: number;
@@ -2249,6 +3108,15 @@ function getPublicToolNarrationTarget(toolName: string, args: any): string | nul
       break;
     case 'music_catalog_lookup':
       rawTarget = args?.artist ?? args?.name ?? args?.query;
+      break;
+    case 'begin_pdf_draft':
+      rawTarget = args?.title ?? args?.filename;
+      break;
+    case 'append_to_draft':
+      rawTarget = args?.sections?.[0]?.heading ?? args?.title ?? args?.filename;
+      break;
+    case 'get_pdf_draft':
+      rawTarget = args?.draftId ?? args?.title;
       break;
     case 'review_pdf_draft':
       rawTarget = args?.title ?? args?.subtitle;
@@ -2297,6 +3165,25 @@ function buildPublicToolNarration(
         message: target
           ? `Je recoupe maintenant le catalogue de '${target}'.`
           : "Je recoupe maintenant le catalogue musical demande."
+      };
+    case 'begin_pdf_draft':
+      return {
+        title: 'Brouillon',
+        message: target
+          ? `J'initialise le brouillon PDF '${target}'.`
+          : "J'initialise maintenant le brouillon PDF."
+      };
+    case 'append_to_draft':
+      return {
+        title: 'Construction',
+        message: target
+          ? `J'ajoute une nouvelle partie au brouillon: '${target}'.`
+          : "J'ajoute une nouvelle partie au brouillon PDF."
+      };
+    case 'get_pdf_draft':
+      return {
+        title: 'Brouillon',
+        message: "Je relis l'etat courant du brouillon PDF avant la suite."
       };
     case 'review_pdf_draft':
       return {
@@ -4253,16 +5140,45 @@ app.post('/api/cowork', async (req, res) => {
           owned: Array.isArray(args?.ownedTracks) ? args.ownedTracks.length : 0
         };
       }
+      if (toolName === 'begin_pdf_draft') {
+        return {
+          title: clipText(args?.title || '', 120),
+          theme: clipText(args?.theme || '', 24),
+          filename: clipText(args?.filename || '', 80),
+        };
+      }
+      if (toolName === 'append_to_draft') {
+        return {
+          sections: Array.isArray(args?.sections) ? args.sections.length : 0,
+          sources: Array.isArray(args?.sources) ? args.sources.length : 0,
+          theme: clipText(args?.theme || '', 24),
+        };
+      }
+      if (toolName === 'get_pdf_draft') {
+        return {
+          includeBodies: Boolean(args?.includeBodies),
+        };
+      }
       if (toolName === 'web_search') {
         return { query: clipText(args?.query || '', 140), maxResults: Number(args?.maxResults || 5) };
       }
       if (toolName === 'web_fetch') {
         return { url: clipText(args?.url || '', 180) };
       }
+      if (toolName === 'create_pdf') {
+        return {
+          title: clipText(args?.title || '', 120),
+          filename: clipText(args?.filename || '', 80),
+          theme: clipText(args?.theme || '', 24),
+          useActiveDraft: Boolean(args?.useActiveDraft),
+          sections: Array.isArray(args?.sections) ? args.sections.length : 0
+        };
+      }
       if (toolName === 'review_pdf_draft') {
         return {
           title: clipText(args?.title || '', 120),
-          sections: Array.isArray(args?.sections) ? args.sections.length : 0
+          sections: Array.isArray(args?.sections) ? args.sections.length : 0,
+          useActiveDraft: Boolean(args?.useActiveDraft),
         };
       }
       if (toolName === 'publish_status') {
@@ -4306,11 +5222,28 @@ app.post('/api/cowork', async (req, res) => {
           searchPage: Boolean(output?.isSearchPage),
         };
       }
+      if (toolName === 'begin_pdf_draft' || toolName === 'append_to_draft' || toolName === 'get_pdf_draft') {
+        return {
+          draftId: clipText(output?.draft?.draftId || output?.draftId || '', 24),
+          theme: clipText(output?.draft?.theme || output?.theme || '', 24),
+          words: Number(output?.draft?.wordCount || output?.wordCount || 0),
+          sections: Number(output?.draft?.sectionCount || output?.sectionCount || 0),
+          cappedWords: Boolean(output?.draft?.cappedWords || output?.cappedWords),
+        };
+      }
       if (toolName === 'review_pdf_draft') {
         return {
           ready: Boolean(output?.ready),
           score: Number(output?.score || 0),
           signature: clipText(output?.signature || '', 24)
+        };
+      }
+      if (toolName === 'create_pdf') {
+        return {
+          path: clipText(output?.path || '', 120),
+          theme: clipText(output?.theme || '', 24),
+          pageCount: Number(output?.pageCount || 0),
+          blankBodyPageCount: Number(output?.blankBodyPageCount || 0),
         };
       }
       return formatToolMeta(toolName, args);
@@ -4350,16 +5283,37 @@ app.post('/api/cowork', async (req, res) => {
         const qualityPrefix = output?.quality ? `[${String(output.quality)}${output?.relevance ? `/${String(output.relevance)}` : ''}${output?.domain ? ` ${output.domain}` : ''}] ` : '';
         return `${qualityPrefix}${clipText(output?.excerpt || output?.content || output?.message || output?.error || '', 220)}`.trim();
       }
+      if (toolName === 'begin_pdf_draft' || toolName === 'append_to_draft' || toolName === 'get_pdf_draft') {
+        const draft = output?.draft || output;
+        const capNote = draft?.cappedWords && draft?.requestedWordCount
+          ? ` | cap ${draft.targetWords}/${draft.requestedWordCount} mots`
+          : '';
+        return `Brouillon ${clipText(draft?.theme || 'report', 16)} | ${Number(draft?.wordCount || 0)} mots | ${Number(draft?.sectionCount || 0)} section(s)${capNote}`;
+      }
       if (toolName === 'review_pdf_draft') {
         const blocking = Array.isArray(output?.blockingIssues) ? output.blockingIssues.length : 0;
         const improvements = Array.isArray(output?.improvements) ? output.improvements.length : 0;
         const readiness = output?.ready ? 'Pret' : 'A corriger';
         return `${readiness} | score ${Number(output?.score || 0)}/100 | ${blocking} bloquant(s) | ${improvements} amelioration(s)`;
       }
+      if (toolName === 'create_pdf') {
+        const themeLabel = output?.theme ? `theme ${output.theme}` : 'theme auto';
+        return `${themeLabel} | ${Number(output?.pageCount || 0)} page(s) | ${output?.usedCoverPage ? 'cover' : 'sans cover'} | ${clipText(output?.message || output?.error || '', 140)}`;
+      }
       return clipText(output?.message || output?.error || output, 240);
     };
 
     let latestApprovedPdfReviewSignature: string | null = null;
+
+    function applyActivePdfDraft(draft: ActivePdfDraft | null) {
+      sessionState.activePdfDraft = draft ? refreshActivePdfDraft(draft) : null;
+      latestApprovedPdfReviewSignature = sessionState.activePdfDraft?.approvedReviewSignature || null;
+      return sessionState.activePdfDraft;
+    }
+
+    function requireActivePdfDraft() {
+      return sessionState.activePdfDraft;
+    }
 
     const localTools = [
       {
@@ -4623,11 +5577,211 @@ app.post('/api/cowork', async (req, res) => {
         }
       }] : []),
       {
-        name: "review_pdf_draft",
-        description: "Relit un brouillon de PDF avant export. A utiliser avant 'create_pdf' pour les PDF exigeants, longs, soignes ou les documents formels. Retourne un score, des points forts et les points bloquants a corriger.",
+        name: "begin_pdf_draft",
+        description: "Initialise ou reinitialise un brouillon PDF persistant pour cette session Cowork. A utiliser au debut d'un PDF long, soigne, thematique ou iteratif.",
         parameters: {
           type: "object",
           properties: {
+            filename: { type: "string", description: "Nom de base du futur fichier PDF (sans chemin). Optionnel." },
+            title: { type: "string", description: "Titre principal du document." },
+            subtitle: { type: "string", description: "Sous-titre ou chapo initial (optionnel)." },
+            summary: { type: "string", description: "Resume executif initial (optionnel)." },
+            author: { type: "string", description: "Auteur ou signataire (optionnel)." },
+            theme: { type: "string", description: "Theme de mise en page: legal, news ou report." },
+            accentColor: { type: "string", description: "Couleur d'accent optionnelle HEX." },
+            sources: {
+              type: "array",
+              description: "Sources initiales a associer au brouillon.",
+              items: { type: "string" }
+            },
+            sections: {
+              type: "array",
+              description: "Sections initiales optionnelles du brouillon.",
+              items: {
+                type: "object",
+                properties: {
+                  heading: { type: "string" },
+                  body: { type: "string" }
+                }
+              }
+            }
+          },
+          required: ["title"]
+        },
+        execute: async ({
+          filename,
+          title,
+          subtitle,
+          summary,
+          author,
+          theme,
+          accentColor,
+          sources,
+          sections
+        }: {
+          filename?: string;
+          title: string;
+          subtitle?: string;
+          summary?: string;
+          author?: string;
+          theme?: string;
+          accentColor?: string;
+          sources?: string[];
+          sections?: PdfSectionInput[];
+        }) => {
+          const nextDraft = createActivePdfDraft(message, {
+            filename,
+            title,
+            subtitle,
+            summary,
+            author,
+            theme,
+            accentColor,
+            sources,
+            sections
+          }, pdfQualityTargets);
+          applyActivePdfDraft(nextDraft);
+          const draft = buildPdfDraftStats(nextDraft);
+          const capMessage = buildPdfLengthCapMessage(draft.targetWords, draft.requestedWordCount, draft.cappedWords);
+          return {
+            success: true,
+            draft,
+            message: [
+              `Brouillon PDF initialise avec le theme '${nextDraft.theme}'.`,
+              capMessage
+            ].filter(Boolean).join(' ')
+          };
+        }
+      },
+      {
+        name: "append_to_draft",
+        description: "Ajoute du contenu au brouillon PDF persistant. A privilegier pour construire un PDF long section par section.",
+        parameters: {
+          type: "object",
+          properties: {
+            subtitle: { type: "string", description: "Met a jour le sous-titre du brouillon (optionnel)." },
+            summary: { type: "string", description: "Met a jour le resume executif du brouillon (optionnel)." },
+            author: { type: "string", description: "Met a jour l'auteur/signataire (optionnel)." },
+            theme: { type: "string", description: "Theme de mise en page: legal, news ou report." },
+            accentColor: { type: "string", description: "Couleur d'accent optionnelle HEX." },
+            filename: { type: "string", description: "Nom de base du futur fichier PDF (optionnel)." },
+            sources: {
+              type: "array",
+              description: "Sources supplementaires a ajouter au brouillon.",
+              items: { type: "string" }
+            },
+            sections: {
+              type: "array",
+              description: "1 a 2 nouvelles sections a ajouter au brouillon.",
+              items: {
+                type: "object",
+                properties: {
+                  heading: { type: "string" },
+                  body: { type: "string" }
+                }
+              }
+            }
+          }
+        },
+        execute: async ({
+          subtitle,
+          summary,
+          author,
+          theme,
+          accentColor,
+          filename,
+          sources,
+          sections
+        }: {
+          subtitle?: string;
+          summary?: string;
+          author?: string;
+          theme?: string;
+          accentColor?: string;
+          filename?: string;
+          sources?: string[];
+          sections?: PdfSectionInput[];
+        }) => {
+          const currentDraft = requireActivePdfDraft();
+          if (!currentDraft) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Aucun brouillon PDF actif. Commence d'abord par 'begin_pdf_draft'."
+            };
+          }
+          if ((!Array.isArray(sections) || sections.length === 0) && !summary && !subtitle && !author && !theme && !accentColor && !filename && (!Array.isArray(sources) || sources.length === 0)) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Ajoute au moins une section, une source ou une mise a jour de meta avec 'append_to_draft'."
+            };
+          }
+
+          const nextDraft = appendToActivePdfDraft(message, currentDraft, {
+            subtitle,
+            summary,
+            author,
+            theme,
+            accentColor,
+            filename,
+            sources,
+            sections
+          });
+          applyActivePdfDraft(nextDraft);
+          const draft = buildPdfDraftStats(nextDraft);
+          const capMessage = buildPdfLengthCapMessage(draft.targetWords, draft.requestedWordCount, draft.cappedWords);
+          return {
+            success: true,
+            draft,
+            message: [
+              `${Array.isArray(sections) ? sections.length : 0} section(s) ajoutee(s). Le brouillon contient maintenant ${draft.wordCount} mots et ${draft.sectionCount} section(s).`,
+              capMessage
+            ].filter(Boolean).join(' ')
+          };
+        }
+      },
+      {
+        name: "get_pdf_draft",
+        description: "Relit l'etat courant du brouillon PDF persistant: mots, sections, theme, signature approuvee et apercu.",
+        parameters: {
+          type: "object",
+          properties: {
+            includeBodies: { type: "boolean", description: "Inclure un apercu textuel court des sections." }
+          }
+        },
+        execute: async ({ includeBodies }: { includeBodies?: boolean }) => {
+          const currentDraft = requireActivePdfDraft();
+          if (!currentDraft) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Aucun brouillon PDF actif a relire."
+            };
+          }
+          const draft = buildPdfDraftStats(currentDraft);
+          return {
+            success: true,
+            draft,
+            title: currentDraft.title,
+            subtitle: currentDraft.subtitle,
+            summary: clipText(currentDraft.summary || '', 220),
+            sectionsPreview: currentDraft.sections.slice(0, 8).map((section, index) => ({
+              index: index + 1,
+              heading: section.heading || null,
+              preview: includeBodies ? clipText(section.body, 220) : undefined
+            })),
+            message: `Brouillon courant: ${draft.wordCount} mots, ${draft.sectionCount} section(s), theme '${draft.theme}'.`
+          };
+        }
+      },
+      {
+        name: "review_pdf_draft",
+        description: "Relit un brouillon de PDF avant export. Peut utiliser le brouillon persistant courant ou un brouillon fourni inline. Retourne un score, des points forts et les points bloquants a corriger.",
+        parameters: {
+          type: "object",
+          properties: {
+            useActiveDraft: { type: "boolean", description: "Utiliser le brouillon PDF persistant courant. Recommande pour les PDF longs." },
             title: { type: "string", description: "Titre principal du document." },
             subtitle: { type: "string", description: "Sous-titre ou chapo du document (optionnel)." },
             summary: { type: "string", description: "Resume executif ou introduction mise en avant (optionnel)." },
@@ -4648,10 +5802,10 @@ app.post('/api/cowork', async (req, res) => {
                 }
               }
             }
-          },
-          required: ["title", "sections"]
+          }
         },
         execute: async ({
+          useActiveDraft,
           title,
           subtitle,
           summary,
@@ -4659,26 +5813,67 @@ app.post('/api/cowork', async (req, res) => {
           sources,
           sections
         }: {
-          title: string;
+          useActiveDraft?: boolean;
+          title?: string;
           subtitle?: string;
           summary?: string;
           author?: string;
           sources?: string[];
-          sections: PdfSectionInput[];
+          sections?: PdfSectionInput[];
         }) => {
-          const draft = buildPdfDraftSnapshot({
-            title,
-            subtitle,
-            summary,
-            author,
-            sources,
-            sections
-          });
-          const review = reviewPdfDraft(message, draft, pdfQualityTargets);
-          if (review.ready) {
+          const shouldUseActiveDraft = useActiveDraft !== false && (!title || !Array.isArray(sections) || sections.length === 0);
+          const currentDraft = shouldUseActiveDraft ? requireActivePdfDraft() : null;
+          if (shouldUseActiveDraft && !currentDraft) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Aucun brouillon PDF actif. Commence par 'begin_pdf_draft' ou fournis un brouillon inline a 'review_pdf_draft'."
+            };
+          }
+
+          const effectiveDraft = currentDraft
+            ? buildPdfDraftSnapshot({
+                title: title || currentDraft.title,
+                subtitle: subtitle ?? currentDraft.subtitle,
+                summary: summary ?? currentDraft.summary,
+                author: author ?? currentDraft.author,
+                sources: sources ?? currentDraft.sources,
+                sections: Array.isArray(sections) && sections.length > 0 ? sections : currentDraft.sections
+              })
+            : buildPdfDraftSnapshot({
+                title,
+                subtitle,
+                summary,
+                author,
+                sources,
+                sections
+              });
+
+          if (!effectiveDraft.title || effectiveDraft.sections.length === 0) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "La review PDF a besoin d'un titre et d'au moins une section utile."
+            };
+          }
+
+          const review = reviewPdfDraft(message, effectiveDraft, pdfQualityTargets);
+          if (currentDraft) {
+            applyActivePdfDraft({
+              ...currentDraft,
+              approvedReviewSignature: review.ready ? review.signature : null
+            });
+          } else if (review.ready) {
             latestApprovedPdfReviewSignature = review.signature;
           }
-          return review;
+          const capMessage = currentDraft
+            ? buildPdfLengthCapMessage(currentDraft.targetWords, currentDraft.requestedWordCount, currentDraft.cappedWords)
+            : buildPdfLengthCapMessage(pdfQualityTargets?.minWords || 0, pdfQualityTargets?.requestedWordCount ?? null, Boolean(pdfQualityTargets?.cappedWordCount));
+          return {
+            ...review,
+            ...(currentDraft ? { draft: buildPdfDraftStats(requireActivePdfDraft() as ActivePdfDraft) } : {}),
+            ...(capMessage ? { note: capMessage } : {})
+          };
         }
       },
       {
@@ -4704,6 +5899,215 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_pdf",
+        description: "Cree un fichier PDF directement. Peut exporter le brouillon PDF persistant courant ou un document fourni inline. Pour les PDF exigeants ou documents formels, passe d'abord par 'review_pdf_draft'. Le fichier est cree dans /tmp/.",
+        parameters: {
+          type: "object",
+          properties: {
+            useActiveDraft: { type: "boolean", description: "Exporter le brouillon PDF persistant courant." },
+            filename: { type: "string", description: "Nom de base du fichier PDF final (sans chemin)." },
+            title: { type: "string", description: "Titre principal du document." },
+            subtitle: { type: "string", description: "Sous-titre ou chapo du document (optionnel)." },
+            summary: { type: "string", description: "Resume executif ou introduction mise en avant (optionnel)." },
+            theme: { type: "string", description: "Theme de mise en page: legal, news ou report." },
+            accentColor: { type: "string", description: "Couleur d'accent HEX (ex: #0f766e)." },
+            author: { type: "string", description: "Nom de l'auteur ou de la signature (optionnel)." },
+            reviewSignature: { type: "string", description: "Signature exacte retournee par 'review_pdf_draft' pour ce brouillon. Obligatoire quand la self-review est requise." },
+            sources: {
+              type: "array",
+              description: "Liste optionnelle de sources ou liens a afficher en fin de document.",
+              items: { type: "string" }
+            },
+            showPageNumbers: { type: "boolean", description: "Afficher les numeros de page dans le pied de page." },
+            sections: {
+              type: "array",
+              description: "Liste de sections inline. Si absente, le brouillon actif est exporte.",
+              items: {
+                type: "object",
+                properties: {
+                  heading: { type: "string", description: "Titre de la section (optionnel)." },
+                  body: { type: "string", description: "Contenu texte de la section." }
+                }
+              }
+            }
+          }
+        },
+        execute: async ({
+          useActiveDraft,
+          filename,
+          title,
+          subtitle,
+          summary,
+          theme,
+          accentColor,
+          author,
+          reviewSignature,
+          sources,
+          showPageNumbers,
+          sections
+        }: {
+          useActiveDraft?: boolean;
+          filename?: string;
+          title?: string;
+          subtitle?: string;
+          summary?: string;
+          theme?: string;
+          accentColor?: string;
+          author?: string;
+          reviewSignature?: string;
+          sources?: string[];
+          showPageNumbers?: boolean;
+          sections?: Array<{ heading?: string; body: string }>;
+        }) => {
+          const currentDraft = requireActivePdfDraft();
+          const shouldUseActiveDraft = useActiveDraft !== false && Boolean(currentDraft) && (!Array.isArray(sections) || sections.length === 0);
+          if (useActiveDraft && !currentDraft) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Aucun brouillon PDF actif a exporter. Commence d'abord par 'begin_pdf_draft'."
+            };
+          }
+
+          const effectiveDraft = shouldUseActiveDraft && currentDraft
+            ? buildPdfDraftSnapshot({
+                title: title || currentDraft.title,
+                subtitle: subtitle ?? currentDraft.subtitle,
+                summary: summary ?? currentDraft.summary,
+                author: author ?? currentDraft.author,
+                sources: sources ?? currentDraft.sources,
+                sections: Array.isArray(sections) && sections.length > 0 ? sections : currentDraft.sections
+              })
+            : buildPdfDraftSnapshot({
+                title,
+                subtitle,
+                summary,
+                author,
+                sections,
+                sources
+              });
+
+          const effectiveFilename = sanitizePdfFilenameBase(
+            filename
+            || currentDraft?.filename
+            || effectiveDraft.title
+            || title
+            || 'document-cowork'
+          );
+          const outputPath = path.join('/tmp', `${effectiveFilename}.pdf`);
+          const effectiveTheme = normalizePdfTheme(
+            theme,
+            currentDraft?.theme || pdfQualityTargets?.theme || resolvePdfTheme(message, {
+              formalDocument: Boolean(pdfQualityTargets?.formalDocument),
+              explicitTheme: theme
+            })
+          );
+          const effectiveSections = effectiveDraft.sections;
+          const effectiveSources = effectiveDraft.sources;
+          const requireInventedDetails = Boolean(pdfQualityTargets?.requireInventedDetails || requestNeedsFictionalDetails(message));
+          const combinedContent = buildPdfDraftCombinedContent(effectiveDraft);
+          const draftReview = reviewPdfDraft(message, effectiveDraft, pdfQualityTargets);
+          const reviewRequired = requestNeedsPdfSelfReview(message);
+
+          if (!effectiveDraft.title) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Le PDF doit avoir un titre finalise avant export."
+            };
+          }
+          if (effectiveSections.length === 0) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Le PDF doit contenir au moins une section non vide."
+            };
+          }
+
+          const reviewSignatureGate = validateCreatePdfReviewSignature({
+            reviewRequired,
+            reviewSignature,
+            latestApprovedPdfReviewSignature,
+            draftReview
+          });
+          if (reviewSignatureGate.ok === false) {
+            return reviewSignatureGate.response;
+          }
+
+          const totalWords = countWords(combinedContent);
+          if (effectiveTheme === 'legal' || Boolean(pdfQualityTargets?.formalDocument || requestNeedsFormalDocument(message))) {
+            const formalSignalCount = countFormalDocumentSignals(combinedContent);
+            if (formalSignalCount < 4) {
+              return {
+                success: false,
+                recoverable: true,
+                error: "Document formel trop pauvre ou trop generique. Ajoute des blocs distincts pour l'emetteur, le beneficiaire ou sujet, la periode ou le contexte, puis une validation finale avec date/lieu/signature avant de relancer 'create_pdf'."
+              };
+            }
+          }
+          if (requireInventedDetails) {
+            const placeholderCount = countTemplatePlaceholders(combinedContent);
+            if (placeholderCount > 0) {
+              return {
+                success: false,
+                recoverable: true,
+                error: "L'utilisateur a demande un document fictif complet, mais le brouillon contient encore des placeholders ([...], <...> ou lignes a remplir). Remplace-les par des details credibles avant de relancer 'create_pdf'."
+              };
+            }
+          }
+          if (pdfQualityTargets) {
+            const tooFewSections = effectiveSections.length < pdfQualityTargets.minSections;
+            const tooFewWords = totalWords < pdfQualityTargets.minWords;
+            if (tooFewSections || tooFewWords) {
+              return {
+                success: false,
+                recoverable: true,
+                error: `PDF trop court pour la demande. Minimum attendu: ${pdfQualityTargets.minSections} sections utiles et environ ${pdfQualityTargets.minWords} mots. Actuel: ${effectiveSections.length} section(s) et ${totalWords} mots. Elargis le plan, ajoute plus de developpement, de contexte, de synthese et de sources avant de relancer 'create_pdf'.`
+              };
+            }
+          }
+
+          try {
+            const rendered = await renderPdfArtifact({
+              outputPath,
+              title: effectiveDraft.title,
+              subtitle: effectiveDraft.subtitle || undefined,
+              summary: effectiveDraft.summary || undefined,
+              author: effectiveDraft.author || undefined,
+              accentColor: accentColor || currentDraft?.accentColor,
+              showPageNumbers,
+              sections: effectiveSections,
+              sources: effectiveSources,
+              requestClock,
+              message,
+              pdfQualityTargets,
+              theme: effectiveTheme
+            });
+            const capMessage = currentDraft
+              ? buildPdfLengthCapMessage(currentDraft.targetWords, currentDraft.requestedWordCount, currentDraft.cappedWords)
+              : buildPdfLengthCapMessage(pdfQualityTargets?.minWords || 0, pdfQualityTargets?.requestedWordCount ?? null, Boolean(pdfQualityTargets?.cappedWordCount));
+            return {
+              success: true,
+              path: rendered.path,
+              pageCount: rendered.pageCount,
+              blankBodyPageCount: rendered.blankBodyPageCount,
+              usedCoverPage: rendered.usedCoverPage,
+              theme: rendered.theme,
+              message: [
+                `PDF '${effectiveFilename}.pdf' cree avec succes a ${rendered.path}. Utilise maintenant 'release_file' pour obtenir le lien de telechargement.`,
+                capMessage
+              ].filter(Boolean).join(' ')
+            };
+          } catch (error: any) {
+            return {
+              success: false,
+              recoverable: Boolean(error?.recoverable),
+              error: parseApiError(error)
+            };
+          }
+        }
+      },
+      {
+        name: "create_pdf_legacy_unused",
         description: "Crée un fichier PDF directement. Utilise cet outil pour générer des PDFs au lieu d'écrire un script Python. Pour les PDF exigeants ou documents formels, passe d'abord par 'review_pdf_draft'. Le fichier est créé dans /tmp/.",
         parameters: {
           type: "object",
@@ -5361,8 +6765,9 @@ app.post('/api/cowork', async (req, res) => {
       }] : [])
     ];
 
-    const tools = executionMode === 'creative_single_turn' ? undefined : localTools.length > 0 ? [{
-      functionDeclarations: localTools.map(t => ({
+    const visibleLocalTools = localTools.filter(tool => !tool.name.endsWith('_legacy_unused'));
+    const tools = executionMode === 'creative_single_turn' ? undefined : visibleLocalTools.length > 0 ? [{
+      functionDeclarations: visibleLocalTools.map(t => ({
         name: t.name,
         description: t.description,
         parameters: t.parameters
@@ -5513,6 +6918,7 @@ app.post('/api/cowork', async (req, res) => {
         webFetches: successfulResearchMeta.webFetches,
       },
       validatedSourceCount: sessionState.sourcesValidated.length,
+      activePdfDraft: sessionState.activePdfDraft,
       latestApprovedPdfReviewSignature,
       latestCreatedArtifactPath: latestCreatedArtifactPath || null,
       latestReleasedFileUrl: latestReleasedFile?.url || null,

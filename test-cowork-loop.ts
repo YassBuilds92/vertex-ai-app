@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 process.env.VERCEL = '1';
 
 const { __coworkLoopInternals } = await import('./api/index.ts');
+const { __coworkPdfInternals } = await import('./api/index.ts');
 
 const {
   createEmptyCoworkSessionState,
@@ -24,6 +25,11 @@ const {
   assessReadablePageRelevance,
   searchWeb,
 } = __coworkLoopInternals;
+
+const {
+  createActivePdfDraft,
+  appendToActivePdfDraft,
+} = __coworkPdfInternals;
 
 const requestClock = {
   now: new Date('2026-03-27T10:00:00.000Z'),
@@ -233,6 +239,7 @@ const baseResearch = {
     executionMode: 'artifact_loop',
     research: { webSearches: 0, webFetches: 0 },
     validatedSourceCount: 0,
+    activePdfDraft: null,
     latestApprovedPdfReviewSignature: null,
     latestCreatedArtifactPath: '/tmp/panorama.pdf',
     latestReleasedFileUrl: 'https://example.com/panorama.pdf',
@@ -255,6 +262,7 @@ const baseResearch = {
     executionMode: 'artifact_loop',
     research: { webSearches: 0, webFetches: 0 },
     validatedSourceCount: 0,
+    activePdfDraft: null,
     latestApprovedPdfReviewSignature: 'review-ok-123',
     latestCreatedArtifactPath: '/tmp/panorama.pdf',
     latestReleasedFileUrl: 'https://example.com/panorama.pdf',
@@ -274,10 +282,75 @@ const baseResearch = {
 }
 
 {
+  const draftA = createActivePdfDraft(
+    'fais un pdf sublime de 9000 mots sur l actu du jour',
+    {
+      title: 'Panorama news',
+      sections: [{ heading: 'Bloc 1', body: 'Premier bloc de contenu assez dense pour initialiser le brouillon.' }]
+    },
+    {
+      minSections: 6,
+      minWords: 3000,
+      requestedWordCount: 9000,
+      cappedWordCount: true,
+      maxWords: 3000,
+      theme: 'news',
+    }
+  );
+  const draftB = appendToActivePdfDraft(
+    'fais un pdf sublime de 9000 mots sur l actu du jour',
+    { ...draftA, approvedReviewSignature: 'review-ok-123' },
+    {
+      sections: [{ heading: 'Bloc 2', body: 'Second bloc de contenu pour faire evoluer le fingerprint du brouillon et invalider la review precedente.' }]
+    }
+  );
+
+  const fingerprintA = buildCoworkProgressFingerprint({
+    executionMode: 'artifact_loop',
+    research: { webSearches: 0, webFetches: 0 },
+    validatedSourceCount: 0,
+    activePdfDraft: draftA,
+    latestApprovedPdfReviewSignature: null,
+    latestCreatedArtifactPath: null,
+    latestReleasedFileUrl: null,
+    phase: 'production',
+    modelTaskComplete: false,
+    effectiveTaskComplete: false,
+    pendingFinalAnswer: false,
+    blockers: [],
+  });
+
+  const fingerprintB = buildCoworkProgressFingerprint({
+    executionMode: 'artifact_loop',
+    research: { webSearches: 0, webFetches: 0 },
+    validatedSourceCount: 0,
+    activePdfDraft: draftB,
+    latestApprovedPdfReviewSignature: null,
+    latestCreatedArtifactPath: null,
+    latestReleasedFileUrl: null,
+    phase: 'production',
+    modelTaskComplete: false,
+    effectiveTaskComplete: false,
+    pendingFinalAnswer: false,
+    blockers: [],
+  });
+
+  assert.notEqual(fingerprintA, fingerprintB);
+}
+
+{
   const narration = buildPublicToolNarration('release_file', { path: '/tmp/Allo_Salam_Lyrics.pdf' });
   assert.ok(narration);
   assert.equal(narration?.title, 'Livraison');
   assert.ok((narration?.message || '').includes('lien de telechargement'));
+}
+
+{
+  const narration = buildPublicToolNarration('append_to_draft', {
+    sections: [{ heading: 'Analyse juridique', body: '...' }]
+  });
+  assert.ok(narration);
+  assert.equal(narration?.title, 'Construction');
 }
 
 {

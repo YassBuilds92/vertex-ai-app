@@ -57,6 +57,9 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - `list_recursive` : Exploration profonde du projet.
 - `web_search` : recherche web locale visible avec qualite explicite (`relevant`, `degraded`, `off_topic`, `transient_error`), provider remonte et blocage des repetitions faibles.
 - `web_fetch` : lecture d'une source web precise avec contenu nettoye.
+- `begin_pdf_draft` : initialise un brouillon PDF persistant pour la session courante.
+- `append_to_draft` : ajoute des sections et sources au brouillon PDF sans regenirer tout le document.
+- `get_pdf_draft` : relit l'etat courant du brouillon PDF (mots, sections, theme, review approuvee).
 - `release_file` : Uploade un fichier vers Google Cloud Storage et renvoie une URL signee de 7 jours.
 
 ## Etat d'Avancement
@@ -132,6 +135,9 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Validation d'articles d'actu reellement pertinents : le matching strict de `web_fetch` ignore maintenant davantage de mots d'actualite trop generiques (`actualite`, `news`, `headlines`, `monde`, `international`, etc.), ce qui permet a un vrai article date et contextualise de lever `strict_source_missing` sans laisser passer les homepages generiques.
 - [x] Tavily-first + pivot direct deterministic : `web_search` utilise maintenant Tavily comme provider autoritaire quand `TAVILY_API_KEY` est present, renvoie `searchMode`, `directSourceUrls` et `searchDisabledReason`, et n'active plus les moteurs publics par defaut (`ALLOW_PUBLIC_SEARCH_FALLBACKS=false`). Quand Tavily manque, degrade ou faiblit, Cowork pousse explicitement vers `web_fetch` sur des sources fiables au lieu de boucler sur des reformulations.
 - [x] Contrat explicite review -> create pour les PDFs : `create_pdf` attend maintenant `reviewSignature` quand la self-review est requise, et le backend valide via `validateCreatePdfReviewSignature()` que l'export correspond exactement au brouillon relu.
+- [x] Brouillon PDF incrementiel persistant : Cowork dispose maintenant d'un `activePdfDraft` par session, construit via `begin_pdf_draft` / `append_to_draft` / `get_pdf_draft`, ce qui supprime la logique one-shot pour les PDF longs.
+- [x] Cap produit PDF honnete : les demandes explicites au-dela de `3000` mots sont maintenant plafonnees a `~3000` mots par session, annoncees proprement, puis construites par tranches plutot que simulees visuellement.
+- [x] PDF thematiques + audit anti-pages vides : `create_pdf` accepte `theme` (`legal`, `news`, `report`), applique des rendus distincts, active la cover seulement si le volume le justifie, et rejette/rerend les sorties contenant des pages body vides.
 
 ## Prochaines Etapes
 1. PRIORITE ABSOLUE: faire evoluer Cowork d'une boucle hybride backend-owned vers un agent modele-led, libre, reflexif, visible et auto-dirige.

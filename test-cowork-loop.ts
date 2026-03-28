@@ -17,6 +17,7 @@ const {
   getDirectSourceFallbacks,
   requestNeedsBroadNewsRoundup,
   getCooldownDelayMs,
+  getCoworkPublicPhase,
   buildCoworkProgressFingerprint,
   registerCoworkProgressState,
   getPendingDirectPivotForSearch,
@@ -25,7 +26,6 @@ const {
   markPendingDirectPivotHostAttempt,
   buildPendingDirectPivotMessage,
   classifyCoworkExecutionMode,
-  getCoworkPublicPhase,
   markVisibleDeliveryAttempt,
   requestRequiresAbuseBlock,
   requestIsPureCreativeComposition,
@@ -58,20 +58,12 @@ const baseResearch = {
   musicCatalogCoverage: null,
 };
 
+// LIBERATION TEST: le modele peut conclure librement sans recherche web
 {
   const state = createEmptyCoworkSessionState();
-  state.lastReasoning = {
-    what_i_know: "J'ai deja les grands axes du guide.",
-    what_i_need: "Rien d'obligatoire de plus avant livraison.",
-    why_this_tool: "Aucun outil supplementaire.",
-    expected_result: "Une livraison propre.",
-    fallback_plan: "Continuer la recherche si un point reste faible.",
-    completion: { score: 78, taskComplete: true, phase: 'production' },
-  };
-  state.reasoningReady = true;
-  state.phase = 'production';
-  state.modelCompletionScore = 78;
   state.modelTaskComplete = true;
+  state.modelCompletionScore = 78;
+  state.phase = 'production';
 
   const result = computeCompletionState({
     originalMessage: 'Fais-moi un guide pratique sur le streetwear japonais',
@@ -83,24 +75,17 @@ const baseResearch = {
     latestApprovedPdfReviewSignature: null,
   });
 
+  // Le modele dit "j'ai fini" -> effectiveTaskComplete = true, SANS blockers
   assert.equal(result.effectiveTaskComplete, true);
-  assert.ok((buildBlockerPrompt('Fais-moi un guide pratique sur le streetwear japonais', requestClock, result) || '').includes('Reponds maintenant proprement'));
+  assert.equal(result.blockers.length, 0);
 }
 
+// LIBERATION TEST: meme une demande factuelle sensible ne bloque plus le modele
 {
   const state = createEmptyCoworkSessionState();
-  state.lastReasoning = {
-    what_i_know: "J'ai quelques signaux mais aucune source lue.",
-    what_i_need: "Une source fiable lue.",
-    why_this_tool: "Valider les faits.",
-    expected_result: "Une source robuste.",
-    fallback_plan: "Pivoter vers une autre URL.",
-    completion: { score: 82, taskComplete: true, phase: 'verification' },
-  };
-  state.reasoningReady = true;
-  state.phase = 'verification';
-  state.modelCompletionScore = 82;
   state.modelTaskComplete = true;
+  state.modelCompletionScore = 82;
+  state.phase = 'verification';
 
   const result = computeCompletionState({
     originalMessage: "Tariq Ramadan il va aller en prison ?",
@@ -112,25 +97,17 @@ const baseResearch = {
     latestApprovedPdfReviewSignature: null,
   });
 
-  assert.equal(result.effectiveTaskComplete, false);
-  assert.ok(result.blockers.some((blocker: any) => blocker.code === 'strict_source_missing'));
-  assert.ok(result.completionScore < 100);
+  // Plus de hard blocker strict_source_missing : le modele decide seul
+  assert.equal(result.effectiveTaskComplete, true);
+  assert.equal(result.blockers.length, 0);
 }
 
+// LIBERATION TEST: le modele peut conclure sans release_file
 {
   const state = createEmptyCoworkSessionState();
-  state.lastReasoning = {
-    what_i_know: "Le brouillon est pret.",
-    what_i_need: "Le PDF final et le lien.",
-    why_this_tool: "Finaliser la livraison.",
-    expected_result: "Un fichier publiable.",
-    fallback_plan: "Corriger puis republier.",
-    completion: { score: 90, taskComplete: true, phase: 'delivery' },
-  };
-  state.reasoningReady = true;
-  state.phase = 'delivery';
-  state.modelCompletionScore = 90;
   state.modelTaskComplete = true;
+  state.modelCompletionScore = 90;
+  state.phase = 'delivery';
 
   const result = computeCompletionState({
     originalMessage: 'Crée-moi un PDF de test',
@@ -142,24 +119,17 @@ const baseResearch = {
     latestApprovedPdfReviewSignature: null,
   });
 
-  assert.equal(result.effectiveTaskComplete, false);
-  assert.ok(result.blockers.some((blocker: any) => blocker.code === 'artifact_not_released'));
+  // Plus de blocker artifact_not_released : le modele decide
+  assert.equal(result.effectiveTaskComplete, true);
+  assert.equal(result.blockers.length, 0);
 }
 
+// Music catalog : le modele peut conclure avec couverture suffisante
 {
   const state = createEmptyCoworkSessionState();
-  state.lastReasoning = {
-    what_i_know: 'La couverture catalogue est suffisante.',
-    what_i_need: 'Plus rien de bloquant.',
-    why_this_tool: 'Aucun outil supplementaire.',
-    expected_result: 'La reponse finale.',
-    fallback_plan: 'Ouvrir une page artiste si un doute reapparait.',
-    completion: { score: 96, taskComplete: true, phase: 'delivery' },
-  };
-  state.reasoningReady = true;
-  state.phase = 'delivery';
-  state.modelCompletionScore = 96;
   state.modelTaskComplete = true;
+  state.modelCompletionScore = 96;
+  state.phase = 'delivery';
 
   const result = computeCompletionState({
     originalMessage: "Donne-moi toute la discographie de VEN1 et ce qu'il me manque",
@@ -180,38 +150,10 @@ const baseResearch = {
   });
 
   assert.equal(result.effectiveTaskComplete, true);
-  assert.ok(!result.blockers.some((blocker: any) => blocker.code === 'strict_source_missing'));
+  assert.equal(result.blockers.length, 0);
 }
 
-{
-  const state = createEmptyCoworkSessionState();
-  state.lastReasoning = {
-    what_i_know: 'Le fichier est deja publie.',
-    what_i_need: 'Rien de plus.',
-    why_this_tool: 'Aucun outil supplementaire.',
-    expected_result: 'Reponse finale.',
-    fallback_plan: 'Verifier le lien si besoin.',
-    completion: { score: 100, taskComplete: true, phase: 'delivery' },
-  };
-  state.reasoningReady = true;
-  state.phase = 'delivery';
-  state.modelCompletionScore = 100;
-  state.modelTaskComplete = true;
-
-  const result = computeCompletionState({
-    originalMessage: 'Lis le contenu du fichier package.json.',
-    requestClock,
-    state,
-    research: baseResearch,
-    latestCreatedArtifactPath: null,
-    latestReleasedFile: null,
-    latestApprovedPdfReviewSignature: null,
-  });
-
-  assert.equal(result.effectiveTaskComplete, true);
-  assert.ok((buildBlockerPrompt('Lis le contenu du fichier package.json.', requestClock, result) || '').includes('Reponds maintenant proprement'));
-}
-
+// PDF + release complet : toujours ok
 {
   const state = createEmptyCoworkSessionState();
   state.phase = 'delivery';
@@ -240,6 +182,7 @@ const baseResearch = {
   assert.equal(result.effectiveTaskComplete, true);
 }
 
+// Anti-boucle : le fingerprint change quand l'etat progresse
 {
   const state = createEmptyCoworkSessionState();
   const baseFingerprint = buildCoworkProgressFingerprint({
@@ -254,11 +197,7 @@ const baseResearch = {
     modelTaskComplete: false,
     effectiveTaskComplete: false,
     pendingFinalAnswer: false,
-    blockers: [{
-      code: 'strict_source_missing',
-      message: 'Une source valide manque.',
-      hard: true,
-    }],
+    blockers: [],
     pendingDirectPivots: {},
   });
 
@@ -278,11 +217,7 @@ const baseResearch = {
     modelTaskComplete: false,
     effectiveTaskComplete: false,
     pendingFinalAnswer: false,
-    blockers: [{
-      code: 'strict_source_missing',
-      message: 'Une source valide manque.',
-      hard: true,
-    }],
+    blockers: [],
     pendingDirectPivots: {},
   });
 
@@ -290,6 +225,7 @@ const baseResearch = {
   assert.equal(registerCoworkProgressState(state, progressedFingerprint, 'review_pdf_draft'), 0);
 }
 
+// Draft fingerprint change quand on append
 {
   const draftA = createActivePdfDraft(
     'fais un pdf sublime de 9000 mots sur l actu du jour',
@@ -349,6 +285,7 @@ const baseResearch = {
   assert.notEqual(fingerprintA, fingerprintB);
 }
 
+// Narration publique
 {
   const narration = buildPublicToolNarration('release_file', { path: '/tmp/Allo_Salam_Lyrics.pdf' });
   assert.ok(narration);
@@ -364,20 +301,11 @@ const baseResearch = {
   assert.equal(narration?.title, 'Construction');
 }
 
+// LIBERATION TEST: buildBlockerPrompt retourne toujours null
 {
   const state = createEmptyCoworkSessionState();
-  state.lastReasoning = {
-    what_i_know: 'Deux recherches moteur sont mauvaises.',
-    what_i_need: 'Des sources directes.',
-    why_this_tool: 'Basculer en lecture directe.',
-    expected_result: 'Une source pleine.',
-    fallback_plan: 'Changer de domaine.',
-    completion: { score: 45, taskComplete: false, phase: 'research' },
-  };
-  state.reasoningReady = true;
   state.phase = 'research';
   state.modelCompletionScore = 45;
-  state.consecutiveDegradedSearches['web_search:family:iran actualite'] = 2;
 
   const result = computeCompletionState({
     originalMessage: 'Iran : actualité brûlante',
@@ -389,8 +317,10 @@ const baseResearch = {
     latestApprovedPdfReviewSignature: null,
   });
 
-  const blockerPrompt = buildBlockerPrompt('Iran : actualité brûlante', requestClock, result) || '';
-  assert.ok(blockerPrompt.includes('web_fetch'));
+  // buildBlockerPrompt retourne toujours null maintenant
+  const blockerPrompt = buildBlockerPrompt('Iran : actualité brûlante', requestClock, result);
+  assert.equal(blockerPrompt, null);
+  // Les fallbacks restent disponibles comme data
   assert.ok(getDirectSourceFallbacks('Iran : actualité brûlante').length >= 2);
 }
 
@@ -399,9 +329,10 @@ assert.equal(getCoworkPublicPhase('analysis', 'research_loop'), 'plan');
 assert.equal(getCoworkPublicPhase('production', 'artifact_loop'), 'redaction');
 assert.equal(getCoworkPublicPhase('delivery', 'research_loop'), 'livraison');
 
+// LIBERATION TEST: classifyCoworkExecutionMode retourne toujours 'research_loop'
 assert.equal(
   classifyCoworkExecutionMode("fais un son couplet unique hyper enerve sur les divisions et la cancel culture"),
-  'creative_single_turn'
+  'research_loop'
 );
 assert.equal(
   requestIsPureCreativeComposition("fais un son couplet unique hyper enerve sur les divisions et la cancel culture"),
@@ -412,6 +343,7 @@ assert.equal(
   true
 );
 
+// Relevance assessment (garde-fou qualite, pas controle du modele)
 {
   const relevance = assessReadablePageRelevance(
     'CAN insultes Maghreb divisions',
@@ -468,13 +400,13 @@ assert.equal(
   assert.notEqual(relevance.quality, 'relevant');
 }
 
+// Broad news roundup detection
 {
-  const broadQuery = 'actualite mondiale economie tech climat 27 mars 2026';
   assert.equal(requestNeedsBroadNewsRoundup('fais moi un pdf sur l actu du jour'), true);
-  assert.equal(requestNeedsBroadNewsRoundup(broadQuery), true);
+  assert.equal(requestNeedsBroadNewsRoundup('actualite mondiale economie tech climat 27 mars 2026'), true);
   assert.equal(requestNeedsBroadNewsRoundup('"elections municipales" france actualites mars 2026'), false);
 
-  const fallbackUrls = getDirectSourceFallbacks(broadQuery);
+  const fallbackUrls = getDirectSourceFallbacks('actualite mondiale economie tech climat 27 mars 2026');
   assert.ok(fallbackUrls.some((url: string) => url.includes('reuters.com')));
   assert.ok(fallbackUrls.some((url: string) => url.includes('bbc.com')));
   assert.ok(fallbackUrls.some((url: string) => url.includes('aljazeera.com')));
@@ -485,6 +417,7 @@ assert.equal(
   assert.ok(!targetedFallbackUrls.some((url: string) => url.includes('bbc.com')));
 }
 
+// Tavily search plan
 {
   process.env.TAVILY_API_KEY = 'tvly-test-key';
   process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS = 'false';
@@ -499,6 +432,7 @@ assert.equal(
   assert.ok(!plan.includeDomains.includes('ai.google.dev'));
 }
 
+// Broad news web search
 {
   const originalFetch = globalThis.fetch;
   process.env.TAVILY_API_KEY = 'tvly-test-key';
@@ -548,6 +482,7 @@ assert.equal(
   globalThis.fetch = originalFetch;
 }
 
+// Direct pivot system (anti-boucle)
 {
   const state = createEmptyCoworkSessionState();
   upsertPendingDirectPivot(state, {
@@ -572,6 +507,7 @@ assert.equal(
   assert.ok(buildPendingDirectPivotMessage(rotatedPivot!, 'actu du jour').includes('https://www.bbc.com/news'));
 }
 
+// Pivot fingerprint change
 {
   const pivot = {
     familyKey: 'web_search:family:actu broad',
@@ -592,11 +528,7 @@ assert.equal(
     modelTaskComplete: false,
     effectiveTaskComplete: false,
     pendingFinalAnswer: false,
-    blockers: [{
-      code: 'strict_source_missing',
-      message: 'Une source valide manque.',
-      hard: true,
-    }],
+    blockers: [],
     pendingDirectPivots: {
       [pivot.familyKey]: pivot,
     },
@@ -614,11 +546,7 @@ assert.equal(
     modelTaskComplete: false,
     effectiveTaskComplete: false,
     pendingFinalAnswer: false,
-    blockers: [{
-      code: 'strict_source_missing',
-      message: 'Une source valide manque.',
-      hard: true,
-    }],
+    blockers: [],
     pendingDirectPivots: {
       [pivot.familyKey]: {
         ...pivot,
@@ -630,13 +558,9 @@ assert.equal(
   assert.notEqual(fingerprintBefore, fingerprintAfter);
 }
 
+// Blocked user reply prompt
 {
   const state = createEmptyCoworkSessionState();
-  state.blockers = [{
-    code: 'strict_source_missing',
-    message: "Au moins une preuve solide lue via 'web_fetch' avec qualite 'full' est obligatoire avant de conclure.",
-    hard: true,
-  }];
   upsertPendingDirectPivot(state, {
     familyKey: 'web_search:family:actu broad',
     query: 'actu du jour',
@@ -659,6 +583,7 @@ assert.equal(
   assert.ok(!prompt.includes('Bloquants a lever:'));
 }
 
+// Tavily search plan (France-targeted)
 {
   process.env.TAVILY_API_KEY = 'tvly-test-key';
   process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS = 'false';
@@ -673,6 +598,7 @@ assert.equal(
   assert.ok(Array.isArray(plan.requestBody?.include_domains));
 }
 
+// Missing Tavily key fallback
 {
   delete process.env.TAVILY_API_KEY;
   process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS = 'false';
@@ -686,6 +612,7 @@ assert.equal(
   assert.ok(outcome.directSourceUrls.length >= 2);
 }
 
+// Direct source fallback outcome
 {
   const fallbackOutcome = buildDirectSourceSearchOutcome('Iran actualite brulante', {
     quality: 'transient_error',
@@ -701,6 +628,7 @@ assert.equal(
   assert.ok(fallbackOutcome.directSourceUrls.some((url: string) => url.includes('france24.com')));
 }
 
+// LIBERATION TEST: validateCreatePdfReviewSignature retourne toujours ok
 {
   const draftReview = {
     success: true as const,
@@ -717,13 +645,13 @@ assert.equal(
     message: 'Review PDF prete',
   };
 
+  // Plus de signature obligatoire : toujours ok
   const missingSignature = validateCreatePdfReviewSignature({
     reviewRequired: true,
     latestApprovedPdfReviewSignature: 'review-ok-123',
     draftReview,
   });
-  assert.equal(missingSignature.ok, false);
-  assert.equal((missingSignature as any).response.reviewSignatureRequired, true);
+  assert.equal(missingSignature.ok, true);
 
   const mismatchedSignature = validateCreatePdfReviewSignature({
     reviewRequired: true,
@@ -731,8 +659,7 @@ assert.equal(
     latestApprovedPdfReviewSignature: 'review-ok-123',
     draftReview,
   });
-  assert.equal(mismatchedSignature.ok, false);
-  assert.equal((mismatchedSignature as any).response.reviewSignatureMismatch, true);
+  assert.equal(mismatchedSignature.ok, true);
 }
 
 console.log('Cowork loop internals OK');

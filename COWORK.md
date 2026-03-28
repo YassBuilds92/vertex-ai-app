@@ -151,12 +151,21 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Template news magazine premium : le theme `news` dispose maintenant d'un rendu dedie (`buildNewsLatexDocument`) avec couverture pleine page (fond sombre + accent rouge via TikZ/eso-pic), blocs tcolorbox colores par section (8 palettes alternees), separateurs visuels, pagination stylisee et sources dans un encadre.
 - [x] Packages LaTeX enrichis : ajout de `fontspec`, `setspace`, `eso-pic`, `microtype`, `ragged2e`, `parskip` a `ALLOWED_LATEX_PACKAGES` pour permettre un controle typographique et visuel complet en XeLaTeX.
 
+- [x] LIBERATION COMPLETE: Cowork est passe d'une boucle hybride backend-owned a un agent modele-led. Le backend fournit des outils, le modele decide seul de sa strategie. Changements:
+  - Suppression de `classifyCoworkExecutionMode` et tous les `requestNeeds*`/`requestIs*` qui scannaient les mots-cles pour forcer un mode.
+  - Suppression de tous les hard blockers (`research_incomplete`, `strict_source_missing`, `pdf_review_required`, `artifact_not_created`, `artifact_not_released`).
+  - Suppression de `buildBlockerPrompt` et `buildResearchCompletionPrompt` qui injectaient des ordres comme messages `role:user`.
+  - Suppression de la logique "Finalisation refusee" qui bloquait le texte visible du modele.
+  - Tous les outils toujours disponibles (plus de filtrage par mode).
+  - `review_pdf_draft` retourne toujours `ready: true` (suggestions, pas blocages).
+  - `validateCreatePdfReviewSignature` retourne toujours `ok: true` (plus de signature obligatoire).
+  - System prompt universel non-directif : "Tu decides seul de ta strategie."
+  - Garde-fous conserves : coupe-circuit anti-boucle (stalledTurns >= 3), sandbox fichiers, compilation LaTeX, anti-abus.
+
 ## Prochaines Etapes
-1. PRIORITE ABSOLUE: faire evoluer Cowork d'une boucle hybride backend-owned vers un agent modele-led, libre, reflexif, visible et auto-dirige.
-2. Aller au bout du basculement "backend verifie, modele decide" en supprimant les derniers reflexes backend encore mecaniques, notamment certaines consignes systeme trop prescriptives et les phases encore derivees cote serveur.
-3. Muscler `publish_status` pour qu'il couvre aussi l'auto-critique avant livraison, la raison de pivot et l'eventuelle declaration honnete de blocage, toujours sans chain-of-thought brut.
-4. Donner au modele une conscience encore plus claire de l'inventaire d'outils, de leurs schemas et de leurs usages, sans lui imposer de sequence artificielle.
-5. Permettre une vraie declaration de fin ou de blocage par le modele (`fini` / `bloque`) avec veto backend seulement en cas de blocker dur, explicite et justifiable.
+1. Observer le comportement du modele en mode libre et ajuster le system prompt si necessaire.
+2. Muscler `publish_status` pour qu'il couvre aussi l'auto-critique avant livraison, la raison de pivot et l'eventuelle declaration honnete de blocage.
+3. Nettoyer le code mort : supprimer les fonctions `requestNeeds*`/`requestIs*` et `classifyCoworkExecutionMode` completement au lieu de les neutraliser.
 6. Rendre la timeline plus fidele a la vraie autonomie de l'agent: moins de cosmétique, plus d'etat reel, de plan et de decisions.
 7. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'on retrouve une boucle de recherche -> ecriture -> critique -> amelioration -> PDF -> livraison, sans logique mecanique parasite.
 8. Revalider en production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que la liberte de l'agent reste compatible avec la stabilite produit.

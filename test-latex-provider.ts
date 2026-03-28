@@ -6,7 +6,7 @@ import {
   buildLatexDocument,
   compileLatexDocument,
   validateLatexSource,
-} from './api/pdf/latex.ts';
+} from './server/pdf/latex.ts';
 
 function startMockLatexServer(): Promise<{ server: http.Server; baseUrl: string }> {
   const server = http.createServer(async (req, res) => {

@@ -10,7 +10,7 @@ const {
   buildLatexSourceSignature,
   countLatexSections,
   stripLatexToPlainText,
-} = await import('./api/pdf/latex.ts');
+} = await import('./server/pdf/latex.ts');
 
 const {
   extractRequestedWordCount,

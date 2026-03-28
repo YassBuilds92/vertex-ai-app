@@ -27,7 +27,7 @@ import {
   type LatexCompiler,
   type LatexCompileFailure,
   type LatexProvider,
-} from './pdf/latex.ts';
+} from '../server/pdf/latex.js';
 
 // ─── Constants & Setup ──────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);

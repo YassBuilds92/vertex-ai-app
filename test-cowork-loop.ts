@@ -22,6 +22,10 @@ const {
   registerCoworkProgressState,
   classifyCoworkExecutionMode,
   markVisibleDeliveryAttempt,
+  requestIsCoworkMetaDiscussion,
+  requestNeedsDownloadableArtifact,
+  requestNeedsPdfArtifact,
+  requestNeedsMusicCatalogResearch,
   requestRequiresAbuseBlock,
   requestIsPureCreativeComposition,
   assessReadablePageRelevance,
@@ -280,6 +284,15 @@ assert.equal(requestIsPureCreativeComposition('fais un son couplet unique hyper 
 assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les juifs et les chretiens, termine tout le monde salement'), true);
 
 {
+  const diagnosticPrompt = `t'en penses quoi ?\n\nSTOP. Le commit "Cowork V3" n'a rien change en profondeur.\nLOG REEL:\n- create_pdf utilise toujours pdfkit avec theme auto\n- append_to_draft retourne 0 mots/undefined\n- VEN1 declenche music_catalog_lookup\n- begin_pdf_draft part sur theme legal`;
+
+  assert.equal(requestIsCoworkMetaDiscussion(diagnosticPrompt), true);
+  assert.equal(requestNeedsDownloadableArtifact(diagnosticPrompt), false);
+  assert.equal(requestNeedsPdfArtifact(diagnosticPrompt), false);
+  assert.equal(requestNeedsMusicCatalogResearch(diagnosticPrompt), false);
+}
+
+{
   const relevance = assessReadablePageRelevance(
     'CAN insultes Maghreb divisions',
     {
@@ -480,7 +493,8 @@ assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les 
     latestApprovedPdfReviewSignature: 'review-ok-123',
     draftReview,
   });
-  assert.equal(mismatchedSignature.ok, false);
+  assert.equal(mismatchedSignature.ok, true);
+  assert.equal(Boolean(mismatchedSignature.warning), true);
 }
 
 console.log('Cowork loop internals OK');

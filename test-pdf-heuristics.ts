@@ -15,6 +15,7 @@ const {
 const {
   extractRequestedWordCount,
   resolvePdfTheme,
+  resolvePdfEngine,
   requestNeedsFormalDocument,
   requestNeedsFictionalDetails,
   requestNeedsPdfArtifact,
@@ -38,6 +39,11 @@ assert.ok(targets, 'formal document prompt should get PDF quality targets');
 assert.equal(targets?.formalDocument, true);
 assert.equal(targets?.requireInventedDetails, true);
 assert.ok((targets?.minSections || 0) >= 3);
+assert.equal(resolvePdfEngine(attestationPrompt, { pdfQualityTargets: targets, theme: targets?.theme }), 'pdfkit');
+
+const reportPrompt = 'fais moi un pdf beau et propre sur l actu du jour';
+const reportTargets = getPdfQualityTargets(reportPrompt);
+assert.equal(resolvePdfEngine(reportPrompt, { pdfQualityTargets: reportTargets, theme: reportTargets?.theme }), 'latex');
 assert.ok((targets?.minWords || 0) >= 200);
 
 assert.equal(extractRequestedWordCount('fais un pdf de 9000 mots sur l actu'), 9000);

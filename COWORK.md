@@ -178,10 +178,15 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Le backend ne force plus la strategie de recherche ni les pivots directs, mais il redevient ferme sur les seuls contrats durs: artefact reellement cree/publie, anti-boucle, sandbox et honnetete.
 - Les heuristiques backend heritees (`validatedSearches`, `degradedSearches`, `blockedQueryFamilies`, fallbacks news generiques, execution modes fantomes) ont ete retirees de l'API publique et de l'UI normale.
 - Le cas VEN1 est maintenant traite sans pivot automatique vers `franceinfo`: soit le modele exploite `music_catalog_lookup` ou des sources musique, soit il change d'angle, soit il avoue l'insuffisance.
+- Correctif de fond apres audit utilisateur: Cowork distingue maintenant explicitement un message meta sur ses logs/code d'une vraie demande d'execution. Un prompt du type `t'en penses quoi ?` qui cite `VEN1`, `create_pdf`, `append_to_draft`, `pdfkit` ou `PDF` ne doit plus declencher artificiellement musique+web+artefact.
+- Correctif moteur PDF: `resolvePdfEngine()` choisit maintenant `latex` par defaut pour les vrais PDF non formels, et reserve `pdfkit` aux documents `legal` / formels ou a un choix explicite.
+- Correctif anti-cosmetique: `create_pdf` n'applique plus les veto editoriaux legacy (`document trop pauvre`, placeholders, minima mots/sections). La review/signature reste utile pour le cache et l'information, mais n'est plus un coupe-circuit backend.
+- Correctif draft observabilite: `begin_pdf_draft`, `append_to_draft` et `get_pdf_draft` renvoient aussi `theme`, `wordCount`, `sectionCount` et `sourceMode` en top-level pour eviter les journaux `0 mots / undefined`.
+- Validation locale reussie: `npm run lint`, `npx tsx test-cowork-loop.ts`, `npx tsx test-pdf-heuristics.ts`.
 
 ## Prochaines Etapes V3
-1. Valider visuellement la nouvelle carte Cowork sur un vrai run navigateur des que le transport Playwright remarche, pour confirmer l'absence de `% complet` / `blocages` et la presence des nouveaux chips descriptifs.
-2. Nettoyer le code mort restant autour des anciens helpers de classification si on veut aller jusqu'au bout du V3.
+1. Rejouer en production le cas meta exact (`t'en penses quoi ?` + logs citant `VEN1` / `create_pdf` / `PDF`) pour verifier que Cowork repond en analyse simple, sans pipeline parasite.
+2. Valider visuellement la nouvelle carte Cowork sur un vrai run navigateur des que le transport Playwright remarche, pour confirmer l'absence de `% complet` / `blocages` et la presence des nouveaux chips descriptifs.
 3. Revalider en production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que la liberte de l'agent reste compatible avec la stabilite produit.
 4. Rejouer en production les cas factuels sensibles (`Tariq Ramadan il va aller en prison ?`, `actu du jour stp`, `Iran : actualite brulante`) pour verifier qu'un agent plus libre reste honnete, source, et capable de pivoter sans broder.
 5. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste un outil librement utilisable par le modele, sans retomber dans des pivots imposes.

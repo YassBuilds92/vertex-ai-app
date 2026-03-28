@@ -706,13 +706,21 @@ function buildCoworkSystemInstruction(
   const originalMessage = runtime?.originalMessage || '';
   const requestClock = runtime?.requestClock;
   const debugReasoning = Boolean(behavior?.debugReasoning);
-  const needsArtifact = originalMessage ? requestNeedsDownloadableArtifact(originalMessage) || requestNeedsPdfArtifact(originalMessage) : false;
-  const needsFreshOrExternalFacts = originalMessage
-    ? requestNeedsCurrentDateGrounding(originalMessage) || requestNeedsExternalGrounding(originalMessage) || requestNeedsStrictFactualSearch(originalMessage)
+  const isMetaDiscussion = originalMessage ? requestIsCoworkMetaDiscussion(originalMessage) : false;
+  const needsArtifact = originalMessage && !isMetaDiscussion
+    ? requestNeedsDownloadableArtifact(originalMessage) || requestNeedsPdfArtifact(originalMessage)
     : false;
-  const usesMusicResearch = originalMessage ? requestNeedsMusicCatalogResearch(originalMessage) : false;
+  const needsFreshOrExternalFacts = originalMessage
+    ? !isMetaDiscussion && (requestNeedsCurrentDateGrounding(originalMessage) || requestNeedsExternalGrounding(originalMessage) || requestNeedsStrictFactualSearch(originalMessage))
+    : false;
+  const usesMusicResearch = originalMessage && !isMetaDiscussion ? requestNeedsMusicCatalogResearch(originalMessage) : false;
   const requestSpecificDirectives: string[] = [];
 
+  if (isMetaDiscussion) {
+    requestSpecificDirectives.push(
+      "Cette demande parle du comportement, des logs ou du code de Cowork lui-meme. Les termes cites comme PDF, VEN1, trackmusik.fr, create_pdf ou append_to_draft peuvent etre de simples exemples. Ne les traite pas comme une demande d'execution tant que l'utilisateur ne te demande pas explicitement de lancer ces pipelines maintenant."
+    );
+  }
   if (needsFreshOrExternalFacts) {
     requestSpecificDirectives.push(
       "Si la reponse depend du reel, ne t'arrete pas au premier resultat plausible. Cherche, lis, recoupe, puis conclus. Si la matiere reste fragile, dis-le clairement."
@@ -889,6 +897,10 @@ export const __coworkLoopInternals = {
   getCoworkPublicPhase,
   normalizeCoworkPhase,
   classifyCoworkExecutionMode,
+  requestIsCoworkMetaDiscussion,
+  requestNeedsDownloadableArtifact,
+  requestNeedsPdfArtifact,
+  requestNeedsMusicCatalogResearch,
   requestRequiresAbuseBlock,
   requestIsPureCreativeComposition,
   assessReadablePageRelevance,
@@ -902,7 +914,37 @@ function normalizeCoworkText(value?: string): string {
     .toLowerCase();
 }
 
+function requestIsCoworkMetaDiscussion(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  if (!normalized) return false;
+
+  const metaIntent =
+    /\b(t[' ]?en penses quoi|qu[' ]en penses tu|analyse|diagnostic|audit|review|retour|feedback|debrief|debug|bug|regression|probleme|pourquoi ca n[' ]a pas marche|ce que tu dis a codex|ce que le systeme a fait|promesse|realite|preuve|logs?|score reel|implementation|implemente|implementee|implante|fixe le code|ne me refais pas|cosmetique|surface|moteur|pipeline)\b/.test(normalized);
+  const coworkContext =
+    /\b(cowork|codex|commit|backend|frontend|agent|boucle|run|systeme|orchestrateur|ui|ux)\b/.test(normalized);
+  const quotedToolSignals = [
+    'create_pdf',
+    'append_to_draft',
+    'begin_pdf_draft',
+    'review_pdf_draft',
+    'release_file',
+    'music_catalog_lookup',
+    'web_search',
+    'web_fetch',
+    'pdfkit',
+    'latex',
+    'signature mismatch',
+    'theme auto',
+    'trackmusik',
+    'ven1'
+  ].filter(signal => normalized.includes(signal)).length;
+
+  return (metaIntent && (coworkContext || quotedToolSignals >= 2))
+    || (coworkContext && quotedToolSignals >= 3);
+}
+
 function requestAsksForWriting(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return /\b(punchline|punchlines|rap|texte|paroles|lyrics|son|couplet|refrain|ecris|ecrire|redige|rediger|genere|generer|compose|composer|freestyle|topline)\b/.test(normalized);
 }
@@ -922,11 +964,13 @@ function requestMentionsConcreteExternalSubject(message: string): boolean {
 }
 
 function requestMentionsResearchIntent(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return /\b(documente(?:\s|-)?toi|documente|renseigne(?:\s|-)?toi|renseigne|verifie|verification|verifier|cherche|chercher|recherche|rechercher|creuse|creuser|fouille|fouiller|investigue|investiguer|analyse|analyser|etudie|etudier|apprends?(?:\s+sur)?|informe(?:\s|-)?toi|informe|sources?|references?|contexte|signification|definition|veut dire|argot|slang|terme|expression|autour de lui|autour d'elle|autour d'eux|ce qui se dit|tout ce qu(?:['\u2019])il y a autour|tout ce qu(?:['\u2019])il y a sur lui|tout ce qu(?:['\u2019])il y a sur elle)\b/.test(normalized);
 }
 
 function requestNeedsExternalGrounding(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   const asksForWriting = requestAsksForWriting(message);
   const explicitResearchIntent = requestMentionsResearchIntent(message);
@@ -943,6 +987,7 @@ function requestNeedsExternalGrounding(message: string): boolean {
 }
 
 function requestNeedsTopicalCreativeResearch(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   const asksForWriting = requestAsksForWriting(message);
   if (!asksForWriting) return false;
@@ -971,6 +1016,7 @@ function requestIsPureCreativeComposition(message: string): boolean {
 }
 
 function requestIsArtifactRefinement(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return /\b(esthetique|esthétique|plus beau|plus belle|plus joli|plus jolie|design|mise en page|mise en forme|style|stylise|styliser|relooker|relook|ameliore le rendu|ameliorer le rendu|meilleur rendu|beau rendu|beaux rendus|beaute|visuel|visuellement|page par|une page par|chaque page|chaque actu|theme par|couleur|couleurs|coloré|magazine|professionnel|premium|luxe|sublime|sophistique|reformat|reformater|reformate|refais le pdf|refaire le pdf|change le look|changer le look|plus pro|plus classe|plus clean|mieux presente|mieux presenté)\b/.test(normalized);
 }
@@ -993,6 +1039,7 @@ function classifyCoworkExecutionMode(_message: string, _history?: Array<{ role: 
 }
 
 function requestNeedsMusicCatalogResearch(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   const mentionsMusicEntity =
     /\b(artiste|artist|rappeur|rapper|chanteur|chanteuse|groupe|musique|music|rap|album|albums|ep|mixtape|single|singles|titre|titres|track|tracks|son|sons|morceau|morceaux|chanson|chansons|discographie|discography|freestyle|planete rap|spotify|deezer|apple music|youtube|genius)\b/.test(normalized);
@@ -1005,6 +1052,7 @@ function requestNeedsMusicCatalogResearch(message: string): boolean {
 }
 
 function requestNeedsStrictFactualSearch(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return (!requestAsksForWriting(message) && requestNeedsCurrentDateGrounding(message))
     || requestNeedsExternalGrounding(message)
@@ -1013,17 +1061,20 @@ function requestNeedsStrictFactualSearch(message: string): boolean {
 }
 
 function requestIsCurrentAffairs(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return /\b(actualite|actu|news|briefing|headline|presse|monde|international|france|breaking)\b/.test(normalized);
 }
 
 function requestNeedsCurrentDateGrounding(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return /\b(today|aujourd'hui|du jour|ce jour|latest|recent|recente|recentes|dernier|derniere|dernieres|maintenant|en ce moment)\b/.test(normalized)
     || requestIsCurrentAffairs(message);
 }
 
 function requestNeedsLongFormPdf(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   if (!requestNeedsPdf(message)) return false;
   const normalized = normalizeCoworkText(message);
   if (/\b(attestation|certificat)\b/.test(normalized)) return false;
@@ -1031,16 +1082,19 @@ function requestNeedsLongFormPdf(message: string): boolean {
 }
 
 function requestNeedsFormalDocument(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return /\b(attestation|certificat|lettre|courrier|declaration|convention|contrat|devis|facture)\b/.test(normalized);
 }
 
 function requestNeedsFictionalDetails(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return /\b(fictif|fictive|fictionnel|fictionnelle|imaginaire|invente|inventee|simule|simulee|faux|fausse)\b/.test(normalized);
 }
 
 function requestNeedsPdfArtifact(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   if (requestNeedsPdf(message) || requestNeedsFormalDocument(message)) return true;
   return /\b(presentation|brochure|plaquette|cv)\b/.test(normalized);
@@ -1201,6 +1255,15 @@ function resolvePdfEngine(
 ): PdfEngine {
   const normalized = normalizePdfEngine(options.explicitEngine, 'auto');
   if (normalized === 'latex' || normalized === 'pdfkit') return normalized;
+  const resolvedTheme = normalizePdfTheme(options.theme, options.pdfQualityTargets?.theme || resolvePdfTheme(message, {
+    formalDocument: Boolean(options.pdfQualityTargets?.formalDocument),
+    explicitTheme: options.theme || undefined
+  }));
+  const legalLikeDocument = resolvedTheme === 'legal'
+    || Boolean(options.pdfQualityTargets?.formalDocument)
+    || requestNeedsFormalDocument(message);
+  if (legalLikeDocument) return 'pdfkit';
+  if (requestNeedsPdfArtifact(message)) return 'latex';
   return requestNeedsPremiumLatexPdf(message, options.pdfQualityTargets, options.theme) ? 'latex' : 'pdfkit';
 }
 
@@ -1323,6 +1386,29 @@ function buildPdfDraftStats(draft: ActivePdfDraft): PdfDraftStats {
 function buildPdfLengthCapMessage(targetWords: number, requestedWordCount: number | null, cappedWords: boolean): string | undefined {
   if (!cappedWords || !requestedWordCount) return undefined;
   return `La demande visait ${requestedWordCount} mots, mais Cowork est plafonne a environ ${targetWords} mots par session PDF. Construis un document dense dans cette limite et annonce-la honnetement.`;
+}
+
+function humanizePdfTitle(value: string | undefined, fallback = 'Document Cowork'): string {
+  const cleaned = String(value || '')
+    .replace(/\.pdf$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return fallback;
+  return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function buildFallbackPdfSections(draft: PdfDraftSnapshot): NormalizedPdfSection[] {
+  const fallbackBody = [draft.summary, draft.subtitle]
+    .map(value => value.trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+  if (!fallbackBody) return [];
+  return [{
+    heading: draft.sections.length === 0 ? 'Contenu' : undefined,
+    body: fallbackBody
+  }];
 }
 
 function sanitizePdfFilenameBase(value: string | undefined, fallback = 'document-cowork'): string {
@@ -1694,69 +1780,30 @@ function validateCreatePdfReviewSignature(options: {
   reviewSignature?: string;
   latestApprovedPdfReviewSignature: string | null;
   draftReview: PdfDraftReview;
-}): { ok: true } | { ok: false; response: any } {
+}): { ok: true; warning?: string; reviewSignatureIgnored?: boolean } {
   const { reviewSignature, latestApprovedPdfReviewSignature, draftReview } = options;
   const normalizedReviewSignature = typeof reviewSignature === 'string' ? reviewSignature.trim() : '';
   if (!normalizedReviewSignature) {
     return { ok: true };
   }
 
-  const reviewPayload = {
-    ready: draftReview.ready,
-    score: draftReview.score,
-    blockingIssues: draftReview.blockingIssues,
-    improvements: draftReview.improvements
+  if (normalizedReviewSignature === draftReview.signature) {
+    return { ok: true };
+  }
+
+  if (latestApprovedPdfReviewSignature && latestApprovedPdfReviewSignature === normalizedReviewSignature) {
+    return {
+      ok: true,
+      warning: "La signature fournie correspond a une review precedente, mais le brouillon a change depuis. L'export continue sans bloquer, mais cette review sera consideree comme informative et non comme cache reutilisable.",
+      reviewSignatureIgnored: true
+    };
+  }
+
+  return {
+    ok: true,
+    warning: "La signature de review fournie ne correspond pas a cette version du brouillon. L'export continue sans bloquer; si tu veux reutiliser une review exacte ou un cache de compilation, relance d'abord 'review_pdf_draft' sur cette version precise.",
+    reviewSignatureIgnored: true
   };
-
-  if (normalizedReviewSignature !== draftReview.signature) {
-    return {
-      ok: false,
-      response: {
-        success: false,
-        recoverable: true,
-        reviewRecommended: true,
-        signature: draftReview.signature,
-        reviewSignatureMismatch: true,
-        review: reviewPayload,
-        error: draftReview.ready
-          ? "La signature fournie ne correspond pas a ce brouillon. Refais 'review_pdf_draft' sur cette version exacte puis reuse la nouvelle signature, ou relance 'create_pdf' sans 'reviewSignature' si tu assumes l'export sans review."
-          : `La signature fournie ne correspond pas a ce brouillon et la review courante signale encore des points bloquants (${draftReview.blockingIssues.join('; ')}). Corrige puis refais 'review_pdf_draft', ou relance 'create_pdf' sans 'reviewSignature' si tu veux exporter sans cette passe qualite.`
-      }
-    };
-  }
-
-  if (!latestApprovedPdfReviewSignature) {
-    return {
-      ok: false,
-      response: {
-        success: false,
-        recoverable: true,
-        reviewRecommended: true,
-        signature: draftReview.signature,
-        reviewSignatureMismatch: true,
-        review: reviewPayload,
-        error: draftReview.ready
-          ? "Aucune self-review approuvee n'est connue pour cette signature. Refais 'review_pdf_draft' si tu veux exporter avec une signature, ou relance 'create_pdf' sans 'reviewSignature' si tu assumes l'export sans review."
-          : `Aucune self-review approuvee n'est connue pour cette signature et la review courante n'est pas prete (${draftReview.blockingIssues.join('; ')}). Corrige puis refais 'review_pdf_draft', ou relance 'create_pdf' sans 'reviewSignature' si tu veux exporter sans review.`
-      }
-    };
-  }
-
-  if (latestApprovedPdfReviewSignature !== normalizedReviewSignature) {
-    return {
-      ok: false,
-      response: {
-        success: false,
-        recoverable: true,
-        reviewRecommended: true,
-        signature: draftReview.signature,
-        reviewSignatureMismatch: true,
-        review: reviewPayload,
-        error: "La signature fournie ne correspond pas a la derniere self-review approuvee. Refais 'review_pdf_draft' sur ce brouillon exact puis reuse la signature retournee sans la modifier, ou relance 'create_pdf' sans 'reviewSignature' si tu exportes sans review."
-      }
-    };
-  }
-  return { ok: true };
 }
 
 function countWords(value: string): number {
@@ -1820,6 +1867,7 @@ function alignSearchQueryWithRequest(query: string, originalMessage: string, req
 }
 
 function requestNeedsDownloadableArtifact(message: string): boolean {
+  if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   if (/\b(pdf|document|rapport|attestation|presentation|telecharger|telecharge)\b/.test(normalized)) {
     return true;
@@ -5431,7 +5479,7 @@ app.post('/api/cowork', async (req, res) => {
         const improvements = Array.isArray(output?.improvements) ? output.improvements.length : 0;
         const readiness = output?.ready ? 'Pret' : 'A corriger';
         const compileNote = output?.compileLogPreview ? ' | log compile dispo' : '';
-        return `${readiness} | ${output?.engine || 'pdfkit'}${output?.compiler ? `/${output.compiler}` : ''} | score ${Number(output?.score || 0)}/100 | ${blocking} bloquant(s) | ${improvements} amelioration(s)${compileNote}`;
+        return `${readiness} | ${output?.engine || 'pdfkit'}${output?.compiler ? `/${output.compiler}` : ''} | score ${Number(output?.score || 0)}/100 | ${blocking + improvements} suggestion(s)${compileNote}`;
       }
       if (toolName === 'create_pdf') {
         const themeLabel = output?.theme ? `theme ${output.theme}` : 'theme auto';
@@ -5833,7 +5881,11 @@ app.post('/api/cowork', async (req, res) => {
             draft,
             engine: draft.engine,
             compiler: draft.compiler,
+            theme: draft.theme,
             signature: draft.signature,
+            wordCount: draft.wordCount,
+            sectionCount: draft.sectionCount,
+            sourceMode: draft.sourceMode,
             message: [
               `Brouillon PDF initialise avec le moteur '${draft.engine}'${draft.compiler ? `/${draft.compiler}` : ''} et le theme '${nextDraft.theme}'.`,
               capMessage
@@ -5948,7 +6000,11 @@ app.post('/api/cowork', async (req, res) => {
             draft,
             engine: draft.engine,
             compiler: draft.compiler,
+            theme: draft.theme,
             signature: draft.signature,
+            wordCount: draft.wordCount,
+            sectionCount: draft.sectionCount,
+            sourceMode: draft.sourceMode,
             message: [
               `${Array.isArray(sections) ? sections.length : 0} section(s) ajoutee(s). Le brouillon contient maintenant ${draft.wordCount} mots et ${draft.sectionCount} section(s).`,
               capMessage
@@ -5981,6 +6037,10 @@ app.post('/api/cowork', async (req, res) => {
             engine: draft.engine,
             compiler: draft.compiler,
             signature: draft.signature,
+            theme: draft.theme,
+            wordCount: draft.wordCount,
+            sectionCount: draft.sectionCount,
+            sourceMode: draft.sourceMode,
             title: currentDraft.title,
             subtitle: currentDraft.subtitle,
             summary: clipText(currentDraft.summary || '', 220),
@@ -6305,7 +6365,7 @@ app.post('/api/cowork', async (req, res) => {
           const effectiveCompiler = effectiveEngine === 'latex'
             ? normalizeLatexCompiler(compiler || currentDraft?.compiler || 'xelatex')
             : null;
-          const effectiveDraft = shouldUseActiveDraft && currentDraft
+          const rawDraft = shouldUseActiveDraft && currentDraft
             ? buildPdfDraftSnapshot({
                 title: title || currentDraft.title,
                 subtitle: subtitle ?? currentDraft.subtitle,
@@ -6326,7 +6386,7 @@ app.post('/api/cowork', async (req, res) => {
             ? (
                 latexSource?.trim()
                 || (shouldUseActiveDraft ? currentDraft?.latexSource : null)
-                || buildPdfDraftLatexSource(effectiveDraft, {
+                || buildPdfDraftLatexSource(rawDraft, {
                     compiler: effectiveCompiler,
                     theme: normalizePdfTheme(theme, currentDraft?.theme || pdfQualityTargets?.theme || resolvePdfTheme(message)),
                     accentColor: accentColor || currentDraft?.accentColor,
@@ -6338,19 +6398,21 @@ app.post('/api/cowork', async (req, res) => {
             return {
               success: false,
               recoverable: true,
+              engine: effectiveEngine,
+              compiler: effectiveCompiler,
               error: "Aucun source LaTeX compilable n'a ete fourni."
             };
           }
           const draftForValidation = effectiveEngine === 'latex' && effectiveLatexSource
             ? buildPdfDraftSnapshot({
-                title: effectiveDraft.title || extractLatexCommandValue(effectiveLatexSource, 'title'),
-                subtitle: effectiveDraft.subtitle,
-                summary: effectiveDraft.summary,
-                author: effectiveDraft.author || extractLatexCommandValue(effectiveLatexSource, 'author'),
-                sources: effectiveDraft.sources,
-                sections: effectiveDraft.sections
+                title: rawDraft.title || extractLatexCommandValue(effectiveLatexSource, 'title'),
+                subtitle: rawDraft.subtitle,
+                summary: rawDraft.summary,
+                author: rawDraft.author || extractLatexCommandValue(effectiveLatexSource, 'author'),
+                sources: rawDraft.sources,
+                sections: rawDraft.sections
               })
-            : effectiveDraft;
+            : rawDraft;
 
           const effectiveFilename = sanitizePdfFilenameBase(
             filename
@@ -6367,39 +6429,38 @@ app.post('/api/cowork', async (req, res) => {
               explicitTheme: theme
             })
           );
-          const effectiveSections = draftForValidation.sections;
-          const effectiveSources = draftForValidation.sources;
-          const requireInventedDetails = Boolean(pdfQualityTargets?.requireInventedDetails || requestNeedsFictionalDetails(message));
-          const combinedContent = buildPdfDraftContentForMetrics({
-            draft: draftForValidation,
-            engine: effectiveEngine,
-            latexSource: effectiveLatexSource
+          const draftForExport = buildPdfDraftSnapshot({
+            title: draftForValidation.title || humanizePdfTitle(filename || currentDraft?.filename || effectiveFilename),
+            subtitle: draftForValidation.subtitle,
+            summary: draftForValidation.summary,
+            author: draftForValidation.author,
+            sources: draftForValidation.sources,
+            sections: draftForValidation.sections.length > 0
+              ? draftForValidation.sections
+              : buildFallbackPdfSections(draftForValidation)
           });
+          const effectiveSections = draftForExport.sections;
+          const effectiveSources = draftForExport.sources;
           const draftReview = effectiveEngine === 'latex' && effectiveLatexSource
             ? buildLatexAwarePdfReview({
                 message,
-                draft: draftForValidation,
+                draft: draftForExport,
                 pdfQualityTargets,
                 latexSource: effectiveLatexSource,
                 compiler: effectiveCompiler
               })
-            : reviewPdfDraft(message, draftForValidation, pdfQualityTargets, {
+            : reviewPdfDraft(message, draftForExport, pdfQualityTargets, {
                 engine: effectiveEngine,
                 compiler: effectiveCompiler
               });
           const effectiveSignature = draftReview.signature;
-
-          if (!draftForValidation.title) {
-            return {
-              success: false,
-              recoverable: true,
-              error: "Le PDF doit avoir un titre finalise avant export."
-            };
-          }
           if (effectiveEngine !== 'latex' && effectiveSections.length === 0) {
             return {
               success: false,
               recoverable: true,
+              theme: effectiveTheme,
+              engine: effectiveEngine,
+              compiler: effectiveCompiler,
               error: "Le PDF doit contenir au moins une section non vide."
             };
           }
@@ -6409,9 +6470,7 @@ app.post('/api/cowork', async (req, res) => {
             latestApprovedPdfReviewSignature,
             draftReview
           });
-          if (reviewSignatureGate.ok === false) {
-            return reviewSignatureGate.response;
-          }
+          const reviewSignatureWarning = reviewSignatureGate.warning;
 
           if (
             latestCreatedPdfArtifact
@@ -6456,39 +6515,6 @@ app.post('/api/cowork', async (req, res) => {
               signature: effectiveSignature,
               error: "Deux echec(s) consecutifs ont deja eu lieu pour cette meme signature LaTeX. Modifie materiellement le source .tex ou reinitialise avec 'begin_pdf_draft' avant de retenter 'create_pdf'."
             };
-          }
-
-          const totalWords = countWords(combinedContent);
-          if (effectiveTheme === 'legal' || Boolean(pdfQualityTargets?.formalDocument || requestNeedsFormalDocument(message))) {
-            const formalSignalCount = countFormalDocumentSignals(combinedContent);
-            if (formalSignalCount < 4) {
-              return {
-                success: false,
-                recoverable: true,
-                error: "Document formel trop pauvre ou trop generique. Ajoute des blocs distincts pour l'emetteur, le beneficiaire ou sujet, la periode ou le contexte, puis une validation finale avec date/lieu/signature avant de relancer 'create_pdf'."
-              };
-            }
-          }
-          if (requireInventedDetails) {
-            const placeholderCount = countTemplatePlaceholders(combinedContent);
-            if (placeholderCount > 0) {
-              return {
-                success: false,
-                recoverable: true,
-                error: "L'utilisateur a demande un document fictif complet, mais le brouillon contient encore des placeholders ([...], <...> ou lignes a remplir). Remplace-les par des details credibles avant de relancer 'create_pdf'."
-              };
-            }
-          }
-          if (pdfQualityTargets) {
-            const tooFewSections = effectiveSections.length < pdfQualityTargets.minSections;
-            const tooFewWords = totalWords < pdfQualityTargets.minWords;
-            if (tooFewSections || tooFewWords) {
-              return {
-                success: false,
-                recoverable: true,
-                error: `PDF trop court pour la demande. Minimum attendu: ${pdfQualityTargets.minSections} sections utiles et environ ${pdfQualityTargets.minWords} mots. Actuel: ${effectiveSections.length} section(s) et ${totalWords} mots. Elargis le plan, ajoute plus de developpement, de contexte, de synthese et de sources avant de relancer 'create_pdf'.`
-              };
-            }
           }
 
           if (effectiveEngine === 'latex' && effectiveLatexSource) {
@@ -6560,6 +6586,7 @@ app.post('/api/cowork', async (req, res) => {
               compiler: effectiveCompiler,
               signature: effectiveSignature,
               cacheHit: reusedReviewCache,
+              ...(reviewSignatureWarning ? { reviewSignatureWarning } : {}),
               compileLogPreview: clipText(compileLog || 'Compilation LaTeX reussie.', 700),
               message: `PDF '${effectiveFilename}.pdf' cree avec succes a ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de telechargement.`
             };
@@ -6568,10 +6595,10 @@ app.post('/api/cowork', async (req, res) => {
           try {
             const rendered = await renderPdfArtifact({
               outputPath,
-              title: draftForValidation.title,
-              subtitle: draftForValidation.subtitle || undefined,
-              summary: draftForValidation.summary || undefined,
-              author: draftForValidation.author || undefined,
+              title: draftForExport.title,
+              subtitle: draftForExport.subtitle || undefined,
+              summary: draftForExport.summary || undefined,
+              author: draftForExport.author || undefined,
               accentColor: accentColor || currentDraft?.accentColor,
               showPageNumbers,
               sections: effectiveSections,
@@ -6601,6 +6628,7 @@ app.post('/api/cowork', async (req, res) => {
               engine: 'pdfkit',
               compiler: null,
               signature: effectiveSignature,
+              ...(reviewSignatureWarning ? { reviewSignatureWarning } : {}),
               message: [
                 `PDF '${effectiveFilename}.pdf' cree avec succes a ${rendered.path}. Utilise maintenant 'release_file' pour obtenir le lien de telechargement.`,
                 capMessage
@@ -6610,6 +6638,9 @@ app.post('/api/cowork', async (req, res) => {
             return {
               success: false,
               recoverable: Boolean(error?.recoverable),
+              theme: effectiveTheme,
+              engine: effectiveEngine,
+              compiler: effectiveCompiler,
               error: parseApiError(error)
             };
           }
@@ -6699,9 +6730,7 @@ app.post('/api/cowork', async (req, res) => {
             latestApprovedPdfReviewSignature,
             draftReview
           });
-          if (reviewSignatureGate.ok === false) {
-            return reviewSignatureGate.response;
-          }
+          const reviewSignatureWarning = reviewSignatureGate.warning;
 
           const totalWords = countWords(combinedContent);
 
@@ -7227,7 +7256,12 @@ app.post('/api/cowork', async (req, res) => {
               }
 
               stream.on('finish', () => {
-                resolve({ success: true, path: outputPath, message: `PDF '${filename}' créé avec succès à ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de téléchargement.` });
+                resolve({
+                  success: true,
+                  path: outputPath,
+                  ...(reviewSignatureWarning ? { reviewSignatureWarning } : {}),
+                  message: `PDF '${filename}' créé avec succès à ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de téléchargement.`
+                });
               });
               stream.on('error', (err) => {
                 reject(err);

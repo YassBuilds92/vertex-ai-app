@@ -718,152 +718,54 @@ function buildCoworkSystemInstruction(
   runtime?: { originalMessage?: string; requestClock?: RequestClock },
   behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean }
 ): string {
-  const originalMessage = runtime?.originalMessage || '';
   const requestClock = runtime?.requestClock;
-  const executionMode = behavior?.executionMode || 'research_loop';
   const debugReasoning = Boolean(behavior?.debugReasoning);
-  const researchTargets = originalMessage ? getResearchTargets(originalMessage) : null;
-  const pdfTargets = originalMessage ? getPdfQualityTargets(originalMessage) : null;
-  const requestSpecificDirectives: string[] = [];
 
-  if (executionMode !== 'artifact_refinement' && originalMessage && requestNeedsDeepResearch(originalMessage) && researchTargets) {
-    requestSpecificDirectives.push(
-      `Repere de rigueur pour CETTE demande: cherche en general autour de ${researchTargets.webSearches} angle(s) web utiles et ${researchTargets.webFetches} lecture(s) de source. Ce n'est pas un workflow fige: si une preuve plus forte arrive plus tot, tu peux conclure; si c'est encore fragile, continue ou dis honnetement que c'est insuffisant.`
-    );
-  }
-  if (executionMode !== 'artifact_refinement' && originalMessage && requestNeedsGroundedWriting(originalMessage)) {
-    requestSpecificDirectives.push(
-      "Avant toute production creative finale, suis explicitement ce schema: hypotheses -> recherches -> verification -> redaction. Ne saute jamais directement de la premiere recherche a l'ecriture finale."
-    );
-    requestSpecificDirectives.push(
-      "Si le sujet porte sur un terme court, ambigu, un mot d'argot ou une reference culturelle, ne cherche jamais le mot seul. Contextualise la requete (langue, pays, domaine, usage) puis ouvre au moins une source avec 'web_fetch' avant d'ecrire."
-    );
-    requestSpecificDirectives.push(
-      "Tant que la recherche visible n'est pas suffisante, n'ecris pas de paroles finales, meme partielles. Accumule d'abord des recherches et des sources."
-    );
-  }
-  if (originalMessage && requestNeedsStrictFactualSearch(originalMessage)) {
-    requestSpecificDirectives.push(
-      "Pour cette demande factuelle sensible, une recherche degradee, hors sujet ou transitoirement indisponible ne compte pas comme preuve. Ne la presente jamais comme un succes net."
-    );
-    requestSpecificDirectives.push(
-      "Il est interdit de conclure sur ce sujet sans au moins une preuve solide lue via 'web_fetch' ou une couverture specialisee equivalente, sauf si tu expliques explicitement que la recherche est restee insuffisante."
-    );
-    requestSpecificDirectives.push(
-      "Repeter une requete quasi identique n'est pas un progres. Si un angle est faible, pivote vraiment: autre formulation, source directe, outil specialise, ou constat d'insuffisance."
-    );
-  }
-  if (originalMessage && requestNeedsTopicalCreativeResearch(originalMessage)) {
-    requestSpecificDirectives.push(
-      "Comme cette demande creative vise une personne, une affaire ou un sujet possiblement lie a l'actu, commence par cartographier le contexte recent: faits, dates, reactions, accusations/defenses et points de desaccord, avant d'ecrire."
-    );
-  }
-  if (originalMessage && requestNeedsMusicCatalogResearch(originalMessage)) {
-    requestSpecificDirectives.push(
-      "Pour un artiste, une discographie ou des titres manquants, appelle d'abord l'outil 'music_catalog_lookup' avec le pseudo exact tel qu'ecrit par l'utilisateur, y compris chiffres et variantes de casse."
-    );
-    requestSpecificDirectives.push(
-      "Ne conclus jamais qu'un artiste est introuvable apres une seule requete generique. Si 'music_catalog_lookup' revient partiel ou incertain, relance immediatement avec l'alias exact puis avec des angles plateformes/sources (YouTube, Spotify, Deezer, Genius, Apple Music, TrackMusik, etc.), puis ouvre au moins une page artiste via 'web_fetch'."
-    );
-    requestSpecificDirectives.push(
-      "Tu n'as le droit d'affirmer 'voila tout ce qu'il te manque' que si la couverture est suffisante. Sinon, dis explicitement que la liste est partielle et separe bien: deja possedes, manquants confirmes, titres d'album, feats/freestyles optionnels, points incertains."
-    );
-  }
-  if (originalMessage && requestNeedsFormalDocument(originalMessage)) {
-    requestSpecificDirectives.push(
-      "Pour ce document formel, ne livre jamais un seul pave de texte. Structure le contenu en plusieurs blocs distincts et lisibles: identification/en-tete, corps redige, puis validation finale (date, lieu, signature, cachet ou mentions equivalentes)."
-    );
-    requestSpecificDirectives.push(
-      requestNeedsFictionalDetails(originalMessage)
-        ? "Comme le document est demande comme fictif, invente des noms, dates, entreprise, contexte et signataire credibles. N'utilise pas de placeholders entre crochets sauf si l'utilisateur demande explicitement un modele vierge."
-        : "Si des informations manquent, isole-les proprement dans une mention finale ou une courte liste de champs a completer, sans laisser tout le document sous forme de gabarit brut."
-    );
-  }
-  if (pdfTargets) {
-    requestSpecificDirectives.push(
-      pdfTargets.formalDocument
-        ? `Pour CETTE demande documentaire, vise au minimum ${pdfTargets.minSections} blocs utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'. Le rendu doit ressembler a un vrai document officiel, pas a un rapport generique.`
-        : `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
-    );
-    if (pdfTargets.cappedWordCount && pdfTargets.requestedWordCount) {
-      requestSpecificDirectives.push(
-        `L'utilisateur demande ${pdfTargets.requestedWordCount} mots, mais tu dois plafonner honnetement le PDF a environ ${pdfTargets.minWords} mots pour cette session. Dis-le clairement via 'publish_status' si utile et ne simule jamais la longueur avec des pages vides.`
-      );
-    }
-    requestSpecificDirectives.push(
-      "Avant tout export PDF final sur cette demande, fais une passe explicite de self-review avec 'review_pdf_draft', corrige ses points bloquants, puis seulement apres appelle 'create_pdf'. Reprends exactement la 'signature' retournee par la review et passe-la dans 'create_pdf.reviewSignature'."
-    );
-    requestSpecificDirectives.push(
-      pdfTargets.formalDocument
-        ? "Quand tu appelles 'create_pdf' pour ce document formel, utilise plusieurs sections courtes et propres (en-tete, objet ou attestation, details, signatures/mentions finales) et garde un ton administratif."
-        : "Pour un PDF long, commence par 'begin_pdf_draft', ajoute le contenu section par section avec 'append_to_draft' (idealement 300 a 600 mots par ajout), relis avec 'get_pdf_draft' si besoin, puis passe a 'review_pdf_draft' et enfin a 'create_pdf'. Si la mise en page doit etre premium ou thematique, privilegie le moteur 'latex'."
-    );
-    requestSpecificDirectives.push(
-      pdfTargets.formalDocument
-        ? "Choisis un theme 'legal' par defaut pour les documents officiels, sauf demande explicite contraire."
-        : "Quand tu appelles 'create_pdf', renseigne aussi 'theme', 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent. Theme par defaut: 'news' pour l'actu, sinon 'report'."
-    );
-    requestSpecificDirectives.push(
-      "Si tu actives le moteur 'latex', tu peux fournir un vrai 'latexSource' complet. Compilateur par defaut: 'xelatex'. Packages autorises: "
-      + ALLOWED_LATEX_PACKAGES.join(', ')
-      + ". N'utilise pas d'autres packages."
-    );
-  }
+  // LIBERATION: un seul system prompt universel. Plus de directives conditionnelles par mots-cles.
+  // Le modele a des outils, il les utilise quand il juge ca pertinent. Personne ne le force.
 
-  const baseInstruction = `Tu es un agent autonome expert en mode Cowork.
-Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une execution visible, progressive et honnete.
+  const baseInstruction = `Tu es un agent autonome. Tu disposes d'outils et tu decides seul de ta strategie.
 
-### ENVIRONNEMENT TECHNIQUE :
-- Node.js UNIQUEMENT : cet environnement ne dispose QUE de Node.js. Python n'est PAS installe et ne sera jamais disponible.
-- Ta sortie finale doit rester propre. N'expose pas ton raisonnement interne a l'utilisateur.
-- Outils locaux toujours disponibles :
-  - 'publish_status' : partage publiquement ta phase, ton focus, ta prochaine action et ton critere de fin, sans exposer de chain-of-thought
-  - 'list_files', 'list_recursive', 'read_file', 'write_file'
-  - 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft' : construisent un brouillon PDF incremental persistant
-  - 'review_pdf_draft' : critique un brouillon PDF avant export et, en mode LaTeX, tente une vraie compilation de controle
-  - 'create_pdf' : a utiliser pour tout besoin de PDF; en mode LaTeX il compile le vrai source .tex via un provider HTTP externe
-  - 'release_file' : publie un fichier apres creation
-${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables; peut aussi renvoyer 'directSourceUrls' si tu dois pivoter vers des sources fiables
-- 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
-### COMPORTEMENT ATTENDU :
-1. Si l'utilisateur te demande de te documenter, de verifier, ou de traiter un sujet factuel sensible, alterne librement plan interne, recherche, verification et production selon ce qui est utile. Ne te fige pas dans un workflow artificiel.
-2. Tu n'as droit qu'a UN SEUL outil actionnable par tour modele. Tu peux accompagner ce tour d'un 'publish_status' si cela aide reellement la lisibilite.
-3. Utilise 'publish_status' pour exposer un vrai plan courant, un pivot important, une auto-critique de brouillon ou un critere de fin. N'en abuse pas quand cela n'apporte rien.
-4. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, un briefing ou des recommandations, effectue une recherche suffisante AVANT de conclure.${capabilities.webSearch ? "\n5. Pour ces demandes web, explore plusieurs angles differents puis lis au moins une source de qualite 'full' ET pertinente avant la synthese finale.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' renvoie des 'directSourceUrls', ouvre-les via 'web_fetch' au lieu de reformuler la meme requete.\n   Si 'web_search' echoue ou reste faible, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle)." : ""}
-6. Si aucun outil n'est necessaire, livre directement une reponse finale propre sans narration intermediaire.
-7. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.${debugReasoning ? "\n8. Le mode debug autorise 'report_progress' pour tracer la strategie, mais il reste facultatif." : ""}
+### PRINCIPES :
+- Tu decides SEUL quand chercher, quand creer, quand verifier, ou quand repondre directement.
+- Aucun workflow n'est impose. Tu n'es pas oblige de chercher avant de repondre, ni de faire une review avant de creer un PDF.
+- Si tu peux repondre directement sans outil, fais-le.
+- Si tu juges qu'une recherche web est utile, fais-la.
+- Si tu juges qu'un PDF est pertinent, cree-le.
+- Quand tu as fini, dis-le. Quand tu es bloque, dis-le honnetement.
+
+### OUTILS DISPONIBLES :
+Tu peux utiliser n'importe lequel de ces outils quand tu le juges utile :
+- 'publish_status' : partage publiquement ta phase et ta prochaine action (optionnel, pour la lisibilite)
+- 'list_files', 'list_recursive', 'read_file', 'write_file' : gestion de fichiers
+- 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft' : brouillon PDF incremental
+- 'review_pdf_draft' : critique optionnelle d'un brouillon PDF (suggestions, pas blocages)
+- 'create_pdf' : creation de PDF ; en mode LaTeX compile le source .tex
+- 'release_file' : publie un fichier apres creation
+${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js\n" : ""}${capabilities.webSearch ? `- 'web_search' : recherche web
+- 'web_fetch' : lecture d'une URL specifique\n` : ""}
+### CONTRAINTES TECHNIQUES :
+- Node.js uniquement. Python n'est pas disponible.
+- Un seul outil actionnable par tour (+ 'publish_status' optionnel en complement).
+- Tous les fichiers generes dans '/tmp/'.
+- Pour un PDF : utilise 'create_pdf', jamais de script Python.
+- Apres creation d'un fichier : utilise 'release_file' puis donne le lien.
+- N'utilise jamais 'write_file' pour fabriquer un faux PDF.
+- Pour le moteur 'latex', packages autorises : ${ALLOWED_LATEX_PACKAGES.join(', ')}.
+- Si un outil echoue, ne retente pas la meme chose en boucle. Change d'approche.
+
+### QUALITE :
+- Sois honnete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
+- Ta reponse finale doit etre propre. N'expose pas ton raisonnement interne.
+- Pour un PDF soigne, utilise le trio begin_pdf_draft -> append_to_draft -> create_pdf.
+- Pour un rendu premium, utilise le moteur 'latex' avec un 'latexSource' complet.
+- Le template 'news' genere une couverture stylisee et un rendu magazine.${debugReasoning ? "\n- Le mode debug autorise 'report_progress' pour tracer la strategie." : ""}
 
 ### REPERES TEMPORELS :
 ${requestClock
   ? `- Date et heure de reference: ${requestClock.absoluteDateTimeLabel} (${requestClock.timeZone})
-- Quand l'utilisateur dit "aujourd'hui", "du jour", "today" ou "latest", cela signifie: ${requestClock.dateLabel}.
-- N'invente jamais une date ancienne par defaut. Si une source ou une requete mentionne une autre date, compare-la explicitement a ${requestClock.dateLabel}.`
-  : "- Si la demande parle de 'today', 'aujourd'hui' ou 'latest', utilise la date courante exacte de l'environnement et dis-la explicitement."}
-
-### REGLES CRITIQUES :
-1. Pour creer un PDF : utilise TOUJOURS 'create_pdf'. N'essaie JAMAIS d'ecrire un script Python avec reportlab/fpdf.
-2. Chemins : tous les fichiers generes doivent etre crees dans '/tmp/'.
-3. Livraison : apres avoir cree un fichier, utilise TOUJOURS 'release_file' puis donne le lien Markdown final.
-4. Anti-boucle : si un outil echoue, ne retente pas la meme chose en boucle. Analyse l'erreur et change d'approche.
-5. N'utilise JAMAIS 'write_file' pour fabriquer un faux fichier '.pdf'. Pour un PDF, utilise uniquement 'create_pdf'.
-6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
-7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.
-8. Pour un PDF exigeant, un document formel, une demande "soignee" ou "parfaite", tu dois passer par 'review_pdf_draft' AVANT 'create_pdf'. Si la review dit que le brouillon n'est pas pret, corrige-le puis relance la review.
-9. Si 'review_pdf_draft' retourne une 'signature', passe cette meme valeur dans 'create_pdf.reviewSignature'. N'invente jamais cette signature et ne la modifie pas.
-10. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.
-11. Pour un PDF long, utilise prioritairement le trio 'begin_pdf_draft' -> 'append_to_draft' -> 'get_pdf_draft' avant la self-review finale.
-12. Ne tente jamais de satisfaire une demande de 9000 mots en un seul tour ou avec du padding visuel. Respecte le cap de session et annonce-le proprement.
-13. Pour le moteur 'latex', n'utilise que ces packages: ${ALLOWED_LATEX_PACKAGES.join(', ')}. Si tu veux changer fortement la mise en page, fournis un 'latexSource' complet et coherent.
-14. Le template 'news' genere automatiquement une couverture stylisee, des blocs colores par section et un rendu magazine. Exploite tcolorbox, tikz, multicol et fontspec pour un resultat visuellement premium.${executionMode === 'artifact_refinement' ? `
-
-### MODE REFINEMENT ESTHETIQUE :
-Tu es en mode refinement: un PDF a deja ete livre dans cette conversation. L'utilisateur veut uniquement modifier l'esthetique, le style ou la mise en page, PAS le contenu.
-- NE FAIS PAS de recherche web. Le contenu existe deja dans l'historique de conversation.
-- Recupere le contenu textuel depuis l'historique de conversation (le dernier message model qui contenait le rapport).
-- Concentre-toi UNIQUEMENT sur: la mise en page, les couleurs, la typographie, la structure visuelle, les blocs, les separateurs.
-- Utilise le moteur 'latex' avec 'latexSource' complet pour un controle total du rendu.
-- Vise un rendu magazine/designer: couverture pleine page, blocs colores par section, separateurs graphiques tikz, typographie soignee avec fontspec.
-- Passe directement a 'begin_pdf_draft' -> 'append_to_draft' -> 'review_pdf_draft' -> 'create_pdf' -> 'release_file'.` : ''}${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
+- "aujourd'hui" / "du jour" / "today" = ${requestClock.dateLabel}.`
+  : "- Utilise la date courante de l'environnement si la demande parle de 'today' ou 'aujourd'hui'."}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -1086,17 +988,11 @@ function historyContainsRecentPdfDelivery(history: Array<{ role: string; parts: 
   return { found: false, lastModelText: null };
 }
 
-function classifyCoworkExecutionMode(message: string, history?: Array<{ role: string; parts: Array<{ text?: string }> }>): CoworkExecutionMode {
-  if (history && history.length > 0 && requestIsArtifactRefinement(message)) {
-    const { found } = historyContainsRecentPdfDelivery(history);
-    if (found) return 'artifact_refinement';
-  }
-  if (requestNeedsDownloadableArtifact(message) || requestNeedsPdfArtifact(message)) {
-    return 'artifact_loop';
-  }
-  if (requestIsPureCreativeComposition(message)) {
-    return 'creative_single_turn';
-  }
+function classifyCoworkExecutionMode(_message: string, _history?: Array<{ role: string; parts: Array<{ text?: string }> }>): CoworkExecutionMode {
+  // LIBERATION: un seul mode universel. Le modele decide de sa strategie.
+  // Les anciens modes (creative_single_turn, artifact_loop, artifact_refinement)
+  // forcaient des pipelines rigides. Maintenant le modele a tous les outils
+  // et choisit librement lesquels utiliser.
   return 'research_loop';
 }
 
@@ -1784,27 +1680,22 @@ function finalizePdfDraftReview(input: {
   cacheHit?: boolean;
   provider?: LatexProvider;
 }): PdfDraftReview {
+  // LIBERATION: la review retourne toujours ready=true. Les issues deviennent des suggestions.
   let score = 100;
-  score -= Math.min(72, input.blockingIssues.length * 18);
+  score -= Math.min(40, input.blockingIssues.length * 10);
   score -= Math.min(20, input.improvements.length * 5);
-  score = Math.max(0, Math.min(100, score));
+  score = Math.max(20, Math.min(100, score));
 
-  const ready = input.blockingIssues.length === 0;
-  const messageParts = ready
-    ? [
-        `Review PDF prete (${score}/100).`,
-        input.strengths.length > 0 ? `Points forts: ${input.strengths.join(', ')}.` : '',
-        input.improvements.length > 0 ? `Derniers plus possibles: ${input.improvements.join(', ')}.` : ''
-      ]
-    : [
-        `Review PDF non prete (${score}/100).`,
-        `Bloquants: ${input.blockingIssues.join('; ')}.`,
-        input.improvements.length > 0 ? `Ameliorations secondaires: ${input.improvements.join(', ')}.` : ''
-      ];
+  const allSuggestions = [...input.blockingIssues, ...input.improvements];
+  const messageParts = [
+    `Review PDF (${score}/100).`,
+    input.strengths.length > 0 ? `Points forts: ${input.strengths.join(', ')}.` : '',
+    allSuggestions.length > 0 ? `Suggestions d'amelioration: ${allSuggestions.join('; ')}.` : 'Aucune suggestion particuliere.'
+  ];
 
   return {
     success: true,
-    ready,
+    ready: true, // Toujours pret — le modele decide s'il veut ameliorer
     score,
     signature: input.signature,
     engine: input.engine || 'pdfkit',
@@ -1871,87 +1762,13 @@ function buildLatexAwarePdfReview(input: {
   });
 }
 
-function validateCreatePdfReviewSignature(options: {
+function validateCreatePdfReviewSignature(_options: {
   reviewRequired: boolean;
   reviewSignature?: string;
   latestApprovedPdfReviewSignature: string | null;
   draftReview: PdfDraftReview;
 }): { ok: true } | { ok: false; response: any } {
-  const { reviewRequired, reviewSignature, latestApprovedPdfReviewSignature, draftReview } = options;
-  if (!reviewRequired) {
-    return { ok: true };
-  }
-
-  const reviewPayload = {
-    ready: draftReview.ready,
-    score: draftReview.score,
-    blockingIssues: draftReview.blockingIssues,
-    improvements: draftReview.improvements
-  };
-
-  if (!reviewSignature) {
-    return {
-      ok: false,
-      response: {
-        success: false,
-        recoverable: true,
-        reviewRequired: true,
-        signature: draftReview.signature,
-        reviewSignatureRequired: true,
-        review: reviewPayload,
-        error: "Cette demande exige une self-review visible. Reprends d'abord la signature retournee par 'review_pdf_draft' et passe-la telle quelle dans 'create_pdf.reviewSignature'."
-      }
-    };
-  }
-
-  if (reviewSignature !== draftReview.signature) {
-    return {
-      ok: false,
-      response: {
-        success: false,
-        recoverable: true,
-        reviewRequired: true,
-        signature: draftReview.signature,
-        reviewSignatureMismatch: true,
-        review: reviewPayload,
-        error: draftReview.ready
-          ? "Le brouillon a change depuis la derniere review. Relance 'review_pdf_draft' sur cette version exacte puis repasse sa signature intacte dans 'create_pdf.reviewSignature'."
-          : `Le brouillon a change et n'est pas encore pret pour l'export. Relance 'review_pdf_draft', corrige les points bloquants (${draftReview.blockingIssues.join('; ')}), puis repasse la nouvelle signature dans 'create_pdf.reviewSignature'.`
-      }
-    };
-  }
-
-  if (latestApprovedPdfReviewSignature !== reviewSignature) {
-    return {
-      ok: false,
-      response: {
-        success: false,
-        recoverable: true,
-        reviewRequired: true,
-        signature: draftReview.signature,
-        reviewSignatureMismatch: true,
-        review: reviewPayload,
-        error: "La signature fournie ne correspond pas a la derniere self-review approuvee. Refais 'review_pdf_draft' sur ce brouillon exact puis reuse la signature retournee sans la modifier."
-      }
-    };
-  }
-
-  if (latestApprovedPdfReviewSignature !== draftReview.signature) {
-    return {
-      ok: false,
-      response: {
-        success: false,
-        recoverable: true,
-        reviewRequired: true,
-        signature: draftReview.signature,
-        review: reviewPayload,
-        error: draftReview.ready
-          ? "Avant l'export PDF final, fais une passe visible avec 'review_pdf_draft' sur ce brouillon exact, puis relance 'create_pdf'."
-          : `Le brouillon n'est pas encore pret pour l'export. Passe par 'review_pdf_draft', corrige les points bloquants (${draftReview.blockingIssues.join('; ')}), puis relance 'create_pdf'.`
-      }
-    };
-  }
-
+  // LIBERATION: plus de signature obligatoire. create_pdf compile directement.
   return { ok: true };
 }
 
@@ -2779,48 +2596,13 @@ Je prefere ne pas broder sans source lue suffisamment fiable.${formatDirectSourc
 }
 
 function buildResearchCompletionPrompt(
-  originalMessage: string,
-  stats: MusicResearchProgress,
-  requestClock: RequestClock
+  _originalMessage: string,
+  _stats: MusicResearchProgress,
+  _requestClock: RequestClock
 ): string | null {
-  if (!requestNeedsDeepResearch(originalMessage)) return null;
-  if (hasSatisfiedResearchRequirements(originalMessage, stats)) return null;
-
-  const targets = getResearchTargets(originalMessage);
-  const remainingSearches = Math.max(0, targets.webSearches - stats.webSearches);
-  const remainingFetches = Math.max(0, targets.webFetches - stats.webFetches);
-  const instructions: string[] = [];
-
-  if (requestNeedsMusicCatalogResearch(originalMessage) && !stats.musicCatalogCompleted) {
-    instructions.push("Commence par 'music_catalog_lookup' pour resoudre l'artiste, les titres officiels, l'album et les feats eventuels.");
-  }
-  if (stats.webSearches === 0) {
-    instructions.push(`Si 'web_search' reste bloque, ouvre directement 2 sources pertinentes via 'web_fetch'.${formatDirectSourceHint(originalMessage)}`);
-  } else if (remainingSearches > 0) {
-    instructions.push(`Fais encore ${remainingSearches} recherche(s) 'web_search' avec des angles differents.`);
-  }
-  if (remainingFetches > 0) {
-    instructions.push(`Lis encore ${remainingFetches} source(s) pertinente(s) via 'web_fetch'.`);
-  } else if (stats.webSearches === 0 && stats.webFetches < 2) {
-    instructions.push("Comme la recherche moteur est bloquee, ouvre encore une deuxieme source pertinente via 'web_fetch'.");
-  }
-  if (requestNeedsStrictFactualSearch(originalMessage) && stats.webFetches < 1) {
-    instructions.push("Pour cette demande factuelle sensible, au moins une source lue via 'web_fetch' est obligatoire avant toute conclusion.");
-  }
-  if (requestNeedsGroundedWriting(originalMessage)) {
-    instructions.push("Ne livre pas encore les paroles ou le texte final: termine d'abord la recherche visible puis seulement ensuite redige.");
-  }
-  instructions.push("Une recherche degradee, hors sujet ou transitoirement indisponible ne compte pas comme preuve.");
-  instructions.push(`Repeter une requete quasi identique n'est pas un progres: pivote vraiment d'angle, ouvre une source directe, ou admets que la recherche reste insuffisante.${formatDirectSourceHint(originalMessage)}`);
-
-  return `La recherche visible est encore insuffisante pour repondre proprement.
-Demande originale: "${originalMessage}"
-Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
-Minimum attendu pour cette demande: ${targets.webSearches} recherche(s) visibles et ${targets.webFetches} lecture(s) de source.
-Etat actuel: ${stats.webSearches} recherche(s) validee(s), ${stats.webFetches} lecture(s) fiable(s), ${stats.degradedSearches} recherche(s) degradee(s), ${stats.blockedQueryFamilies} famille(s) bloquee(s).
-${stats.musicCatalogCoverage ? `Couverture musique actuelle: ${stats.musicCatalogCoverage.distinctDomains} domaine(s), page catalogue=${stats.musicCatalogCoverage.hasCatalogPage ? 'oui' : 'non'}, tracklist album=${stats.musicCatalogCoverage.hasAlbumTracklist ? 'oui' : 'non'}.` : ''}
-Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
-Redige la synthese finale seulement apres avoir fini ces verifications.`;
+  // LIBERATION: plus de message user forcant la recherche.
+  // Le modele decide seul s'il a assez de donnees pour repondre.
+  return null;
 }
 
 function requestNeedsBroadNewsRoundup(message: string): boolean {
@@ -3252,84 +3034,20 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
     blockers: [],
   };
 
-  const blockers: CoworkBlocker[] = [];
-  const targets = getResearchTargets(originalMessage);
-  const fallbackUrls = getDirectSourceFallbacks(originalMessage);
-  const explicitSearchCount = extractRequestedSearchCount(originalMessage);
-  const hasValidatedSource =
-    nextState.sourcesValidated.length > 0
-    || Boolean(
-      research.musicCatalogCompleted
-      && research.musicCatalogCoverage
-      && research.musicCatalogCoverage.distinctDomains >= 2
-      && research.musicCatalogCoverage.hasCatalogPage
-      && research.musicCatalogCoverage.hasAlbumTracklist
-    );
-  const validatedSourceCount = Math.max(nextState.sourcesValidated.length, hasValidatedSource ? 1 : 0);
-  const enoughResearchViaSearches =
-    research.webSearches >= targets.webSearches && research.webFetches >= targets.webFetches;
-  const enoughResearchViaDirectSources =
-    !explicitSearchCount && research.webSearches === 0 && research.webFetches >= Math.max(2, targets.webFetches);
+  // LIBERATION: plus de hard blockers. Le modele decide seul quand il a fini.
+  // On garde un score indicatif pour la telemetrie uniquement.
+  const telemetryScore = Math.min(100, Math.max(0,
+    (research.webSearches > 0 ? 20 : 0)
+    + (research.webFetches > 0 ? 20 : 0)
+    + (nextState.sourcesValidated.length > 0 ? 15 : 0)
+    + (latestCreatedArtifactPath ? 15 : 0)
+    + (latestReleasedFile?.url ? 15 : 0)
+    + (nextState.modelTaskComplete ? 15 : 0)
+  ));
 
-  const isRefinement = options.executionMode === 'artifact_refinement';
-
-  if (!isRefinement && requestNeedsDeepResearch(originalMessage) && !(enoughResearchViaSearches || enoughResearchViaDirectSources)) {
-    blockers.push({
-      code: 'research_incomplete',
-      message: `La recherche reste insuffisante: ${research.webSearches}/${targets.webSearches} recherche(s) validee(s), ${research.webFetches}/${targets.webFetches} source(s) validante(s).`,
-      hard: false,
-      fallbackUrls,
-    });
-  }
-
-  if (!isRefinement && requestNeedsStrictFactualSearch(originalMessage) && !hasValidatedSource) {
-    blockers.push({
-      code: 'strict_source_missing',
-      message: "Au moins une preuve solide lue via 'web_fetch' avec qualite 'full', ou une couverture specialisee equivalente, est obligatoire avant de conclure.",
-      hard: true,
-      fallbackUrls,
-    });
-  }
-
-  if (requestNeedsPdfArtifact(originalMessage)) {
-    if (requestNeedsPdfSelfReview(originalMessage) && !latestApprovedPdfReviewSignature) {
-      blockers.push({
-        code: 'pdf_review_required',
-        message: "Le brouillon PDF n'a pas encore ete valide par 'review_pdf_draft'.",
-        hard: true,
-      });
-    }
-    if (!latestCreatedArtifactPath) {
-      blockers.push({
-        code: 'artifact_not_created',
-        message: "Le fichier demande n'a pas encore ete cree.",
-        hard: true,
-      });
-    }
-    if (!latestReleasedFile?.url) {
-      blockers.push({
-        code: 'artifact_not_released',
-        message: "Le fichier existe peut-etre, mais il n'a pas encore ete publie via 'release_file'.",
-        hard: true,
-      });
-    }
-  }
-
-  const baseScore = requestNeedsDeepResearch(originalMessage)
-    ? (
-        Math.min(1, research.webSearches / Math.max(1, targets.webSearches)) * 30
-        + Math.min(1, research.webFetches / Math.max(1, targets.webFetches)) * 30
-        + Math.min(1, validatedSourceCount / Math.max(1, requestNeedsStrictFactualSearch(originalMessage) ? 1 : 2)) * 15
-      )
-    : 55;
-  const artifactScore = requestNeedsPdfArtifact(originalMessage)
-    ? (latestApprovedPdfReviewSignature ? 10 : 0) + (latestCreatedArtifactPath ? 7 : 0) + (latestReleasedFile?.url ? 8 : 0)
-    : 15;
-  const blockerPenalty = blockers.reduce((sum, blocker) => sum + (blocker.hard ? 10 : 5), 0);
-  const hardBlockers = getHardCoworkBlockers(blockers);
-  nextState.completionScore = clampPercentage(Math.max(0, baseScore + artifactScore - blockerPenalty));
-  nextState.blockers = blockers;
-  nextState.effectiveTaskComplete = nextState.modelTaskComplete && hardBlockers.length === 0;
+  nextState.completionScore = telemetryScore;
+  nextState.blockers = []; // Plus aucun blocker
+  nextState.effectiveTaskComplete = nextState.modelTaskComplete; // Le modele decide, point final
   nextState.pendingFinalAnswer = nextState.effectiveTaskComplete;
   nextState.phase = nextState.effectiveTaskComplete ? 'completed' : nextState.phase;
 
@@ -3337,39 +3055,13 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
 }
 
 function buildBlockerPrompt(
-  originalMessage: string,
-  requestClock: RequestClock,
-  state: CoworkSessionState
+  _originalMessage: string,
+  _requestClock: RequestClock,
+  _state: CoworkSessionState
 ): string | null {
-  const hardBlockers = getHardCoworkBlockers(state.blockers);
-
-  if (hardBlockers.length === 0) {
-    if (state.pendingFinalAnswer) {
-      return `La tache est maintenant consideree comme complete par le backend.
-Demande originale: "${originalMessage}"
-Tu as assez d'informations. Reponds maintenant proprement a l'utilisateur, sans appeler d'outil supplementaire.`;
-    }
-    return null;
-  }
-
-  const blockerLines = hardBlockers.map((blocker, index) => {
-    const fallback = blocker.fallbackUrls?.length
-      ? ` Sources directes a privilegier: ${blocker.fallbackUrls.slice(0, 3).join(' | ')}.`
-      : '';
-    const wait = blocker.waitMs ? ` Attends encore ${formatWaitDuration(blocker.waitMs)} sur ce scope avant de retenter.` : '';
-    return `${index + 1}. ${blocker.message}${fallback}${wait}`;
-  }).join('\n');
-
-  return `La tache n'est pas encore complete.
-Demande originale: "${originalMessage}"
-Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
-Etat backend: phase=${state.phase}, completion=${state.completionScore}%, modele=${state.modelCompletionScore}%, source(s) validee(s)=${state.sourcesValidated.length}.
-Bloquants a lever:
-${blockerLines}
-
-Consigne obligatoire:
-- Si tu dois agir ensuite, choisis UN SEUL outil actionnable.
-- Si la recherche moteur est bloquee, pivote vers 'web_fetch' sur une source directe au lieu de reformuler la meme requete.`;
+  // LIBERATION: plus d'injection de messages user avec des ordres.
+  // Le modele decide seul de sa strategie. Aucun blocker n'est injecte.
+  return null;
 }
 
 function buildCoworkBlockedUserReplyPrompt(options: {
@@ -3383,7 +3075,7 @@ function buildCoworkBlockedUserReplyPrompt(options: {
     Object.values(options.state.pendingDirectPivots).flatMap(pivot => pivot.attemptedHosts),
     6
   );
-  const hardBlocker = getHardCoworkBlockers(options.state.blockers)[0]?.message || "je n'ai pas pu valider suffisamment de sources fiables";
+  const hardBlocker = options.stopReason || "je n'ai pas pu produire une reponse satisfaisante";
   const triedSourcesSummary = attemptedHosts.length > 0
     ? attemptedHosts.join(', ')
     : 'aucune source directe n a pu etre validee';
@@ -7779,12 +7471,11 @@ app.post('/api/cowork', async (req, res) => {
       }] : [])
     ];
 
-    const refinementHiddenTools = new Set(['web_search', 'web_fetch', 'music_catalog_lookup']);
+    // LIBERATION: tous les outils sont toujours disponibles. Le modele choisit.
     const visibleLocalTools = localTools.filter(tool =>
       !tool.name.endsWith('_legacy_unused')
-      && !(executionMode === 'artifact_refinement' && refinementHiddenTools.has(tool.name))
     );
-    const tools = executionMode === 'creative_single_turn' ? undefined : visibleLocalTools.length > 0 ? [{
+    const tools = visibleLocalTools.length > 0 ? [{
       functionDeclarations: visibleLocalTools.map(t => ({
         name: t.name,
         description: t.description,
@@ -7799,12 +7490,7 @@ app.post('/api/cowork', async (req, res) => {
       maxOutputTokens: config.maxOutputTokens || 65536,
       thinkingLevel: config.thinkingLevel || 'high', // ENABLE THINKING
       maxThoughtTokens: config.maxThoughtTokens || 4096,
-      systemInstruction: executionMode === 'creative_single_turn'
-        ? buildCreativeSingleTurnSystemInstruction(config.systemInstruction, {
-            originalMessage: message,
-            requestClock
-          })
-        : buildCoworkSystemInstruction(config.systemInstruction, {
+      systemInstruction: buildCoworkSystemInstruction(config.systemInstruction, {
             webSearch: webSearchEnabled,
             executeScript: executeScriptEnabled
           }, {
@@ -7836,61 +7522,9 @@ app.post('/api/cowork', async (req, res) => {
     runMeta.publicPhase = getCoworkPublicPhase('analysis', executionMode);
     let sessionState = createEmptyCoworkSessionState();
 
-    if (executionMode === 'creative_single_turn') {
-      runMeta.phase = 'composition';
-      runMeta.publicPhase = 'composition';
-      emitEvent('status', {
-        iteration: 0,
-        title: 'Composition',
-        message: 'Plan interne, redaction et relecture en cours.',
-        runState: 'running',
-        runMeta
-      });
-
-      const response = await retryWithBackoff(() => ai.models.generateContent({
-        model: modelId,
-        contents,
-        config: genConfig
-      }), {
-        maxRetries: 3,
-        exactDelaysMs: [2000, 4000, 8000],
-        jitter: false,
-        onRetry: async ({ delayMs, kind, message: retryMessage }) => {
-          runMeta.retryCount += 1;
-          emitEvent('warning', {
-            iteration: 1,
-            title: 'Attente modele',
-            message:
-              kind === 'concurrency'
-                ? `Saturation simultanee detectee. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
-                : kind === 'server'
-                  ? `Le modele est temporairement indisponible. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
-                  : `Quota ou limite temporaire detecte. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`,
-            runMeta
-          });
-        }
-      });
-
-      accumulateUsageTotals(runMeta, modelId, response);
-      const singleTurnText = String(response.text || '').trim() || "Je n'ai pas pu finaliser ce texte proprement dans ce tour.";
-      runMeta.phase = 'completed';
-      runMeta.publicPhase = getCoworkPublicPhase('completed', executionMode);
-      runMeta.completionScore = 100;
-      runMeta.modelCompletionScore = 100;
-      runMeta.taskComplete = true;
-      emitEvent('text_delta', {
-        iteration: 1,
-        text: singleTurnText,
-        runMeta
-      });
-      emitEvent('done', {
-        iteration: 1,
-        runState: 'completed',
-        runMeta
-      });
-      res.end();
-      return;
-    }
+    // LIBERATION: plus de branchement creative_single_turn.
+    // Toutes les requetes passent par la boucle universelle avec tous les outils.
+    // Le modele decidera seul s'il veut utiliser des outils ou repondre directement.
 
     const toolFailureScopes = new Map<string, number>();
     const MAX_TOOL_FAILURES = 2;
@@ -8884,8 +8518,7 @@ app.post('/api/cowork', async (req, res) => {
         if (toolResults.length > 0) {
           contents.push({ role: 'user', parts: toolResults });
           refreshSessionState();
-          const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
-          if (handleNoProgress(functionCalls.map(call => call.name).join('+') || 'tool_turn', blockerPrompt)) {
+          if (handleNoProgress(functionCalls.map(call => call.name).join('+') || 'tool_turn')) {
             break;
           }
           continue;
@@ -8895,38 +8528,20 @@ app.post('/api/cowork', async (req, res) => {
       refreshSessionState();
 
       if (!iterationVisibleText.trim()) {
-        const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
-        if (handleNoProgress('empty_turn', blockerPrompt)) {
+        // LIBERATION: on garde uniquement la detection de stagnation (handleNoProgress).
+        // Plus d'injection de blocker prompt comme message user.
+        if (handleNoProgress('empty_turn')) {
           break;
-        }
-        if (blockerPrompt) {
-          contents.push({ role: 'user', parts: [{ text: blockerPrompt }] });
-          continue;
         }
       }
 
       if (iterationVisibleText.trim()) {
+        // LIBERATION: quand le modele produit du texte visible, on l'accepte comme reponse finale.
+        // Plus de "Finalisation refusee", plus de blockers qui rejettent la reponse.
         if (markVisibleDeliveryAttempt(sessionState, executionMode, iterationVisibleText)) {
           refreshSessionState();
         }
-        if (!sessionState.effectiveTaskComplete) {
-          const blockerPrompt = buildBlockerPrompt(message, requestClock, sessionState);
-          if (handleNoProgress('blocked_visible_text', blockerPrompt)) {
-            break;
-          }
-          emitEvent('warning', {
-            iteration: iterations,
-            title: 'Finalisation refusee',
-            message: getHardCoworkBlockers(sessionState.blockers)[0]?.message || "La tache n'est pas encore complete.",
-            runMeta
-          });
-          contents.push({
-            role: 'user',
-            parts: [{ text: blockerPrompt || "La tache n'est pas encore complete. Reprends avec une action utile ou une reponse finale seulement si tous les blocages sont leves." }]
-          });
-          continue;
-        }
-
+        sessionState.effectiveTaskComplete = true;
         finalVisibleText += iterationVisibleText;
         sessionState.pendingFinalAnswer = false;
         sessionState.phase = 'completed';
@@ -8964,18 +8579,8 @@ app.post('/api/cowork', async (req, res) => {
       }
     }
 
-    if (
-      !finalVisibleText.trim()
-      && !latestReleasedFile?.url
-      && !blockedFinalReplyContext
-      && getHardCoworkBlockers(sessionState.blockers).length > 0
-    ) {
-      blockedFinalReplyContext = {
-        stopReason: getHardCoworkBlockers(sessionState.blockers).map((blocker) => blocker.message).join(' ')
-      };
-      finalRunState = 'failed';
-    }
-
+    // LIBERATION: plus de blocage de la reponse finale par des hard blockers.
+    // On garde uniquement le fallback pour les cas ou le modele n'a rien dit du tout.
     if (!finalVisibleText.trim() && blockedFinalReplyContext && !latestReleasedFile?.url) {
       await emitBlockedFinalModelReply(blockedFinalReplyContext.stopReason);
     }
@@ -8983,10 +8588,6 @@ app.post('/api/cowork', async (req, res) => {
     if (finalVisibleText.trim() && !finalTextEmitted) {
       emitEvent('text_delta', { iteration: iterations, text: finalVisibleText, runMeta });
       finalTextEmitted = true;
-    }
-
-    if (!sessionState.effectiveTaskComplete && !latestReleasedFile?.url) {
-      finalRunState = 'failed';
     }
 
     emitEvent('done', {

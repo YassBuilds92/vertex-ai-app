@@ -64,6 +64,7 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - `release_file` : Uploade un fichier vers Google Cloud Storage et renvoie une URL signee de 7 jours.
 
 ## Etat d'Avancement
+- [x] Decoupage serveur phase 2 : les middlewares transverses vivent maintenant dans `api/middleware/*` (`request-hardening`, `auth`, `api-errors`) et les routes standard (`/api/status`, `/api/refine`, `/api/generate-image`, `/api/generate-video`, `/api/metadata`, `/api/upload`, `/api/chat`) dans `api/routes/standard.ts`. `api/index.ts` reste le point d'entree Express et concentre davantage Cowork + l'orchestration globale.
 - [x] Cowork V3 public unifie : le mode public est maintenant `autonomous` partout. Les anciens modes produits (`creative_single_turn`, `research_loop`, `artifact_loop`) ne pilotent plus la boucle normale.
 - [x] Prompt systeme V3 : `buildCoworkSystemInstruction()` a ete compactee en prompt universel modele-led, sans quotas de recherche ni workflow impose, avec 4 micro-exemples et les seules regles dures runtime (`Node`, `/tmp/`, `create_pdf`, `release_file`, honnetete).
 - [x] Recherche non prescriptive : `web_search` remonte toujours `quality`, mais `degraded` n'est plus un echec logique de la boucle. Les fallbacks directs generiques (`general -> franceinfo/reuters/bbc`) ont ete sortis du chemin normal, et la categorie `music` propose maintenant `Genius` / `Apple Music` / `YouTube` / `TrackMusik`.
@@ -185,14 +186,16 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Validation locale reussie: `npm run lint`, `npx tsx test-cowork-loop.ts`, `npx tsx test-pdf-heuristics.ts`.
 
 ## Prochaines Etapes V3
-1. Rejouer en production le cas meta exact (`t'en penses quoi ?` + logs citant `VEN1` / `create_pdf` / `PDF`) pour verifier que Cowork repond en analyse simple, sans pipeline parasite.
-2. Valider visuellement la nouvelle carte Cowork sur un vrai run navigateur des que le transport Playwright remarche, pour confirmer l'absence de `% complet` / `blocages` et la presence des nouveaux chips descriptifs.
-3. Revalider en production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que la liberte de l'agent reste compatible avec la stabilite produit.
-4. Rejouer en production les cas factuels sensibles (`Tariq Ramadan il va aller en prison ?`, `actu du jour stp`, `Iran : actualite brulante`) pour verifier qu'un agent plus libre reste honnete, source, et capable de pivoter sans broder.
-5. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste un outil librement utilisable par le modele, sans retomber dans des pivots imposes.
-6. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) sans masquer la logique agentique reelle.
-7. Verifier que `TAVILY_API_KEY` est bien configure sur Vercel, puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
-8. Configurer en production `LATEX_RENDER_PROVIDER` / `LATEX_RENDER_BASE_URL` / `LATEX_RENDER_TIMEOUT_MS`, puis rejouer les cas premium (`actu magazine`, `rapport thematique`, `pdf beau`) pour valider le chemin LaTeX externe sur Vercel.
+1. Extraire la route `/api/cowork` dans un module dedie (`api/routes/cowork.ts` ou equivalent) sans casser la boucle modele-led ni dupliquer les helpers deja deplaces dans `api/lib/*`.
+2. Sortir progressivement les helpers Cowork en sous-modules coherents (prompting, recherche web, PDF, state machine, tool formatting) pour remplacer le god-file restant.
+3. Rejouer en production le cas meta exact (`t'en penses quoi ?` + logs citant `VEN1` / `create_pdf` / `PDF`) pour verifier que Cowork repond en analyse simple, sans pipeline parasite.
+4. Valider visuellement la nouvelle carte Cowork sur un vrai run navigateur des que le transport Playwright remarche, pour confirmer l'absence de `% complet` / `blocages` et la presence des nouveaux chips descriptifs.
+5. Revalider en production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que la liberte de l'agent reste compatible avec la stabilite produit.
+6. Rejouer en production les cas factuels sensibles (`Tariq Ramadan il va aller en prison ?`, `actu du jour stp`, `Iran : actualite brulante`) pour verifier qu'un agent plus libre reste honnete, source, et capable de pivoter sans broder.
+7. Rejouer en production le cas VEN1 et d'autres artistes ambigus pour verifier que `music_catalog_lookup` reste un outil librement utilisable par le modele, sans retomber dans des pivots imposes.
+8. Ajouter si besoin une vraie carte d'artefact Cowork (boutons `Ouvrir` / `Telecharger` / `Copier le lien`) sans masquer la logique agentique reelle.
+9. Verifier que `TAVILY_API_KEY` est bien configure sur Vercel, puis revalider les demandes strictes (actualite, justice, docs/version) avec Tavily en provider prioritaire et les fallbacks publics seulement en secours.
+10. Configurer en production `LATEX_RENDER_PROVIDER` / `LATEX_RENDER_BASE_URL` / `LATEX_RENDER_TIMEOUT_MS`, puis rejouer les cas premium (`actu magazine`, `rapport thematique`, `pdf beau`) pour valider le chemin LaTeX externe sur Vercel.
 
 ## Prochaines Etapes
 1. Observer le comportement du modele en mode libre et ajuster le system prompt si necessaire.

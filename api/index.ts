@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { createHash, randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -37,23 +37,27 @@ import {
   PORT,
   USD_TO_EUR_RATE,
 } from './lib/config.js';
-import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './lib/google-genai.js';
+import { createGoogleAI, parseApiError, retryWithBackoff } from './lib/google-genai.js';
 import { log } from './lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from './lib/path-utils.js';
-import { ChatRefineSchema, ChatSchema, ImageGenRequestSchema, UploadSchema, VideoGenSchema } from './lib/schemas.js';
-import { getServiceAccountEmail, uploadToGCS } from './lib/storage.js';
+import { ChatSchema } from './lib/schemas.js';
+import { uploadToGCS } from './lib/storage.js';
+import { registerApiErrorHandlers } from './middleware/api-errors.js';
+import { registerSiteAuth } from './middleware/auth.js';
+import { registerRequestHardening } from './middleware/request-hardening.js';
+import { registerStandardApiRoutes } from './routes/standard.js';
 
-// â”€â”€â”€ Constants & Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Constants & Setup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const app = express();
 export default app; // For Vercel
 
-// â”€â”€â”€ Rate Limiting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Rate Limiting Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Trop de requÃªtes, veuillez rÃ©essayer plus tard." }
+  message: { error: "Trop de requÃƒÂªtes, veuillez rÃƒÂ©essayer plus tard." }
 });
 
 app.use('/api/', apiLimiter);
@@ -556,7 +560,7 @@ ${requestClock
 - Demande creative pure: pas d'outil, tu reflechis en interne puis tu livres directement un bon texte.
 - Demande creative ancree dans le reel: tu te documentes d'abord, tu lis assez de matiere, puis tu ecris ou tu bloques honnetement.
 - Demande latest/docs/version: tu cherches, tu lis la doc ou la source officielle utile, puis tu resumes sans sur-vendre une recherche faible.
-- Demande PDF/artefact: tu prepares le contenu utile, tu crÃ©es l'artefact, tu le publies, puis tu livres le lien.
+- Demande PDF/artefact: tu prepares le contenu utile, tu crÃƒÂ©es l'artefact, tu le publies, puis tu livres le lien.
 ${requestSpecificDirectives.length > 0 ? `\n### SIGNALS POUR CETTE DEMANDE\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
@@ -796,7 +800,7 @@ function requestIsPureCreativeComposition(message: string): boolean {
 function requestIsArtifactRefinement(message: string): boolean {
   if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
-  return /\b(esthetique|esthÃ©tique|plus beau|plus belle|plus joli|plus jolie|design|mise en page|mise en forme|style|stylise|styliser|relooker|relook|ameliore le rendu|ameliorer le rendu|meilleur rendu|beau rendu|beaux rendus|beaute|visuel|visuellement|page par|une page par|chaque page|chaque actu|theme par|couleur|couleurs|colorÃ©|magazine|professionnel|premium|luxe|sublime|sophistique|reformat|reformater|reformate|refais le pdf|refaire le pdf|change le look|changer le look|plus pro|plus classe|plus clean|mieux presente|mieux presentÃ©)\b/.test(normalized);
+  return /\b(esthetique|esthÃƒÂ©tique|plus beau|plus belle|plus joli|plus jolie|design|mise en page|mise en forme|style|stylise|styliser|relooker|relook|ameliore le rendu|ameliorer le rendu|meilleur rendu|beau rendu|beaux rendus|beaute|visuel|visuellement|page par|une page par|chaque page|chaque actu|theme par|couleur|couleurs|colorÃƒÂ©|magazine|professionnel|premium|luxe|sublime|sophistique|reformat|reformater|reformate|refais le pdf|refaire le pdf|change le look|changer le look|plus pro|plus classe|plus clean|mieux presente|mieux presentÃƒÂ©)\b/.test(normalized);
 }
 
 function historyContainsRecentPdfDelivery(history: Array<{ role: string; parts: Array<{ text?: string }> }>): { found: boolean; lastModelText: string | null } {
@@ -804,7 +808,7 @@ function historyContainsRecentPdfDelivery(history: Array<{ role: string; parts: 
     const msg = history[i];
     if (msg.role !== 'model') continue;
     const text = msg.parts?.map(p => p.text || '').join('') || '';
-    if (/storage\.googleapis\.com.*\.pdf|\.pdf.*[Tt]elecharger|[Tt]Ã©lÃ©charger.*\.pdf|release_file|Rapport.*Actualit/i.test(text)) {
+    if (/storage\.googleapis\.com.*\.pdf|\.pdf.*[Tt]elecharger|[Tt]ÃƒÂ©lÃƒÂ©charger.*\.pdf|release_file|Rapport.*Actualit/i.test(text)) {
       return { found: true, lastModelText: text };
     }
     if (i < history.length - 4) break;
@@ -1020,7 +1024,7 @@ function requestNeedsPremiumLatexPdf(message: string, pdfQualityTargets: PdfQual
     if (pdfQualityTargets && pdfQualityTargets.minWords >= 900) return true;
     if (requestNeedsLongFormPdf(message) || requestNeedsExternalGrounding(message)) return true;
   }
-  return /\b(pdf|rapport|magazine|news|journal|mise en page|beau|belle|premium|editorial|sublime|soigne|creatif|crÃ©atif|theme|th[eÃ¨]me|latex)\b/.test(normalized);
+  return /\b(pdf|rapport|magazine|news|journal|mise en page|beau|belle|premium|editorial|sublime|soigne|creatif|crÃƒÂ©atif|theme|th[eÃƒÂ¨]me|latex)\b/.test(normalized);
 }
 
 function resolvePdfEngine(
@@ -1487,7 +1491,7 @@ function finalizePdfDraftReview(input: {
 
   return {
     success: true,
-    ready: true, // Toujours pret â€” le modele decide s'il veut ameliorer
+    ready: true, // Toujours pret Ã¢â‚¬â€ le modele decide s'il veut ameliorer
     score,
     signature: input.signature,
     engine: input.engine || 'pdfkit',
@@ -1600,7 +1604,7 @@ function normalizeHexColor(value: string | undefined, fallback = '#0f766e'): str
   return fallback;
 }
 
-const MONTH_NAME_PATTERN = '(?:janvier|fevrier|fÃ©vrier|mars|avril|mai|juin|juillet|aout|aoÃ»t|septembre|octobre|novembre|decembre|dÃ©cembre|january|february|march|april|may|june|july|august|september|october|november|december)';
+const MONTH_NAME_PATTERN = '(?:janvier|fevrier|fÃƒÂ©vrier|mars|avril|mai|juin|juillet|aout|aoÃƒÂ»t|septembre|octobre|novembre|decembre|dÃƒÂ©cembre|january|february|march|april|may|june|july|august|september|october|november|december)';
 
 function queryContainsExplicitDate(query: string): boolean {
   return new RegExp(`\\b\\d{1,2}\\s+${MONTH_NAME_PATTERN}\\s+\\d{4}\\b`, 'i').test(query)
@@ -1903,9 +1907,9 @@ async function renderPdfArtifact(options: {
           flushParagraph();
           continue;
         }
-        if (/^(?:[-*]\s+|Ã¢â‚¬Â¢\s+)/.test(line)) {
+        if (/^(?:[-*]\s+|ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢\s+)/.test(line)) {
           flushParagraph();
-          renderBullet(line.replace(/^(?:[-*]\s+|Ã¢â‚¬Â¢\s+)/, ''));
+          renderBullet(line.replace(/^(?:[-*]\s+|ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢\s+)/, ''));
           continue;
         }
         paragraphBuffer.push(line);
@@ -4031,7 +4035,7 @@ async function fetchReadableUrl(url: string, contextQuery?: string) {
   };
 }
 
-// â”€â”€â”€ Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Middleware Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 type MusicLookupOptions = {
   artistQuery: string;
   ownedTracks?: string[];
@@ -4118,11 +4122,11 @@ function cleanMusicTitleCandidate(value: string, aliases: string[] = []): string
   }
 
   cleaned = cleaned
-    .replace(/\s*[-â€“]\s*(single|ep|album)\s*$/i, '')
+    .replace(/\s*[-Ã¢â‚¬â€œ]\s*(single|ep|album)\s*$/i, '')
     .replace(/\s*\((official|clip officiel|audio officiel|visualizer)[^)]+\)\s*$/i, '')
     .replace(/\s*\[(official|clip officiel|audio officiel|visualizer)[^\]]+\]\s*$/i, '')
     .replace(/\s*\|\s*(official|clip officiel|audio officiel|visualizer).*/i, '')
-    .replace(/^[`"'â€œâ€]+|[`"'â€œâ€]+$/g, '')
+    .replace(/^[`"'Ã¢â‚¬Å“Ã¢â‚¬Â]+|[`"'Ã¢â‚¬Å“Ã¢â‚¬Â]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -4138,7 +4142,7 @@ function normalizeTrackKey(value: string, aliases: string[] = []): string {
   return normalized
     .replace(/\((feat|ft|featuring|avec)[^)]+\)/g, ' ')
     .replace(/\b(feat|ft|featuring|avec)\.?\s+[a-z0-9\s&'.,-]+$/g, ' ')
-    .replace(/\s*[-â€“]\s*(single|ep|album)\b/g, ' ')
+    .replace(/\s*[-Ã¢â‚¬â€œ]\s*(single|ep|album)\b/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -4183,7 +4187,7 @@ function pushMusicSource(sources: MusicCatalogSource[], url: string, kind?: Musi
 
 function parseAppleMusicArtistPage(page: ReadablePage, aliases: string[]) {
   const raw = page.rawContent.replace(/\r/g, '');
-  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[â€“-]\s+Apple Music/mu);
+  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[Ã¢â‚¬â€œ-]\s+Apple Music/mu);
   const resolvedArtist = cleanMusicTitleCandidate(headerMatch?.[1] || '', aliases);
 
   const topTracks = new Map<string, string>();
@@ -4257,7 +4261,7 @@ function parseAppleMusicSearchPage(page: ReadablePage, artistQuery: string) {
 
 function parseAppleMusicAlbumPage(page: ReadablePage, aliases: string[]) {
   const raw = page.rawContent.replace(/\r/g, '');
-  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[â€“-]\s+Album\b/mu);
+  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[Ã¢â‚¬â€œ-]\s+Album\b/mu);
   const albumTitle = cleanMusicTitleCandidate(headerMatch?.[1] || '', aliases);
   const tracks = new Map<string, string>();
 
@@ -4296,7 +4300,7 @@ function extractOwnedTracksFromMessage(message: string, artistQuery: string): st
   if (!message.trim()) return [];
 
   const candidates: string[] = [];
-  const quotedRegex = /["â€œâ€'`](.{2,80}?)["â€œâ€'`]/g;
+  const quotedRegex = /["Ã¢â‚¬Å“Ã¢â‚¬Â'`](.{2,80}?)["Ã¢â‚¬Å“Ã¢â‚¬Â'`]/g;
   let quotedMatch: RegExpExecArray | null;
   while ((quotedMatch = quotedRegex.exec(message))) {
     candidates.push(quotedMatch[1]);
@@ -4311,7 +4315,7 @@ function extractOwnedTracksFromMessage(message: string, artistQuery: string): st
 
   for (const piece of splitPieces) {
     let candidate = piece
-      .replace(/^.*?\b(j['â€™ ]?ai|je possede|je possede deja|je l'ai|je l ai)\b/i, '')
+      .replace(/^.*?\b(j['Ã¢â‚¬â„¢ ]?ai|je possede|je possede deja|je l'ai|je l ai)\b/i, '')
       .replace(/\b(le|les|son|sons|titre|titres|track|tracks|morceau|morceaux|chanson|chansons)\b/gi, ' ')
       .replace(/\b(dis moi|dis-moi|je les veux tous|je veux tous|tout ce qu[ei]'?l me manque|ceux qu[ei]'?l me manque)\b.*$/i, '')
       .replace(/\s+/g, ' ')
@@ -4588,288 +4592,9 @@ export async function musicCatalogLookup(options: MusicLookupOptions): Promise<M
   };
 }
 
-app.use(express.json({ limit: MAX_PAYLOAD }));
-app.use(express.urlencoded({ limit: MAX_PAYLOAD, extended: true }));
-
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
-  next();
-});
-
-// â”€â”€â”€ Authentication â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const COOKIE_NAME = 'site_access_token';
-const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const SITE_PASSWORD = process.env.SITE_PASSWORD;
-  const reqPath = req.path;
-  const isApiRequest = reqPath.startsWith('/api') || reqPath.includes('/api/');
-  const isPublicPath = isApiRequest || reqPath.includes('/login') || reqPath.includes('/status');
-
-  if (!SITE_PASSWORD || isPublicPath) return next();
-
-  const cookies = req.headers.cookie || '';
-  const match = cookies.match(new RegExp(`(^| )${COOKIE_NAME}=([^;]+)`));
-  const token = match ? match[2] : null;
-  if (token === SITE_PASSWORD) return next();
-
-  if (!isApiRequest) {
-    return res.status(401).send(`<!DOCTYPE html><html><body><form onsubmit="event.preventDefault(); fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:this.pw.value})}).then(r => r.ok ? window.location.reload() : alert('Nop'))"><input type="password" name="pw" placeholder="Code" required autoFocus><button type="submit">Entrer</button></form></body></html>`);
-  }
-  res.status(401).json({ error: 'Unauthenticated' });
-};
-app.use(authMiddleware);
-
-app.post('/api/login', (req, res) => {
-  const { password } = req.body;
-  if (password === process.env.SITE_PASSWORD) {
-    res.setHeader('Set-Cookie', `${COOKIE_NAME}=${password}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
-    return res.json({ success: true });
-  }
-  res.status(401).json({ error: 'RefusÃ©' });
-});
-
-// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-app.get('/api/status', (_req, res) => {
-  const config = getVertexConfig();
-  const latexProvider = normalizeLatexProvider(process.env.LATEX_RENDER_PROVIDER);
-  res.json({
-    isVertexConfigured: config.isConfigured,
-    isGcsConfigured: !!process.env.VERTEX_GCS_OUTPUT_URI,
-    latexRenderer: {
-      provider: latexProvider,
-      baseUrl: resolveLatexProviderBaseUrl(latexProvider, process.env.LATEX_RENDER_BASE_URL),
-      timeoutMs: Number(process.env.LATEX_RENDER_TIMEOUT_MS || 30000),
-    },
-    serviceAccount: getServiceAccountEmail(),
-    envKeys: Object.keys(process.env).filter(k => ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS_JSON', 'LATEX_RENDER_PROVIDER', 'LATEX_RENDER_BASE_URL', 'LATEX_RENDER_TIMEOUT_MS'].includes(k))
-  });
-});
-
-const REFINER_SYSTEM_PROMPT = `Optimise l'instruction systÃ¨me suivante pour un modÃ¨le IA puissant. Sois concis.`;
-const ICON_PROMPT_SYSTEM_PROMPT = `GÃ©nÃ¨re un prompt d'image pour un logo minimaliste reprÃ©sentant ce rÃ´le IA.`;
-
-app.post('/api/refine', async (req, res) => {
-  try {
-    const { prompt, type } = ChatRefineSchema.parse(req.body);
-    const modelId = "gemini-3.1-flash-lite-preview";
-    const ai = createGoogleAI(modelId);
-    const systemPrompt = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
-    
-    const result = await retryWithBackoff(() => ai.models.generateContent({
-      model: modelId,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: {
-        systemInstruction: systemPrompt,
-        temperature: 0.2,
-      }
-    }));
-    
-    res.json({ refinedInstruction: result.text || "" });
-  } catch (error) {
-    const cleanError = parseApiError(error);
-    log.error("Refine error", cleanError);
-    res.status(500).json({ error: "Refine failed", message: "Ã‰chec de l'optimisation", details: cleanError });
-  }
-});
-
-app.post('/api/generate-image', async (req, res) => {
-  try {
-    const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel } = ImageGenRequestSchema.parse(req.body);
-
-    const modelId = req.body.model || "gemini-2.5-flash-image";
-    log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { modelId, aspectRatio, numberOfImages });
-    
-    const ai = createGoogleAI(modelId);
-    
-    const config: any = {
-      ...(aspectRatio ? { aspectRatio } : {}),
-      ...(numberOfImages ? { candidateCount: numberOfImages } : {}),
-    };
-
-    // If it's a Gemini 3.x model, we can pass thinkingLevel
-    if (modelId.includes('gemini-3') || modelId.includes('nano-banana')) {
-      if (thinkingLevel) config.thinkingLevel = thinkingLevel;
-    }
-
-    // Handle specific parameters for Imagen and new Gemini Image models
-    if (modelId.includes('imagen') || modelId.includes('image-preview') || modelId.includes('gemini-2.5-flash-image')) {
-      if (personGeneration) config.personGeneration = personGeneration;
-      if (safetySetting) config.safetyFilterLevel = safetySetting;
-      if (imageSize) config.imageSize = imageSize;
-    }
-
-    const result = await retryWithBackoff(() => ai.models.generateContent({
-      model: modelId,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config
-    }));
-
-    if (!result.candidates || result.candidates.length === 0) {
-      log.error("Image generation failed - no candidates", result);
-      throw new Error("Le modÃ¨le n'a pas gÃ©nÃ©rÃ© d'image (possible blocage de sÃ©curitÃ© ou quota).");
-    }
-
-    const part = result.candidates[0].content?.parts?.find((p: any) => p.inlineData);
-    const base64 = (part as any)?.inlineData?.data;
-
-    if (!base64) {
-      log.error("No base64 data found in candidates", result.candidates[0]);
-      throw new Error("Aucune donnÃ©e d'image (base64) n'a Ã©tÃ© trouvÃ©e dans la rÃ©ponse.");
-    }
-
-    const buffer = Buffer.from(base64, 'base64');
-    const fileName = `generated-${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
-    const url = await uploadToGCS(buffer, fileName, 'image/png');
-
-    res.json({ url, base64: `data:image/png;base64,${base64}` });
-  } catch (error) {
-    const cleanError = parseApiError(error);
-    log.error("Image gen error", cleanError);
-    res.status(500).json({ 
-      error: "Image failed", 
-      message: "Ã‰chec de la gÃ©nÃ©ration d'image",
-      details: cleanError 
-    });
-  }
-});
-
-app.post('/api/generate-video', async (req, res) => {
-  try {
-    const { prompt, videoResolution, videoAspectRatio, videoDurationSeconds } = VideoGenSchema.parse(req.body);
-    res.status(501).json({ error: "Non implÃ©mentÃ©", message: "La gÃ©nÃ©ration vidÃ©o Veo nÃ©cessite une configuration GCS spÃ©cifique." });
-  } catch (error) {
-    res.status(500).json({ error: "Video failed", message: String(error) });
-  }
-});
-
-app.get('/api/metadata', async (req, res) => {
-  try {
-    const url = req.query.url as string;
-    if (!url) return res.status(400).json({ error: "URL manquante" });
-
-    // Simple fetch to get page title
-    const response = await fetch(url);
-    const html = await response.text();
-    const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-    let title = titleMatch ? titleMatch[1] : "VidÃ©o YouTube";
-    
-    // Clean up title (remove " - YouTube")
-    title = title.replace(/ - YouTube$/i, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
-
-    res.json({ title });
-  } catch (error) {
-    log.error("Metadata fetch error", error);
-    res.status(500).json({ error: "Failed to fetch metadata" });
-  }
-});
-
-app.post('/api/upload', async (req, res) => {
-  try {
-    const { base64, fileName, mimeType } = UploadSchema.parse(req.body);
-
-    const pureBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
-    const buffer = Buffer.from(pureBase64, 'base64');
-    const url = await uploadToGCS(buffer, fileName, mimeType);
-
-    res.json({ url });
-  } catch (error) {
-    log.error("Upload error", error);
-    res.status(500).json({ error: "Upload failed", message: String(error) });
-  }
-});
-
-app.post('/api/chat', async (req, res) => {
-  let headersSent = false;
-  try {
-    const { message, history, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
-
-    // Model ID mapping
-    let modelId = normalizeConfiguredModelId(config.model, 'gemini-3.1-pro-preview');
-
-    const ai = createGoogleAI(modelId);
-    const systemPromptText = refinedSystemInstruction || config.systemInstruction || "";
-
-    const contents = [...history, { role: 'user' as const, parts: [{ text: message }] }].map((m: any) => ({
-      role: m.role,
-      parts: (m.parts || []).map((p: any) => {
-        const part: any = {};
-        if (p.text) part.text = p.text;
-        if (p.inlineData) part.inlineData = p.inlineData;
-        if (p.fileData) part.fileData = p.fileData;
-        return part;
-      })
-    }));
-
-    // Build tools array for new SDK
-    const tools: any[] = [];
-    if (config.googleSearch) tools.push({ googleSearch: {} });
-    if (config.codeExecution) tools.push({ codeExecution: {} });
-
-    // Build config for new SDK
-    const genConfig: any = {
-      temperature: config.temperature,
-      topP: config.topP,
-      topK: config.topK,
-      maxOutputTokens: config.maxOutputTokens || 65536,
-    };
-    if (systemPromptText) genConfig.systemInstruction = systemPromptText;
-    if (tools.length > 0) genConfig.tools = tools;
-
-    // Set SSE headers AFTER model setup succeeds (before streaming)
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    headersSent = true;
-
-    const response = await ai.models.generateContentStream({
-      model: modelId,
-      contents,
-      config: genConfig,
-    });
-
-    for await (const chunk of response) {
-      // Check for finish reason in candidates
-      const candidates = (chunk as any).candidates;
-      if (candidates?.[0]?.finishReason && candidates[0].finishReason !== 'STOP' && candidates[0].finishReason !== 'FINISH_REASON_UNSPECIFIED') {
-        log.warn(`Stream finished with reason: ${candidates[0].finishReason}`, { model: modelId });
-        if (candidates[0].finishReason === 'MAX_TOKENS') {
-          res.write(`data: ${JSON.stringify({ error: "Limite de tokens atteinte. La rÃ©ponse est peut-Ãªtre incomplÃ¨te." })}\n\n`);
-        }
-      }
-
-      // Check for thought parts via candidates
-      if (candidates?.[0]?.content?.parts) {
-        for (const part of candidates[0].content.parts) {
-          if (part.thought) {
-            const thoughtText = (part as any).text || part.text || '';
-            if (thoughtText) {
-              res.write(`data: ${JSON.stringify({ thoughts: thoughtText })}\n\n`);
-            }
-          } else if (part.text) {
-            res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
-          }
-        }
-      } else if (chunk.text) {
-        // Fallback: use chunk.text directly
-        res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
-      }
-    }
-    res.end();
-  } catch (error) {
-    log.error("Chat error", error);
-    if (!headersSent) {
-      // Headers not sent yet -> return clean JSON error
-      res.status(500).json({ error: "Chat failed", message: String(error) });
-    } else {
-      // SSE already started -> send error as SSE event then close
-      res.write(`data: ${JSON.stringify({ error: String(error) })}\n\n`);
-      res.end();
-    }
-  }
-});
+registerRequestHardening(app);
+registerSiteAuth(app);
+registerStandardApiRoutes(app);
 
 app.post('/api/cowork', async (req, res) => {
   let headersSent = false;
@@ -5283,11 +5008,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "list_files",
-        description: "Liste les fichiers et dossiers dans un rÃ©pertoire spÃ©cifique (par dÃ©faut la racine).",
+        description: "Liste les fichiers et dossiers dans un rÃƒÂ©pertoire spÃƒÂ©cifique (par dÃƒÂ©faut la racine).",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin relatif ou absolu du dossier Ã  lister (ex: /tmp/)." }
+            path: { type: "string", description: "Chemin relatif ou absolu du dossier ÃƒÂ  lister (ex: /tmp/)." }
           }
         },
         execute: ({ path: folderPath }: { path?: string }) => {
@@ -5300,11 +5025,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "read_file",
-        description: "Lit le contenu d'un fichier texte spÃ©cifique du projet.",
+        description: "Lit le contenu d'un fichier texte spÃƒÂ©cifique du projet.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin relatif du fichier Ã  lire." }
+            path: { type: "string", description: "Chemin relatif du fichier ÃƒÂ  lire." }
           },
           required: ["path"]
         },
@@ -5313,17 +5038,17 @@ app.post('/api/cowork', async (req, res) => {
           if (!fs.existsSync(absolutePath)) throw new Error(`Le fichier ${filePath} n'existe pas.`);
           const content = fs.readFileSync(absolutePath, 'utf-8');
           // Limit content if too large
-          return { content: content.length > 20000 ? content.slice(0, 20000) + "... [tronquÃ©]" : content };
+          return { content: content.length > 20000 ? content.slice(0, 20000) + "... [tronquÃƒÂ©]" : content };
         }
       },
       {
         name: "write_file",
-        description: "CrÃ©e ou modifie un fichier avec le contenu spÃ©cifiÃ©.",
+        description: "CrÃƒÂ©e ou modifie un fichier avec le contenu spÃƒÂ©cifiÃƒÂ©.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin relatif du fichier Ã  Ã©crire." },
-            content: { type: "string", description: "Contenu Ã  Ã©crire dans le fichier." }
+            path: { type: "string", description: "Chemin relatif du fichier ÃƒÂ  ÃƒÂ©crire." },
+            content: { type: "string", description: "Contenu ÃƒÂ  ÃƒÂ©crire dans le fichier." }
           },
           required: ["path", "content"]
         },
@@ -5338,16 +5063,16 @@ app.post('/api/cowork', async (req, res) => {
           const dir = path.dirname(absolutePath);
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
           fs.writeFileSync(absolutePath, content, 'utf-8');
-          return { success: true, message: `Fichier ${filePath} Ã©crit avec succÃ¨s Ã  l'emplacement : ${absolutePath}` };
+          return { success: true, message: `Fichier ${filePath} ÃƒÂ©crit avec succÃƒÂ¨s ÃƒÂ  l'emplacement : ${absolutePath}` };
         }
       },
       {
         name: "list_recursive",
-        description: "Liste rÃ©cursivement tous les fichiers Ã  partir d'un dossier spÃ©cifique.",
+        description: "Liste rÃƒÂ©cursivement tous les fichiers ÃƒÂ  partir d'un dossier spÃƒÂ©cifique.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Dossier de dÃ©part (ex: /tmp/)." }
+            path: { type: "string", description: "Dossier de dÃƒÂ©part (ex: /tmp/)." }
           }
         },
         execute: ({ path: folderPath }: { path?: string }) => {
@@ -5537,7 +5262,7 @@ app.post('/api/cowork', async (req, res) => {
             author: { type: "string", description: "Met a jour l'auteur/signataire (optionnel)." },
             engine: { type: "string", description: "Moteur PDF: auto, pdfkit ou latex." },
             compiler: { type: "string", description: "Compilateur LaTeX a utiliser si le moteur vaut 'latex'." },
-            latexSource: { type: "string", description: "Source .tex complete remplaÃ§ant le document courant." },
+            latexSource: { type: "string", description: "Source .tex complete remplaÃƒÂ§ant le document courant." },
             theme: { type: "string", description: "Theme de mise en page: legal, news ou report." },
             accentColor: { type: "string", description: "Couleur d'accent optionnelle HEX." },
             filename: { type: "string", description: "Nom de base du futur fichier PDF (optionnel)." },
@@ -5891,11 +5616,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "release_file",
-        description: "Upload de faÃ§on sÃ©curisÃ©e un fichier vers le cloud et gÃ©nÃ¨re un lien de tÃ©lÃ©chargement public (valable 7 jours). Ã€ utiliser aprÃ¨s avoir crÃ©Ã© un fichier (ex: PDF, rapport) que l'utilisateur doit uvoir tÃ©lÃ©charger.",
+        description: "Upload de faÃƒÂ§on sÃƒÂ©curisÃƒÂ©e un fichier vers le cloud et gÃƒÂ©nÃƒÂ¨re un lien de tÃƒÂ©lÃƒÂ©chargement public (valable 7 jours). Ãƒâ‚¬ utiliser aprÃƒÂ¨s avoir crÃƒÂ©ÃƒÂ© un fichier (ex: PDF, rapport) que l'utilisateur doit uvoir tÃƒÂ©lÃƒÂ©charger.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin relatif du fichier local Ã  uploader." }
+            path: { type: "string", description: "Chemin relatif du fichier local ÃƒÂ  uploader." }
           },
           required: ["path"]
         },
@@ -5907,7 +5632,7 @@ app.post('/api/cowork', async (req, res) => {
           const mimeType = getMimeType(filePath);
           log.info(`Releasing file: ${filePath} (${mimeType})`);
           const url = await uploadToGCS(buffer, fileName, mimeType);
-          return { success: true, url, message: `Fichier ${filePath} uploadÃ© avec succÃ¨s. Voici le lien de tÃ©lÃ©chargement.` };
+          return { success: true, url, message: `Fichier ${filePath} uploadÃƒÂ© avec succÃƒÂ¨s. Voici le lien de tÃƒÂ©lÃƒÂ©chargement.` };
         }
       },
       {
@@ -6281,11 +6006,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_pdf_legacy_unused",
-        description: "CrÃ©e un fichier PDF directement. Utilise cet outil pour gÃ©nÃ©rer des PDFs au lieu d'Ã©crire un script Python. 'review_pdf_draft' peut servir de passe qualitÃ© avant export, mais n'est plus bloquant. Le fichier est crÃ©Ã© dans /tmp/.",
+        description: "CrÃƒÂ©e un fichier PDF directement. Utilise cet outil pour gÃƒÂ©nÃƒÂ©rer des PDFs au lieu d'ÃƒÂ©crire un script Python. 'review_pdf_draft' peut servir de passe qualitÃƒÂ© avant export, mais n'est plus bloquant. Le fichier est crÃƒÂ©ÃƒÂ© dans /tmp/.",
         parameters: {
           type: "object",
           properties: {
-            filename: { type: "string", description: "Nom du fichier PDF (ex: rapport.pdf). Sera crÃ©Ã© dans /tmp/." },
+            filename: { type: "string", description: "Nom du fichier PDF (ex: rapport.pdf). Sera crÃƒÂ©ÃƒÂ© dans /tmp/." },
             title: { type: "string", description: "Titre principal du document." },
             subtitle: { type: "string", description: "Sous-titre ou chapo du document (optionnel)." },
             summary: { type: "string", description: "Resume executif ou introduction mise en avant (optionnel)." },
@@ -6300,12 +6025,12 @@ app.post('/api/cowork', async (req, res) => {
             showPageNumbers: { type: "boolean", description: "Afficher les numeros de page dans le pied de page." },
             sections: {
               type: "array",
-              description: "Liste de sections du document. Chaque section a un 'heading' optionnel et un 'body' (texte ou liste Ã  puces sÃ©parÃ©es par \\n).",
+              description: "Liste de sections du document. Chaque section a un 'heading' optionnel et un 'body' (texte ou liste ÃƒÂ  puces sÃƒÂ©parÃƒÂ©es par \\n).",
               items: {
                 type: "object",
                 properties: {
                   heading: { type: "string", description: "Titre de la section (optionnel)." },
-                  body: { type: "string", description: "Contenu texte de la section. Utiliser \\n pour les sauts de ligne. PrÃ©fixer avec 'â€¢ ' pour les listes Ã  puces." }
+                  body: { type: "string", description: "Contenu texte de la section. Utiliser \\n pour les sauts de ligne. PrÃƒÂ©fixer avec 'Ã¢â‚¬Â¢ ' pour les listes ÃƒÂ  puces." }
                 }
               }
             }
@@ -6525,9 +6250,9 @@ app.post('/api/cowork', async (req, res) => {
                     flushParagraph();
                     continue;
                   }
-                  if (/^(?:[-*]\s+|â€¢\s+)/.test(line)) {
+                  if (/^(?:[-*]\s+|Ã¢â‚¬Â¢\s+)/.test(line)) {
                     flushParagraph();
-                    renderBullet(line.replace(/^(?:[-*]\s+|â€¢\s+)/, ''));
+                    renderBullet(line.replace(/^(?:[-*]\s+|Ã¢â‚¬Â¢\s+)/, ''));
                     continue;
                   }
                   paragraphBuffer.push(line);
@@ -6871,7 +6596,7 @@ app.post('/api/cowork', async (req, res) => {
                 if (section.body) {
                   const lines = section.body.split('\n');
                   for (const line of lines) {
-                    if (line.trim().startsWith('â€¢') || line.trim().startsWith('-')) {
+                    if (line.trim().startsWith('Ã¢â‚¬Â¢') || line.trim().startsWith('-')) {
                       doc.fontSize(11).font('Helvetica').text(line.trim(), { indent: 20 });
                     } else {
                       doc.fontSize(11).font('Helvetica').text(line.trim());
@@ -6882,7 +6607,7 @@ app.post('/api/cowork', async (req, res) => {
               }
 
               // Footer
-              doc.fontSize(8).font('Helvetica-Oblique').text(`GÃ©nÃ©rÃ© par Studio Pro Agent â€” ${new Date().toLocaleDateString('fr-FR')}`, { align: 'center' });
+              doc.fontSize(8).font('Helvetica-Oblique').text(`GÃƒÂ©nÃƒÂ©rÃƒÂ© par Studio Pro Agent Ã¢â‚¬â€ ${new Date().toLocaleDateString('fr-FR')}`, { align: 'center' });
 
               doc.end();
 
@@ -6893,7 +6618,7 @@ app.post('/api/cowork', async (req, res) => {
                   success: true,
                   path: outputPath,
                   ...(reviewSignatureWarning ? { reviewSignatureWarning } : {}),
-                  message: `PDF '${filename}' crÃ©Ã© avec succÃ¨s Ã  ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de tÃ©lÃ©chargement.`
+                  message: `PDF '${filename}' crÃƒÂ©ÃƒÂ© avec succÃƒÂ¨s ÃƒÂ  ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de tÃƒÂ©lÃƒÂ©chargement.`
                 });
               });
               stream.on('error', (err) => {
@@ -6907,18 +6632,18 @@ app.post('/api/cowork', async (req, res) => {
       },
       ...(executeScriptEnabled ? [{
         name: "execute_script",
-        description: "ExÃ©cute un script Node.js prÃ©alablement Ã©crit sur le disque. ATTENTION : Seul Node.js est disponible dans cet environnement. Python N'EST PAS installÃ©.",
+        description: "ExÃƒÂ©cute un script Node.js prÃƒÂ©alablement ÃƒÂ©crit sur le disque. ATTENTION : Seul Node.js est disponible dans cet environnement. Python N'EST PAS installÃƒÂ©.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin du script Ã  exÃ©cuter (ex: /tmp/script.js)." },
-            language: { type: "string", enum: ["node"], description: "Le langage du script (seul 'node' est supportÃ©)." }
+            path: { type: "string", description: "Chemin du script ÃƒÂ  exÃƒÂ©cuter (ex: /tmp/script.js)." },
+            language: { type: "string", enum: ["node"], description: "Le langage du script (seul 'node' est supportÃƒÂ©)." }
           },
           required: ["path", "language"]
         },
         execute: async ({ path: filePath, language }: { path: string, language: string }) => {
           if (language === 'python') {
-            return { success: false, error: "Python n'est PAS disponible dans cet environnement serveur. Utilise les outils natifs comme 'create_pdf' pour gÃ©nÃ©rer des PDFs, ou 'execute_script' avec language='node' pour du JavaScript." };
+            return { success: false, error: "Python n'est PAS disponible dans cet environnement serveur. Utilise les outils natifs comme 'create_pdf' pour gÃƒÂ©nÃƒÂ©rer des PDFs, ou 'execute_script' avec language='node' pour du JavaScript." };
           }
           const absolutePath = resolveAndValidatePath(filePath);
           if (!fs.existsSync(absolutePath)) throw new Error(`Le script ${filePath} n'existe pas.`);
@@ -8024,26 +7749,7 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-// 404 for API routes
-app.use('/api/*', (req, res) => {
-  log.warn(`404 Not Found: ${req.method} ${req.path}`);
-  res.status(404).json({ error: "Not Found", message: `La route ${req.path} n'existe pas.` });
-});
-
-// Global Error Handler (Must be last)
-app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  log.error(`Global error caught for ${req.method} ${req.path}`, err);
-  const status = err.status || err.statusCode || 500;
-  // Always return JSON for API routes
-  if (req.path.startsWith('/api')) {
-    return res.status(status).json({
-      error: "Internal Server Error",
-      message: err.message || String(err),
-      path: req.path
-    });
-  }
-  res.status(status).send(`Something went wrong: ${err.message || String(err)}`);
-});
+registerApiErrorHandlers(app);
 
 // Server (Local only)
 if (!process.env.VERCEL) {

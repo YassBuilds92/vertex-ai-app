@@ -6,7 +6,8 @@
       "Bash(npx tsc:*)",
       "mcp__82facdd8-c5af-49be-aec6-05404ea66284__get_deployment_build_logs",
       "mcp__82facdd8-c5af-49be-aec6-05404ea66284__get_runtime_logs",
-      "mcp__82facdd8-c5af-49be-aec6-05404ea66284__list_deployments"
+      "mcp__82facdd8-c5af-49be-aec6-05404ea66284__list_deployments",
+      "Bash(gh pr:*)"
     ]
   },
   "hooks": {

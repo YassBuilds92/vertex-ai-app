@@ -3144,16 +3144,17 @@ function buildCoworkProgressFingerprint(input: {
   blockers: CoworkBlocker[];
   pendingDirectPivots: Record<string, PendingDirectPivot>;
 }): string {
+  const artifactAlreadyReleased = Boolean(input.latestReleasedFileUrl);
   return JSON.stringify({
     executionMode: input.executionMode,
     webSearches: input.research.webSearches,
     webFetches: input.research.webFetches,
     validatedSources: input.validatedSourceCount,
     activePdfDraftId: input.activePdfDraft?.draftId || null,
-    activePdfDraftWords: input.activePdfDraft?.wordCount || 0,
-    activePdfDraftSections: input.activePdfDraft?.sections.length || 0,
-    activePdfDraftSignature: input.activePdfDraft ? buildActivePdfDraftSignature(input.activePdfDraft) : null,
-    activePdfDraftApprovedSignature: input.activePdfDraft?.approvedReviewSignature || null,
+    activePdfDraftWords: artifactAlreadyReleased ? 'frozen' : (input.activePdfDraft?.wordCount || 0),
+    activePdfDraftSections: artifactAlreadyReleased ? 'frozen' : (input.activePdfDraft?.sections.length || 0),
+    activePdfDraftSignature: artifactAlreadyReleased ? 'frozen' : (input.activePdfDraft ? buildActivePdfDraftSignature(input.activePdfDraft) : null),
+    activePdfDraftApprovedSignature: artifactAlreadyReleased ? 'frozen' : (input.activePdfDraft?.approvedReviewSignature || null),
     latestApprovedPdfReviewSignature: input.latestApprovedPdfReviewSignature,
     latestCreatedArtifactPath: input.latestCreatedArtifactPath,
     latestReleasedFileUrl: input.latestReleasedFileUrl,
@@ -8560,7 +8561,11 @@ app.post('/api/cowork', async (req, res) => {
               const fetchRelevance = tool.name === 'web_fetch'
                 ? ((output as any).relevance as FetchRelevance | undefined) || 'off_topic'
                 : null;
-              const hasValidatingFetch = tool.name === 'web_fetch' && fetchQuality === 'full' && fetchRelevance === 'relevant';
+              const isBroadNewsRequest = requestNeedsBroadNewsRoundup(message);
+              const hasValidatingFetch = tool.name === 'web_fetch' && fetchQuality === 'full' && (
+                fetchRelevance === 'relevant'
+                || (fetchRelevance === 'degraded' && isBroadNewsRequest)
+              );
               const reviewNotReady = tool.name === 'review_pdf_draft' && (output as any).ready === false;
               const warningResult =
                 recoverableIssue

@@ -127,9 +127,47 @@ const baseResearch = {
 // Music catalog : le modele peut conclure avec couverture suffisante
 {
   const state = createEmptyCoworkSessionState();
-  state.modelTaskComplete = true;
-  state.modelCompletionScore = 96;
+  state.lastReasoning = {
+    what_i_know: "Le PDF et le lien sont deja prets.",
+    what_i_need: "Rien de plus.",
+    why_this_tool: "Aucun outil supplementaire.",
+    expected_result: "Livraison finale.",
+    fallback_plan: "Faire une review seulement si la qualite est remise en cause.",
+    completion: { score: 98, taskComplete: true, phase: 'delivery' },
+  };
+  state.reasoningReady = true;
   state.phase = 'delivery';
+  state.modelCompletionScore = 98;
+  state.modelTaskComplete = true;
+
+  const result = computeCompletionState({
+    originalMessage: 'Crée-moi un PDF de test',
+    requestClock,
+    state,
+    research: baseResearch,
+    latestCreatedArtifactPath: '/tmp/test.pdf',
+    latestReleasedFile: { url: 'https://example.com/test.pdf', path: '/tmp/test.pdf' },
+    latestApprovedPdfReviewSignature: null,
+  });
+
+  assert.equal(result.effectiveTaskComplete, true);
+  assert.ok(!result.blockers.some((blocker: any) => blocker.code === 'pdf_review_required'));
+}
+
+{
+  const state = createEmptyCoworkSessionState();
+  state.lastReasoning = {
+    what_i_know: 'La couverture catalogue est suffisante.',
+    what_i_need: 'Plus rien de bloquant.',
+    why_this_tool: 'Aucun outil supplementaire.',
+    expected_result: 'La reponse finale.',
+    fallback_plan: 'Ouvrir une page artiste si un doute reapparait.',
+    completion: { score: 96, taskComplete: true, phase: 'delivery' },
+  };
+  state.reasoningReady = true;
+  state.phase = 'delivery';
+  state.modelCompletionScore = 96;
+  state.modelTaskComplete = true;
 
   const result = computeCompletionState({
     originalMessage: "Donne-moi toute la discographie de VEN1 et ce qu'il me manque",
@@ -647,14 +685,12 @@ assert.equal(
 
   // Plus de signature obligatoire : toujours ok
   const missingSignature = validateCreatePdfReviewSignature({
-    reviewRequired: true,
     latestApprovedPdfReviewSignature: 'review-ok-123',
     draftReview,
   });
   assert.equal(missingSignature.ok, true);
 
   const mismatchedSignature = validateCreatePdfReviewSignature({
-    reviewRequired: true,
     reviewSignature: 'review-old-999',
     latestApprovedPdfReviewSignature: 'review-ok-123',
     draftReview,

@@ -718,54 +718,160 @@ function buildCoworkSystemInstruction(
   runtime?: { originalMessage?: string; requestClock?: RequestClock },
   behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean }
 ): string {
+  const originalMessage = runtime?.originalMessage || '';
   const requestClock = runtime?.requestClock;
+  const executionMode = behavior?.executionMode || 'research_loop';
   const debugReasoning = Boolean(behavior?.debugReasoning);
+  const researchTargets = originalMessage ? getResearchTargets(originalMessage) : null;
+  const pdfTargets = originalMessage ? getPdfQualityTargets(originalMessage) : null;
+  const requestSpecificDirectives: string[] = [];
 
-  // LIBERATION: un seul system prompt universel. Plus de directives conditionnelles par mots-cles.
-  // Le modele a des outils, il les utilise quand il juge ca pertinent. Personne ne le force.
+  if (executionMode !== 'artifact_refinement' && originalMessage && requestNeedsDeepResearch(originalMessage) && researchTargets) {
+    requestSpecificDirectives.push(
+      `Repere de rigueur pour CETTE demande: cherche en general autour de ${researchTargets.webSearches} angle(s) web utiles et ${researchTargets.webFetches} lecture(s) de source. Ce n'est pas un workflow fige: si une preuve plus forte arrive plus tot, tu peux conclure; si c'est encore fragile, continue ou dis honnetement que c'est insuffisant.`
+    );
+  }
+  if (executionMode !== 'artifact_refinement' && originalMessage && requestNeedsGroundedWriting(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Avant toute production creative finale, suis explicitement ce schema: hypotheses -> recherches -> verification -> redaction. Ne saute jamais directement de la premiere recherche a l'ecriture finale."
+    );
+    requestSpecificDirectives.push(
+      "Si le sujet porte sur un terme court, ambigu, un mot d'argot ou une reference culturelle, ne cherche jamais le mot seul. Contextualise la requete (langue, pays, domaine, usage) puis ouvre au moins une source avec 'web_fetch' avant d'ecrire."
+    );
+    requestSpecificDirectives.push(
+      "Tant que la recherche visible n'est pas suffisante, n'ecris pas de paroles finales, meme partielles. Accumule d'abord des recherches et des sources."
+    );
+  }
+  if (originalMessage && requestNeedsStrictFactualSearch(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Pour cette demande factuelle sensible, une recherche degradee, hors sujet ou transitoirement indisponible ne compte pas comme preuve. Ne la presente jamais comme un succes net."
+    );
+    requestSpecificDirectives.push(
+      "Il est interdit de conclure sur ce sujet sans au moins une preuve solide lue via 'web_fetch' ou une couverture specialisee equivalente, sauf si tu expliques explicitement que la recherche est restee insuffisante."
+    );
+    requestSpecificDirectives.push(
+      "Repeter une requete quasi identique n'est pas un progres. Si un angle est faible, pivote vraiment: autre formulation, source directe, outil specialise, ou constat d'insuffisance."
+    );
+    requestSpecificDirectives.push(
+      "Si les resultats sont pollues par un homonyme ou un faux sens (par exemple technique/cloud au lieu de jeu video), ajuste immediatement la requete avec des mots-cles de contexte ou d'exclusion comme '-google -cloud -api' au lieu d'insister sur la meme piste."
+    );
+    requestSpecificDirectives.push(
+      "Si, apres 3 tentatives serieuses avec de vrais pivots, tu n'as toujours rien de probant, admets clairement que l'information reste introuvable ou insuffisamment sourcee au lieu d'inventer un fait, une date ou une certitude."
+    );
+  }
+  if (originalMessage && requestNeedsTopicalCreativeResearch(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Comme cette demande creative vise une personne, une affaire ou un sujet possiblement lie a l'actu, commence par cartographier le contexte recent: faits, dates, reactions, accusations/defenses et points de desaccord, avant d'ecrire."
+    );
+  }
+  if (originalMessage && requestNeedsMusicCatalogResearch(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Pour un artiste, une discographie ou des titres manquants, appelle d'abord l'outil 'music_catalog_lookup' avec le pseudo exact tel qu'ecrit par l'utilisateur, y compris chiffres et variantes de casse."
+    );
+    requestSpecificDirectives.push(
+      "Ne conclus jamais qu'un artiste est introuvable apres une seule requete generique. Si 'music_catalog_lookup' revient partiel ou incertain, relance immediatement avec l'alias exact puis avec des angles plateformes/sources (YouTube, Spotify, Deezer, Genius, Apple Music, TrackMusik, etc.), puis ouvre au moins une page artiste via 'web_fetch'."
+    );
+    requestSpecificDirectives.push(
+      "Tu n'as le droit d'affirmer 'voila tout ce qu'il te manque' que si la couverture est suffisante. Sinon, dis explicitement que la liste est partielle et separe bien: deja possedes, manquants confirmes, titres d'album, feats/freestyles optionnels, points incertains."
+    );
+  }
+  if (originalMessage && requestNeedsFormalDocument(originalMessage)) {
+    requestSpecificDirectives.push(
+      "Pour ce document formel, ne livre jamais un seul pave de texte. Structure le contenu en plusieurs blocs distincts et lisibles: identification/en-tete, corps redige, puis validation finale (date, lieu, signature, cachet ou mentions equivalentes)."
+    );
+    requestSpecificDirectives.push(
+      requestNeedsFictionalDetails(originalMessage)
+        ? "Comme le document est demande comme fictif, invente des noms, dates, entreprise, contexte et signataire credibles. N'utilise pas de placeholders entre crochets sauf si l'utilisateur demande explicitement un modele vierge."
+        : "Si des informations manquent, isole-les proprement dans une mention finale ou une courte liste de champs a completer, sans laisser tout le document sous forme de gabarit brut."
+    );
+  }
+  if (pdfTargets) {
+    requestSpecificDirectives.push(
+      pdfTargets.formalDocument
+        ? `Pour CETTE demande documentaire, vise au minimum ${pdfTargets.minSections} blocs utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'. Le rendu doit ressembler a un vrai document officiel, pas a un rapport generique.`
+        : `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
+    );
+    if (pdfTargets.cappedWordCount && pdfTargets.requestedWordCount) {
+      requestSpecificDirectives.push(
+        `L'utilisateur demande ${pdfTargets.requestedWordCount} mots, mais tu dois plafonner honnetement le PDF a environ ${pdfTargets.minWords} mots pour cette session. Dis-le clairement via 'publish_status' si utile et ne simule jamais la longueur avec des pages vides.`
+      );
+    }
+    requestSpecificDirectives.push(
+      "Pour cette demande PDF, 'review_pdf_draft' est recommandee pour la qualite, la self-critique visible et, en mode LaTeX, une compilation de controle. Elle n'est plus bloquante. Si tu decides de t'en servir et qu'elle retourne une 'signature', passe-la telle quelle dans 'create_pdf.reviewSignature'."
+    );
+    requestSpecificDirectives.push(
+      pdfTargets.formalDocument
+        ? "Quand tu appelles 'create_pdf' pour ce document formel, utilise plusieurs sections courtes et propres (en-tete, objet ou attestation, details, signatures/mentions finales) et garde un ton administratif."
+        : "Pour un PDF long, commence par 'begin_pdf_draft', ajoute le contenu section par section avec 'append_to_draft' (idealement 300 a 600 mots par ajout), relis avec 'get_pdf_draft' si besoin, puis fais une passe 'review_pdf_draft' si tu veux une vraie revue qualite avant 'create_pdf'. Si la mise en page doit etre premium ou thematique, privilegie le moteur 'latex'."
+    );
+    requestSpecificDirectives.push(
+      pdfTargets.formalDocument
+        ? "Choisis un theme 'legal' par defaut pour les documents officiels, sauf demande explicite contraire."
+        : "Quand tu appelles 'create_pdf', renseigne aussi 'theme', 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent. Theme par defaut: 'news' pour l'actu, sinon 'report'."
+    );
+    requestSpecificDirectives.push(
+      "Si tu actives le moteur 'latex', tu peux fournir un vrai 'latexSource' complet. Compilateur par defaut: 'xelatex'. Packages autorises: "
+      + ALLOWED_LATEX_PACKAGES.join(', ')
+      + ". N'utilise pas d'autres packages."
+    );
+  }
 
-  const baseInstruction = `Tu es un agent autonome. Tu disposes d'outils et tu decides seul de ta strategie.
+  const baseInstruction = `Tu es un agent autonome expert en mode Cowork.
+Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une execution visible, progressive et honnete.
 
-### PRINCIPES :
-- Tu decides SEUL quand chercher, quand creer, quand verifier, ou quand repondre directement.
-- Aucun workflow n'est impose. Tu n'es pas oblige de chercher avant de repondre, ni de faire une review avant de creer un PDF.
-- Si tu peux repondre directement sans outil, fais-le.
-- Si tu juges qu'une recherche web est utile, fais-la.
-- Si tu juges qu'un PDF est pertinent, cree-le.
-- Quand tu as fini, dis-le. Quand tu es bloque, dis-le honnetement.
-
-### OUTILS DISPONIBLES :
-Tu peux utiliser n'importe lequel de ces outils quand tu le juges utile :
-- 'publish_status' : partage publiquement ta phase et ta prochaine action (optionnel, pour la lisibilite)
-- 'list_files', 'list_recursive', 'read_file', 'write_file' : gestion de fichiers
-- 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft' : brouillon PDF incremental
-- 'review_pdf_draft' : critique optionnelle d'un brouillon PDF (suggestions, pas blocages)
-- 'create_pdf' : creation de PDF ; en mode LaTeX compile le source .tex
-- 'release_file' : publie un fichier apres creation
-${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js\n" : ""}${capabilities.webSearch ? `- 'web_search' : recherche web
-- 'web_fetch' : lecture d'une URL specifique\n` : ""}
-### CONTRAINTES TECHNIQUES :
-- Node.js uniquement. Python n'est pas disponible.
-- Un seul outil actionnable par tour (+ 'publish_status' optionnel en complement).
-- Tous les fichiers generes dans '/tmp/'.
-- Pour un PDF : utilise 'create_pdf', jamais de script Python.
-- Apres creation d'un fichier : utilise 'release_file' puis donne le lien.
-- N'utilise jamais 'write_file' pour fabriquer un faux PDF.
-- Pour le moteur 'latex', packages autorises : ${ALLOWED_LATEX_PACKAGES.join(', ')}.
-- Si un outil echoue, ne retente pas la meme chose en boucle. Change d'approche.
-
-### QUALITE :
-- Sois honnete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
-- Ta reponse finale doit etre propre. N'expose pas ton raisonnement interne.
-- Pour un PDF soigne, utilise le trio begin_pdf_draft -> append_to_draft -> create_pdf.
-- Pour un rendu premium, utilise le moteur 'latex' avec un 'latexSource' complet.
-- Le template 'news' genere une couverture stylisee et un rendu magazine.${debugReasoning ? "\n- Le mode debug autorise 'report_progress' pour tracer la strategie." : ""}
+### ENVIRONNEMENT TECHNIQUE :
+- Node.js UNIQUEMENT : cet environnement ne dispose QUE de Node.js. Python n'est PAS installe et ne sera jamais disponible.
+- Ta sortie finale doit rester propre. N'expose pas ton raisonnement interne a l'utilisateur.
+- Outils locaux toujours disponibles :
+  - 'publish_status' : partage publiquement ta phase, ton focus, ta prochaine action et ton critere de fin, sans exposer de chain-of-thought
+  - 'list_files', 'list_recursive', 'read_file', 'write_file'
+  - 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft' : construisent un brouillon PDF incremental persistant
+  - 'review_pdf_draft' : critique un brouillon PDF avant export et, en mode LaTeX, tente une vraie compilation de controle
+  - 'create_pdf' : a utiliser pour tout besoin de PDF; en mode LaTeX il compile le vrai source .tex via un provider HTTP externe
+  - 'release_file' : publie un fichier apres creation
+${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables; peut aussi renvoyer 'directSourceUrls' si tu dois pivoter vers des sources fiables
+- 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
+### COMPORTEMENT ATTENDU :
+1. Si l'utilisateur te demande de te documenter, de verifier, ou de traiter un sujet factuel sensible, alterne librement plan interne, recherche, verification et production selon ce qui est utile. Ne te fige pas dans un workflow artificiel.
+2. Tu n'as droit qu'a UN SEUL outil actionnable par tour modele. Tu peux accompagner ce tour d'un 'publish_status' si cela aide reellement la lisibilite.
+3. Utilise 'publish_status' pour exposer un vrai plan courant, un pivot important, une auto-critique de brouillon ou un critere de fin. N'en abuse pas quand cela n'apporte rien.
+4. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, un briefing ou des recommandations, effectue une recherche suffisante AVANT de conclure.${capabilities.webSearch ? "\n5. Pour ces demandes web, explore plusieurs angles differents puis lis au moins une source de qualite 'full' ET pertinente avant la synthese finale.\n   Si les resultats sont pollues par des homonymes ou un faux sens (technique/cloud vs jeu video, marque vs personne, etc.), ajoute immediatement des mots-cles de contexte ou d'exclusion ('-google -cloud -api', plateforme, studio, pays, domaine) au lieu de relancer la meme requete.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' renvoie des 'directSourceUrls', ouvre-les via 'web_fetch' au lieu de reformuler la meme requete.\n   Si 'web_search' echoue ou reste faible, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle).\n   Si, apres 3 tentatives serieuses avec de vrais pivots, rien de probant ne sort, dis clairement que l'information reste introuvable ou insuffisamment sourcee au lieu d'inventer une certitude." : ""}
+6. L'honnetete prime sur la completion: si une date, un prix, une version ou un fait recent reste introuvable apres des recherches serieuses, indique-le clairement. Ne simule jamais une certitude factuelle.
+7. Si aucun outil n'est necessaire, livre directement une reponse finale propre sans narration intermediaire.
+8. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.${debugReasoning ? "\n9. Le mode debug autorise 'report_progress' pour tracer la strategie, mais il reste facultatif." : ""}
 
 ### REPERES TEMPORELS :
 ${requestClock
   ? `- Date et heure de reference: ${requestClock.absoluteDateTimeLabel} (${requestClock.timeZone})
-- "aujourd'hui" / "du jour" / "today" = ${requestClock.dateLabel}.`
-  : "- Utilise la date courante de l'environnement si la demande parle de 'today' ou 'aujourd'hui'."}`;
+- Quand l'utilisateur dit "aujourd'hui", "du jour", "today" ou "latest", cela signifie: ${requestClock.dateLabel}.
+- N'invente jamais une date ancienne par defaut. Si une source ou une requete mentionne une autre date, compare-la explicitement a ${requestClock.dateLabel}.`
+  : "- Si la demande parle de 'today', 'aujourd'hui' ou 'latest', utilise la date courante exacte de l'environnement et dis-la explicitement."}
+
+### REGLES CRITIQUES :
+1. Pour creer un PDF : utilise TOUJOURS 'create_pdf'. N'essaie JAMAIS d'ecrire un script Python avec reportlab/fpdf.
+2. Chemins : tous les fichiers generes doivent etre crees dans '/tmp/'.
+3. Livraison : apres avoir cree un fichier, utilise TOUJOURS 'release_file' puis donne le lien Markdown final.
+4. Anti-boucle : si un outil echoue, ne retente pas la meme chose en boucle. Analyse l'erreur et change d'approche.
+5. N'utilise JAMAIS 'write_file' pour fabriquer un faux fichier '.pdf'. Pour un PDF, utilise uniquement 'create_pdf'.
+6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
+7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.
+8. 'review_pdf_draft' est recommandee pour la qualite des PDF exigeants, des documents formels et des rendus LaTeX, mais n'est plus un prerequis bloquant pour 'create_pdf'.
+9. Si 'review_pdf_draft' retourne une 'signature' et que tu choisis de l'utiliser, passe cette meme valeur dans 'create_pdf.reviewSignature'. N'invente jamais cette signature et ne la modifie pas.
+10. Reaction au blocage : si tu vois que 'stalledTurns' augmente ou qu'aucun progres concret n'apparait, ne repete pas la meme requete. Change radicalement de mots-cles, de source, d'outil, ou conclus honnetement sur les limites des infos disponibles.
+11. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.
+12. Pour un PDF long, utilise prioritairement le trio 'begin_pdf_draft' -> 'append_to_draft' -> 'get_pdf_draft' avant la self-review finale.
+13. Ne tente jamais de satisfaire une demande de 9000 mots en un seul tour ou avec du padding visuel. Respecte le cap de session et annonce-le proprement.
+14. Pour le moteur 'latex', n'utilise que ces packages: ${ALLOWED_LATEX_PACKAGES.join(', ')}. Si tu veux changer fortement la mise en page, fournis un 'latexSource' complet et coherent.
+15. Le template 'news' genere automatiquement une couverture stylisee, des blocs colores par section et un rendu magazine. Exploite tcolorbox, tikz, multicol et fontspec pour un resultat visuellement premium.${executionMode === 'artifact_refinement' ? `
+
+### MODE REFINEMENT ESTHETIQUE :
+Tu es en mode refinement: un PDF a deja ete livre dans cette conversation. L'utilisateur veut uniquement modifier l'esthetique, le style ou la mise en page, PAS le contenu.
+- NE FAIS PAS de recherche web. Le contenu existe deja dans l'historique de conversation.
+- Recupere le contenu textuel depuis l'historique de conversation (le dernier message model qui contenait le rapport).
+- Concentre-toi UNIQUEMENT sur: la mise en page, les couleurs, la typographie, la structure visuelle, les blocs, les separateurs.
+- Utilise le moteur 'latex' avec 'latexSource' complet pour un controle total du rendu.
+- Vise un rendu magazine/designer: couverture pleine page, blocs colores par section, separateurs graphiques tikz, typographie soignee avec fontspec.
+- Passe directement a 'begin_pdf_draft' -> 'append_to_draft' -> 'create_pdf' -> 'release_file'. Ajoute 'review_pdf_draft' juste avant 'create_pdf' si tu veux une passe qualite ou une compilation de controle.` : ''}${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -1762,13 +1868,72 @@ function buildLatexAwarePdfReview(input: {
   });
 }
 
-function validateCreatePdfReviewSignature(_options: {
-  reviewRequired: boolean;
+function validateCreatePdfReviewSignature(options: {
   reviewSignature?: string;
   latestApprovedPdfReviewSignature: string | null;
   draftReview: PdfDraftReview;
 }): { ok: true } | { ok: false; response: any } {
-  // LIBERATION: plus de signature obligatoire. create_pdf compile directement.
+  const { reviewSignature, latestApprovedPdfReviewSignature, draftReview } = options;
+  const normalizedReviewSignature = typeof reviewSignature === 'string' ? reviewSignature.trim() : '';
+  if (!normalizedReviewSignature) {
+    return { ok: true };
+  }
+
+  const reviewPayload = {
+    ready: draftReview.ready,
+    score: draftReview.score,
+    blockingIssues: draftReview.blockingIssues,
+    improvements: draftReview.improvements
+  };
+
+  if (normalizedReviewSignature !== draftReview.signature) {
+    return {
+      ok: false,
+      response: {
+        success: false,
+        recoverable: true,
+        reviewRecommended: true,
+        signature: draftReview.signature,
+        reviewSignatureMismatch: true,
+        review: reviewPayload,
+        error: draftReview.ready
+          ? "La signature fournie ne correspond pas a ce brouillon. Refais 'review_pdf_draft' sur cette version exacte puis reuse la nouvelle signature, ou relance 'create_pdf' sans 'reviewSignature' si tu assumes l'export sans review."
+          : `La signature fournie ne correspond pas a ce brouillon et la review courante signale encore des points bloquants (${draftReview.blockingIssues.join('; ')}). Corrige puis refais 'review_pdf_draft', ou relance 'create_pdf' sans 'reviewSignature' si tu veux exporter sans cette passe qualite.`
+      }
+    };
+  }
+
+  if (!latestApprovedPdfReviewSignature) {
+    return {
+      ok: false,
+      response: {
+        success: false,
+        recoverable: true,
+        reviewRecommended: true,
+        signature: draftReview.signature,
+        reviewSignatureMismatch: true,
+        review: reviewPayload,
+        error: draftReview.ready
+          ? "Aucune self-review approuvee n'est connue pour cette signature. Refais 'review_pdf_draft' si tu veux exporter avec une signature, ou relance 'create_pdf' sans 'reviewSignature' si tu assumes l'export sans review."
+          : `Aucune self-review approuvee n'est connue pour cette signature et la review courante n'est pas prete (${draftReview.blockingIssues.join('; ')}). Corrige puis refais 'review_pdf_draft', ou relance 'create_pdf' sans 'reviewSignature' si tu veux exporter sans review.`
+      }
+    };
+  }
+
+  if (latestApprovedPdfReviewSignature !== normalizedReviewSignature) {
+    return {
+      ok: false,
+      response: {
+        success: false,
+        recoverable: true,
+        reviewRecommended: true,
+        signature: draftReview.signature,
+        reviewSignatureMismatch: true,
+        review: reviewPayload,
+        error: "La signature fournie ne correspond pas a la derniere self-review approuvee. Refais 'review_pdf_draft' sur ce brouillon exact puis reuse la signature retournee sans la modifier, ou relance 'create_pdf' sans 'reviewSignature' si tu exportes sans review."
+      }
+    };
+  }
   return { ok: true };
 }
 
@@ -2484,15 +2649,10 @@ function buildArtifactCompletionPrompt(
   }
 
   const needsPdfArtifact = requestNeedsPdfArtifact(originalMessage);
-  const requiresPdfSelfReview = requestNeedsPdfSelfReview(originalMessage);
   const nextStep = createdArtifactPath
     ? `Le fichier semble deja etre cree ici: '${createdArtifactPath}'. Utilise maintenant 'release_file' avec ce chemin, puis reponds uniquement avec le lien Markdown final.`
     : needsPdfArtifact
-      ? (
-          requiresPdfSelfReview
-            ? "Tu n'as pas encore cree ni livre le document PDF demande. Fais d'abord 'review_pdf_draft' sur ton brouillon, corrige les points bloquants, puis utilise 'create_pdf', ensuite 'release_file', puis reponds uniquement avec le lien Markdown final."
-            : "Tu n'as pas encore cree ni livre le document PDF demande. Utilise maintenant 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
-        )
+      ? "Tu n'as pas encore cree ni livre le document PDF demande. Si tu veux une passe qualite supplementaire, tu peux utiliser 'review_pdf_draft' juste avant l'export, mais ce n'est pas bloquant. Utilise maintenant 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
       : "Tu n'as pas encore livre le fichier demande. Cree-le si necessaire, utilise 'release_file', puis reponds uniquement avec le lien Markdown final.";
 
   return `La tache n'est PAS terminee.
@@ -3034,20 +3194,84 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
     blockers: [],
   };
 
-  // LIBERATION: plus de hard blockers. Le modele decide seul quand il a fini.
-  // On garde un score indicatif pour la telemetrie uniquement.
-  const telemetryScore = Math.min(100, Math.max(0,
-    (research.webSearches > 0 ? 20 : 0)
-    + (research.webFetches > 0 ? 20 : 0)
-    + (nextState.sourcesValidated.length > 0 ? 15 : 0)
-    + (latestCreatedArtifactPath ? 15 : 0)
-    + (latestReleasedFile?.url ? 15 : 0)
-    + (nextState.modelTaskComplete ? 15 : 0)
-  ));
+  const blockers: CoworkBlocker[] = [];
+  const targets = getResearchTargets(originalMessage);
+  const fallbackUrls = getDirectSourceFallbacks(originalMessage);
+  const explicitSearchCount = extractRequestedSearchCount(originalMessage);
+  const hasValidatedSource =
+    nextState.sourcesValidated.length > 0
+    || Boolean(
+      research.musicCatalogCompleted
+      && research.musicCatalogCoverage
+      && research.musicCatalogCoverage.distinctDomains >= 2
+      && research.musicCatalogCoverage.hasCatalogPage
+      && research.musicCatalogCoverage.hasAlbumTracklist
+    );
+  const validatedSourceCount = Math.max(nextState.sourcesValidated.length, hasValidatedSource ? 1 : 0);
+  const enoughResearchViaSearches =
+    research.webSearches >= targets.webSearches && research.webFetches >= targets.webFetches;
+  const enoughResearchViaDirectSources =
+    !explicitSearchCount && research.webSearches === 0 && research.webFetches >= Math.max(2, targets.webFetches);
 
-  nextState.completionScore = telemetryScore;
-  nextState.blockers = []; // Plus aucun blocker
-  nextState.effectiveTaskComplete = nextState.modelTaskComplete; // Le modele decide, point final
+  const isRefinement = options.executionMode === 'artifact_refinement';
+
+  if (!isRefinement && requestNeedsDeepResearch(originalMessage) && !(enoughResearchViaSearches || enoughResearchViaDirectSources)) {
+    blockers.push({
+      code: 'research_incomplete',
+      message: `La recherche reste insuffisante: ${research.webSearches}/${targets.webSearches} recherche(s) validee(s), ${research.webFetches}/${targets.webFetches} source(s) validante(s).`,
+      hard: false,
+      fallbackUrls,
+    });
+  }
+
+  if (!isRefinement && requestNeedsStrictFactualSearch(originalMessage) && !hasValidatedSource) {
+    blockers.push({
+      code: 'strict_source_missing',
+      message: "Au moins une preuve solide lue via 'web_fetch' avec qualite 'full', ou une couverture specialisee equivalente, est obligatoire avant de conclure.",
+      hard: true,
+      fallbackUrls,
+    });
+  }
+
+  if (requestNeedsPdfArtifact(originalMessage)) {
+    if (requestNeedsPdfSelfReview(originalMessage) && !latestApprovedPdfReviewSignature) {
+      blockers.push({
+        code: 'pdf_review_recommended',
+        message: "Une passe 'review_pdf_draft' pourrait ameliorer la qualite du PDF, mais elle n'est plus obligatoire pour la livraison.",
+        hard: false,
+      });
+    }
+    if (!latestCreatedArtifactPath) {
+      blockers.push({
+        code: 'artifact_not_created',
+        message: "Le fichier demande n'a pas encore ete cree.",
+        hard: true,
+      });
+    }
+    if (!latestReleasedFile?.url) {
+      blockers.push({
+        code: 'artifact_not_released',
+        message: "Le fichier existe peut-etre, mais il n'a pas encore ete publie via 'release_file'.",
+        hard: true,
+      });
+    }
+  }
+
+  const baseScore = requestNeedsDeepResearch(originalMessage)
+    ? (
+        Math.min(1, research.webSearches / Math.max(1, targets.webSearches)) * 30
+        + Math.min(1, research.webFetches / Math.max(1, targets.webFetches)) * 30
+        + Math.min(1, validatedSourceCount / Math.max(1, requestNeedsStrictFactualSearch(originalMessage) ? 1 : 2)) * 15
+      )
+    : 55;
+  const artifactScore = requestNeedsPdfArtifact(originalMessage)
+    ? (latestApprovedPdfReviewSignature ? 10 : 0) + (latestCreatedArtifactPath ? 7 : 0) + (latestReleasedFile?.url ? 8 : 0)
+    : 15;
+  const blockerPenalty = blockers.reduce((sum, blocker) => sum + (blocker.hard ? 10 : 5), 0);
+  const hardBlockers = getHardCoworkBlockers(blockers);
+  nextState.completionScore = clampPercentage(Math.max(0, baseScore + artifactScore - blockerPenalty));
+  nextState.blockers = blockers;
+  nextState.effectiveTaskComplete = nextState.modelTaskComplete && hardBlockers.length === 0;
   nextState.pendingFinalAnswer = nextState.effectiveTaskComplete;
   nextState.phase = nextState.effectiveTaskComplete ? 'completed' : nextState.phase;
 
@@ -6414,7 +6638,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_pdf",
-        description: "Cree un fichier PDF directement. En mode 'latex', compile un vrai source .tex via un provider HTTP externe compatible YtoTech et peut reutiliser le PDF deja compile pendant 'review_pdf_draft'.",
+        description: "Cree un fichier PDF directement. En mode 'latex', compile un vrai source .tex via un provider HTTP externe compatible YtoTech et peut reutiliser le PDF deja compile pendant 'review_pdf_draft'. Cette review reste recommandee pour la qualite mais n'est plus bloquante; si tu fournis 'reviewSignature', elle doit correspondre a la derniere review approuvee.",
         parameters: {
           type: "object",
           properties: {
@@ -6429,7 +6653,7 @@ app.post('/api/cowork', async (req, res) => {
             theme: { type: "string", description: "Theme de mise en page: legal, news ou report." },
             accentColor: { type: "string", description: "Couleur d'accent HEX (ex: #0f766e)." },
             author: { type: "string", description: "Nom de l'auteur ou de la signature (optionnel)." },
-            reviewSignature: { type: "string", description: "Signature exacte retournee par 'review_pdf_draft' pour ce brouillon. Obligatoire quand la self-review est requise." },
+            reviewSignature: { type: "string", description: "Signature exacte retournee par 'review_pdf_draft' pour ce brouillon. Optionnelle; si tu la fournis, elle doit correspondre a la derniere self-review approuvee." },
             sources: {
               type: "array",
               description: "Liste optionnelle de sources ou liens a afficher en fin de document.",
@@ -6582,7 +6806,6 @@ app.post('/api/cowork', async (req, res) => {
                 engine: effectiveEngine,
                 compiler: effectiveCompiler
               });
-          const reviewRequired = requestNeedsPdfSelfReview(message);
           const effectiveSignature = draftReview.signature;
 
           if (!draftForValidation.title) {
@@ -6601,7 +6824,6 @@ app.post('/api/cowork', async (req, res) => {
           }
 
           const reviewSignatureGate = validateCreatePdfReviewSignature({
-            reviewRequired,
             reviewSignature,
             latestApprovedPdfReviewSignature,
             draftReview
@@ -6814,7 +7036,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_pdf_legacy_unused",
-        description: "Crée un fichier PDF directement. Utilise cet outil pour générer des PDFs au lieu d'écrire un script Python. Pour les PDF exigeants ou documents formels, passe d'abord par 'review_pdf_draft'. Le fichier est créé dans /tmp/.",
+        description: "Crée un fichier PDF directement. Utilise cet outil pour générer des PDFs au lieu d'écrire un script Python. 'review_pdf_draft' peut servir de passe qualité avant export, mais n'est plus bloquant. Le fichier est créé dans /tmp/.",
         parameters: {
           type: "object",
           properties: {
@@ -6824,7 +7046,7 @@ app.post('/api/cowork', async (req, res) => {
             summary: { type: "string", description: "Resume executif ou introduction mise en avant (optionnel)." },
             accentColor: { type: "string", description: "Couleur d'accent HEX (ex: #0f766e)." },
             author: { type: "string", description: "Nom de l'auteur ou de la signature (optionnel)." },
-            reviewSignature: { type: "string", description: "Signature exacte retournee par 'review_pdf_draft' pour ce brouillon. Obligatoire quand la self-review est requise." },
+            reviewSignature: { type: "string", description: "Signature exacte retournee par 'review_pdf_draft' pour ce brouillon. Optionnelle; si tu la fournis, elle doit correspondre a la derniere self-review approuvee." },
             sources: {
               type: "array",
               description: "Liste optionnelle de sources ou liens a afficher en fin de document.",
@@ -6883,8 +7105,6 @@ app.post('/api/cowork', async (req, res) => {
           const requireInventedDetails = Boolean(pdfQualityTargets?.requireInventedDetails || requestNeedsFictionalDetails(message));
           const combinedContent = buildPdfDraftCombinedContent(draft);
           const draftReview = reviewPdfDraft(message, draft, pdfQualityTargets);
-          const reviewRequired = requestNeedsPdfSelfReview(message);
-
           if (effectiveSections.length === 0) {
             return {
               success: false,
@@ -6894,7 +7114,6 @@ app.post('/api/cowork', async (req, res) => {
           }
 
           const reviewSignatureGate = validateCreatePdfReviewSignature({
-            reviewRequired,
             reviewSignature,
             latestApprovedPdfReviewSignature,
             draftReview

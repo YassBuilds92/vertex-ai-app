@@ -726,12 +726,12 @@ function buildCoworkSystemInstruction(
   const pdfTargets = originalMessage ? getPdfQualityTargets(originalMessage) : null;
   const requestSpecificDirectives: string[] = [];
 
-  if (originalMessage && requestNeedsDeepResearch(originalMessage) && researchTargets) {
+  if (executionMode !== 'artifact_refinement' && originalMessage && requestNeedsDeepResearch(originalMessage) && researchTargets) {
     requestSpecificDirectives.push(
       `Repere de rigueur pour CETTE demande: cherche en general autour de ${researchTargets.webSearches} angle(s) web utiles et ${researchTargets.webFetches} lecture(s) de source. Ce n'est pas un workflow fige: si une preuve plus forte arrive plus tot, tu peux conclure; si c'est encore fragile, continue ou dis honnetement que c'est insuffisant.`
     );
   }
-  if (originalMessage && requestNeedsGroundedWriting(originalMessage)) {
+  if (executionMode !== 'artifact_refinement' && originalMessage && requestNeedsGroundedWriting(originalMessage)) {
     requestSpecificDirectives.push(
       "Avant toute production creative finale, suis explicitement ce schema: hypotheses -> recherches -> verification -> redaction. Ne saute jamais directement de la premiere recherche a l'ecriture finale."
     );
@@ -853,7 +853,17 @@ ${requestClock
 10. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.
 11. Pour un PDF long, utilise prioritairement le trio 'begin_pdf_draft' -> 'append_to_draft' -> 'get_pdf_draft' avant la self-review finale.
 12. Ne tente jamais de satisfaire une demande de 9000 mots en un seul tour ou avec du padding visuel. Respecte le cap de session et annonce-le proprement.
-13. Pour le moteur 'latex', n'utilise que ces packages: ${ALLOWED_LATEX_PACKAGES.join(', ')}. Si tu veux changer fortement la mise en page, fournis un 'latexSource' complet et coherent.${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
+13. Pour le moteur 'latex', n'utilise que ces packages: ${ALLOWED_LATEX_PACKAGES.join(', ')}. Si tu veux changer fortement la mise en page, fournis un 'latexSource' complet et coherent.
+14. Le template 'news' genere automatiquement une couverture stylisee, des blocs colores par section et un rendu magazine. Exploite tcolorbox, tikz, multicol et fontspec pour un resultat visuellement premium.${executionMode === 'artifact_refinement' ? `
+
+### MODE REFINEMENT ESTHETIQUE :
+Tu es en mode refinement: un PDF a deja ete livre dans cette conversation. L'utilisateur veut uniquement modifier l'esthetique, le style ou la mise en page, PAS le contenu.
+- NE FAIS PAS de recherche web. Le contenu existe deja dans l'historique de conversation.
+- Recupere le contenu textuel depuis l'historique de conversation (le dernier message model qui contenait le rapport).
+- Concentre-toi UNIQUEMENT sur: la mise en page, les couleurs, la typographie, la structure visuelle, les blocs, les separateurs.
+- Utilise le moteur 'latex' avec 'latexSource' complet pour un controle total du rendu.
+- Vise un rendu magazine/designer: couverture pleine page, blocs colores par section, separateurs graphiques tikz, typographie soignee avec fontspec.
+- Passe directement a 'begin_pdf_draft' -> 'append_to_draft' -> 'review_pdf_draft' -> 'create_pdf' -> 'release_file'.` : ''}${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -905,6 +915,7 @@ ${trimmedInstruction}`;
 
 function getCoworkPublicPhase(phase: CoworkPhase, executionMode: CoworkExecutionMode): string {
   if (executionMode === 'creative_single_turn') return phase === 'completed' ? 'completed' : 'composition';
+  if (executionMode === 'artifact_refinement') return phase === 'completed' ? 'completed' : phase === 'delivery' ? 'livraison' : 'mise en page';
   switch (phase) {
     case 'analysis':
       return 'plan';
@@ -1057,7 +1068,29 @@ function requestIsPureCreativeComposition(message: string): boolean {
   return !/\b(fichier|document|pdf|api|sdk|documentation|docs?|version|release|package|repo|code|source|vercel|firebase|session|prompt system|system prompt|du jour|today|latest)\b/.test(normalized);
 }
 
-function classifyCoworkExecutionMode(message: string): CoworkExecutionMode {
+function requestIsArtifactRefinement(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  return /\b(esthetique|esthétique|plus beau|plus belle|plus joli|plus jolie|design|mise en page|mise en forme|style|stylise|styliser|relooker|relook|ameliore le rendu|ameliorer le rendu|meilleur rendu|beau rendu|beaux rendus|beaute|visuel|visuellement|page par|une page par|chaque page|chaque actu|theme par|couleur|couleurs|coloré|magazine|professionnel|premium|luxe|sublime|sophistique|reformat|reformater|reformate|refais le pdf|refaire le pdf|change le look|changer le look|plus pro|plus classe|plus clean|mieux presente|mieux presenté)\b/.test(normalized);
+}
+
+function historyContainsRecentPdfDelivery(history: Array<{ role: string; parts: Array<{ text?: string }> }>): { found: boolean; lastModelText: string | null } {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (msg.role !== 'model') continue;
+    const text = msg.parts?.map(p => p.text || '').join('') || '';
+    if (/storage\.googleapis\.com.*\.pdf|\.pdf.*[Tt]elecharger|[Tt]élécharger.*\.pdf|release_file|Rapport.*Actualit/i.test(text)) {
+      return { found: true, lastModelText: text };
+    }
+    if (i < history.length - 4) break;
+  }
+  return { found: false, lastModelText: null };
+}
+
+function classifyCoworkExecutionMode(message: string, history?: Array<{ role: string; parts: Array<{ text?: string }> }>): CoworkExecutionMode {
+  if (history && history.length > 0 && requestIsArtifactRefinement(message)) {
+    const { found } = historyContainsRecentPdfDelivery(history);
+    if (found) return 'artifact_refinement';
+  }
   if (requestNeedsDownloadableArtifact(message) || requestNeedsPdfArtifact(message)) {
     return 'artifact_loop';
   }
@@ -3238,7 +3271,9 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
   const enoughResearchViaDirectSources =
     !explicitSearchCount && research.webSearches === 0 && research.webFetches >= Math.max(2, targets.webFetches);
 
-  if (requestNeedsDeepResearch(originalMessage) && !(enoughResearchViaSearches || enoughResearchViaDirectSources)) {
+  const isRefinement = options.executionMode === 'artifact_refinement';
+
+  if (!isRefinement && requestNeedsDeepResearch(originalMessage) && !(enoughResearchViaSearches || enoughResearchViaDirectSources)) {
     blockers.push({
       code: 'research_incomplete',
       message: `La recherche reste insuffisante: ${research.webSearches}/${targets.webSearches} recherche(s) validee(s), ${research.webFetches}/${targets.webFetches} source(s) validante(s).`,
@@ -3247,7 +3282,7 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
     });
   }
 
-  if (requestNeedsStrictFactualSearch(originalMessage) && !hasValidatedSource) {
+  if (!isRefinement && requestNeedsStrictFactualSearch(originalMessage) && !hasValidatedSource) {
     blockers.push({
       code: 'strict_source_missing',
       message: "Au moins une preuve solide lue via 'web_fetch' avec qualite 'full', ou une couverture specialisee equivalente, est obligatoire avant de conclure.",
@@ -3495,7 +3530,7 @@ type MusicResearchProgress = {
   musicCatalogCoverage?: MusicCatalogCoverage | null;
 };
 
-type CoworkExecutionMode = 'creative_single_turn' | 'research_loop' | 'artifact_loop';
+type CoworkExecutionMode = 'creative_single_turn' | 'research_loop' | 'artifact_loop' | 'artifact_refinement';
 
 type CoworkPhase =
   | 'analysis'
@@ -3605,6 +3640,7 @@ type CompletionComputationOptions = {
   latestCreatedArtifactPath: string | null;
   latestReleasedFile: { url: string; path?: string } | null;
   latestApprovedPdfReviewSignature: string | null;
+  executionMode?: CoworkExecutionMode;
 };
 
 type DirectSourceCategory =
@@ -5664,9 +5700,9 @@ app.post('/api/cowork', async (req, res) => {
   try {
     const { message, sessionId, history, config, clientContext } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
-    const researchTargets = getResearchTargets(message);
+    const executionMode = classifyCoworkExecutionMode(message, history);
+    const researchTargets = executionMode === 'artifact_refinement' ? null : getResearchTargets(message);
     const pdfQualityTargets = getPdfQualityTargets(message);
-    const executionMode = classifyCoworkExecutionMode(message);
 
     if (requestRequiresAbuseBlock(message)) {
       const runMeta = createEmptyCoworkRunMeta();
@@ -5708,9 +5744,9 @@ app.post('/api/cowork', async (req, res) => {
 
     const ai = createGoogleAI(modelId);
 
-    const webSearchEnabled = executionMode !== 'creative_single_turn' && config.googleSearch !== false;
+    const webSearchEnabled = executionMode !== 'creative_single_turn' && executionMode !== 'artifact_refinement' && config.googleSearch !== false;
     const executeScriptEnabled = config.codeExecution !== false;
-    const strictFactualSearch = requestNeedsStrictFactualSearch(message);
+    const strictFactualSearch = executionMode !== 'artifact_refinement' && requestNeedsStrictFactualSearch(message);
     let lastSuccessfulSearchQuery: string | null = null;
 
     const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
@@ -7743,7 +7779,11 @@ app.post('/api/cowork', async (req, res) => {
       }] : [])
     ];
 
-    const visibleLocalTools = localTools.filter(tool => !tool.name.endsWith('_legacy_unused'));
+    const refinementHiddenTools = new Set(['web_search', 'web_fetch', 'music_catalog_lookup']);
+    const visibleLocalTools = localTools.filter(tool =>
+      !tool.name.endsWith('_legacy_unused')
+      && !(executionMode === 'artifact_refinement' && refinementHiddenTools.has(tool.name))
+    );
     const tools = executionMode === 'creative_single_turn' ? undefined : visibleLocalTools.length > 0 ? [{
       functionDeclarations: visibleLocalTools.map(t => ({
         name: t.name,
@@ -7886,7 +7926,8 @@ app.post('/api/cowork', async (req, res) => {
         research: successfulResearchMeta,
         latestCreatedArtifactPath,
         latestReleasedFile,
-        latestApprovedPdfReviewSignature
+        latestApprovedPdfReviewSignature,
+        executionMode
       });
       syncRunMeta();
     };
@@ -8163,8 +8204,8 @@ app.post('/api/cowork', async (req, res) => {
 
     emitEvent('status', {
       iteration: 0,
-      title: 'Initialisation',
-      message: 'Cowork prepare la tache.',
+      title: executionMode === 'artifact_refinement' ? 'Refinement' : 'Initialisation',
+      message: executionMode === 'artifact_refinement' ? 'Cowork re-stylise le PDF sans recherche web.' : 'Cowork prepare la tache.',
       runState: 'running',
       runMeta
     });

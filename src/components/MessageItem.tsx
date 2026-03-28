@@ -33,7 +33,7 @@ const ThinkingBox = ({ thoughts, live = false }: { thoughts: string; live?: bool
     <div
       ref={boxRef}
       className={cn(
-        "relative p-5 md:p-6 rounded-[2rem] border border-indigo-500/15 overflow-hidden transition-all duration-700 thought-gradient",
+        "relative min-w-0 w-full p-5 md:p-6 rounded-[2rem] border border-indigo-500/15 overflow-hidden transition-all duration-700 thought-gradient",
         "bg-[var(--app-surface)]/40 backdrop-blur-xl shadow-inner",
         live ? "animate-in fade-in duration-1000" : ""
       )}
@@ -74,7 +74,7 @@ const ThinkingBox = ({ thoughts, live = false }: { thoughts: string; live?: bool
                 {/* Node indicator */}
                 <div className="absolute left-[-2px] top-1.5 w-2 h-2 rounded-full bg-indigo-500/50 ring-4 ring-indigo-500/10 group-hover/node:scale-125 transition-transform" />
                 
-                <div className="text-[14px] text-[var(--app-text)]/85 font-sans leading-relaxed tracking-wide whitespace-pre-wrap">
+                <div className="message-copy text-[14px] text-[var(--app-text)]/85 font-sans leading-relaxed tracking-wide whitespace-pre-wrap">
                   {node}
                   {live && i === nodes.length - 1 && (
                     <motion.span 
@@ -201,7 +201,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
   if (items.length === 0 && !live && !msg.runState) return null;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
       <div className="rounded-[1.75rem] border border-indigo-500/15 bg-[var(--app-surface)]/35 backdrop-blur-xl shadow-inner overflow-hidden">
         <div className="px-4 py-3 border-b border-white/6 flex flex-wrap items-center gap-2.5">
           <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-semibold', stateMeta.className)}>
@@ -311,7 +311,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                           {item.title || item.toolName || 'Activite'}
                         </div>
                         {item.message && (
-                          <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--app-text)]/88 whitespace-pre-wrap">
+                          <p className="message-copy mt-1.5 text-[14px] leading-relaxed text-[var(--app-text)]/88 whitespace-pre-wrap">
                             {item.message}
                           </p>
                         )}
@@ -319,12 +319,12 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                     </div>
 
                     {item.argsPreview && (
-                      <div className="mt-3 rounded-xl border border-white/6 bg-black/25 px-3 py-2 text-[12px] font-mono text-sky-200/85 break-words">
+                      <div className="message-copy mt-3 rounded-xl border border-white/6 bg-black/25 px-3 py-2 text-[12px] font-mono text-sky-200/85 break-words">
                         {item.argsPreview}
                       </div>
                     )}
                     {item.resultPreview && (
-                      <div className="mt-3 rounded-xl border border-white/6 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[var(--app-text)]/78 whitespace-pre-wrap">
+                      <div className="message-copy mt-3 rounded-xl border border-white/6 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[var(--app-text)]/78 whitespace-pre-wrap">
                         {item.resultPreview}
                       </div>
                     )}
@@ -405,7 +405,7 @@ export const MessageItem = React.memo(({
       animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
       transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
       className={cn(
-        "flex items-start gap-3 md:gap-4 group/msg relative",
+        "group/msg relative flex w-full min-w-0 items-start gap-3 md:gap-4",
         msg.role === 'user' ? "flex-row-reverse" : ""
       )}
     >
@@ -419,14 +419,14 @@ export const MessageItem = React.memo(({
       </div>
 
       <div className={cn(
-        "flex flex-col gap-2 max-w-[92%] md:max-w-[85%] transition-all",
+        "flex min-w-0 flex-1 flex-col gap-2 transition-all",
         msg.role === 'user' ? "items-end" : "items-start"
       )}>
         <div className={cn(
-          "px-5 py-4 md:px-7 md:py-5 rounded-[2rem] shadow-2xl transition-all duration-500 relative",
+          "relative min-w-0 max-w-full px-5 py-4 md:px-7 md:py-5 rounded-[2rem] shadow-2xl transition-all duration-500",
           msg.role === 'user'
-            ? "w-fit bg-[var(--app-text)]/[0.03] backdrop-blur-md text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)] ring-1 ring-[var(--app-border)]"
-            : "bg-transparent text-[var(--app-text)]/90"
+            ? "w-fit max-w-full md:max-w-[42rem] bg-[var(--app-text)]/[0.03] backdrop-blur-md text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)] ring-1 ring-[var(--app-border)]"
+            : "w-full md:max-w-[48rem] bg-[var(--app-surface)]/[0.24] backdrop-blur-xl text-[var(--app-text)]/90 rounded-bl-md border border-white/[0.06] shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
         )}>
           {msg.role === 'model' && !isLoading && (
             <button
@@ -449,7 +449,7 @@ export const MessageItem = React.memo(({
           )}
           
           {msg.role === 'user' ? (
-            <div className="flex flex-col gap-2.5">
+            <div className="flex min-w-0 flex-col gap-2.5">
               {msg.attachments && (msg.attachments?.length ?? 0) > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-1">
                   {msg.attachments.map(att => (
@@ -475,7 +475,7 @@ export const MessageItem = React.memo(({
                       if (e.key === 'Escape') handleEditCancel();
                     }}
                     autoFocus
-                    className="w-full bg-black/30 border border-indigo-500/40 rounded-xl px-3.5 py-3 text-[15px] text-zinc-100 leading-[1.8] resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
+                    className="message-copy w-full bg-black/30 border border-indigo-500/40 rounded-xl px-3.5 py-3 text-[15px] text-zinc-100 leading-[1.8] resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
                     rows={Math.max(2, editText.split('\n').length)}
                   />
                   <div className="flex gap-2 justify-end">
@@ -486,7 +486,7 @@ export const MessageItem = React.memo(({
               ) : (
                 <div className="relative">
                   <p className={cn(
-                    "whitespace-pre-wrap leading-[1.8] text-[15.5px] text-[var(--app-text)] transition-all duration-300",
+                    "message-copy whitespace-pre-wrap leading-[1.8] text-[15.5px] text-[var(--app-text)] transition-all duration-300",
                     isCollapsed ? "line-clamp-6 overflow-hidden" : ""
                   )}>
                     {msg.content}
@@ -518,7 +518,7 @@ export const MessageItem = React.memo(({
                         <Sparkles size={10} />
                         Instruction Système Générée
                       </div>
-                      <p className="text-[13px] text-[var(--app-text)]/80 leading-relaxed italic font-serif">
+                      <p className="message-copy text-[13px] text-[var(--app-text)]/80 leading-relaxed italic font-serif">
                         "{msg.refinedInstruction}"
                       </p>
                     </div>
@@ -527,7 +527,7 @@ export const MessageItem = React.memo(({
               </AnimatePresence>
             </div>
           ) : (
-            <div className="flex flex-col gap-5">
+            <div className="flex min-w-0 flex-col gap-5">
               {((msg.activity?.length ?? 0) > 0 || !!msg.runState) && (
                 <ActivityTimeline msg={msg} live={isLoading && isLast} />
               )}
@@ -680,7 +680,7 @@ export const MessageItem = React.memo(({
               )}
               
               {msg.content && (
-                <div className="markdown-body text-[var(--app-text)]/90">
+                <div className="markdown-body message-copy w-full min-w-0 max-w-full text-[var(--app-text)]/90">
                   <Markdown
                     components={{
                       a({ href, children, ...props }: any) {

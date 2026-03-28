@@ -518,10 +518,10 @@ export default function App() {
   const rowVirtualizer = useVirtualizer({
     count: displayedMessages.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 100,
+    estimateSize: () => 180,
     overscan: 5,
   });
-  const shouldVirtualizeMessages = activeMode !== 'cowork';
+  const shouldVirtualizeMessages = activeMode !== 'cowork' && !isLoading && displayedMessages.length > 80;
 
   useEffect(() => {
     if (!shouldVirtualizeMessages) return;
@@ -531,7 +531,7 @@ export default function App() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [shouldVirtualizeMessages, rowVirtualizer, displayedMessages.length, streamingContent, streamingThoughts, isLoading]);
+  }, [shouldVirtualizeMessages, rowVirtualizer, displayedMessages.length, streamingContent, streamingThoughts, isLoading, expandedThoughts]);
 
   // --- ATTACHMENTS HELPERS ---
   const uploadAttachment = async (attachment: Attachment, userId: string, sessionId: string): Promise<string> => {
@@ -1344,7 +1344,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              <main ref={parentRef} className="flex-1 overflow-y-auto relative">
+              <main ref={parentRef} className="relative flex-1 overflow-x-hidden overflow-y-auto">
                 {shouldVirtualizeMessages ? (
                   <div
                     style={{
@@ -1352,7 +1352,7 @@ export default function App() {
                       width: '100%',
                       position: 'relative',
                     }}
-                    className="max-w-4xl mx-auto px-4 md:px-10"
+                    className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-10"
                   >
                     {rowVirtualizer.getVirtualItems().map((virtualItem) => {
                       const msg = displayedMessages[virtualItem.index];
@@ -1387,13 +1387,13 @@ export default function App() {
                     })}
                   </div>
                 ) : (
-                  <div className="max-w-4xl mx-auto px-4 md:px-10">
+                  <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-10">
                     {displayedMessages.map((msg, index) => renderMessageRow(msg, index))}
                   </div>
                 )}
                  {/* Refining Status */}
                  {refiningStatus && (
-                   <div className="max-w-4xl mx-auto px-4 md:px-10 py-4 flex items-center gap-3 text-indigo-400">
+                    <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-4 py-4 text-indigo-400 sm:px-6 lg:px-10">
                      <div className="p-2 bg-indigo-500/10 rounded-lg animate-pulse">
                         <Sparkles size={18} className="animate-spin-slow" />
                      </div>
@@ -1403,7 +1403,7 @@ export default function App() {
 
                  {/* Message en cours de génération — visible immédiatement avec toggle Thoughts */}
                  {isLoading && !refiningStatus && activeMode !== 'cowork' && (
-                   <div className="max-w-4xl mx-auto px-4 md:px-10 py-4">
+                    <div className="mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 lg:px-10">
                      <MessageItem
                        msg={{ id: 'streaming', role: 'model', content: streamingContent, thoughts: streamingThoughts, createdAt: Date.now() }}
                       idx={displayedMessages.length}

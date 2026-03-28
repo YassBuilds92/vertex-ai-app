@@ -1,31 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "mcp__Claude_Preview__preview_start",
-      "Bash(where npm:*)",
-      "Bash(where tsx:*)",
-      "Bash(ls \"C:\\\\Users\\\\Yassine\\\\OneDrive\\\\Bureau\\\\ai studio\\\\node_modules\\\\.bin\\\\tsx\"*)",
-      "Bash(npx tsc:*)",
-      "Bash(netstat -ano)",
-      "mcp__Windows-MCP__Scrape",
-      "mcp__Apify__apify-slash-rag-web-browser",
-      "mcp__Desktop_Commander__read_file",
-      "mcp__Desktop_Commander__start_process",
-      "Bash(taskkill /PID 27780 /F)",
-      "Skill(update-config)",
-      "Skill(update-config:*)",
-      "Bash(powershell -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\Yassine\\\\OneDrive\\\\Bureau\\\\ai studio\\\\.claude\\\\inject-rules.ps1\")",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d[''''hookSpecificOutput''''][''''additionalContext''''][:200]\\)\")",
-      "mcp__Apify__get-actor-output",
-      "mcp__Desktop_Commander__start_search",
-      "Bash(Get-ChildItem -File)",
-      "Bash(Sort-Object LastWriteTime -Descending)",
-      "Bash(Select-Object -First 5 Name, LastWriteTime)",
-      "mcp__Desktop_Commander__get_file_info",
-      "mcp__Desktop_Commander__get_more_search_results",
-      "mcp__Desktop_Commander__read_process_output",
       "WebSearch",
-      "mcp__mcp-registry__search_mcp_registry"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx tsc:*)",
+      "mcp__82facdd8-c5af-49be-aec6-05404ea66284__get_deployment_build_logs",
+      "mcp__82facdd8-c5af-49be-aec6-05404ea66284__get_runtime_logs",
+      "mcp__82facdd8-c5af-49be-aec6-05404ea66284__list_deployments"
     ]
   },
   "hooks": {

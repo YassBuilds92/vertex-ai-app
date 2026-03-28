@@ -503,6 +503,7 @@ function createEmptyCoworkSessionState(): CoworkSessionState {
     sourcesValidated: [],
     searchesFailed: [],
     toolsBlocked: [],
+    pendingDirectPivots: {},
     activePdfDraft: null,
     phase: 'analysis',
     modelCompletionScore: 0,
@@ -956,14 +957,21 @@ export const __coworkLoopInternals = {
   createEmptyCoworkSessionState,
   computeCompletionState,
   buildBlockerPrompt,
+  buildCoworkBlockedUserReplyPrompt,
   buildPublicToolNarration,
   buildTavilySearchPlan,
   buildDirectSourceSearchOutcome,
   validateCreatePdfReviewSignature,
   getDirectSourceFallbacks,
+  requestNeedsBroadNewsRoundup,
   getCooldownDelayMs,
   buildCoworkProgressFingerprint,
   registerCoworkProgressState,
+  getPendingDirectPivotForSearch,
+  getNextPendingDirectPivotUrl,
+  upsertPendingDirectPivot,
+  markPendingDirectPivotHostAttempt,
+  buildPendingDirectPivotMessage,
   markVisibleDeliveryAttempt,
   getCoworkPublicPhase,
   normalizeCoworkPhase,
@@ -2782,15 +2790,49 @@ Tu n'as pas encore assez explore le sujet. ${instructions.join(' ')}
 Redige la synthese finale seulement apres avoir fini ces verifications.`;
 }
 
+function requestNeedsBroadNewsRoundup(message: string): boolean {
+  const normalized = normalizeCoworkText(message);
+  if (!requestIsCurrentAffairs(message) && !requestNeedsCurrentDateGrounding(message)) return false;
+
+  const sportSignals =
+    /\b(sport|match|football|foot|ligue|ligue 1|champions league|nba|nfl|tennis|rugby|mercato)\b/.test(normalized);
+  if (sportSignals) return false;
+
+  const economySignals =
+    /\b(economie|economique|marche|marches|bourse|finance|financier|business|inflation|taux|petrole|entreprise)\b/.test(normalized);
+  const techDocsSignals =
+    /\b(api|sdk|documentation|docs?|version|release|modele|model|vertex|gemini|google ai|developpeur|developer)\b/.test(normalized);
+  const specificTopicSignals =
+    /\b(election|elections|municipale|municipales|presidentielle|presidentielles|legislative|legislatives|parlement|assemblee|senat|justice|judiciaire|tribunal|proces|guerre|attaque|attaques|frappe|frappes|iran|israel|gaza|ukraine|russie|trump|biden|rubio|mercosur|canada|meta|youtube|gims|sarkozy|houthi|houthis)\b/.test(normalized);
+  const broadSignals =
+    /\b(mondiale|mondiales|mondial|monde|internationale|internationales|internationaux|international|panorama|tour d horizon|tour dhorizon|briefing|revue de presse|journaux?|headline|headlines|une)\b/.test(normalized);
+  const multiAngleCount = [
+    /\b(iran|ukraine|israel|gaza|liban|syrie|g7|onu|europe|usa|etats unis|trump|biden|guerre|diplomatie)\b/,
+    /\b(economie|economique|marche|marches|bourse|finance|financier|business|inflation|taux|petrole|entreprise)\b/,
+    /\b(tech|technologie|technologies|ia|ai|startup|start-up|cloud|cyber|semi[- ]?conducteurs?)\b/,
+    /\b(climat|environnement|cop\d+|energie|emissions|temperature)\b/
+  ].filter(pattern => pattern.test(normalized)).length;
+
+  if (broadSignals) return true;
+  if (multiAngleCount >= 2) return true;
+  if (techDocsSignals) return false;
+  if (specificTopicSignals) return false;
+  if (economySignals) return /\b(monde|mondiale|mondiales|international|internationale|internationales)\b/.test(normalized);
+  return /\b(actu|actualite|actualites|news|briefing|headline|headlines|revue de presse|presse)\b/.test(normalized);
+}
+
 function detectDirectSourceCategory(message: string): DirectSourceCategory {
   const normalized = normalizeCoworkText(message);
   if (/\b(sport|match|football|foot|ligue|ligue 1|champions league|nba|nfl|tennis|rugby|mercato)\b/.test(normalized)) {
     return 'sport';
   }
+  if (requestNeedsBroadNewsRoundup(message)) {
+    return 'broad_news';
+  }
   if (/\b(economie|economique|marche|marches|bourse|finance|financier|business|inflation|taux|petrole|entreprise)\b/.test(normalized)) {
     return 'economy';
   }
-  if (/\b(api|sdk|documentation|docs?|version|release|modele|model|vertex|gemini|google ai|developpeur|developer|tech|technologie)\b/.test(normalized)) {
+  if (/\b(api|sdk|documentation|docs?|version|release|modele|model|vertex|gemini|google ai|developpeur|developer)\b/.test(normalized)) {
     return 'tech_docs';
   }
   if (/\b(france|francais|francaise|paris|elysee|assemblee|matignon|municipales)\b/.test(normalized)) {
@@ -2799,7 +2841,7 @@ function detectDirectSourceCategory(message: string): DirectSourceCategory {
   if (/\b(monde|international|iran|ukraine|israel|liban|g7|onu|europe|usa|etats unis)\b/.test(normalized)) {
     return 'intl_news';
   }
-  return requestIsCurrentAffairs(message) ? 'fr_news' : 'general';
+  return requestIsCurrentAffairs(message) ? 'broad_news' : 'general';
 }
 
 function getDirectSourceFallbacks(message: string): string[] {
@@ -2830,7 +2872,7 @@ function buildTavilySearchPlan(
   const topic: TavilyTopic =
     searchQueryLooksNewsy(query)
     || requestIsCurrentAffairs(query)
-    || ['fr_news', 'intl_news', 'economy', 'sport'].includes(category)
+    || ['broad_news', 'fr_news', 'intl_news', 'economy', 'sport'].includes(category)
       ? 'news'
       : 'general';
   const searchDepth: TavilySearchDepth =
@@ -2840,7 +2882,7 @@ function buildTavilySearchPlan(
   const includeDomains = [...new Set(
     (
       options.strictFactual
-      || ['fr_news', 'intl_news', 'economy', 'tech_docs', 'sport'].includes(category)
+      || ['broad_news', 'fr_news', 'intl_news', 'economy', 'tech_docs', 'sport'].includes(category)
     )
       ? getTrustedDirectSourceDomains(query)
       : []
@@ -2862,7 +2904,7 @@ function buildTavilySearchPlan(
   }
   if (topic === 'news') {
     requestBody.time_range = requestNeedsCurrentDateGrounding(query) ? 'day' : 'week';
-  } else if (category === 'fr_news') {
+  } else if (category === 'fr_news' || category === 'broad_news') {
     requestBody.country = 'france';
   }
 
@@ -3004,6 +3046,89 @@ function getHardCoworkBlockers(blockers: CoworkBlocker[]): CoworkBlocker[] {
   return blockers.filter(blocker => blocker.hard);
 }
 
+function getPendingDirectPivotForSearch(
+  state: CoworkSessionState,
+  familyKey: string,
+  options: { strictTask?: boolean } = {}
+): PendingDirectPivot | null {
+  const exactPivot = state.pendingDirectPivots[familyKey];
+  if (exactPivot) return exactPivot;
+  if (!options.strictTask || state.sourcesValidated.length > 0) return null;
+  return Object.values(state.pendingDirectPivots)[0] || null;
+}
+
+function getNextPendingDirectPivotUrl(pivot: PendingDirectPivot | null): string | null {
+  if (!pivot) return null;
+  return pivot.directSourceUrls.find((candidate) => {
+    const host = getUrlDomain(candidate);
+    return host && !pivot.attemptedHosts.includes(host);
+  }) || null;
+}
+
+function upsertPendingDirectPivot(
+  state: CoworkSessionState,
+  pivot: Omit<PendingDirectPivot, 'attemptedHosts'> & { attemptedHosts?: string[] }
+) {
+  const existing = state.pendingDirectPivots[pivot.familyKey];
+  state.pendingDirectPivots = {
+    ...state.pendingDirectPivots,
+    [pivot.familyKey]: {
+      ...existing,
+      familyKey: pivot.familyKey,
+      query: pivot.query,
+      reason: pivot.reason,
+      directSourceUrls: dedupeStrings([...(existing?.directSourceUrls || []), ...pivot.directSourceUrls], 8),
+      attemptedHosts: dedupeStrings([...(existing?.attemptedHosts || []), ...(pivot.attemptedHosts || [])], 8),
+    }
+  };
+}
+
+function clearPendingDirectPivot(state: CoworkSessionState, familyKey: string) {
+  if (!state.pendingDirectPivots[familyKey]) return;
+  const nextPivots = { ...state.pendingDirectPivots };
+  delete nextPivots[familyKey];
+  state.pendingDirectPivots = nextPivots;
+}
+
+function markPendingDirectPivotHostAttempt(state: CoworkSessionState, url: string): PendingDirectPivot | null {
+  const host = getUrlDomain(url);
+  if (!host) return null;
+
+  for (const [familyKey, pivot] of Object.entries(state.pendingDirectPivots)) {
+    const pivotHosts = pivot.directSourceUrls.map(getUrlDomain).filter(Boolean);
+    if (pivotHosts.includes(host)) {
+      upsertPendingDirectPivot(state, {
+        ...pivot,
+        familyKey,
+        attemptedHosts: [...pivot.attemptedHosts, host]
+      });
+      return state.pendingDirectPivots[familyKey] || null;
+    }
+  }
+
+  return null;
+}
+
+function clearPendingDirectPivotForUrl(state: CoworkSessionState, url: string) {
+  const host = getUrlDomain(url);
+  if (!host) return;
+
+  for (const [familyKey, pivot] of Object.entries(state.pendingDirectPivots)) {
+    const pivotHosts = pivot.directSourceUrls.map(getUrlDomain).filter(Boolean);
+    if (pivotHosts.includes(host)) {
+      clearPendingDirectPivot(state, familyKey);
+    }
+  }
+}
+
+function buildPendingDirectPivotMessage(pivot: PendingDirectPivot, attemptedQueryLabel: string): string {
+  const nextUrl = getNextPendingDirectPivotUrl(pivot);
+  if (nextUrl) {
+    return `Avant de relancer une recherche moteur sur '${attemptedQueryLabel}', ouvre d'abord une source directe via 'web_fetch': ${nextUrl}.`;
+  }
+  return `La recherche sur '${attemptedQueryLabel}' reste bloquee apres les sources directes suggerees. N'insiste pas avec une nouvelle recherche moteur proche: change vraiment d'angle ou explique honnetement que l'acces aux sources reste insuffisant.`;
+}
+
 function buildCoworkProgressFingerprint(input: {
   executionMode: CoworkExecutionMode;
   research: Pick<MusicResearchProgress, 'webSearches' | 'webFetches'>;
@@ -3017,6 +3142,7 @@ function buildCoworkProgressFingerprint(input: {
   effectiveTaskComplete: boolean;
   pendingFinalAnswer: boolean;
   blockers: CoworkBlocker[];
+  pendingDirectPivots: Record<string, PendingDirectPivot>;
 }): string {
   return JSON.stringify({
     executionMode: input.executionMode,
@@ -3036,6 +3162,13 @@ function buildCoworkProgressFingerprint(input: {
     effectiveTaskComplete: input.effectiveTaskComplete,
     pendingFinalAnswer: input.pendingFinalAnswer,
     blockers: getHardCoworkBlockers(input.blockers).map(blocker => blocker.code).sort(),
+    pendingDirectPivots: Object.values(input.pendingDirectPivots)
+      .map(pivot => ({
+        familyKey: pivot.familyKey,
+        attemptedHosts: [...pivot.attemptedHosts].sort(),
+        directSourceUrls: [...pivot.directSourceUrls].slice(0, 4).sort()
+      }))
+      .sort((left, right) => left.familyKey.localeCompare(right.familyKey)),
   });
 }
 
@@ -3071,6 +3204,16 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
     sourcesValidated: [...state.sourcesValidated],
     searchesFailed: [...state.searchesFailed],
     toolsBlocked: [...state.toolsBlocked],
+    pendingDirectPivots: Object.fromEntries(
+      Object.entries(state.pendingDirectPivots).map(([familyKey, pivot]) => [
+        familyKey,
+        {
+          ...pivot,
+          directSourceUrls: [...pivot.directSourceUrls],
+          attemptedHosts: [...pivot.attemptedHosts],
+        }
+      ])
+    ),
     activePdfDraft: state.activePdfDraft ? { ...state.activePdfDraft, sections: [...state.activePdfDraft.sections], sources: [...state.activePdfDraft.sources] } : null,
     blockers: [],
   };
@@ -3191,6 +3334,46 @@ ${blockerLines}
 Consigne obligatoire:
 - Si tu dois agir ensuite, choisis UN SEUL outil actionnable.
 - Si la recherche moteur est bloquee, pivote vers 'web_fetch' sur une source directe au lieu de reformuler la meme requete.`;
+}
+
+function buildCoworkBlockedUserReplyPrompt(options: {
+  originalMessage: string;
+  requestClock: RequestClock;
+  state: CoworkSessionState;
+  research: MusicResearchProgress;
+  stopReason: string;
+}): string {
+  const attemptedHosts = dedupeStrings(
+    Object.values(options.state.pendingDirectPivots).flatMap(pivot => pivot.attemptedHosts),
+    6
+  );
+  const hardBlocker = getHardCoworkBlockers(options.state.blockers)[0]?.message || "je n'ai pas pu valider suffisamment de sources fiables";
+  const triedSourcesSummary = attemptedHosts.length > 0
+    ? attemptedHosts.join(', ')
+    : 'aucune source directe n a pu etre validee';
+  const pdfNeed = requestNeedsPdfArtifact(options.originalMessage)
+    ? "Si c'est pertinent, dis clairement que tu n'as pas encore pu aller jusqu'au PDF parce que la verification des sources n'a pas ete assez solide."
+    : "Ne promets pas un livrable que tu n'as pas pu finaliser.";
+
+  return `Tu rediges UNIQUEMENT la reponse finale visible a l'utilisateur pour un run Cowork bloque.
+
+Rappels absolus:
+- Ecris en francais naturel, ton humain, honnete, calme.
+- 2 a 5 phrases maximum.
+- N'utilise jamais les mots backend, phase, blocker, completion, pourcentage, iteration, tool, web_search, web_fetch, function, scope, degraded.
+- N'affiche jamais de dump technique ou de liste d'outils.
+- ${pdfNeed}
+- Propose si utile de reessayer dans quelques minutes ou de demander un angle plus precis.
+
+Contexte utile:
+- Demande utilisateur: "${options.originalMessage}"
+- Date de reference: ${options.requestClock.dateLabel} (${options.requestClock.timeZone})
+- Ce qui a bloque: ${options.stopReason}
+- Etat utile: ${options.research.webSearches} recherche(s) solides, ${options.research.webFetches} lecture(s) validantes, ${options.research.degradedSearches} recherche(s) faibles.
+- Sources directes essayees ou ciblees: ${triedSourcesSummary}
+- Limite principale restante: ${hardBlocker}
+
+Reponds maintenant directement a l'utilisateur, sans jargon interne ni liste technique.`;
 }
 
 function unwrapXmlValue(value: string): string {
@@ -3381,11 +3564,20 @@ type ToolCooldownState = {
   reason: string;
 };
 
+type PendingDirectPivot = {
+  familyKey: string;
+  query: string;
+  reason: string;
+  directSourceUrls: string[];
+  attemptedHosts: string[];
+};
+
 type CoworkSessionState = {
   factsCollected: string[];
   sourcesValidated: CoworkValidatedSource[];
   searchesFailed: CoworkSearchFailure[];
   toolsBlocked: CoworkBlockedTool[];
+  pendingDirectPivots: Record<string, PendingDirectPivot>;
   activePdfDraft: ActivePdfDraft | null;
   phase: CoworkPhase;
   modelCompletionScore: number;
@@ -3415,6 +3607,7 @@ type CompletionComputationOptions = {
 };
 
 type DirectSourceCategory =
+  | 'broad_news'
   | 'fr_news'
   | 'intl_news'
   | 'economy'
@@ -3580,7 +3773,24 @@ function markVisibleDeliveryAttempt(
   return changed;
 }
 
+const BROAD_NEWS_TRUSTED_DOMAINS = [
+  'franceinfo.fr',
+  'lemonde.fr',
+  'france24.com',
+  'reuters.com',
+  'bbc.com',
+  'aljazeera.com'
+];
+
 const DIRECT_SOURCE_FALLBACKS: Record<DirectSourceCategory, string[]> = {
+  broad_news: [
+    'https://www.franceinfo.fr/',
+    'https://www.reuters.com/world/',
+    'https://www.bbc.com/news',
+    'https://www.lemonde.fr/',
+    'https://www.france24.com/fr/',
+    'https://www.aljazeera.com/news/'
+  ],
   fr_news: [
     'https://www.franceinfo.fr/',
     'https://www.lemonde.fr/',
@@ -3815,6 +4025,37 @@ function searchQueryLooksMusicLookup(query: string): boolean {
   return /\b(artiste|artist|rappeur|rapper|chanteur|chanteuse|groupe|musique|music|album|albums|single|singles|titre|titres|track|tracks|song|songs|son|sons|morceau|morceaux|chanson|chansons|discographie|discography|spotify|deezer|apple music|youtube|genius|freestyle|planete rap)\b/.test(normalized);
 }
 
+function isBroadNewsTrustedDomain(domain: string): boolean {
+  return BROAD_NEWS_TRUSTED_DOMAINS.some(candidate => domainMatches(domain, candidate));
+}
+
+function isLikelyBroadNewsArticleResult(result: SearchResultItem): boolean {
+  const domain = getUrlDomain(result.url);
+  if (!isBroadNewsTrustedDomain(domain)) return false;
+
+  const haystack = searchResultHaystack(result).all;
+  if (/\b(sport|football|nba|nfl|tennis|rugby|mercato|people|celebrity|celebrities)\b/.test(haystack)) {
+    return false;
+  }
+
+  const parsed = safeParseUrl(result.url);
+  const pathSegments = (parsed?.pathname || '').split('/').filter(Boolean);
+  const normalizedPath = normalizeCoworkText(parsed?.pathname || '');
+  return (
+    pathSegments.length >= 2
+    || /\b20\d{2}\b/.test(normalizedPath)
+    || normalizedPath.includes('/news/')
+    || normalizedPath.includes('/world/')
+    || normalizedPath.includes('/business/')
+  );
+}
+
+function hasBroadNewsFreshnessSignal(result: SearchResultItem): boolean {
+  const haystack = searchResultHaystack(result).all;
+  return /\b20\d{2}\b/.test(haystack)
+    || /\b(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre|january|february|march|april|may|june|july|august|september|october|november|december|today|aujourd hui)\b/.test(haystack);
+}
+
 function scoreSearchResultRelevance(query: string, result: SearchResultItem): number {
   const anchors = extractSearchAnchorTokens(query);
   if (anchors.length === 0) return 1;
@@ -3893,11 +4134,26 @@ function assessSearchResults(
     return anchorTokens.some(token => haystack.includes(token));
   }).length;
   const matchedAnchorRatio = matchedAnchors.length / anchorTokens.length;
+  const matchedMeaningfulAnchors = matchedAnchors.filter(token => !/^\d+$/.test(token));
+  const directSourceCategory = detectDirectSourceCategory(query);
 
   const needsStrictMatch =
     anchorTokens.length === 1
     || anchorTokens.some(token => /\d/.test(token))
     || searchQueryLooksMusicLookup(query);
+
+  const broadNewsRelevant = (() => {
+    if (directSourceCategory !== 'broad_news') return false;
+    const trustedResults = topResults.filter(isLikelyBroadNewsArticleResult);
+    if (trustedResults.length < Math.min(2, topResults.length)) return false;
+    if (!trustedResults.some(hasBroadNewsFreshnessSignal)) return false;
+    const trustedBestScore = Math.max(...trustedResults.map(result => scoreSearchResultRelevance(query, result)));
+    return (
+      matchedMeaningfulAnchors.length > 0
+      || trustedBestScore >= 6
+      || requestNeedsCurrentDateGrounding(query)
+    );
+  })();
 
   const isRelevant = options.strict
     ? (
@@ -3913,7 +4169,7 @@ function assessSearchResults(
       );
 
   return {
-    quality: isRelevant ? 'relevant' : (bestScore > 0 || matchedAnchors.length > 0 ? 'degraded' : 'off_topic'),
+    quality: (isRelevant || broadNewsRelevant) ? 'relevant' : (bestScore > 0 || matchedAnchors.length > 0 ? 'degraded' : 'off_topic'),
     bestScore,
     matchedAnchors,
     matchedResults,
@@ -7530,6 +7786,8 @@ app.post('/api/cowork', async (req, res) => {
     const FAILSAFE_MAX_ITERATIONS = 50;
     let finalVisibleText = '';
     let finalTextEmitted = false;
+    let finalRunState: 'running' | 'completed' | 'failed' | 'aborted' = 'completed';
+    let blockedFinalReplyContext: { stopReason: string } | null = null;
     let latestReleasedFile: { url: string; path?: string } | null = null;
     let latestCreatedArtifactPath: string | null = null;
     const runMeta = createEmptyCoworkRunMeta();
@@ -7648,6 +7906,7 @@ app.post('/api/cowork', async (req, res) => {
       effectiveTaskComplete: sessionState.effectiveTaskComplete,
       pendingFinalAnswer: sessionState.pendingFinalAnswer,
       blockers: sessionState.blockers,
+      pendingDirectPivots: sessionState.pendingDirectPivots,
     });
 
     const registerProgressState = (actionSignature: string) => {
@@ -7675,13 +7934,86 @@ app.post('/api/cowork', async (req, res) => {
       });
 
       if (stalledTurns >= 3) {
-        finalVisibleText = blockerPrompt
-          ? `${message}\n\n${blockerPrompt}`
-          : message;
+        blockedFinalReplyContext = {
+          stopReason: message
+        };
+        finalRunState = 'failed';
         return true;
       }
 
       return false;
+    };
+
+    const emitBlockedFinalModelReply = async (stopReason: string) => {
+      finalRunState = 'failed';
+      emitEvent('status', {
+        iteration: iterations,
+        title: 'Cloture',
+        message: "Cowork formule une reponse finale honnete pour l'utilisateur.",
+        runState: 'running',
+        runMeta
+      });
+
+      const prompt = buildCoworkBlockedUserReplyPrompt({
+        originalMessage: message,
+        requestClock,
+        state: sessionState,
+        research: successfulResearchMeta,
+        stopReason
+      });
+
+      try {
+        const finalReplyConfig: any = {
+          temperature: 0.3,
+          topP: config.topP || 1.0,
+          topK: config.topK || 1,
+          maxOutputTokens: Math.min(config.maxOutputTokens || 1024, 1024),
+          thinkingLevel: 'medium',
+          maxThoughtTokens: Math.min(config.maxThoughtTokens || 512, 512),
+          systemInstruction: "Tu es Cowork. Tu rediges uniquement la reponse finale visible a l'utilisateur quand l'execution est bloquee. Tu dois etre honnete, humain, concis, et ne jamais exposer de jargon backend, de dump technique ou de liste d'outils."
+        };
+        const finalReply = await retryWithBackoff(() => ai.models.generateContent({
+          model: modelId,
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          config: finalReplyConfig
+        }), {
+          maxRetries: 2,
+          exactDelaysMs: [2000, 4000],
+          jitter: false,
+          onRetry: async ({ delayMs, kind, message: retryMessage }) => {
+            runMeta.retryCount += 1;
+            emitEvent('warning', {
+              iteration: iterations,
+              title: 'Attente modele',
+              message:
+                kind === 'concurrency'
+                  ? `Saturation simultanee detectee. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
+                  : kind === 'server'
+                    ? `Le modele est temporairement indisponible. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
+                    : `Quota ou limite temporaire detecte. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`,
+              runMeta
+            });
+          }
+        });
+        accumulateUsageTotals(runMeta, modelId, finalReply);
+        finalVisibleText = String(finalReply.text || '').trim();
+        if (!finalVisibleText) {
+          finalVisibleText = requestNeedsPdfArtifact(message)
+            ? "Desole, je n'ai pas reussi a valider suffisamment de sources d'actualite pour aller jusqu'au PDF. Reessaie dans quelques minutes ou donne-moi un angle plus precis."
+            : "Desole, je n'ai pas reussi a valider suffisamment de sources d'actualite pour te repondre de facon fiable. Reessaie dans quelques minutes ou donne-moi un angle plus precis.";
+        }
+      } catch (error) {
+        const cleanError = parseApiError(error);
+        emitEvent('warning', {
+          iteration: iterations,
+          title: 'Cloture degradee',
+          message: `Le tour final de reformulation a echoue. Je bascule vers un message de secours humain. ${clipText(cleanError, 180)}`,
+          runMeta
+        });
+        finalVisibleText = requestNeedsPdfArtifact(message)
+          ? "Desole, je n'ai pas reussi a valider suffisamment de sources d'actualite pour aller jusqu'au PDF. Reessaie dans quelques minutes ou donne-moi un angle plus precis."
+          : "Desole, je n'ai pas reussi a valider suffisamment de sources d'actualite pour te repondre de facon fiable. Reessaie dans quelques minutes ou donne-moi un angle plus precis.";
+      }
     };
 
     const recordBlockedTool = (toolName: string, scope: string, reason: string, until?: number) => {
@@ -8100,6 +8432,43 @@ app.post('/api/cowork', async (req, res) => {
             }
 
             if (tool.name === 'web_search') {
+              const pendingDirectPivot = getPendingDirectPivotForSearch(sessionState, toolScope.familyKey, {
+                strictTask: strictFactualSearch
+              });
+              if (pendingDirectPivot) {
+                const nextDirectUrl = getNextPendingDirectPivotUrl(pendingDirectPivot);
+                const loopMsg = buildPendingDirectPivotMessage(pendingDirectPivot, toolScope.label);
+                recordBlockedTool('web_search', pendingDirectPivot.familyKey, 'pending_direct_pivot');
+                refreshSessionState();
+                toolResults.push({
+                  functionResponse: {
+                    ...(call.id ? { id: call.id } : {}),
+                    name: tool.name,
+                    response: {
+                      success: false,
+                      recoverable: true,
+                      quality: 'degraded',
+                      error: loopMsg,
+                      directSourceUrls: pendingDirectPivot.directSourceUrls,
+                      ...(nextDirectUrl ? { suggestedUrl: nextDirectUrl } : {}),
+                      warnings: [loopMsg]
+                    }
+                  }
+                });
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: 'Pivot direct requis',
+                  message: loopMsg,
+                  toolName: tool.name,
+                  meta: {
+                    family: clipText(pendingDirectPivot.query || toolScope.label, 120),
+                    ...(nextDirectUrl ? { suggestedUrl: clipText(nextDirectUrl, 120) } : {})
+                  },
+                  runMeta
+                });
+                continue;
+              }
+
               if (lastSearchExactKey && toolScope.exactKey === lastSearchExactKey) {
                 const loopMsg = `La requete '${toolScope.label}' est identique a la recherche precedente. Change reellement d'angle, ouvre une source directe via 'web_fetch', ou admets que la recherche reste insuffisante.${formatDirectSourceHint(message)}`;
                 recordSearchFailure({
@@ -8174,6 +8543,10 @@ app.post('/api/cowork', async (req, res) => {
               runMeta
             });
             try {
+              if (tool.name === 'web_fetch' && typeof call.args?.url === 'string') {
+                markPendingDirectPivotHostAttempt(sessionState, String(call.args.url));
+                refreshSessionState();
+              }
               const output = await tool.execute(call.args);
               const isError = (output as any).success === false || (output as any).error;
               const transientIssue = isError && isTransientToolIssue(tool.name, (output as any).error || (output as any).message || output);
@@ -8228,6 +8601,14 @@ app.post('/api/cowork', async (req, res) => {
                 if (tool.name === 'web_search') {
                   runMeta.degradedSearches += 1;
                   successfulResearchMeta.degradedSearches += 1;
+                  if (Array.isArray((output as any).directSourceUrls) && (output as any).directSourceUrls.length > 0) {
+                    upsertPendingDirectPivot(sessionState, {
+                      familyKey: toolScope.familyKey,
+                      query: String((output as any).query || toolScope.label),
+                      reason: String((output as any).searchDisabledReason || searchQuality || 'search_failed'),
+                      directSourceUrls: (output as any).directSourceUrls
+                    });
+                  }
                   recordSearchFailure({
                     query: String((output as any).query || toolScope.label),
                     family: toolScope.familyKey,
@@ -8258,9 +8639,18 @@ app.post('/api/cowork', async (req, res) => {
                     successfulResearchMeta.webSearches += 1;
                     runMeta.validatedSearches += 1;
                     clearWeakSearch(toolScope);
+                    clearPendingDirectPivot(sessionState, toolScope.familyKey);
                   } else {
                     runMeta.degradedSearches += 1;
                     successfulResearchMeta.degradedSearches += 1;
+                    if (Array.isArray((output as any).directSourceUrls) && (output as any).directSourceUrls.length > 0) {
+                      upsertPendingDirectPivot(sessionState, {
+                        familyKey: toolScope.familyKey,
+                        query: String((output as any).query || toolScope.label),
+                        reason: String((output as any).searchDisabledReason || searchQuality || 'degraded_result'),
+                        directSourceUrls: (output as any).directSourceUrls
+                      });
+                    }
                     recordSearchFailure({
                       query: String((output as any).query || toolScope.label),
                       family: toolScope.familyKey,
@@ -8289,6 +8679,7 @@ app.post('/api/cowork', async (req, res) => {
                     domain: String((output as any).domain || ''),
                     kind: 'web_fetch'
                   });
+                  clearPendingDirectPivotForUrl(sessionState, String((output as any).url || (call.args as any)?.url || ''));
                   addFacts(String((output as any).title || ''), String((output as any).excerpt || ''));
                 }
                 if (tool.name === 'music_catalog_lookup') {
@@ -8503,26 +8894,44 @@ app.post('/api/cowork', async (req, res) => {
     if (!finalVisibleText.trim() && iterations >= FAILSAFE_MAX_ITERATIONS) {
       refreshSessionState();
       const hardBlockerSummary = getHardCoworkBlockers(sessionState.blockers).map((blocker) => blocker.message).join(' ');
-      finalVisibleText = hardBlockerSummary
-        ? `Je m'arrete proprement: Cowork a atteint son garde-fou de ${FAILSAFE_MAX_ITERATIONS} tours sans lever tous les blocages durs. ${hardBlockerSummary}`
-        : `Je m'arrete proprement: Cowork a atteint son garde-fou de ${FAILSAFE_MAX_ITERATIONS} tours sans produire de livraison finale exploitable.`;
+      blockedFinalReplyContext = {
+        stopReason: hardBlockerSummary
+          ? `Cowork a atteint son garde-fou de ${FAILSAFE_MAX_ITERATIONS} tours sans lever tous les blocages restants. ${hardBlockerSummary}`
+          : `Cowork a atteint son garde-fou de ${FAILSAFE_MAX_ITERATIONS} tours sans produire de livraison finale exploitable.`
+      };
+      finalRunState = 'failed';
       emitEvent('warning', {
         iteration: iterations,
         title: 'Failsafe',
         message: `Garde-fou atteint apres ${FAILSAFE_MAX_ITERATIONS} tours internes.`,
         runMeta
       });
-      emitEvent('text_delta', { iteration: iterations, text: finalVisibleText, runMeta });
-      finalTextEmitted = true;
     }
 
     if (!finalVisibleText.trim()) {
       const fallbackMessage = buildCoworkFallbackMessage(latestReleasedFile);
       if (fallbackMessage) {
         finalVisibleText = fallbackMessage;
+        finalRunState = 'completed';
         emitEvent('text_delta', { iteration: iterations, text: fallbackMessage, runMeta });
         finalTextEmitted = true;
       }
+    }
+
+    if (
+      !finalVisibleText.trim()
+      && !latestReleasedFile?.url
+      && !blockedFinalReplyContext
+      && getHardCoworkBlockers(sessionState.blockers).length > 0
+    ) {
+      blockedFinalReplyContext = {
+        stopReason: getHardCoworkBlockers(sessionState.blockers).map((blocker) => blocker.message).join(' ')
+      };
+      finalRunState = 'failed';
+    }
+
+    if (!finalVisibleText.trim() && blockedFinalReplyContext && !latestReleasedFile?.url) {
+      await emitBlockedFinalModelReply(blockedFinalReplyContext.stopReason);
     }
 
     if (finalVisibleText.trim() && !finalTextEmitted) {
@@ -8530,9 +8939,13 @@ app.post('/api/cowork', async (req, res) => {
       finalTextEmitted = true;
     }
 
+    if (!sessionState.effectiveTaskComplete && !latestReleasedFile?.url) {
+      finalRunState = 'failed';
+    }
+
     emitEvent('done', {
       iteration: iterations,
-      runState: 'completed',
+      runState: finalRunState,
       runMeta
     });
     res.end();

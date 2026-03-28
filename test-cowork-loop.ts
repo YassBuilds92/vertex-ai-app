@@ -9,14 +9,21 @@ const {
   createEmptyCoworkSessionState,
   computeCompletionState,
   buildBlockerPrompt,
+  buildCoworkBlockedUserReplyPrompt,
   buildPublicToolNarration,
   buildTavilySearchPlan,
   buildDirectSourceSearchOutcome,
   validateCreatePdfReviewSignature,
   getDirectSourceFallbacks,
+  requestNeedsBroadNewsRoundup,
   getCooldownDelayMs,
   buildCoworkProgressFingerprint,
   registerCoworkProgressState,
+  getPendingDirectPivotForSearch,
+  getNextPendingDirectPivotUrl,
+  upsertPendingDirectPivot,
+  markPendingDirectPivotHostAttempt,
+  buildPendingDirectPivotMessage,
   classifyCoworkExecutionMode,
   getCoworkPublicPhase,
   markVisibleDeliveryAttempt,
@@ -252,6 +259,7 @@ const baseResearch = {
       message: 'Une source valide manque.',
       hard: true,
     }],
+    pendingDirectPivots: {},
   });
 
   assert.equal(registerCoworkProgressState(state, baseFingerprint, 'blocked_visible_text'), 0);
@@ -275,6 +283,7 @@ const baseResearch = {
       message: 'Une source valide manque.',
       hard: true,
     }],
+    pendingDirectPivots: {},
   });
 
   assert.notEqual(baseFingerprint, progressedFingerprint);
@@ -318,6 +327,7 @@ const baseResearch = {
     effectiveTaskComplete: false,
     pendingFinalAnswer: false,
     blockers: [],
+    pendingDirectPivots: {},
   });
 
   const fingerprintB = buildCoworkProgressFingerprint({
@@ -333,6 +343,7 @@ const baseResearch = {
     effectiveTaskComplete: false,
     pendingFinalAnswer: false,
     blockers: [],
+    pendingDirectPivots: {},
   });
 
   assert.notEqual(fingerprintA, fingerprintB);
@@ -455,6 +466,197 @@ assert.equal(
     { strict: true }
   );
   assert.notEqual(relevance.quality, 'relevant');
+}
+
+{
+  const broadQuery = 'actualite mondiale economie tech climat 27 mars 2026';
+  assert.equal(requestNeedsBroadNewsRoundup('fais moi un pdf sur l actu du jour'), true);
+  assert.equal(requestNeedsBroadNewsRoundup(broadQuery), true);
+  assert.equal(requestNeedsBroadNewsRoundup('"elections municipales" france actualites mars 2026'), false);
+
+  const fallbackUrls = getDirectSourceFallbacks(broadQuery);
+  assert.ok(fallbackUrls.some((url: string) => url.includes('reuters.com')));
+  assert.ok(fallbackUrls.some((url: string) => url.includes('bbc.com')));
+  assert.ok(fallbackUrls.some((url: string) => url.includes('aljazeera.com')));
+  assert.ok(!fallbackUrls.some((url: string) => url.includes('gemini-api/docs')));
+
+  const targetedFallbackUrls = getDirectSourceFallbacks('"elections municipales" france actualites mars 2026');
+  assert.ok(targetedFallbackUrls.some((url: string) => url.includes('franceinfo.fr')));
+  assert.ok(!targetedFallbackUrls.some((url: string) => url.includes('bbc.com')));
+}
+
+{
+  process.env.TAVILY_API_KEY = 'tvly-test-key';
+  process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS = 'false';
+
+  const plan = buildTavilySearchPlan('actualite mondiale economie tech climat 27 mars 2026', 6, { strictFactual: true });
+  assert.equal(plan.topic, 'news');
+  assert.equal(plan.searchDepth, 'advanced');
+  assert.equal(plan.searchMode, 'tavily:news:advanced');
+  assert.ok(plan.includeDomains.includes('reuters.com'));
+  assert.ok(plan.includeDomains.includes('bbc.com'));
+  assert.ok(plan.includeDomains.includes('aljazeera.com'));
+  assert.ok(!plan.includeDomains.includes('ai.google.dev'));
+}
+
+{
+  const originalFetch = globalThis.fetch;
+  process.env.TAVILY_API_KEY = 'tvly-test-key';
+  process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS = 'false';
+
+  globalThis.fetch = async (url: any) => {
+    if (String(url) === 'https://api.tavily.com/search') {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            results: [
+              {
+                title: 'One month into Iran war, only hard choices for Trump - Reuters',
+                url: 'https://www.reuters.com/world/middle-east/one-month-into-iran-war-only-hard-choices-trump-2026-03-27/',
+                content: 'Reuters covers the main developments of the day around Iran, Trump and global tensions.',
+                score: 0.91,
+              },
+              {
+                title: 'Middle East latest: diplomats push for de-escalation - BBC News',
+                url: 'https://www.bbc.com/news/articles/cly5example',
+                content: 'BBC News follows the latest world developments, diplomacy and international reactions on March 27 2026.',
+                score: 0.89,
+              },
+              {
+                title: 'Iran conflict live updates - Al Jazeera',
+                url: 'https://www.aljazeera.com/news/2026/3/27/iran-conflict-live-updates',
+                content: 'Al Jazeera reports the latest updates, world reactions and the broader climate for the day.',
+                score: 0.87,
+              }
+            ]
+          };
+        }
+      } as any;
+    }
+    throw new Error(`Unexpected fetch in broad-news test: ${url}`);
+  };
+
+  const outcome = await searchWeb('actualite mondiale economie tech climat 27 mars 2026', 5, { strictFactual: true });
+  assert.equal(outcome.quality, 'relevant');
+  assert.equal(outcome.searchMode, 'tavily:news:advanced');
+  assert.ok(outcome.directSourceUrls.some((url: string) => url.includes('reuters.com')));
+  assert.ok(outcome.directSourceUrls.some((url: string) => url.includes('bbc.com')));
+  assert.ok(outcome.directSourceUrls.some((url: string) => url.includes('aljazeera.com')));
+
+  globalThis.fetch = originalFetch;
+}
+
+{
+  const state = createEmptyCoworkSessionState();
+  upsertPendingDirectPivot(state, {
+    familyKey: 'web_search:family:actu broad',
+    query: 'actu du jour',
+    reason: 'tavily_low_relevance',
+    directSourceUrls: [
+      'https://www.reuters.com/world/',
+      'https://www.bbc.com/news',
+      'https://www.aljazeera.com/news/'
+    ]
+  });
+
+  const enforcedPivot = getPendingDirectPivotForSearch(state, 'web_search:family:autre angle', { strictTask: true });
+  assert.ok(enforcedPivot);
+  assert.equal(getNextPendingDirectPivotUrl(enforcedPivot), 'https://www.reuters.com/world/');
+
+  markPendingDirectPivotHostAttempt(state, 'https://www.reuters.com/world/middle-east/test-article');
+  const rotatedPivot = getPendingDirectPivotForSearch(state, 'web_search:family:autre angle', { strictTask: true });
+  assert.ok(rotatedPivot);
+  assert.equal(getNextPendingDirectPivotUrl(rotatedPivot), 'https://www.bbc.com/news');
+  assert.ok(buildPendingDirectPivotMessage(rotatedPivot!, 'actu du jour').includes('https://www.bbc.com/news'));
+}
+
+{
+  const pivot = {
+    familyKey: 'web_search:family:actu broad',
+    query: 'actu du jour',
+    reason: 'tavily_low_relevance',
+    directSourceUrls: ['https://www.reuters.com/world/', 'https://www.bbc.com/news'],
+    attemptedHosts: [],
+  };
+  const fingerprintBefore = buildCoworkProgressFingerprint({
+    executionMode: 'research_loop',
+    research: { webSearches: 0, webFetches: 0 },
+    validatedSourceCount: 0,
+    activePdfDraft: null,
+    latestApprovedPdfReviewSignature: null,
+    latestCreatedArtifactPath: null,
+    latestReleasedFileUrl: null,
+    phase: 'research',
+    modelTaskComplete: false,
+    effectiveTaskComplete: false,
+    pendingFinalAnswer: false,
+    blockers: [{
+      code: 'strict_source_missing',
+      message: 'Une source valide manque.',
+      hard: true,
+    }],
+    pendingDirectPivots: {
+      [pivot.familyKey]: pivot,
+    },
+  });
+
+  const fingerprintAfter = buildCoworkProgressFingerprint({
+    executionMode: 'research_loop',
+    research: { webSearches: 0, webFetches: 0 },
+    validatedSourceCount: 0,
+    activePdfDraft: null,
+    latestApprovedPdfReviewSignature: null,
+    latestCreatedArtifactPath: null,
+    latestReleasedFileUrl: null,
+    phase: 'research',
+    modelTaskComplete: false,
+    effectiveTaskComplete: false,
+    pendingFinalAnswer: false,
+    blockers: [{
+      code: 'strict_source_missing',
+      message: 'Une source valide manque.',
+      hard: true,
+    }],
+    pendingDirectPivots: {
+      [pivot.familyKey]: {
+        ...pivot,
+        attemptedHosts: ['reuters.com'],
+      },
+    },
+  });
+
+  assert.notEqual(fingerprintBefore, fingerprintAfter);
+}
+
+{
+  const state = createEmptyCoworkSessionState();
+  state.blockers = [{
+    code: 'strict_source_missing',
+    message: "Au moins une preuve solide lue via 'web_fetch' avec qualite 'full' est obligatoire avant de conclure.",
+    hard: true,
+  }];
+  upsertPendingDirectPivot(state, {
+    familyKey: 'web_search:family:actu broad',
+    query: 'actu du jour',
+    reason: 'tavily_low_relevance',
+    directSourceUrls: ['https://www.reuters.com/world/'],
+    attemptedHosts: ['reuters.com'],
+  });
+
+  const prompt = buildCoworkBlockedUserReplyPrompt({
+    originalMessage: 'fais moi un pdf sur l actu du jour',
+    requestClock,
+    state,
+    research: { ...baseResearch, degradedSearches: 2, blockedQueryFamilies: 1 },
+    stopReason: 'Cowork tourne sans progres concret.',
+  });
+
+  assert.ok(prompt.includes('fais moi un pdf sur l actu du jour'));
+  assert.ok(!prompt.includes("La tache n'est pas encore complete."));
+  assert.ok(!prompt.includes('Etat backend:'));
+  assert.ok(!prompt.includes('Bloquants a lever:'));
 }
 
 {

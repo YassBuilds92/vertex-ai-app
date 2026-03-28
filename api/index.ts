@@ -2,12 +2,7 @@ import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { createHash, randomUUID } from 'crypto';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
-import { Storage } from '@google-cloud/storage';
-import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import PDFDocument from 'pdfkit';
 import {
@@ -28,242 +23,41 @@ import {
   type LatexCompileFailure,
   type LatexProvider,
 } from '../server/pdf/latex.js';
+import {
+  allowPublicSearchFallbacks,
+  COWORK_DEBUG_REASONING,
+  LEGACY_COWORK_SYSTEM_INSTRUCTION,
+  LONG_CONTEXT_THRESHOLD_TOKENS,
+  MAX_ACTIVITY_ITEMS,
+  MAX_PAYLOAD,
+  MAX_PREVIEW_CHARS,
+  MAX_WEB_FETCH_CHARS,
+  MODEL_PRICING_USD_PER_1M,
+  normalizeConfiguredModelId,
+  PORT,
+  USD_TO_EUR_RATE,
+} from './lib/config.js';
+import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './lib/google-genai.js';
+import { log } from './lib/logger.js';
+import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from './lib/path-utils.js';
+import { ChatRefineSchema, ChatSchema, ImageGenRequestSchema, UploadSchema, VideoGenSchema } from './lib/schemas.js';
+import { getServiceAccountEmail, uploadToGCS } from './lib/storage.js';
 
-// ─── Constants & Setup ──────────────────────────────────────────
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PORT = parseInt(process.env.PORT || '3000', 10);
-const MAX_PAYLOAD = '50mb';
-
-function envFlagEnabled(value?: string): boolean {
-  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
-}
-
-function allowPublicSearchFallbacks(): boolean {
-  return envFlagEnabled(process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS);
-}
-
+// â”€â”€â”€ Constants & Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const app = express();
 export default app; // For Vercel
 
-// ─── Rate Limiting ──────────────────────────────────────────────
+// â”€â”€â”€ Rate Limiting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Trop de requêtes, veuillez réessayer plus tard." }
+  message: { error: "Trop de requÃªtes, veuillez rÃ©essayer plus tard." }
 });
 
 app.use('/api/', apiLimiter);
 app.use('/status', apiLimiter);
-
-// ─── Validation Schemas ─────────────────────────────────────────
-const ChatRefineSchema = z.object({
-  prompt: z.string(),
-  type: z.enum(['system', 'icon']).optional(),
-});
-
-const ImageGenSchema = z.object({
-  prompt: z.string(),
-  aspectRatio: z.string().optional(),
-  imageSize: z.string().optional(),
-  numberOfImages: z.number().optional(),
-  personGeneration: z.string().optional(),
-  safetySetting: z.string().optional(),
-});
-
-const VideoGenSchema = z.object({
-  prompt: z.string(),
-  videoResolution: z.string().optional(),
-  videoAspectRatio: z.string().optional(),
-  videoDurationSeconds: z.number().optional(),
-});
-
-const ChatSchema = z.object({
-  message: z.string(),
-  sessionId: z.string().optional(),
-  history: z.array(z.object({
-    role: z.enum(['user', 'model']),
-    parts: z.array(z.object({
-      text: z.string().optional(),
-      inlineData: z.object({
-        mimeType: z.string(),
-        data: z.string(),
-      }).optional(),
-      fileData: z.object({
-        mimeType: z.string(),
-        fileUri: z.string(),
-      }).optional(),
-    })),
-  })),
-  config: z.object({
-    model: z.string(),
-    temperature: z.number(),
-    topP: z.number(),
-    topK: z.number(),
-    maxOutputTokens: z.number().optional().nullable(),
-    systemInstruction: z.string().optional(),
-    googleSearch: z.boolean().optional(),
-    googleMaps: z.boolean().optional(),
-    codeExecution: z.boolean().optional(),
-    urlContext: z.boolean().optional(),
-    structuredOutputs: z.boolean().optional(),
-    thinkingLevel: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
-    maxThoughtTokens: z.number().optional(),
-    presencePenalty: z.number().optional(),
-    frequencyPenalty: z.number().optional(),
-    responseMimeType: z.enum(['text/plain', 'application/json']).optional(),
-    stopSequences: z.array(z.string()).optional(),
-  }),
-  attachments: z.array(z.any()).optional(),
-  refinedSystemInstruction: z.string().nullable().optional(),
-  clientContext: z.object({
-    locale: z.string().optional(),
-    timeZone: z.string().optional(),
-    nowIso: z.string().optional().nullable(),
-  }).optional(),
-});
-
-// ─── Logging Helper ─────────────────────────────────────────────
-const log = {
-  info: (msg: string, meta?: any) => console.log(`[${new Date().toISOString()}] INFO  ${msg}`, meta ? JSON.stringify(meta) : ''),
-  success: (msg: string) => console.log(`[${new Date().toISOString()}] OK ${msg}`),
-  warn: (msg: string, meta?: any) => console.warn(`[${new Date().toISOString()}] WARN  ${msg}`, meta ? JSON.stringify(meta) : ''),
-  debug: (msg: string, meta?: any) => console.debug(`[${new Date().toISOString()}] DEBUG ${msg}`, meta ? JSON.stringify(meta) : ''),
-  error: (msg: string, err?: any) => console.error(`[${new Date().toISOString()}] ERROR ${msg}`, err instanceof Error ? err.message : err ?? ''),
-};
-
-// ─── State ──────────────────────────────────────────────────────
-let gcpCredentials: any = null;
-let storage: Storage | null = null;
-let serviceAccountEmail: string | null = null;
-
-try {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    gcpCredentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-    storage = new Storage({ credentials: gcpCredentials });
-    serviceAccountEmail = gcpCredentials.client_email || null;
-    log.success(`GCP SDKs initialized (${serviceAccountEmail})`);
-  }
-} catch (error) {
-  log.error('Failed to initialize GCP SDKs', error);
-}
-
-const BUCKET_NAME = 'videosss92';
-
-async function uploadToGCS(buffer: Buffer, fileName: string, contentType: string): Promise<string> {
-  if (!storage) throw new Error("Storage non configuré");
-  const bucket = storage.bucket(BUCKET_NAME);
-  const file = bucket.file(`uploaded/${fileName}`);
-  
-  await file.save(buffer, {
-    metadata: { contentType },
-  });
-
-  // Generate a signed URL that lasts for 7 days
-  const [url] = await file.getSignedUrl({
-    action: 'read',
-    expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
-  });
-
-  return url;
-}
-
-// ─── Path Helpers ──────────────────────────────────────────────
-const ALLOWED_ROOTS = [
-  path.normalize(process.cwd()),
-  path.normalize('/tmp'),
-  path.normalize(os.tmpdir())
-];
-
-function resolveAndValidatePath(filePath: string): string {
-  // If path is absolute, check it against allowed roots
-  if (path.isAbsolute(filePath)) {
-    const absolute = path.normalize(filePath);
-    if (ALLOWED_ROOTS.some(root => absolute.startsWith(root))) return absolute;
-    throw new Error("Accès refusé : chemin en dehors des zones autorisées.");
-  }
-
-  // Fallback for Vercel: prioritize relative paths in /tmp if project is likely read-only
-  if (process.env.VERCEL) {
-    const tmpPath = path.resolve('/tmp', filePath);
-    // Ensure we don't escape /tmp
-    if (tmpPath.startsWith('/tmp') || tmpPath.startsWith(path.normalize('/tmp'))) return tmpPath;
-  }
-
-  // If path is relative, try resolving against process.cwd()
-  const projectPath = path.resolve(process.cwd(), filePath);
-  if (projectPath.startsWith(process.cwd())) return projectPath;
-
-  throw new Error("Accès refusé hors du projet.");
-}
-
-function getMimeType(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  const mimes: Record<string, string> = {
-    '.pdf': 'application/pdf',
-    '.txt': 'text/plain',
-    '.md': 'text/markdown',
-    '.html': 'text/html',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.csv': 'text/csv',
-    '.json': 'application/json',
-  };
-  return mimes[ext] || 'application/octet-stream';
-}
-
-function estimatePdfPageCount(buffer: Buffer): number {
-  const matches = buffer.toString('latin1').match(/\/Type\s*\/Page\b/g);
-  return Math.max(1, matches?.length || 0);
-}
-
-const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as acces a des outils pour accomplir des taches complexes. Analyse, propose et execute.";
-const MAX_PREVIEW_CHARS = 420;
-const MAX_ACTIVITY_ITEMS = 80;
-const MAX_WEB_FETCH_CHARS = 7000;
-const LONG_CONTEXT_THRESHOLD_TOKENS = 200_000;
-const USD_TO_EUR_RATE = 0.866626; // ECB reference rate on 2026-03-26: 1 EUR = 1.1539 USD.
-const COWORK_DEBUG_REASONING = process.env.COWORK_DEBUG_REASONING === '1';
-
-const MODEL_PRICING_USD_PER_1M: Record<string, {
-  input: { standard: number; longContext: number };
-  output: { standard: number; longContext: number };
-}> = {
-  'gemini-3.1-pro-preview': {
-    input: { standard: 2, longContext: 4 },
-    output: { standard: 12, longContext: 18 }
-  },
-  'gemini-3.1-flash-lite-preview': {
-    input: { standard: 0.25, longContext: 0.25 },
-    output: { standard: 1.5, longContext: 1.5 }
-  },
-  'gemini-3-flash-preview': {
-    input: { standard: 0.5, longContext: 0.5 },
-    output: { standard: 3, longContext: 3 }
-  },
-  'gemini-3-pro-preview': {
-    input: { standard: 2, longContext: 4 },
-    output: { standard: 12, longContext: 18 }
-  }
-};
-
-const GEMINI_MODEL_ALIASES: Record<string, string> = {
-  'gemini-3.1-pro': 'gemini-3.1-pro-preview',
-  'gemini-3.1-flash': 'gemini-3.1-flash-lite-preview',
-  'gemini-3-pro': 'gemini-3-pro-preview',
-  'gemini-3-flash': 'gemini-3-flash-preview',
-};
-
-function normalizeConfiguredModelId(modelId?: string | null, fallback = 'gemini-3.1-pro-preview'): string {
-  const raw = String(modelId || '').trim();
-  if (!raw) return fallback;
-  const upgradedLegacy = raw.includes('gemini-1.5') ? raw.replace('1.5', '3.1') : raw;
-  return GEMINI_MODEL_ALIASES[upgradedLegacy] || upgradedLegacy;
-}
 
 type ClientContext = {
   locale?: string;
@@ -418,22 +212,6 @@ type UsageTotals = {
   thoughtTokens: number;
   toolUseTokens: number;
   totalTokens: number;
-};
-
-type RetryKind = 'quota' | 'concurrency' | 'server';
-
-type RetryOptions = {
-  maxRetries?: number;
-  baseDelayMs?: number;
-  exactDelaysMs?: number[];
-  jitter?: boolean;
-  onRetry?: (context: {
-    attempt: number;
-    maxRetries: number;
-    delayMs: number;
-    kind: RetryKind;
-    message: string;
-  }) => void | Promise<void>;
 };
 
 type CoworkRunGate = {
@@ -778,7 +556,7 @@ ${requestClock
 - Demande creative pure: pas d'outil, tu reflechis en interne puis tu livres directement un bon texte.
 - Demande creative ancree dans le reel: tu te documentes d'abord, tu lis assez de matiere, puis tu ecris ou tu bloques honnetement.
 - Demande latest/docs/version: tu cherches, tu lis la doc ou la source officielle utile, puis tu resumes sans sur-vendre une recherche faible.
-- Demande PDF/artefact: tu prepares le contenu utile, tu crées l'artefact, tu le publies, puis tu livres le lien.
+- Demande PDF/artefact: tu prepares le contenu utile, tu crÃ©es l'artefact, tu le publies, puis tu livres le lien.
 ${requestSpecificDirectives.length > 0 ? `\n### SIGNALS POUR CETTE DEMANDE\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
@@ -1018,7 +796,7 @@ function requestIsPureCreativeComposition(message: string): boolean {
 function requestIsArtifactRefinement(message: string): boolean {
   if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
-  return /\b(esthetique|esthétique|plus beau|plus belle|plus joli|plus jolie|design|mise en page|mise en forme|style|stylise|styliser|relooker|relook|ameliore le rendu|ameliorer le rendu|meilleur rendu|beau rendu|beaux rendus|beaute|visuel|visuellement|page par|une page par|chaque page|chaque actu|theme par|couleur|couleurs|coloré|magazine|professionnel|premium|luxe|sublime|sophistique|reformat|reformater|reformate|refais le pdf|refaire le pdf|change le look|changer le look|plus pro|plus classe|plus clean|mieux presente|mieux presenté)\b/.test(normalized);
+  return /\b(esthetique|esthÃ©tique|plus beau|plus belle|plus joli|plus jolie|design|mise en page|mise en forme|style|stylise|styliser|relooker|relook|ameliore le rendu|ameliorer le rendu|meilleur rendu|beau rendu|beaux rendus|beaute|visuel|visuellement|page par|une page par|chaque page|chaque actu|theme par|couleur|couleurs|colorÃ©|magazine|professionnel|premium|luxe|sublime|sophistique|reformat|reformater|reformate|refais le pdf|refaire le pdf|change le look|changer le look|plus pro|plus classe|plus clean|mieux presente|mieux presentÃ©)\b/.test(normalized);
 }
 
 function historyContainsRecentPdfDelivery(history: Array<{ role: string; parts: Array<{ text?: string }> }>): { found: boolean; lastModelText: string | null } {
@@ -1026,7 +804,7 @@ function historyContainsRecentPdfDelivery(history: Array<{ role: string; parts: 
     const msg = history[i];
     if (msg.role !== 'model') continue;
     const text = msg.parts?.map(p => p.text || '').join('') || '';
-    if (/storage\.googleapis\.com.*\.pdf|\.pdf.*[Tt]elecharger|[Tt]élécharger.*\.pdf|release_file|Rapport.*Actualit/i.test(text)) {
+    if (/storage\.googleapis\.com.*\.pdf|\.pdf.*[Tt]elecharger|[Tt]Ã©lÃ©charger.*\.pdf|release_file|Rapport.*Actualit/i.test(text)) {
       return { found: true, lastModelText: text };
     }
     if (i < history.length - 4) break;
@@ -1242,7 +1020,7 @@ function requestNeedsPremiumLatexPdf(message: string, pdfQualityTargets: PdfQual
     if (pdfQualityTargets && pdfQualityTargets.minWords >= 900) return true;
     if (requestNeedsLongFormPdf(message) || requestNeedsExternalGrounding(message)) return true;
   }
-  return /\b(pdf|rapport|magazine|news|journal|mise en page|beau|belle|premium|editorial|sublime|soigne|creatif|créatif|theme|th[eè]me|latex)\b/.test(normalized);
+  return /\b(pdf|rapport|magazine|news|journal|mise en page|beau|belle|premium|editorial|sublime|soigne|creatif|crÃ©atif|theme|th[eÃ¨]me|latex)\b/.test(normalized);
 }
 
 function resolvePdfEngine(
@@ -1709,7 +1487,7 @@ function finalizePdfDraftReview(input: {
 
   return {
     success: true,
-    ready: true, // Toujours pret — le modele decide s'il veut ameliorer
+    ready: true, // Toujours pret â€” le modele decide s'il veut ameliorer
     score,
     signature: input.signature,
     engine: input.engine || 'pdfkit',
@@ -1822,7 +1600,7 @@ function normalizeHexColor(value: string | undefined, fallback = '#0f766e'): str
   return fallback;
 }
 
-const MONTH_NAME_PATTERN = '(?:janvier|fevrier|février|mars|avril|mai|juin|juillet|aout|août|septembre|octobre|novembre|decembre|décembre|january|february|march|april|may|june|july|august|september|october|november|december)';
+const MONTH_NAME_PATTERN = '(?:janvier|fevrier|fÃ©vrier|mars|avril|mai|juin|juillet|aout|aoÃ»t|septembre|octobre|novembre|decembre|dÃ©cembre|january|february|march|april|may|june|july|august|september|october|november|december)';
 
 function queryContainsExplicitDate(query: string): boolean {
   return new RegExp(`\\b\\d{1,2}\\s+${MONTH_NAME_PATTERN}\\s+\\d{4}\\b`, 'i').test(query)
@@ -2125,9 +1903,9 @@ async function renderPdfArtifact(options: {
           flushParagraph();
           continue;
         }
-        if (/^(?:[-*]\s+|â€¢\s+)/.test(line)) {
+        if (/^(?:[-*]\s+|Ã¢â‚¬Â¢\s+)/.test(line)) {
           flushParagraph();
-          renderBullet(line.replace(/^(?:[-*]\s+|â€¢\s+)/, ''));
+          renderBullet(line.replace(/^(?:[-*]\s+|Ã¢â‚¬Â¢\s+)/, ''));
           continue;
         }
         paragraphBuffer.push(line);
@@ -4253,7 +4031,7 @@ async function fetchReadableUrl(url: string, contextQuery?: string) {
   };
 }
 
-// ─── Middleware ──────────────────────────────────────────────────
+// â”€â”€â”€ Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type MusicLookupOptions = {
   artistQuery: string;
   ownedTracks?: string[];
@@ -4340,11 +4118,11 @@ function cleanMusicTitleCandidate(value: string, aliases: string[] = []): string
   }
 
   cleaned = cleaned
-    .replace(/\s*[-–]\s*(single|ep|album)\s*$/i, '')
+    .replace(/\s*[-â€“]\s*(single|ep|album)\s*$/i, '')
     .replace(/\s*\((official|clip officiel|audio officiel|visualizer)[^)]+\)\s*$/i, '')
     .replace(/\s*\[(official|clip officiel|audio officiel|visualizer)[^\]]+\]\s*$/i, '')
     .replace(/\s*\|\s*(official|clip officiel|audio officiel|visualizer).*/i, '')
-    .replace(/^[`"'“”]+|[`"'“”]+$/g, '')
+    .replace(/^[`"'â€œâ€]+|[`"'â€œâ€]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -4360,7 +4138,7 @@ function normalizeTrackKey(value: string, aliases: string[] = []): string {
   return normalized
     .replace(/\((feat|ft|featuring|avec)[^)]+\)/g, ' ')
     .replace(/\b(feat|ft|featuring|avec)\.?\s+[a-z0-9\s&'.,-]+$/g, ' ')
-    .replace(/\s*[-–]\s*(single|ep|album)\b/g, ' ')
+    .replace(/\s*[-â€“]\s*(single|ep|album)\b/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -4405,7 +4183,7 @@ function pushMusicSource(sources: MusicCatalogSource[], url: string, kind?: Musi
 
 function parseAppleMusicArtistPage(page: ReadablePage, aliases: string[]) {
   const raw = page.rawContent.replace(/\r/g, '');
-  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[–-]\s+Apple Music/mu);
+  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[â€“-]\s+Apple Music/mu);
   const resolvedArtist = cleanMusicTitleCandidate(headerMatch?.[1] || '', aliases);
 
   const topTracks = new Map<string, string>();
@@ -4479,7 +4257,7 @@ function parseAppleMusicSearchPage(page: ReadablePage, artistQuery: string) {
 
 function parseAppleMusicAlbumPage(page: ReadablePage, aliases: string[]) {
   const raw = page.rawContent.replace(/\r/g, '');
-  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[–-]\s+Album\b/mu);
+  const headerMatch = raw.match(/^#\s*[^\S\r\n]*[^\p{L}\p{N}]*(.+?)\s+[â€“-]\s+Album\b/mu);
   const albumTitle = cleanMusicTitleCandidate(headerMatch?.[1] || '', aliases);
   const tracks = new Map<string, string>();
 
@@ -4518,7 +4296,7 @@ function extractOwnedTracksFromMessage(message: string, artistQuery: string): st
   if (!message.trim()) return [];
 
   const candidates: string[] = [];
-  const quotedRegex = /["“”'`](.{2,80}?)["“”'`]/g;
+  const quotedRegex = /["â€œâ€'`](.{2,80}?)["â€œâ€'`]/g;
   let quotedMatch: RegExpExecArray | null;
   while ((quotedMatch = quotedRegex.exec(message))) {
     candidates.push(quotedMatch[1]);
@@ -4533,7 +4311,7 @@ function extractOwnedTracksFromMessage(message: string, artistQuery: string): st
 
   for (const piece of splitPieces) {
     let candidate = piece
-      .replace(/^.*?\b(j['’ ]?ai|je possede|je possede deja|je l'ai|je l ai)\b/i, '')
+      .replace(/^.*?\b(j['â€™ ]?ai|je possede|je possede deja|je l'ai|je l ai)\b/i, '')
       .replace(/\b(le|les|son|sons|titre|titres|track|tracks|morceau|morceaux|chanson|chansons)\b/gi, ' ')
       .replace(/\b(dis moi|dis-moi|je les veux tous|je veux tous|tout ce qu[ei]'?l me manque|ceux qu[ei]'?l me manque)\b.*$/i, '')
       .replace(/\s+/g, ' ')
@@ -4822,7 +4600,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── Authentication ──────────────────────────────────────────────
+// â”€â”€â”€ Authentication â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const COOKIE_NAME = 'site_access_token';
 const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const SITE_PASSWORD = process.env.SITE_PASSWORD;
@@ -4850,148 +4628,10 @@ app.post('/api/login', (req, res) => {
     res.setHeader('Set-Cookie', `${COOKIE_NAME}=${password}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
     return res.json({ success: true });
   }
-  res.status(401).json({ error: 'Refusé' });
+  res.status(401).json({ error: 'RefusÃ©' });
 });
 
-// ─── Helpers ────────────────────────────────────────────────────
-function getVertexConfig() {
-  const projectId = process.env.VERTEX_PROJECT_ID;
-  const location = process.env.VERTEX_LOCATION;
-  return { isConfigured: !!(projectId && location), projectId, location };
-}
-
-/**
- * Parses raw error messages from the Google GenAI SDK (often stringified JSON)
- * into a cleaner, human-readable format.
- */
-function parseApiError(error: any): string {
-  const errStr = String(error);
-  if (errStr.includes('ApiError:')) {
-    try {
-      const jsonStart = errStr.indexOf('{');
-      if (jsonStart !== -1) {
-        const jsonPart = errStr.substring(jsonStart);
-        const parsed = JSON.parse(jsonPart);
-        if (parsed.error && parsed.error.message) {
-          let msg = parsed.error.message;
-          if (parsed.error.code === 429 || parsed.error.status === "RESOURCE_EXHAUSTED") {
-            msg = "Quota dépassé (429). Trop de demandes simultanées ou limite quotidienne atteinte. Réessayez dans quelques minutes.";
-          }
-          return msg;
-        }
-      }
-    } catch (e) {
-      log.debug("Failed to parse ApiError JSON", e);
-    }
-  }
-  return errStr;
-}
-
-/**
- * Classifies transient API failures so the retry policy can react differently to
- * quota saturation, simultaneous requests, and generic upstream hiccups.
- */
-function classifyRetryableError(error: any): { retryable: boolean; kind: RetryKind; message: string } {
-  const cleanMessage = parseApiError(error);
-  const normalized = `${String(error)} ${cleanMessage}`.toLowerCase();
-
-  const isQuotaLike =
-    normalized.includes('429')
-    || normalized.includes('resource_exhausted')
-    || normalized.includes('too many requests');
-  const isConcurrencyLike =
-    normalized.includes('simultan')
-    || normalized.includes('concurrent')
-    || normalized.includes('parallel')
-    || normalized.includes('too many simultaneous');
-  const isServerLike =
-    normalized.includes('503')
-    || normalized.includes('unavailable')
-    || normalized.includes('temporarily')
-    || normalized.includes('deadline exceeded');
-
-  if (!(isQuotaLike || isConcurrencyLike || isServerLike)) {
-    return { retryable: false, kind: 'server', message: cleanMessage };
-  }
-
-  if (isConcurrencyLike) {
-    return { retryable: true, kind: 'concurrency', message: cleanMessage };
-  }
-  if (isServerLike && !isQuotaLike) {
-    return { retryable: true, kind: 'server', message: cleanMessage };
-  }
-  return { retryable: true, kind: 'quota', message: cleanMessage };
-}
-
-/**
- * Intelligent retry with exponential backoff + jitter for transient quota,
- * concurrency, and upstream availability failures.
- */
-async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
-  const maxRetries = options.maxRetries ?? 3;
-  const baseDelayMs = options.baseDelayMs ?? 1000;
-  const exactDelaysMs = options.exactDelaysMs;
-  const useJitter = options.jitter !== false;
-  let lastError: any;
-
-  for (let i = 0; i <= maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (error: any) {
-      lastError = error;
-      const classified = classifyRetryableError(error);
-
-      if (classified.retryable && i < maxRetries) {
-        const multiplier = classified.kind === 'concurrency' ? 2.5 : classified.kind === 'server' ? 1.5 : 1;
-        const exponentialDelay = exactDelaysMs?.[i] ?? (baseDelayMs * multiplier * Math.pow(2, i));
-        const jitter = useJitter
-          ? Math.floor(Math.random() * Math.min(1200, exponentialDelay * 0.35))
-          : 0;
-        const delayMs = Math.min(16_000, Math.round(exponentialDelay + jitter));
-
-        log.warn(`Transient ${classified.kind} failure. Retrying in ${delayMs}ms... (Attempt ${i + 1}/${maxRetries})`, {
-          message: classified.message
-        });
-
-        await options.onRetry?.({
-          attempt: i + 1,
-          maxRetries,
-          delayMs,
-          kind: classified.kind,
-          message: classified.message
-        });
-
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw lastError;
-}
-
-function createGoogleAI(modelId?: string): GoogleGenAI {
-  const { projectId, location: envLocation } = getVertexConfig();
-  if (!projectId || !envLocation) throw new Error('Vertex AI non configuré');
-
-  // Use 'global' for preview and 3.1 models
-  let finalLocation = envLocation;
-  if (modelId && (modelId.includes('preview') || modelId.includes('3.1') || modelId.includes('3-flash') || modelId.includes('image'))) {
-    finalLocation = 'global';
-  }
-
-  const options: any = {
-    vertexai: true,
-    project: projectId,
-    location: finalLocation,
-  };
-  if (gcpCredentials) {
-    options.googleAuthOptions = { credentials: gcpCredentials };
-  }
-  return new GoogleGenAI(options);
-}
-
-// ─── Routes ─────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/status', (_req, res) => {
   const config = getVertexConfig();
   const latexProvider = normalizeLatexProvider(process.env.LATEX_RENDER_PROVIDER);
@@ -5003,13 +4643,13 @@ app.get('/api/status', (_req, res) => {
       baseUrl: resolveLatexProviderBaseUrl(latexProvider, process.env.LATEX_RENDER_BASE_URL),
       timeoutMs: Number(process.env.LATEX_RENDER_TIMEOUT_MS || 30000),
     },
-    serviceAccount: serviceAccountEmail,
+    serviceAccount: getServiceAccountEmail(),
     envKeys: Object.keys(process.env).filter(k => ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS_JSON', 'LATEX_RENDER_PROVIDER', 'LATEX_RENDER_BASE_URL', 'LATEX_RENDER_TIMEOUT_MS'].includes(k))
   });
 });
 
-const REFINER_SYSTEM_PROMPT = `Optimise l'instruction système suivante pour un modèle IA puissant. Sois concis.`;
-const ICON_PROMPT_SYSTEM_PROMPT = `Génère un prompt d'image pour un logo minimaliste représentant ce rôle IA.`;
+const REFINER_SYSTEM_PROMPT = `Optimise l'instruction systÃ¨me suivante pour un modÃ¨le IA puissant. Sois concis.`;
+const ICON_PROMPT_SYSTEM_PROMPT = `GÃ©nÃ¨re un prompt d'image pour un logo minimaliste reprÃ©sentant ce rÃ´le IA.`;
 
 app.post('/api/refine', async (req, res) => {
   try {
@@ -5031,16 +4671,13 @@ app.post('/api/refine', async (req, res) => {
   } catch (error) {
     const cleanError = parseApiError(error);
     log.error("Refine error", cleanError);
-    res.status(500).json({ error: "Refine failed", message: "Échec de l'optimisation", details: cleanError });
+    res.status(500).json({ error: "Refine failed", message: "Ã‰chec de l'optimisation", details: cleanError });
   }
 });
 
 app.post('/api/generate-image', async (req, res) => {
   try {
-    const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel } = ImageGenSchema.extend({
-      model: z.string().optional(),
-      thinkingLevel: z.string().optional()
-    }).parse(req.body);
+    const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel } = ImageGenRequestSchema.parse(req.body);
 
     const modelId = req.body.model || "gemini-2.5-flash-image";
     log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { modelId, aspectRatio, numberOfImages });
@@ -5072,7 +4709,7 @@ app.post('/api/generate-image', async (req, res) => {
 
     if (!result.candidates || result.candidates.length === 0) {
       log.error("Image generation failed - no candidates", result);
-      throw new Error("Le modèle n'a pas généré d'image (possible blocage de sécurité ou quota).");
+      throw new Error("Le modÃ¨le n'a pas gÃ©nÃ©rÃ© d'image (possible blocage de sÃ©curitÃ© ou quota).");
     }
 
     const part = result.candidates[0].content?.parts?.find((p: any) => p.inlineData);
@@ -5080,7 +4717,7 @@ app.post('/api/generate-image', async (req, res) => {
 
     if (!base64) {
       log.error("No base64 data found in candidates", result.candidates[0]);
-      throw new Error("Aucune donnée d'image (base64) n'a été trouvée dans la réponse.");
+      throw new Error("Aucune donnÃ©e d'image (base64) n'a Ã©tÃ© trouvÃ©e dans la rÃ©ponse.");
     }
 
     const buffer = Buffer.from(base64, 'base64');
@@ -5093,7 +4730,7 @@ app.post('/api/generate-image', async (req, res) => {
     log.error("Image gen error", cleanError);
     res.status(500).json({ 
       error: "Image failed", 
-      message: "Échec de la génération d'image",
+      message: "Ã‰chec de la gÃ©nÃ©ration d'image",
       details: cleanError 
     });
   }
@@ -5102,7 +4739,7 @@ app.post('/api/generate-image', async (req, res) => {
 app.post('/api/generate-video', async (req, res) => {
   try {
     const { prompt, videoResolution, videoAspectRatio, videoDurationSeconds } = VideoGenSchema.parse(req.body);
-    res.status(501).json({ error: "Non implémenté", message: "La génération vidéo Veo nécessite une configuration GCS spécifique." });
+    res.status(501).json({ error: "Non implÃ©mentÃ©", message: "La gÃ©nÃ©ration vidÃ©o Veo nÃ©cessite une configuration GCS spÃ©cifique." });
   } catch (error) {
     res.status(500).json({ error: "Video failed", message: String(error) });
   }
@@ -5117,7 +4754,7 @@ app.get('/api/metadata', async (req, res) => {
     const response = await fetch(url);
     const html = await response.text();
     const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-    let title = titleMatch ? titleMatch[1] : "Vidéo YouTube";
+    let title = titleMatch ? titleMatch[1] : "VidÃ©o YouTube";
     
     // Clean up title (remove " - YouTube")
     title = title.replace(/ - YouTube$/i, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
@@ -5131,11 +4768,7 @@ app.get('/api/metadata', async (req, res) => {
 
 app.post('/api/upload', async (req, res) => {
   try {
-    const { base64, fileName, mimeType } = z.object({
-      base64: z.string(),
-      fileName: z.string(),
-      mimeType: z.string()
-    }).parse(req.body);
+    const { base64, fileName, mimeType } = UploadSchema.parse(req.body);
 
     const pureBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
     const buffer = Buffer.from(pureBase64, 'base64');
@@ -5203,7 +4836,7 @@ app.post('/api/chat', async (req, res) => {
       if (candidates?.[0]?.finishReason && candidates[0].finishReason !== 'STOP' && candidates[0].finishReason !== 'FINISH_REASON_UNSPECIFIED') {
         log.warn(`Stream finished with reason: ${candidates[0].finishReason}`, { model: modelId });
         if (candidates[0].finishReason === 'MAX_TOKENS') {
-          res.write(`data: ${JSON.stringify({ error: "Limite de tokens atteinte. La réponse est peut-être incomplète." })}\n\n`);
+          res.write(`data: ${JSON.stringify({ error: "Limite de tokens atteinte. La rÃ©ponse est peut-Ãªtre incomplÃ¨te." })}\n\n`);
         }
       }
 
@@ -5650,11 +5283,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "list_files",
-        description: "Liste les fichiers et dossiers dans un répertoire spécifique (par défaut la racine).",
+        description: "Liste les fichiers et dossiers dans un rÃ©pertoire spÃ©cifique (par dÃ©faut la racine).",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin relatif ou absolu du dossier à lister (ex: /tmp/)." }
+            path: { type: "string", description: "Chemin relatif ou absolu du dossier Ã  lister (ex: /tmp/)." }
           }
         },
         execute: ({ path: folderPath }: { path?: string }) => {
@@ -5667,11 +5300,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "read_file",
-        description: "Lit le contenu d'un fichier texte spécifique du projet.",
+        description: "Lit le contenu d'un fichier texte spÃ©cifique du projet.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin relatif du fichier à lire." }
+            path: { type: "string", description: "Chemin relatif du fichier Ã  lire." }
           },
           required: ["path"]
         },
@@ -5680,17 +5313,17 @@ app.post('/api/cowork', async (req, res) => {
           if (!fs.existsSync(absolutePath)) throw new Error(`Le fichier ${filePath} n'existe pas.`);
           const content = fs.readFileSync(absolutePath, 'utf-8');
           // Limit content if too large
-          return { content: content.length > 20000 ? content.slice(0, 20000) + "... [tronqué]" : content };
+          return { content: content.length > 20000 ? content.slice(0, 20000) + "... [tronquÃ©]" : content };
         }
       },
       {
         name: "write_file",
-        description: "Crée ou modifie un fichier avec le contenu spécifié.",
+        description: "CrÃ©e ou modifie un fichier avec le contenu spÃ©cifiÃ©.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin relatif du fichier à écrire." },
-            content: { type: "string", description: "Contenu à écrire dans le fichier." }
+            path: { type: "string", description: "Chemin relatif du fichier Ã  Ã©crire." },
+            content: { type: "string", description: "Contenu Ã  Ã©crire dans le fichier." }
           },
           required: ["path", "content"]
         },
@@ -5705,16 +5338,16 @@ app.post('/api/cowork', async (req, res) => {
           const dir = path.dirname(absolutePath);
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
           fs.writeFileSync(absolutePath, content, 'utf-8');
-          return { success: true, message: `Fichier ${filePath} écrit avec succès à l'emplacement : ${absolutePath}` };
+          return { success: true, message: `Fichier ${filePath} Ã©crit avec succÃ¨s Ã  l'emplacement : ${absolutePath}` };
         }
       },
       {
         name: "list_recursive",
-        description: "Liste récursivement tous les fichiers à partir d'un dossier spécifique.",
+        description: "Liste rÃ©cursivement tous les fichiers Ã  partir d'un dossier spÃ©cifique.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Dossier de départ (ex: /tmp/)." }
+            path: { type: "string", description: "Dossier de dÃ©part (ex: /tmp/)." }
           }
         },
         execute: ({ path: folderPath }: { path?: string }) => {
@@ -5904,7 +5537,7 @@ app.post('/api/cowork', async (req, res) => {
             author: { type: "string", description: "Met a jour l'auteur/signataire (optionnel)." },
             engine: { type: "string", description: "Moteur PDF: auto, pdfkit ou latex." },
             compiler: { type: "string", description: "Compilateur LaTeX a utiliser si le moteur vaut 'latex'." },
-            latexSource: { type: "string", description: "Source .tex complete remplaçant le document courant." },
+            latexSource: { type: "string", description: "Source .tex complete remplaÃ§ant le document courant." },
             theme: { type: "string", description: "Theme de mise en page: legal, news ou report." },
             accentColor: { type: "string", description: "Couleur d'accent optionnelle HEX." },
             filename: { type: "string", description: "Nom de base du futur fichier PDF (optionnel)." },
@@ -6258,11 +5891,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "release_file",
-        description: "Upload de façon sécurisée un fichier vers le cloud et génère un lien de téléchargement public (valable 7 jours). À utiliser après avoir créé un fichier (ex: PDF, rapport) que l'utilisateur doit uvoir télécharger.",
+        description: "Upload de faÃ§on sÃ©curisÃ©e un fichier vers le cloud et gÃ©nÃ¨re un lien de tÃ©lÃ©chargement public (valable 7 jours). Ã€ utiliser aprÃ¨s avoir crÃ©Ã© un fichier (ex: PDF, rapport) que l'utilisateur doit uvoir tÃ©lÃ©charger.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin relatif du fichier local à uploader." }
+            path: { type: "string", description: "Chemin relatif du fichier local Ã  uploader." }
           },
           required: ["path"]
         },
@@ -6274,7 +5907,7 @@ app.post('/api/cowork', async (req, res) => {
           const mimeType = getMimeType(filePath);
           log.info(`Releasing file: ${filePath} (${mimeType})`);
           const url = await uploadToGCS(buffer, fileName, mimeType);
-          return { success: true, url, message: `Fichier ${filePath} uploadé avec succès. Voici le lien de téléchargement.` };
+          return { success: true, url, message: `Fichier ${filePath} uploadÃ© avec succÃ¨s. Voici le lien de tÃ©lÃ©chargement.` };
         }
       },
       {
@@ -6648,11 +6281,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_pdf_legacy_unused",
-        description: "Crée un fichier PDF directement. Utilise cet outil pour générer des PDFs au lieu d'écrire un script Python. 'review_pdf_draft' peut servir de passe qualité avant export, mais n'est plus bloquant. Le fichier est créé dans /tmp/.",
+        description: "CrÃ©e un fichier PDF directement. Utilise cet outil pour gÃ©nÃ©rer des PDFs au lieu d'Ã©crire un script Python. 'review_pdf_draft' peut servir de passe qualitÃ© avant export, mais n'est plus bloquant. Le fichier est crÃ©Ã© dans /tmp/.",
         parameters: {
           type: "object",
           properties: {
-            filename: { type: "string", description: "Nom du fichier PDF (ex: rapport.pdf). Sera créé dans /tmp/." },
+            filename: { type: "string", description: "Nom du fichier PDF (ex: rapport.pdf). Sera crÃ©Ã© dans /tmp/." },
             title: { type: "string", description: "Titre principal du document." },
             subtitle: { type: "string", description: "Sous-titre ou chapo du document (optionnel)." },
             summary: { type: "string", description: "Resume executif ou introduction mise en avant (optionnel)." },
@@ -6667,12 +6300,12 @@ app.post('/api/cowork', async (req, res) => {
             showPageNumbers: { type: "boolean", description: "Afficher les numeros de page dans le pied de page." },
             sections: {
               type: "array",
-              description: "Liste de sections du document. Chaque section a un 'heading' optionnel et un 'body' (texte ou liste à puces séparées par \\n).",
+              description: "Liste de sections du document. Chaque section a un 'heading' optionnel et un 'body' (texte ou liste Ã  puces sÃ©parÃ©es par \\n).",
               items: {
                 type: "object",
                 properties: {
                   heading: { type: "string", description: "Titre de la section (optionnel)." },
-                  body: { type: "string", description: "Contenu texte de la section. Utiliser \\n pour les sauts de ligne. Préfixer avec '• ' pour les listes à puces." }
+                  body: { type: "string", description: "Contenu texte de la section. Utiliser \\n pour les sauts de ligne. PrÃ©fixer avec 'â€¢ ' pour les listes Ã  puces." }
                 }
               }
             }
@@ -6892,9 +6525,9 @@ app.post('/api/cowork', async (req, res) => {
                     flushParagraph();
                     continue;
                   }
-                  if (/^(?:[-*]\s+|•\s+)/.test(line)) {
+                  if (/^(?:[-*]\s+|â€¢\s+)/.test(line)) {
                     flushParagraph();
-                    renderBullet(line.replace(/^(?:[-*]\s+|•\s+)/, ''));
+                    renderBullet(line.replace(/^(?:[-*]\s+|â€¢\s+)/, ''));
                     continue;
                   }
                   paragraphBuffer.push(line);
@@ -7238,7 +6871,7 @@ app.post('/api/cowork', async (req, res) => {
                 if (section.body) {
                   const lines = section.body.split('\n');
                   for (const line of lines) {
-                    if (line.trim().startsWith('•') || line.trim().startsWith('-')) {
+                    if (line.trim().startsWith('â€¢') || line.trim().startsWith('-')) {
                       doc.fontSize(11).font('Helvetica').text(line.trim(), { indent: 20 });
                     } else {
                       doc.fontSize(11).font('Helvetica').text(line.trim());
@@ -7249,7 +6882,7 @@ app.post('/api/cowork', async (req, res) => {
               }
 
               // Footer
-              doc.fontSize(8).font('Helvetica-Oblique').text(`Généré par Studio Pro Agent — ${new Date().toLocaleDateString('fr-FR')}`, { align: 'center' });
+              doc.fontSize(8).font('Helvetica-Oblique').text(`GÃ©nÃ©rÃ© par Studio Pro Agent â€” ${new Date().toLocaleDateString('fr-FR')}`, { align: 'center' });
 
               doc.end();
 
@@ -7260,7 +6893,7 @@ app.post('/api/cowork', async (req, res) => {
                   success: true,
                   path: outputPath,
                   ...(reviewSignatureWarning ? { reviewSignatureWarning } : {}),
-                  message: `PDF '${filename}' créé avec succès à ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de téléchargement.`
+                  message: `PDF '${filename}' crÃ©Ã© avec succÃ¨s Ã  ${outputPath}. Utilise maintenant 'release_file' pour obtenir le lien de tÃ©lÃ©chargement.`
                 });
               });
               stream.on('error', (err) => {
@@ -7274,18 +6907,18 @@ app.post('/api/cowork', async (req, res) => {
       },
       ...(executeScriptEnabled ? [{
         name: "execute_script",
-        description: "Exécute un script Node.js préalablement écrit sur le disque. ATTENTION : Seul Node.js est disponible dans cet environnement. Python N'EST PAS installé.",
+        description: "ExÃ©cute un script Node.js prÃ©alablement Ã©crit sur le disque. ATTENTION : Seul Node.js est disponible dans cet environnement. Python N'EST PAS installÃ©.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Chemin du script à exécuter (ex: /tmp/script.js)." },
-            language: { type: "string", enum: ["node"], description: "Le langage du script (seul 'node' est supporté)." }
+            path: { type: "string", description: "Chemin du script Ã  exÃ©cuter (ex: /tmp/script.js)." },
+            language: { type: "string", enum: ["node"], description: "Le langage du script (seul 'node' est supportÃ©)." }
           },
           required: ["path", "language"]
         },
         execute: async ({ path: filePath, language }: { path: string, language: string }) => {
           if (language === 'python') {
-            return { success: false, error: "Python n'est PAS disponible dans cet environnement serveur. Utilise les outils natifs comme 'create_pdf' pour générer des PDFs, ou 'execute_script' avec language='node' pour du JavaScript." };
+            return { success: false, error: "Python n'est PAS disponible dans cet environnement serveur. Utilise les outils natifs comme 'create_pdf' pour gÃ©nÃ©rer des PDFs, ou 'execute_script' avec language='node' pour du JavaScript." };
           }
           const absolutePath = resolveAndValidatePath(filePath);
           if (!fs.existsSync(absolutePath)) throw new Error(`Le script ${filePath} n'existe pas.`);

@@ -154,20 +154,16 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
     iterations: 0,
     modelCalls: 0,
     toolCalls: 0,
-    webSearches: 0,
-    webFetches: 0,
-    validatedSearches: 0,
-    degradedSearches: 0,
-    blockedQueryFamilies: 0,
-    validatedSources: 0,
-    blockerCount: 0,
+    searchCount: 0,
+    fetchCount: 0,
+    sourcesOpened: 0,
+    domainsOpened: 0,
+    artifactState: 'none' as const,
+    stalledTurns: 0,
     retryCount: 0,
     queueWaitMs: 0,
-    executionMode: 'research_loop' as const,
-    publicPhase: 'analysis',
+    mode: 'autonomous' as const,
     phase: 'analysis',
-    completionScore: 0,
-    modelCompletionScore: 0,
     taskComplete: false,
     inputTokens: 0,
     outputTokens: 0,
@@ -177,7 +173,29 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
     estimatedCostUsd: 0,
     estimatedCostEur: 0,
   };
-  const isCompactCowork = Boolean(runMeta.executionMode);
+  const isCompactCowork = Boolean(runMeta.mode);
+  const artifactLabel =
+    runMeta.artifactState === 'released'
+      ? 'Publie'
+      : runMeta.artifactState === 'created'
+        ? 'Cree'
+        : runMeta.artifactState === 'drafting'
+          ? 'Brouillon'
+          : 'Sans artefact';
+  const artifactTone =
+    runMeta.artifactState === 'released'
+      ? 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200'
+      : runMeta.artifactState === 'created'
+        ? 'border-sky-500/20 bg-sky-500/[0.06] text-sky-200'
+        : runMeta.artifactState === 'drafting'
+          ? 'border-indigo-500/20 bg-indigo-500/[0.06] text-indigo-100'
+          : 'border-white/8 bg-white/[0.03] text-[var(--app-text-muted)]';
+  const costLabel =
+    runMeta.estimatedCostEur > 0
+      ? `~€${runMeta.estimatedCostEur < 0.1 ? runMeta.estimatedCostEur.toFixed(3) : runMeta.estimatedCostEur.toFixed(2)}`
+      : runMeta.estimatedCostUsd > 0
+        ? `~$${runMeta.estimatedCostUsd < 0.1 ? runMeta.estimatedCostUsd.toFixed(3) : runMeta.estimatedCostUsd.toFixed(2)}`
+        : null;
   const visibleItems = items.filter((item) => item.kind !== 'tool_call' && (!isCompactCowork || item.kind !== 'reasoning'));
 
   if (items.length === 0 && !live && !msg.runState) return null;
@@ -192,11 +210,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
           </div>
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-sky-500/18 bg-sky-500/[0.05] text-[11px] text-sky-200">
             <BrainCircuit size={12} />
-            {runMeta.publicPhase || runMeta.phase || 'analysis'}
-          </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-500/18 bg-indigo-500/[0.05] text-[11px] text-indigo-100">
-            <Sparkles size={12} />
-            {runMeta.completionScore || 0}% complet
+            {runMeta.phase || 'analysis'}
           </div>
           <div className={cn(
             'inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px]',
@@ -205,52 +219,42 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
               : 'border-white/8 bg-white/[0.03] text-[var(--app-text-muted)]'
           )}>
             <CheckCircle2 size={12} />
-            {runMeta.taskComplete ? 'Pret a livrer' : 'En verification'}
+            {runMeta.taskComplete ? 'Pret a livrer' : 'En cours'}
           </div>
-          <div className={cn(
-            'inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px]',
-            runMeta.blockerCount > 0
-              ? 'border-amber-500/20 bg-amber-500/[0.06] text-amber-200'
-              : 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200'
-          )}>
-            <AlertTriangle size={12} />
-            {runMeta.blockerCount || 0} blocage{runMeta.blockerCount > 1 ? 's' : ''}
+          <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px]', artifactTone)}>
+            <Sparkles size={12} />
+            {artifactLabel}
           </div>
-          {!isCompactCowork && (
-            <>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-                <Search size={12} />
-                {runMeta.webSearches} recherche{runMeta.webSearches > 1 ? 's' : ''}
-              </div>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] text-[11px] text-emerald-200">
-                <CheckCircle2 size={12} />
-                {runMeta.validatedSearches} valide{runMeta.validatedSearches > 1 ? 'es' : ''}
-              </div>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-[11px] text-amber-200">
-                <AlertTriangle size={12} />
-                {runMeta.degradedSearches} degradee{runMeta.degradedSearches > 1 ? 's' : ''}
-              </div>
-              {runMeta.blockedQueryFamilies > 0 && (
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-rose-500/20 bg-rose-500/[0.07] text-[11px] text-rose-200">
-                  <AlertCircle size={12} />
-                  {runMeta.blockedQueryFamilies} famille{runMeta.blockedQueryFamilies > 1 ? 's' : ''} bloquee{runMeta.blockedQueryFamilies > 1 ? 's' : ''}
-                </div>
-              )}
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-                <Globe size={12} />
-                {runMeta.webFetches} source{runMeta.webFetches > 1 ? 's' : ''}
-              </div>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
-                <Globe size={12} />
-                {runMeta.validatedSources || 0} source{runMeta.validatedSources > 1 ? 's' : ''} validee{runMeta.validatedSources > 1 ? 's' : ''}
-              </div>
-              {runMeta.retryCount > 0 && (
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-amber-200">
-                  <AlertTriangle size={12} />
-                  retry {runMeta.retryCount}
-                </div>
-              )}
-            </>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <Search size={12} />
+            {runMeta.searchCount} recherche{runMeta.searchCount > 1 ? 's' : ''}
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <Globe size={12} />
+            {runMeta.sourcesOpened} source{runMeta.sourcesOpened > 1 ? 's' : ''} ouverte{runMeta.sourcesOpened > 1 ? 's' : ''}
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+            <Globe size={12} />
+            {runMeta.domainsOpened} domaine{runMeta.domainsOpened > 1 ? 's' : ''}
+          </div>
+          {runMeta.retryCount > 0 && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-amber-200 text-[11px]">
+              <AlertTriangle size={12} />
+              retry {runMeta.retryCount}
+            </div>
+          )}
+          {runMeta.stalledTurns > 0 && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/[0.06] text-amber-200 text-[11px]">
+              <AlertCircle size={12} />
+              stagnation {runMeta.stalledTurns}
+            </div>
+          )}
+          {(runMeta.totalTokens > 0 || costLabel) && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+              <Sparkles size={12} />
+              {runMeta.totalTokens > 0 ? `${formatCompactNumber(runMeta.totalTokens)} tokens` : 'cout'}
+              {costLabel ? ` | ${costLabel}` : ''}
+            </div>
           )}
         </div>
 
@@ -377,7 +381,7 @@ export const MessageItem = React.memo(({
   const [showRefined, setShowRefined] = useState(false);
   const [editText, setEditText] = useState(msg.content);
   const [isCollapsed, setIsCollapsed] = useState(msg.role === 'user' && msg.content && msg.content.length > 800);
-  const isCoworkMessage = Boolean(msg.runMeta?.executionMode || (msg.activity?.length ?? 0) > 0 || msg.runState);
+  const isCoworkMessage = Boolean(msg.runMeta?.mode || (msg.activity?.length ?? 0) > 0 || msg.runState);
 
   const handleCopyMsg = () => {
     navigator.clipboard.writeText(msg.content);

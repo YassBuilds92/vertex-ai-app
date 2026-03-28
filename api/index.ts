@@ -282,11 +282,6 @@ type RequestClock = {
   yearLabel: string;
 };
 
-type ResearchTargets = {
-  webSearches: number;
-  webFetches: number;
-};
-
 type PdfEngine = 'pdfkit' | 'latex';
 type PdfEngineSelection = PdfEngine | 'auto';
 type PdfTheme = 'legal' | 'news' | 'report';
@@ -397,20 +392,16 @@ type CoworkRunMeta = {
   iterations: number;
   modelCalls: number;
   toolCalls: number;
-  webSearches: number;
-  webFetches: number;
-  validatedSearches: number;
-  degradedSearches: number;
-  blockedQueryFamilies: number;
-  validatedSources: number;
-  blockerCount: number;
+  searchCount: number;
+  fetchCount: number;
+  sourcesOpened: number;
+  domainsOpened: number;
+  artifactState: 'none' | 'drafting' | 'created' | 'released';
+  stalledTurns: number;
   retryCount: number;
   queueWaitMs: number;
-  executionMode: CoworkExecutionMode;
-  publicPhase: string;
+  mode: CoworkExecutionMode;
   phase: string;
-  completionScore: number;
-  modelCompletionScore: number;
   taskComplete: boolean;
   inputTokens: number;
   outputTokens: number;
@@ -457,20 +448,16 @@ function createEmptyCoworkRunMeta(): CoworkRunMeta {
     iterations: 0,
     modelCalls: 0,
     toolCalls: 0,
-    webSearches: 0,
-    webFetches: 0,
-    validatedSearches: 0,
-    degradedSearches: 0,
-    blockedQueryFamilies: 0,
-    validatedSources: 0,
-    blockerCount: 0,
+    searchCount: 0,
+    fetchCount: 0,
+    sourcesOpened: 0,
+    domainsOpened: 0,
+    artifactState: 'none',
+    stalledTurns: 0,
     retryCount: 0,
     queueWaitMs: 0,
-    executionMode: 'research_loop',
-    publicPhase: 'analysis',
+    mode: 'autonomous',
     phase: 'analysis',
-    completionScore: 0,
-    modelCompletionScore: 0,
     taskComplete: false,
     inputTokens: 0,
     outputTokens: 0,
@@ -503,11 +490,9 @@ function createEmptyCoworkSessionState(): CoworkSessionState {
     sourcesValidated: [],
     searchesFailed: [],
     toolsBlocked: [],
-    pendingDirectPivots: {},
     activePdfDraft: null,
     phase: 'analysis',
     modelCompletionScore: 0,
-    completionScore: 0,
     modelTaskComplete: false,
     effectiveTaskComplete: false,
     blockers: [],
@@ -720,158 +705,73 @@ function buildCoworkSystemInstruction(
 ): string {
   const originalMessage = runtime?.originalMessage || '';
   const requestClock = runtime?.requestClock;
-  const executionMode = behavior?.executionMode || 'research_loop';
   const debugReasoning = Boolean(behavior?.debugReasoning);
-  const researchTargets = originalMessage ? getResearchTargets(originalMessage) : null;
-  const pdfTargets = originalMessage ? getPdfQualityTargets(originalMessage) : null;
+  const needsArtifact = originalMessage ? requestNeedsDownloadableArtifact(originalMessage) || requestNeedsPdfArtifact(originalMessage) : false;
+  const needsFreshOrExternalFacts = originalMessage
+    ? requestNeedsCurrentDateGrounding(originalMessage) || requestNeedsExternalGrounding(originalMessage) || requestNeedsStrictFactualSearch(originalMessage)
+    : false;
+  const usesMusicResearch = originalMessage ? requestNeedsMusicCatalogResearch(originalMessage) : false;
   const requestSpecificDirectives: string[] = [];
 
-  if (executionMode !== 'artifact_refinement' && originalMessage && requestNeedsDeepResearch(originalMessage) && researchTargets) {
+  if (needsFreshOrExternalFacts) {
     requestSpecificDirectives.push(
-      `Repere de rigueur pour CETTE demande: cherche en general autour de ${researchTargets.webSearches} angle(s) web utiles et ${researchTargets.webFetches} lecture(s) de source. Ce n'est pas un workflow fige: si une preuve plus forte arrive plus tot, tu peux conclure; si c'est encore fragile, continue ou dis honnetement que c'est insuffisant.`
+      "Si la reponse depend du reel, ne t'arrete pas au premier resultat plausible. Cherche, lis, recoupe, puis conclus. Si la matiere reste fragile, dis-le clairement."
     );
   }
-  if (executionMode !== 'artifact_refinement' && originalMessage && requestNeedsGroundedWriting(originalMessage)) {
+  if (needsArtifact) {
     requestSpecificDirectives.push(
-      "Avant toute production creative finale, suis explicitement ce schema: hypotheses -> recherches -> verification -> redaction. Ne saute jamais directement de la premiere recherche a l'ecriture finale."
-    );
-    requestSpecificDirectives.push(
-      "Si le sujet porte sur un terme court, ambigu, un mot d'argot ou une reference culturelle, ne cherche jamais le mot seul. Contextualise la requete (langue, pays, domaine, usage) puis ouvre au moins une source avec 'web_fetch' avant d'ecrire."
-    );
-    requestSpecificDirectives.push(
-      "Tant que la recherche visible n'est pas suffisante, n'ecris pas de paroles finales, meme partielles. Accumule d'abord des recherches et des sources."
+      "Cette demande n'est pas terminee tant que l'artefact n'est pas reellement cree puis publie. Ne confonds jamais brouillon, texte intermediaire et livraison finale."
     );
   }
-  if (originalMessage && requestNeedsStrictFactualSearch(originalMessage)) {
+  if (usesMusicResearch) {
     requestSpecificDirectives.push(
-      "Pour cette demande factuelle sensible, une recherche degradee, hors sujet ou transitoirement indisponible ne compte pas comme preuve. Ne la presente jamais comme un succes net."
-    );
-    requestSpecificDirectives.push(
-      "Il est interdit de conclure sur ce sujet sans au moins une preuve solide lue via 'web_fetch' ou une couverture specialisee equivalente, sauf si tu expliques explicitement que la recherche est restee insuffisante."
-    );
-    requestSpecificDirectives.push(
-      "Repeter une requete quasi identique n'est pas un progres. Si un angle est faible, pivote vraiment: autre formulation, source directe, outil specialise, ou constat d'insuffisance."
-    );
-    requestSpecificDirectives.push(
-      "Si les resultats sont pollues par un homonyme ou un faux sens (par exemple technique/cloud au lieu de jeu video), ajuste immediatement la requete avec des mots-cles de contexte ou d'exclusion comme '-google -cloud -api' au lieu d'insister sur la meme piste."
-    );
-    requestSpecificDirectives.push(
-      "Si, apres 3 tentatives serieuses avec de vrais pivots, tu n'as toujours rien de probant, admets clairement que l'information reste introuvable ou insuffisamment sourcee au lieu d'inventer un fait, une date ou une certitude."
-    );
-  }
-  if (originalMessage && requestNeedsTopicalCreativeResearch(originalMessage)) {
-    requestSpecificDirectives.push(
-      "Comme cette demande creative vise une personne, une affaire ou un sujet possiblement lie a l'actu, commence par cartographier le contexte recent: faits, dates, reactions, accusations/defenses et points de desaccord, avant d'ecrire."
-    );
-  }
-  if (originalMessage && requestNeedsMusicCatalogResearch(originalMessage)) {
-    requestSpecificDirectives.push(
-      "Pour un artiste, une discographie ou des titres manquants, appelle d'abord l'outil 'music_catalog_lookup' avec le pseudo exact tel qu'ecrit par l'utilisateur, y compris chiffres et variantes de casse."
-    );
-    requestSpecificDirectives.push(
-      "Ne conclus jamais qu'un artiste est introuvable apres une seule requete generique. Si 'music_catalog_lookup' revient partiel ou incertain, relance immediatement avec l'alias exact puis avec des angles plateformes/sources (YouTube, Spotify, Deezer, Genius, Apple Music, TrackMusik, etc.), puis ouvre au moins une page artiste via 'web_fetch'."
-    );
-    requestSpecificDirectives.push(
-      "Tu n'as le droit d'affirmer 'voila tout ce qu'il te manque' que si la couverture est suffisante. Sinon, dis explicitement que la liste est partielle et separe bien: deja possedes, manquants confirmes, titres d'album, feats/freestyles optionnels, points incertains."
-    );
-  }
-  if (originalMessage && requestNeedsFormalDocument(originalMessage)) {
-    requestSpecificDirectives.push(
-      "Pour ce document formel, ne livre jamais un seul pave de texte. Structure le contenu en plusieurs blocs distincts et lisibles: identification/en-tete, corps redige, puis validation finale (date, lieu, signature, cachet ou mentions equivalentes)."
-    );
-    requestSpecificDirectives.push(
-      requestNeedsFictionalDetails(originalMessage)
-        ? "Comme le document est demande comme fictif, invente des noms, dates, entreprise, contexte et signataire credibles. N'utilise pas de placeholders entre crochets sauf si l'utilisateur demande explicitement un modele vierge."
-        : "Si des informations manquent, isole-les proprement dans une mention finale ou une courte liste de champs a completer, sans laisser tout le document sous forme de gabarit brut."
-    );
-  }
-  if (pdfTargets) {
-    requestSpecificDirectives.push(
-      pdfTargets.formalDocument
-        ? `Pour CETTE demande documentaire, vise au minimum ${pdfTargets.minSections} blocs utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'. Le rendu doit ressembler a un vrai document officiel, pas a un rapport generique.`
-        : `Pour CETTE demande PDF, le livrable doit etre dense et soigne: couverture, resume executif, developpement structure, conclusion et sources. Vise au moins ${pdfTargets.minSections} sections utiles et environ ${pdfTargets.minWords} mots de contenu reel avant 'create_pdf'.`
-    );
-    if (pdfTargets.cappedWordCount && pdfTargets.requestedWordCount) {
-      requestSpecificDirectives.push(
-        `L'utilisateur demande ${pdfTargets.requestedWordCount} mots, mais tu dois plafonner honnetement le PDF a environ ${pdfTargets.minWords} mots pour cette session. Dis-le clairement via 'publish_status' si utile et ne simule jamais la longueur avec des pages vides.`
-      );
-    }
-    requestSpecificDirectives.push(
-      "Pour cette demande PDF, 'review_pdf_draft' est recommandee pour la qualite, la self-critique visible et, en mode LaTeX, une compilation de controle. Elle n'est plus bloquante. Si tu decides de t'en servir et qu'elle retourne une 'signature', passe-la telle quelle dans 'create_pdf.reviewSignature'."
-    );
-    requestSpecificDirectives.push(
-      pdfTargets.formalDocument
-        ? "Quand tu appelles 'create_pdf' pour ce document formel, utilise plusieurs sections courtes et propres (en-tete, objet ou attestation, details, signatures/mentions finales) et garde un ton administratif."
-        : "Pour un PDF long, commence par 'begin_pdf_draft', ajoute le contenu section par section avec 'append_to_draft' (idealement 300 a 600 mots par ajout), relis avec 'get_pdf_draft' si besoin, puis fais une passe 'review_pdf_draft' si tu veux une vraie revue qualite avant 'create_pdf'. Si la mise en page doit etre premium ou thematique, privilegie le moteur 'latex'."
-    );
-    requestSpecificDirectives.push(
-      pdfTargets.formalDocument
-        ? "Choisis un theme 'legal' par defaut pour les documents officiels, sauf demande explicite contraire."
-        : "Quand tu appelles 'create_pdf', renseigne aussi 'theme', 'subtitle', 'summary', 'accentColor', 'author' et 'sources' quand c'est pertinent. Theme par defaut: 'news' pour l'actu, sinon 'report'."
-    );
-    requestSpecificDirectives.push(
-      "Si tu actives le moteur 'latex', tu peux fournir un vrai 'latexSource' complet. Compilateur par defaut: 'xelatex'. Packages autorises: "
-      + ALLOWED_LATEX_PACKAGES.join(', ')
-      + ". N'utilise pas d'autres packages."
+      "Pour une discographie, des paroles ou un catalogue artiste, pense naturellement a 'music_catalog_lookup' avant de bricoler des recherches web generiques."
     );
   }
 
-  const baseInstruction = `Tu es un agent autonome expert en mode Cowork.
-Ton objectif est d'aider l'utilisateur a realiser des taches concretes avec une execution visible, progressive et honnete.
+  const baseInstruction = `Tu es Cowork, un operateur autonome haut niveau.
+Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu restes honnete quand les preuves sont insuffisantes.
 
-### ENVIRONNEMENT TECHNIQUE :
-- Node.js UNIQUEMENT : cet environnement ne dispose QUE de Node.js. Python n'est PAS installe et ne sera jamais disponible.
-- Ta sortie finale doit rester propre. N'expose pas ton raisonnement interne a l'utilisateur.
-- Outils locaux toujours disponibles :
-  - 'publish_status' : partage publiquement ta phase, ton focus, ta prochaine action et ton critere de fin, sans exposer de chain-of-thought
+### POSTURE
+- Decide toi-meme de la meilleure strategie.
+- Ne t'arrete pas au premier resultat plausible si quelque chose semble faible, ambigu, incomplet ou hors sujet.
+- Si une demande depend du reel, accumule assez d'elements avant de conclure.
+- Si une demande ne depend pas d'outils, reponds directement sans faux theatre agentique.
+- Si apres 3 tentatives materiellement differentes tu restes bloque, explique la limite au lieu de broder.
+
+### ENVIRONNEMENT
+- Node.js uniquement. Python n'est pas disponible.
+- N'expose jamais ton chain-of-thought brut.
+- Outils disponibles:
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
-  - 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft' : construisent un brouillon PDF incremental persistant
-  - 'review_pdf_draft' : critique un brouillon PDF avant export et, en mode LaTeX, tente une vraie compilation de controle
-  - 'create_pdf' : a utiliser pour tout besoin de PDF; en mode LaTeX il compile le vrai source .tex via un provider HTTP externe
-  - 'release_file' : publie un fichier apres creation
-${capabilities.executeScript ? "- 'execute_script' : execute un script Node.js si c'est vraiment necessaire.\n" : ""}${capabilities.webSearch ? `- 'web_search' : effectue des recherches web visibles et repetables; peut aussi renvoyer 'directSourceUrls' si tu dois pivoter vers des sources fiables
-- 'web_fetch' : ouvre une URL pour lire une source precise\n` : ""}
-### COMPORTEMENT ATTENDU :
-1. Si l'utilisateur te demande de te documenter, de verifier, ou de traiter un sujet factuel sensible, alterne librement plan interne, recherche, verification et production selon ce qui est utile. Ne te fige pas dans un workflow artificiel.
-2. Tu n'as droit qu'a UN SEUL outil actionnable par tour modele. Tu peux accompagner ce tour d'un 'publish_status' si cela aide reellement la lisibilite.
-3. Utilise 'publish_status' pour exposer un vrai plan courant, un pivot important, une auto-critique de brouillon ou un critere de fin. N'en abuse pas quand cela n'apporte rien.
-4. Si la demande concerne des informations fraiches, ouvertes, comparatives, de la documentation, une version, un briefing ou des recommandations, effectue une recherche suffisante AVANT de conclure.${capabilities.webSearch ? "\n5. Pour ces demandes web, explore plusieurs angles differents puis lis au moins une source de qualite 'full' ET pertinente avant la synthese finale.\n   Si les resultats sont pollues par des homonymes ou un faux sens (technique/cloud vs jeu video, marque vs personne, etc.), ajoute immediatement des mots-cles de contexte ou d'exclusion ('-google -cloud -api', plateforme, studio, pays, domaine) au lieu de relancer la meme requete.\n   Si tu dois comprendre un terme ambigu, ajoute du contexte dans la requete (langue, pays, domaine, usage) au lieu de chercher le mot brut seul.\n   Si 'web_search' renvoie des 'directSourceUrls', ouvre-les via 'web_fetch' au lieu de reformuler la meme requete.\n   Si 'web_search' echoue ou reste faible, bascule immediatement vers plusieurs 'web_fetch' sur des pages fiables (page d'accueil, live, RSS, documentation officielle).\n   Si, apres 3 tentatives serieuses avec de vrais pivots, rien de probant ne sort, dis clairement que l'information reste introuvable ou insuffisamment sourcee au lieu d'inventer une certitude." : ""}
-6. L'honnetete prime sur la completion: si une date, un prix, une version ou un fait recent reste introuvable apres des recherches serieuses, indique-le clairement. Ne simule jamais une certitude factuelle.
-7. Si aucun outil n'est necessaire, livre directement une reponse finale propre sans narration intermediaire.
-8. N'utilise pas la reponse finale pour raconter ce que tu es en train de faire. La reponse finale sert a livrer le resultat.${debugReasoning ? "\n9. Le mode debug autorise 'report_progress' pour tracer la strategie, mais il reste facultatif." : ""}
+  - 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft'
+  - 'review_pdf_draft'
+  - 'create_pdf'
+  - 'release_file'
+${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraiment necessaires.\n" : ""}${capabilities.webSearch ? "  - 'web_search' : signal de recherche web, utile pour trouver des angles ou des pistes.\n  - 'web_fetch' : lecture directe d'une URL precise.\n  - 'music_catalog_lookup' : raccourci specialise pour discographie, titres, catalogue, paroles et couverture artiste.\n" : ""}${debugReasoning ? "  - 'publish_status' et 'report_progress' existent seulement en debug. Ils sont facultatifs et ne conditionnent pas ta capacite a agir.\n" : ""}
+### REGLES DURES
+1. Pour un PDF, utilise toujours 'create_pdf'. N'essaie jamais de fabriquer un faux PDF avec 'write_file'.
+2. Tout fichier genere doit vivre dans '/tmp/'.
+3. Si tu crees un artefact a livrer, appelle ensuite 'release_file' puis donne le lien final.
+4. Ne pretends jamais avoir cree, verifie ou publie quelque chose que tu n'as pas reellement obtenu.
+5. Si une source officielle est explicitement requise par la demande, privilegie-la.
+6. Si une information recente reste insuffisamment sourcee, dis-le au lieu d'inventer.
+7. Si tu utilises 'review_pdf_draft' et qu'une signature t'est fournie, passe-la telle quelle dans 'create_pdf.reviewSignature'.
+8. Si tu dois faire plusieurs outils dans un meme tour, garde une mini-chaine coherente: lecture/recherche d'abord, mutation eventuelle en dernier.
 
-### REPERES TEMPORELS :
+### REPERES TEMPORELS
 ${requestClock
   ? `- Date et heure de reference: ${requestClock.absoluteDateTimeLabel} (${requestClock.timeZone})
-- Quand l'utilisateur dit "aujourd'hui", "du jour", "today" ou "latest", cela signifie: ${requestClock.dateLabel}.
-- N'invente jamais une date ancienne par defaut. Si une source ou une requete mentionne une autre date, compare-la explicitement a ${requestClock.dateLabel}.`
-  : "- Si la demande parle de 'today', 'aujourd'hui' ou 'latest', utilise la date courante exacte de l'environnement et dis-la explicitement."}
+- Quand l'utilisateur dit "aujourd'hui", "du jour", "today" ou "latest", cela signifie ${requestClock.dateLabel}.
+- Si une source parle d'une autre date, compare-la explicitement a ${requestClock.dateLabel}.`
+  : "- Si la demande parle de 'today', 'aujourd'hui' ou 'latest', utilise la date courante exacte de l'environnement."}
 
-### REGLES CRITIQUES :
-1. Pour creer un PDF : utilise TOUJOURS 'create_pdf'. N'essaie JAMAIS d'ecrire un script Python avec reportlab/fpdf.
-2. Chemins : tous les fichiers generes doivent etre crees dans '/tmp/'.
-3. Livraison : apres avoir cree un fichier, utilise TOUJOURS 'release_file' puis donne le lien Markdown final.
-4. Anti-boucle : si un outil echoue, ne retente pas la meme chose en boucle. Analyse l'erreur et change d'approche.
-5. N'utilise JAMAIS 'write_file' pour fabriquer un faux fichier '.pdf'. Pour un PDF, utilise uniquement 'create_pdf'.
-6. Honnetete : ne pretends jamais avoir fait quelque chose que tu n'as pas fait.
-7. Pour un PDF presentable, soigne la structure et la mise en page. Un PDF "beau" ou "long" ne doit jamais etre une simple page brute.
-8. 'review_pdf_draft' est recommandee pour la qualite des PDF exigeants, des documents formels et des rendus LaTeX, mais n'est plus un prerequis bloquant pour 'create_pdf'.
-9. Si 'review_pdf_draft' retourne une 'signature' et que tu choisis de l'utiliser, passe cette meme valeur dans 'create_pdf.reviewSignature'. N'invente jamais cette signature et ne la modifie pas.
-10. Reaction au blocage : si tu vois que 'stalledTurns' augmente ou qu'aucun progres concret n'apparait, ne repete pas la meme requete. Change radicalement de mots-cles, de source, d'outil, ou conclus honnetement sur les limites des infos disponibles.
-11. Pour une attestation, un certificat ou une lettre, vise un rendu de document officiel: sobre, coherent et complet. Si le document est demande comme fictif ou complet, n'utilise pas de placeholders entre crochets.
-12. Pour un PDF long, utilise prioritairement le trio 'begin_pdf_draft' -> 'append_to_draft' -> 'get_pdf_draft' avant la self-review finale.
-13. Ne tente jamais de satisfaire une demande de 9000 mots en un seul tour ou avec du padding visuel. Respecte le cap de session et annonce-le proprement.
-14. Pour le moteur 'latex', n'utilise que ces packages: ${ALLOWED_LATEX_PACKAGES.join(', ')}. Si tu veux changer fortement la mise en page, fournis un 'latexSource' complet et coherent.
-15. Le template 'news' genere automatiquement une couverture stylisee, des blocs colores par section et un rendu magazine. Exploite tcolorbox, tikz, multicol et fontspec pour un resultat visuellement premium.${executionMode === 'artifact_refinement' ? `
-
-### MODE REFINEMENT ESTHETIQUE :
-Tu es en mode refinement: un PDF a deja ete livre dans cette conversation. L'utilisateur veut uniquement modifier l'esthetique, le style ou la mise en page, PAS le contenu.
-- NE FAIS PAS de recherche web. Le contenu existe deja dans l'historique de conversation.
-- Recupere le contenu textuel depuis l'historique de conversation (le dernier message model qui contenait le rapport).
-- Concentre-toi UNIQUEMENT sur: la mise en page, les couleurs, la typographie, la structure visuelle, les blocs, les separateurs.
-- Utilise le moteur 'latex' avec 'latexSource' complet pour un controle total du rendu.
-- Vise un rendu magazine/designer: couverture pleine page, blocs colores par section, separateurs graphiques tikz, typographie soignee avec fontspec.
-- Passe directement a 'begin_pdf_draft' -> 'append_to_draft' -> 'create_pdf' -> 'release_file'. Ajoute 'review_pdf_draft' juste avant 'create_pdf' si tu veux une passe qualite ou une compilation de controle.` : ''}${requestSpecificDirectives.length > 0 ? `\n\n### DIRECTIVES POUR CETTE DEMANDE :\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
+### MICRO-EXEMPLES
+- Demande creative pure: pas d'outil, tu reflechis en interne puis tu livres directement un bon texte.
+- Demande creative ancree dans le reel: tu te documentes d'abord, tu lis assez de matiere, puis tu ecris ou tu bloques honnetement.
+- Demande latest/docs/version: tu cherches, tu lis la doc ou la source officielle utile, puis tu resumes sans sur-vendre une recherche faible.
+- Demande PDF/artefact: tu prepares le contenu utile, tu crées l'artefact, tu le publies, puis tu livres le lien.
+${requestSpecificDirectives.length > 0 ? `\n### SIGNALS POUR CETTE DEMANDE\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -922,8 +822,7 @@ ${trimmedInstruction}`;
 }
 
 function getCoworkPublicPhase(phase: CoworkPhase, executionMode: CoworkExecutionMode): string {
-  if (executionMode === 'creative_single_turn') return phase === 'completed' ? 'completed' : 'composition';
-  if (executionMode === 'artifact_refinement') return phase === 'completed' ? 'completed' : phase === 'delivery' ? 'livraison' : 'mise en page';
+  if (executionMode === 'autonomous' && phase === 'completed') return 'termine';
   switch (phase) {
     case 'analysis':
       return 'plan';
@@ -986,11 +885,6 @@ export const __coworkLoopInternals = {
   getCooldownDelayMs,
   buildCoworkProgressFingerprint,
   registerCoworkProgressState,
-  getPendingDirectPivotForSearch,
-  getNextPendingDirectPivotUrl,
-  upsertPendingDirectPivot,
-  markPendingDirectPivotHostAttempt,
-  buildPendingDirectPivotMessage,
   markVisibleDeliveryAttempt,
   getCoworkPublicPhase,
   normalizeCoworkPhase,
@@ -1095,11 +989,7 @@ function historyContainsRecentPdfDelivery(history: Array<{ role: string; parts: 
 }
 
 function classifyCoworkExecutionMode(_message: string, _history?: Array<{ role: string; parts: Array<{ text?: string }> }>): CoworkExecutionMode {
-  // LIBERATION: un seul mode universel. Le modele decide de sa strategie.
-  // Les anciens modes (creative_single_turn, artifact_loop, artifact_refinement)
-  // forcaient des pipelines rigides. Maintenant le modele a tous les outils
-  // et choisit librement lesquels utiliser.
-  return 'research_loop';
+  return 'autonomous';
 }
 
 function requestNeedsMusicCatalogResearch(message: string): boolean {
@@ -1133,15 +1023,6 @@ function requestNeedsCurrentDateGrounding(message: string): boolean {
     || requestIsCurrentAffairs(message);
 }
 
-function extractRequestedSearchCount(message: string): number | null {
-  const normalized = normalizeCoworkText(message);
-  const match = normalized.match(/\b(\d{1,2})\s+(?:recherche|recherches|search|searches)\b/);
-  if (!match) return null;
-  const value = Number(match[1]);
-  if (!Number.isFinite(value)) return null;
-  return Math.max(1, Math.min(value, 12));
-}
-
 function requestNeedsLongFormPdf(message: string): boolean {
   if (!requestNeedsPdf(message)) return false;
   const normalized = normalizeCoworkText(message);
@@ -1163,65 +1044,6 @@ function requestNeedsPdfArtifact(message: string): boolean {
   const normalized = normalizeCoworkText(message);
   if (requestNeedsPdf(message) || requestNeedsFormalDocument(message)) return true;
   return /\b(presentation|brochure|plaquette|cv)\b/.test(normalized);
-}
-
-function getResearchTargets(message: string): ResearchTargets {
-  const normalized = normalizeCoworkText(message);
-  const targets: ResearchTargets = { webSearches: 2, webFetches: 1 };
-
-  if (!requestNeedsDeepResearch(message)) {
-    const explicitSearchCount = extractRequestedSearchCount(message);
-    if (explicitSearchCount) {
-      targets.webSearches = explicitSearchCount;
-      targets.webFetches = explicitSearchCount >= 6 ? 2 : 1;
-    }
-    return targets;
-  }
-
-  if (requestIsCurrentAffairs(message) || requestNeedsCurrentDateGrounding(message)) {
-    targets.webSearches = Math.max(targets.webSearches, 4);
-    targets.webFetches = Math.max(targets.webFetches, 2);
-  }
-
-  if (requestNeedsStrictFactualSearch(message)) {
-    targets.webSearches = Math.max(targets.webSearches, 3);
-    targets.webFetches = Math.max(targets.webFetches, 1);
-  }
-
-  if (requestNeedsGroundedWriting(message)) {
-    targets.webSearches = Math.max(targets.webSearches, 3);
-    targets.webFetches = Math.max(targets.webFetches, 2);
-  }
-
-  if (requestNeedsTopicalCreativeResearch(message)) {
-    targets.webSearches = Math.max(targets.webSearches, 4);
-    targets.webFetches = Math.max(targets.webFetches, 2);
-  }
-
-  if (requestNeedsMusicCatalogResearch(message)) {
-    targets.webSearches = Math.max(targets.webSearches, 3);
-    targets.webFetches = Math.max(targets.webFetches, 2);
-  }
-
-  if (requestNeedsLongFormPdf(message)) {
-    targets.webSearches = Math.max(targets.webSearches, 5);
-    targets.webFetches = Math.max(targets.webFetches, 2);
-  }
-
-  if (/\b(tres long|tres longue|ultra long|ultra longue|exhaustif|exhaustive|detaille|detaillee|complet|complete|magnifique|soigne|style)\b/.test(normalized) && requestNeedsPdf(message)) {
-    targets.webSearches = Math.max(targets.webSearches, 6);
-    targets.webFetches = Math.max(targets.webFetches, 3);
-  }
-
-  const explicitSearchCount = extractRequestedSearchCount(message);
-  if (explicitSearchCount) {
-    targets.webSearches = Math.max(targets.webSearches, explicitSearchCount);
-    if (explicitSearchCount >= 6) {
-      targets.webFetches = Math.max(targets.webFetches, 3);
-    }
-  }
-
-  return targets;
 }
 
 const PDF_SESSION_WORD_CAP = 3000;
@@ -1364,7 +1186,7 @@ function requestNeedsPremiumLatexPdf(message: string, pdfQualityTargets: PdfQual
   if (pdfQualityTargets?.formalDocument) return false;
   if (resolvedTheme === 'news' || resolvedTheme === 'report') {
     if (pdfQualityTargets && pdfQualityTargets.minWords >= 900) return true;
-    if (requestNeedsLongFormPdf(message) || requestNeedsDeepResearch(message)) return true;
+    if (requestNeedsLongFormPdf(message) || requestNeedsExternalGrounding(message)) return true;
   }
   return /\b(pdf|rapport|magazine|news|journal|mise en page|beau|belle|premium|editorial|sublime|soigne|creatif|créatif|theme|th[eè]me|latex)\b/.test(normalized);
 }
@@ -1732,13 +1554,13 @@ function reviewPdfDraft(
     }
   }
 
-  if (!formalDocument && (requestNeedsLongFormPdf(message) || requestNeedsDeepResearch(message)) && !draft.summary) {
+  if (!formalDocument && (requestNeedsLongFormPdf(message) || requestNeedsExternalGrounding(message)) && !draft.summary) {
     blockingIssues.push("ajoute un resume executif clair avant le corps du PDF");
   } else if (!formalDocument && draft.summary) {
     strengths.push("resume executif present");
   }
 
-  if (!formalDocument && (requestIsCurrentAffairs(message) || requestNeedsDeepResearch(message) || requestNeedsStrictFactualSearch(message)) && draft.sources.length === 0) {
+  if (!formalDocument && (requestIsCurrentAffairs(message) || requestNeedsExternalGrounding(message) || requestNeedsStrictFactualSearch(message)) && draft.sources.length === 0) {
     blockingIssues.push("ajoute au moins une source explicite pour soutenir le PDF");
   } else if (draft.sources.length > 0) {
     strengths.push(`${draft.sources.length} source(s) mentionnee(s)`);
@@ -2644,7 +2466,8 @@ function buildArtifactCompletionPrompt(
   createdArtifactPath: string | null,
   releasedFile: { url: string; path?: string } | null
 ): string | null {
-  if (!requestNeedsDownloadableArtifact(originalMessage) || releasedFile?.url) {
+  const needsArtifact = requestNeedsDownloadableArtifact(originalMessage) || requestNeedsPdfArtifact(originalMessage);
+  if (!needsArtifact || releasedFile?.url) {
     return null;
   }
 
@@ -2707,64 +2530,6 @@ function normalizeSearchResultUrl(rawUrl: string): string {
   }
 }
 
-function requestNeedsDeepResearch(message: string): boolean {
-  const normalized = normalizeCoworkText(message);
-  return requestNeedsStrictFactualSearch(message)
-    || requestNeedsMusicCatalogResearch(message)
-    || /\b(latest|recent|today|aujourd'hui|du jour|actu|actualite|news|briefing|rapport|compar|compare|comparatif|documentation|docs?|version|release|sortie|mise a jour|update|benchmark|sota|state of the art|qui est devant|rumeur|roadmap|guide|recherche|recherches|search|searches)\b/.test(normalized);
-}
-
-function hasSatisfiedResearchRequirements(
-  originalMessage: string,
-  stats: MusicResearchProgress
-): boolean {
-  if (!requestNeedsDeepResearch(originalMessage)) return true;
-  if (
-    requestNeedsMusicCatalogResearch(originalMessage)
-    && stats.musicCatalogCoverage
-    && stats.musicCatalogCoverage.distinctDomains >= 2
-    && stats.musicCatalogCoverage.hasCatalogPage
-    && stats.musicCatalogCoverage.hasAlbumTracklist
-  ) {
-    return true;
-  }
-
-  const targets = getResearchTargets(originalMessage);
-  const explicitSearchCount = extractRequestedSearchCount(originalMessage);
-  const enoughViaSearchAndRead =
-    stats.webSearches >= targets.webSearches && stats.webFetches >= targets.webFetches;
-  const enoughViaDirectSources =
-    !explicitSearchCount && stats.webSearches === 0 && stats.webFetches >= Math.max(2, targets.webFetches);
-  if (requestNeedsStrictFactualSearch(originalMessage) && stats.webFetches < 1) {
-    return false;
-  }
-  return enoughViaSearchAndRead || enoughViaDirectSources;
-}
-
-function buildStrictResearchFailureMessage(
-  originalMessage: string,
-  stats: MusicResearchProgress,
-  requestClock: RequestClock
-): string | null {
-  if (!requestNeedsStrictFactualSearch(originalMessage)) return null;
-  if (hasSatisfiedResearchRequirements(originalMessage, stats)) return null;
-
-  return `Je m'arrete proprement: la recherche reste insuffisamment fiable pour repondre a cette demande sensible.
-Repere temporel: "aujourd'hui" = ${requestClock.dateLabel} (${requestClock.timeZone}).
-Etat obtenu: ${stats.webSearches} recherche(s) validee(s), ${stats.webFetches} source(s) lisible(s), ${stats.degradedSearches} recherche(s) degradee(s), ${stats.blockedQueryFamilies} famille(s) de requetes bloquees.
-Je prefere ne pas broder sans source lue suffisamment fiable.${formatDirectSourceHint(originalMessage)}`;
-}
-
-function buildResearchCompletionPrompt(
-  _originalMessage: string,
-  _stats: MusicResearchProgress,
-  _requestClock: RequestClock
-): string | null {
-  // LIBERATION: plus de message user forcant la recherche.
-  // Le modele decide seul s'il a assez de donnees pour repondre.
-  return null;
-}
-
 function requestNeedsBroadNewsRoundup(message: string): boolean {
   const normalized = normalizeCoworkText(message);
   if (!requestIsCurrentAffairs(message) && !requestNeedsCurrentDateGrounding(message)) return false;
@@ -2798,6 +2563,9 @@ function requestNeedsBroadNewsRoundup(message: string): boolean {
 
 function detectDirectSourceCategory(message: string): DirectSourceCategory {
   const normalized = normalizeCoworkText(message);
+  if (searchQueryLooksMusicLookup(message)) {
+    return 'music';
+  }
   if (/\b(sport|match|football|foot|ligue|ligue 1|champions league|nba|nfl|tennis|rugby|mercato)\b/.test(normalized)) {
     return 'sport';
   }
@@ -2912,7 +2680,7 @@ function buildDirectSourceSearchOutcome(
   }
 ): SearchOutcome {
   return {
-    success: false,
+    success: options.quality !== 'off_topic' && options.quality !== 'transient_error',
     quality: options.quality,
     provider: options.provider,
     searchMode: options.searchMode,
@@ -3021,93 +2789,10 @@ function getHardCoworkBlockers(blockers: CoworkBlocker[]): CoworkBlocker[] {
   return blockers.filter(blocker => blocker.hard);
 }
 
-function getPendingDirectPivotForSearch(
-  state: CoworkSessionState,
-  familyKey: string,
-  options: { strictTask?: boolean } = {}
-): PendingDirectPivot | null {
-  const exactPivot = state.pendingDirectPivots[familyKey];
-  if (exactPivot) return exactPivot;
-  if (!options.strictTask || state.sourcesValidated.length > 0) return null;
-  return Object.values(state.pendingDirectPivots)[0] || null;
-}
-
-function getNextPendingDirectPivotUrl(pivot: PendingDirectPivot | null): string | null {
-  if (!pivot) return null;
-  return pivot.directSourceUrls.find((candidate) => {
-    const host = getUrlDomain(candidate);
-    return host && !pivot.attemptedHosts.includes(host);
-  }) || null;
-}
-
-function upsertPendingDirectPivot(
-  state: CoworkSessionState,
-  pivot: Omit<PendingDirectPivot, 'attemptedHosts'> & { attemptedHosts?: string[] }
-) {
-  const existing = state.pendingDirectPivots[pivot.familyKey];
-  state.pendingDirectPivots = {
-    ...state.pendingDirectPivots,
-    [pivot.familyKey]: {
-      ...existing,
-      familyKey: pivot.familyKey,
-      query: pivot.query,
-      reason: pivot.reason,
-      directSourceUrls: dedupeStrings([...(existing?.directSourceUrls || []), ...pivot.directSourceUrls], 8),
-      attemptedHosts: dedupeStrings([...(existing?.attemptedHosts || []), ...(pivot.attemptedHosts || [])], 8),
-    }
-  };
-}
-
-function clearPendingDirectPivot(state: CoworkSessionState, familyKey: string) {
-  if (!state.pendingDirectPivots[familyKey]) return;
-  const nextPivots = { ...state.pendingDirectPivots };
-  delete nextPivots[familyKey];
-  state.pendingDirectPivots = nextPivots;
-}
-
-function markPendingDirectPivotHostAttempt(state: CoworkSessionState, url: string): PendingDirectPivot | null {
-  const host = getUrlDomain(url);
-  if (!host) return null;
-
-  for (const [familyKey, pivot] of Object.entries(state.pendingDirectPivots)) {
-    const pivotHosts = pivot.directSourceUrls.map(getUrlDomain).filter(Boolean);
-    if (pivotHosts.includes(host)) {
-      upsertPendingDirectPivot(state, {
-        ...pivot,
-        familyKey,
-        attemptedHosts: [...pivot.attemptedHosts, host]
-      });
-      return state.pendingDirectPivots[familyKey] || null;
-    }
-  }
-
-  return null;
-}
-
-function clearPendingDirectPivotForUrl(state: CoworkSessionState, url: string) {
-  const host = getUrlDomain(url);
-  if (!host) return;
-
-  for (const [familyKey, pivot] of Object.entries(state.pendingDirectPivots)) {
-    const pivotHosts = pivot.directSourceUrls.map(getUrlDomain).filter(Boolean);
-    if (pivotHosts.includes(host)) {
-      clearPendingDirectPivot(state, familyKey);
-    }
-  }
-}
-
-function buildPendingDirectPivotMessage(pivot: PendingDirectPivot, attemptedQueryLabel: string): string {
-  const nextUrl = getNextPendingDirectPivotUrl(pivot);
-  if (nextUrl) {
-    return `Avant de relancer une recherche moteur sur '${attemptedQueryLabel}', ouvre d'abord une source directe via 'web_fetch': ${nextUrl}.`;
-  }
-  return `La recherche sur '${attemptedQueryLabel}' reste bloquee apres les sources directes suggerees. N'insiste pas avec une nouvelle recherche moteur proche: change vraiment d'angle ou explique honnetement que l'acces aux sources reste insuffisant.`;
-}
-
 function buildCoworkProgressFingerprint(input: {
   executionMode: CoworkExecutionMode;
-  research: Pick<MusicResearchProgress, 'webSearches' | 'webFetches'>;
-  validatedSourceCount: number;
+  openedSourceCount: number;
+  openedDomainCount: number;
   activePdfDraft: ActivePdfDraft | null;
   latestApprovedPdfReviewSignature: string | null;
   latestCreatedArtifactPath: string | null;
@@ -3117,14 +2802,12 @@ function buildCoworkProgressFingerprint(input: {
   effectiveTaskComplete: boolean;
   pendingFinalAnswer: boolean;
   blockers: CoworkBlocker[];
-  pendingDirectPivots: Record<string, PendingDirectPivot>;
 }): string {
   const artifactAlreadyReleased = Boolean(input.latestReleasedFileUrl);
   return JSON.stringify({
     executionMode: input.executionMode,
-    webSearches: input.research.webSearches,
-    webFetches: input.research.webFetches,
-    validatedSources: input.validatedSourceCount,
+    sourcesOpened: input.openedSourceCount,
+    domainsOpened: input.openedDomainCount,
     activePdfDraftId: input.activePdfDraft?.draftId || null,
     activePdfDraftWords: artifactAlreadyReleased ? 'frozen' : (input.activePdfDraft?.wordCount || 0),
     activePdfDraftSections: artifactAlreadyReleased ? 'frozen' : (input.activePdfDraft?.sections.length || 0),
@@ -3138,13 +2821,6 @@ function buildCoworkProgressFingerprint(input: {
     effectiveTaskComplete: input.effectiveTaskComplete,
     pendingFinalAnswer: input.pendingFinalAnswer,
     blockers: getHardCoworkBlockers(input.blockers).map(blocker => blocker.code).sort(),
-    pendingDirectPivots: Object.values(input.pendingDirectPivots)
-      .map(pivot => ({
-        familyKey: pivot.familyKey,
-        attemptedHosts: [...pivot.attemptedHosts].sort(),
-        directSourceUrls: [...pivot.directSourceUrls].slice(0, 4).sort()
-      }))
-      .sort((left, right) => left.familyKey.localeCompare(right.familyKey)),
   });
 }
 
@@ -3168,10 +2844,8 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
   const {
     originalMessage,
     state,
-    research,
     latestCreatedArtifactPath,
-    latestReleasedFile,
-    latestApprovedPdfReviewSignature
+    latestReleasedFile
   } = options;
 
   const nextState: CoworkSessionState = {
@@ -3180,67 +2854,14 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
     sourcesValidated: [...state.sourcesValidated],
     searchesFailed: [...state.searchesFailed],
     toolsBlocked: [...state.toolsBlocked],
-    pendingDirectPivots: Object.fromEntries(
-      Object.entries(state.pendingDirectPivots).map(([familyKey, pivot]) => [
-        familyKey,
-        {
-          ...pivot,
-          directSourceUrls: [...pivot.directSourceUrls],
-          attemptedHosts: [...pivot.attemptedHosts],
-        }
-      ])
-    ),
     activePdfDraft: state.activePdfDraft ? { ...state.activePdfDraft, sections: [...state.activePdfDraft.sections], sources: [...state.activePdfDraft.sources] } : null,
     blockers: [],
   };
 
   const blockers: CoworkBlocker[] = [];
-  const targets = getResearchTargets(originalMessage);
-  const fallbackUrls = getDirectSourceFallbacks(originalMessage);
-  const explicitSearchCount = extractRequestedSearchCount(originalMessage);
-  const hasValidatedSource =
-    nextState.sourcesValidated.length > 0
-    || Boolean(
-      research.musicCatalogCompleted
-      && research.musicCatalogCoverage
-      && research.musicCatalogCoverage.distinctDomains >= 2
-      && research.musicCatalogCoverage.hasCatalogPage
-      && research.musicCatalogCoverage.hasAlbumTracklist
-    );
-  const validatedSourceCount = Math.max(nextState.sourcesValidated.length, hasValidatedSource ? 1 : 0);
-  const enoughResearchViaSearches =
-    research.webSearches >= targets.webSearches && research.webFetches >= targets.webFetches;
-  const enoughResearchViaDirectSources =
-    !explicitSearchCount && research.webSearches === 0 && research.webFetches >= Math.max(2, targets.webFetches);
+  const needsArtifact = requestNeedsDownloadableArtifact(originalMessage) || requestNeedsPdfArtifact(originalMessage);
 
-  const isRefinement = options.executionMode === 'artifact_refinement';
-
-  if (!isRefinement && requestNeedsDeepResearch(originalMessage) && !(enoughResearchViaSearches || enoughResearchViaDirectSources)) {
-    blockers.push({
-      code: 'research_incomplete',
-      message: `La recherche reste insuffisante: ${research.webSearches}/${targets.webSearches} recherche(s) validee(s), ${research.webFetches}/${targets.webFetches} source(s) validante(s).`,
-      hard: false,
-      fallbackUrls,
-    });
-  }
-
-  if (!isRefinement && requestNeedsStrictFactualSearch(originalMessage) && !hasValidatedSource) {
-    blockers.push({
-      code: 'strict_source_missing',
-      message: "Au moins une preuve solide lue via 'web_fetch' avec qualite 'full', ou une couverture specialisee equivalente, est obligatoire avant de conclure.",
-      hard: true,
-      fallbackUrls,
-    });
-  }
-
-  if (requestNeedsPdfArtifact(originalMessage)) {
-    if (requestNeedsPdfSelfReview(originalMessage) && !latestApprovedPdfReviewSignature) {
-      blockers.push({
-        code: 'pdf_review_recommended',
-        message: "Une passe 'review_pdf_draft' pourrait ameliorer la qualite du PDF, mais elle n'est plus obligatoire pour la livraison.",
-        hard: false,
-      });
-    }
+  if (needsArtifact) {
     if (!latestCreatedArtifactPath) {
       blockers.push({
         code: 'artifact_not_created',
@@ -3256,23 +2877,10 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
       });
     }
   }
-
-  const baseScore = requestNeedsDeepResearch(originalMessage)
-    ? (
-        Math.min(1, research.webSearches / Math.max(1, targets.webSearches)) * 30
-        + Math.min(1, research.webFetches / Math.max(1, targets.webFetches)) * 30
-        + Math.min(1, validatedSourceCount / Math.max(1, requestNeedsStrictFactualSearch(originalMessage) ? 1 : 2)) * 15
-      )
-    : 55;
-  const artifactScore = requestNeedsPdfArtifact(originalMessage)
-    ? (latestApprovedPdfReviewSignature ? 10 : 0) + (latestCreatedArtifactPath ? 7 : 0) + (latestReleasedFile?.url ? 8 : 0)
-    : 15;
-  const blockerPenalty = blockers.reduce((sum, blocker) => sum + (blocker.hard ? 10 : 5), 0);
   const hardBlockers = getHardCoworkBlockers(blockers);
-  nextState.completionScore = clampPercentage(Math.max(0, baseScore + artifactScore - blockerPenalty));
   nextState.blockers = blockers;
   nextState.effectiveTaskComplete = nextState.modelTaskComplete && hardBlockers.length === 0;
-  nextState.pendingFinalAnswer = nextState.effectiveTaskComplete;
+  nextState.pendingFinalAnswer = !nextState.modelTaskComplete && hardBlockers.length === 0 && Boolean(latestReleasedFile?.url);
   nextState.phase = nextState.effectiveTaskComplete ? 'completed' : nextState.phase;
 
   return nextState;
@@ -3295,16 +2903,13 @@ function buildCoworkBlockedUserReplyPrompt(options: {
   research: MusicResearchProgress;
   stopReason: string;
 }): string {
-  const attemptedHosts = dedupeStrings(
-    Object.values(options.state.pendingDirectPivots).flatMap(pivot => pivot.attemptedHosts),
-    6
-  );
+  const attemptedHosts = dedupeStrings(options.state.sourcesValidated.map(source => source.domain).filter(Boolean), 6);
   const hardBlocker = options.stopReason || "je n'ai pas pu produire une reponse satisfaisante";
   const triedSourcesSummary = attemptedHosts.length > 0
     ? attemptedHosts.join(', ')
-    : 'aucune source directe n a pu etre validee';
+    : 'aucune source exploitable n a pu etre ouverte';
   const pdfNeed = requestNeedsPdfArtifact(options.originalMessage)
-    ? "Si c'est pertinent, dis clairement que tu n'as pas encore pu aller jusqu'au PDF parce que la verification des sources n'a pas ete assez solide."
+    ? "Si c'est pertinent, dis clairement que tu n'as pas encore pu aller jusqu'au PDF ou a la publication finale."
     : "Ne promets pas un livrable que tu n'as pas pu finaliser.";
 
   return `Tu rediges UNIQUEMENT la reponse finale visible a l'utilisateur pour un run Cowork bloque.
@@ -3321,8 +2926,8 @@ Contexte utile:
 - Demande utilisateur: "${options.originalMessage}"
 - Date de reference: ${options.requestClock.dateLabel} (${options.requestClock.timeZone})
 - Ce qui a bloque: ${options.stopReason}
-- Etat utile: ${options.research.webSearches} recherche(s) solides, ${options.research.webFetches} lecture(s) validantes, ${options.research.degradedSearches} recherche(s) faibles.
-- Sources directes essayees ou ciblees: ${triedSourcesSummary}
+ - Etat utile: ${options.research.webSearches} recherche(s), ${options.research.webFetches} lecture(s) web utiles.
+ - Sources ou domaines deja ouverts: ${triedSourcesSummary}
 - Limite principale restante: ${hardBlocker}
 
 Reponds maintenant directement a l'utilisateur, sans jargon interne ni liste technique.`;
@@ -3439,14 +3044,11 @@ type MusicCatalogLookupResult = {
 type MusicResearchProgress = {
   webSearches: number;
   webFetches: number;
-  degradedSearches: number;
-  blockedQueryFamilies: number;
-  validatedFetches?: number;
   musicCatalogCompleted?: boolean;
   musicCatalogCoverage?: MusicCatalogCoverage | null;
 };
 
-type CoworkExecutionMode = 'creative_single_turn' | 'research_loop' | 'artifact_loop' | 'artifact_refinement';
+type CoworkExecutionMode = 'autonomous';
 
 type CoworkPhase =
   | 'analysis'
@@ -3516,24 +3118,14 @@ type ToolCooldownState = {
   reason: string;
 };
 
-type PendingDirectPivot = {
-  familyKey: string;
-  query: string;
-  reason: string;
-  directSourceUrls: string[];
-  attemptedHosts: string[];
-};
-
 type CoworkSessionState = {
   factsCollected: string[];
   sourcesValidated: CoworkValidatedSource[];
   searchesFailed: CoworkSearchFailure[];
   toolsBlocked: CoworkBlockedTool[];
-  pendingDirectPivots: Record<string, PendingDirectPivot>;
   activePdfDraft: ActivePdfDraft | null;
   phase: CoworkPhase;
   modelCompletionScore: number;
-  completionScore: number;
   modelTaskComplete: boolean;
   effectiveTaskComplete: boolean;
   blockers: CoworkBlocker[];
@@ -3565,6 +3157,7 @@ type DirectSourceCategory =
   | 'intl_news'
   | 'economy'
   | 'tech_docs'
+  | 'music'
   | 'sport'
   | 'general';
 
@@ -3704,19 +3297,14 @@ function buildPublicToolNarration(
 
 function markVisibleDeliveryAttempt(
   state: CoworkSessionState,
-  executionMode: CoworkExecutionMode,
+  _executionMode: CoworkExecutionMode,
   visibleText: string
 ): boolean {
-  if (executionMode === 'creative_single_turn') return false;
   if (!visibleText.trim()) return false;
 
   let changed = false;
   if (!state.modelTaskComplete) {
     state.modelTaskComplete = true;
-    changed = true;
-  }
-  if (state.modelCompletionScore < 100) {
-    state.modelCompletionScore = 100;
     changed = true;
   }
   if (state.phase !== 'delivery' && state.phase !== 'completed') {
@@ -3764,16 +3352,18 @@ const DIRECT_SOURCE_FALLBACKS: Record<DirectSourceCategory, string[]> = {
     'https://cloud.google.com/vertex-ai/generative-ai/docs',
     'https://developers.googleblog.com/'
   ],
+  music: [
+    'https://genius.com/',
+    'https://music.apple.com/',
+    'https://www.youtube.com/',
+    'https://www.trackmusik.fr/'
+  ],
   sport: [
     'https://www.lequipe.fr/',
     'https://www.bbc.com/sport',
     'https://www.eurosport.fr/'
   ],
-  general: [
-    'https://www.franceinfo.fr/',
-    'https://www.reuters.com/',
-    'https://www.bbc.com/news'
-  ]
+  general: []
 };
 
 const MUSIC_PLATFORM_DOMAINS = [
@@ -4355,7 +3945,7 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
 
       const assessment = assessSearchResults(query, rankedResults, { strict: strictMode });
       const outcome: SearchOutcome = {
-        success: assessment.quality === 'relevant' || (!strictMode && assessment.quality === 'degraded'),
+        success: assessment.quality !== 'off_topic',
         quality: assessment.quality,
         provider: attempt.label,
         searchMode: attempt.label === 'tavily'
@@ -4388,7 +3978,7 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
         };
       }
 
-      warnings.push(`${attempt.label}: resultats ${assessment.quality === 'degraded' ? 'insuffisants' : 'hors sujet'} pour "${query}".${attempt.label === 'tavily' ? formatDirectSourceHint(query) : ''}`);
+      warnings.push(`${attempt.label}: resultats ${assessment.quality === 'degraded' ? 'faibles' : 'hors sujet'} pour "${query}".`);
     } catch (error) {
       const message = parseApiError(error);
       warnings.push(`${attempt.label}: ${message}`);
@@ -4401,14 +3991,11 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
   if (bestDegraded) {
     if (!publicFallbacksEnabled && bestDegraded.provider === 'tavily') {
       return buildDirectSourceSearchOutcome(query, {
-        quality: strictMode && bestDegraded.quality === 'degraded' ? 'degraded' : bestDegraded.quality,
+        quality: bestDegraded.quality,
         provider: 'tavily',
         searchMode: tavilyPlan.searchMode,
         results: bestDegraded.results,
         warnings,
-        error: strictMode
-          ? `La recherche Tavily n'a pas valide suffisamment la requete "${query}". Ouvre maintenant une source directe via 'web_fetch'.`
-          : `La recherche Tavily reste trop faible pour "${query}". Ouvre maintenant une source directe via 'web_fetch'.`,
         transient: false,
         relevanceScore: bestDegraded.relevanceScore,
         matchedAnchors: bestDegraded.matchedAnchors,
@@ -4419,12 +4006,9 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
     }
     return {
       ...bestDegraded,
-      success: bestDegraded.success,
-      quality: strictMode && bestDegraded.quality === 'degraded' ? 'degraded' : bestDegraded.quality,
+      success: true,
+      quality: bestDegraded.quality,
       warnings,
-      error: strictMode
-        ? `La recherche n'a pas valide suffisamment la requete "${query}".`
-        : undefined,
     };
   }
 
@@ -5617,16 +5201,11 @@ app.post('/api/cowork', async (req, res) => {
     const { message, sessionId, history, config, clientContext } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
     const executionMode = classifyCoworkExecutionMode(message, history);
-    const researchTargets = executionMode === 'artifact_refinement' ? null : getResearchTargets(message);
-    const pdfQualityTargets = getPdfQualityTargets(message);
 
     if (requestRequiresAbuseBlock(message)) {
       const runMeta = createEmptyCoworkRunMeta();
-      runMeta.executionMode = executionMode;
+      runMeta.mode = executionMode;
       runMeta.phase = 'completed';
-      runMeta.publicPhase = getCoworkPublicPhase('completed', executionMode);
-      runMeta.completionScore = 100;
-      runMeta.modelCompletionScore = 100;
       runMeta.taskComplete = true;
 
       res.setHeader('Content-Type', 'text/event-stream');
@@ -5660,9 +5239,9 @@ app.post('/api/cowork', async (req, res) => {
 
     const ai = createGoogleAI(modelId);
 
-    const webSearchEnabled = executionMode !== 'creative_single_turn' && executionMode !== 'artifact_refinement' && config.googleSearch !== false;
+    const webSearchEnabled = config.googleSearch !== false;
     const executeScriptEnabled = config.codeExecution !== false;
-    const strictFactualSearch = executionMode !== 'artifact_refinement' && requestNeedsStrictFactualSearch(message);
+    const strictFactualSearch = requestNeedsStrictFactualSearch(message);
     let lastSuccessfulSearchQuery: string | null = null;
 
     const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
@@ -5907,10 +5486,12 @@ app.post('/api/cowork', async (req, res) => {
       return sessionState.activePdfDraft;
     }
 
+    const pdfQualityTargets = getPdfQualityTargets(message);
+
     const localTools = [
-      {
+      ...(COWORK_DEBUG_REASONING ? [{
         name: "publish_status",
-        description: "Annonce publiquement une mise a jour courte et utile: phase courante, focus, prochaine action, raison du pivot ou critere de fin. N'y mets jamais ton chain-of-thought brut.",
+        description: "Outil debug: annonce publiquement une mise a jour courte et utile sans exposer le chain-of-thought brut.",
         parameters: {
           type: "object",
           properties: {
@@ -5934,8 +5515,8 @@ app.post('/api/cowork', async (req, res) => {
           success: true,
           status: parsePublicStatusPayload(args)
         })
-      },
-      ...(COWORK_DEBUG_REASONING && executionMode !== 'creative_single_turn' ? [{
+      }] : []),
+      ...(COWORK_DEBUG_REASONING ? [{
         name: "report_progress",
         description: "Outil debug de raisonnement structure. Fournit l'etat des connaissances, le manque precise, le pourquoi du prochain outil, le resultat attendu, le plan B, et un score de completude.",
         parameters: {
@@ -5984,7 +5565,7 @@ app.post('/api/cowork', async (req, res) => {
       ] : []),
       {
         name: "music_catalog_lookup",
-        description: "Resout un artiste musical et compare les titres deja possedes avec les sorties officielles confirmees (singles, album, feats optionnels). A utiliser en premier pour les demandes du type 'qu'est-ce qu'il me manque ?'.",
+        description: "Raccourci specialise pour explorer un artiste musical: discographie, sorties, titres manquants, couverture catalogue, pages artiste et pistes de paroles. Utile des qu'une demande touche a un rappeur, un chanteur, une discographie ou un catalogue.",
         parameters: {
           type: "object",
           properties: {
@@ -6111,7 +5692,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       ...(webSearchEnabled ? [{
         name: "web_search",
-        description: "Recherche le web et renvoie une liste concise de resultats (titre, URL, extrait). Si la recherche reste faible ou indisponible, l'outil peut aussi renvoyer des 'directSourceUrls' a ouvrir via 'web_fetch'.",
+        description: "Recherche le web et renvoie une liste concise de resultats (titre, URL, extrait). La qualite retournee est un signal informatif pour t'aider a juger si tu dois approfondir, changer d'angle ou lire directement une source.",
         parameters: {
           type: "object",
           properties: {
@@ -7737,8 +7318,7 @@ app.post('/api/cowork', async (req, res) => {
     let latestReleasedFile: { url: string; path?: string } | null = null;
     let latestCreatedArtifactPath: string | null = null;
     const runMeta = createEmptyCoworkRunMeta();
-    runMeta.executionMode = executionMode;
-    runMeta.publicPhase = getCoworkPublicPhase('analysis', executionMode);
+    runMeta.mode = executionMode;
     let sessionState = createEmptyCoworkSessionState();
 
     // LIBERATION: plus de branchement creative_single_turn.
@@ -7750,25 +7330,28 @@ app.post('/api/cowork', async (req, res) => {
     const successfulResearchMeta: MusicResearchProgress = {
       webSearches: 0,
       webFetches: 0,
-      degradedSearches: 0,
-      blockedQueryFamilies: 0,
       musicCatalogCompleted: false,
       musicCatalogCoverage: null
     };
-    const blockedSearchFamilies = new Set<string>();
     const weakSearchFamilies = new Map<string, number>();
     let lastSearchExactKey: string | null = null;
 
     const syncRunMeta = () => {
-      runMeta.executionMode = executionMode;
+      runMeta.mode = executionMode;
       runMeta.phase = sessionState.phase;
-      runMeta.publicPhase = getCoworkPublicPhase(sessionState.phase, executionMode);
-      runMeta.completionScore = sessionState.completionScore;
-      runMeta.modelCompletionScore = sessionState.modelCompletionScore;
       runMeta.taskComplete = sessionState.effectiveTaskComplete;
-      runMeta.blockerCount = getHardCoworkBlockers(sessionState.blockers).length;
-      runMeta.validatedSources = sessionState.sourcesValidated.length;
-      runMeta.blockedQueryFamilies = blockedSearchFamilies.size;
+      runMeta.searchCount = successfulResearchMeta.webSearches;
+      runMeta.fetchCount = successfulResearchMeta.webFetches;
+      runMeta.sourcesOpened = sessionState.sourcesValidated.length;
+      runMeta.domainsOpened = new Set(sessionState.sourcesValidated.map(source => source.domain).filter(Boolean)).size;
+      runMeta.stalledTurns = sessionState.stalledTurns;
+      runMeta.artifactState = latestReleasedFile?.url
+        ? 'released'
+        : latestCreatedArtifactPath
+          ? 'created'
+          : sessionState.activePdfDraft
+            ? 'drafting'
+            : 'none';
     };
 
     const refreshSessionState = () => {
@@ -7787,11 +7370,8 @@ app.post('/api/cowork', async (req, res) => {
 
     const buildProgressFingerprint = () => buildCoworkProgressFingerprint({
       executionMode,
-      research: {
-        webSearches: successfulResearchMeta.webSearches,
-        webFetches: successfulResearchMeta.webFetches,
-      },
-      validatedSourceCount: sessionState.sourcesValidated.length,
+      openedSourceCount: sessionState.sourcesValidated.length,
+      openedDomainCount: new Set(sessionState.sourcesValidated.map(source => source.domain).filter(Boolean)).size,
       activePdfDraft: sessionState.activePdfDraft,
       latestApprovedPdfReviewSignature,
       latestCreatedArtifactPath: latestCreatedArtifactPath || null,
@@ -7801,7 +7381,6 @@ app.post('/api/cowork', async (req, res) => {
       effectiveTaskComplete: sessionState.effectiveTaskComplete,
       pendingFinalAnswer: sessionState.pendingFinalAnswer,
       blockers: sessionState.blockers,
-      pendingDirectPivots: sessionState.pendingDirectPivots,
     });
 
     const registerProgressState = (actionSignature: string) => {
@@ -7990,21 +7569,12 @@ app.post('/api/cowork', async (req, res) => {
       const nextWeakCount = (weakSearchFamilies.get(scope.familyKey) || 0) + 1;
       weakSearchFamilies.set(scope.familyKey, nextWeakCount);
       sessionState.consecutiveDegradedSearches[scope.familyKey] = nextWeakCount;
-      if (nextWeakCount >= 2) {
-        blockedSearchFamilies.add(scope.familyKey);
-        recordBlockedTool('web_search', scope.familyKey, 'weak_search_family');
-      }
-      runMeta.blockedQueryFamilies = blockedSearchFamilies.size;
-      successfulResearchMeta.blockedQueryFamilies = blockedSearchFamilies.size;
       return nextWeakCount;
     };
 
     const clearWeakSearch = (scope: { exactKey: string; familyKey: string }) => {
       weakSearchFamilies.delete(scope.familyKey);
-      blockedSearchFamilies.delete(scope.familyKey);
       delete sessionState.consecutiveDegradedSearches[scope.familyKey];
-      runMeta.blockedQueryFamilies = blockedSearchFamilies.size;
-      successfulResearchMeta.blockedQueryFamilies = blockedSearchFamilies.size;
     };
 
     const isTransientToolIssue = (toolName: string, errorLike: unknown) => {
@@ -8057,8 +7627,8 @@ app.post('/api/cowork', async (req, res) => {
 
     emitEvent('status', {
       iteration: 0,
-      title: executionMode === 'artifact_refinement' ? 'Refinement' : 'Initialisation',
-      message: executionMode === 'artifact_refinement' ? 'Cowork re-stylise le PDF sans recherche web.' : 'Cowork prepare la tache.',
+      title: 'Initialisation',
+      message: 'Cowork prepare la tache.',
       runState: 'running',
       runMeta
     });
@@ -8138,26 +7708,42 @@ app.post('/api/cowork', async (req, res) => {
       });
 
       if (functionCalls.length > 0) {
-        const nonActionableToolNames = new Set(['report_progress', 'publish_status']);
-        const reportCalls = functionCalls.filter(call => call.name === 'report_progress');
-        const statusCalls = functionCalls.filter(call => call.name === 'publish_status');
-        const actionableCalls = functionCalls.filter(call => !nonActionableToolNames.has(call.name));
-        const reportIndex = functionCalls.findIndex(call => call.name === 'report_progress');
-        const firstActionableIndex = functionCalls.findIndex(call => !nonActionableToolNames.has(call.name));
+        const debugOnlyToolNames = new Set(['report_progress', 'publish_status']);
+        const readOnlyToolNames = new Set([
+          'publish_status',
+          'report_progress',
+          'list_files',
+          'list_recursive',
+          'read_file',
+          'web_search',
+          'web_fetch',
+          'music_catalog_lookup',
+          'get_pdf_draft',
+          'review_pdf_draft'
+        ]);
+        const mutatingToolNames = new Set([
+          'write_file',
+          'begin_pdf_draft',
+          'append_to_draft',
+          'create_pdf',
+          'release_file',
+          'execute_script'
+        ]);
+        const debugCalls = functionCalls.filter(call => debugOnlyToolNames.has(call.name));
+        const readOnlyCalls = functionCalls.filter(call => readOnlyToolNames.has(call.name) && !debugOnlyToolNames.has(call.name));
+        const mutatingCalls = functionCalls.filter(call => mutatingToolNames.has(call.name));
         let turnViolation: string | null = null;
 
-        if (!COWORK_DEBUG_REASONING && reportCalls.length > 0) {
-          turnViolation = "'report_progress' n'est pas disponible dans le mode normal. Agis directement avec un outil utile ou reponds.";
-        } else if (statusCalls.length > 1) {
-          turnViolation = "N'envoie qu'un seul 'publish_status' par tour.";
-        } else if (reportCalls.length > 1) {
-          turnViolation = "N'envoie qu'un seul 'report_progress' par tour.";
-        } else if (actionableCalls.length > 1) {
-          turnViolation = "N'appelle qu'un seul outil actionnable par tour.";
-        } else if (COWORK_DEBUG_REASONING && actionableCalls.length === 1 && reportCalls.length !== 1) {
-          turnViolation = "Tu dois appeler 'report_progress' juste avant l'outil actionnable.";
-        } else if (COWORK_DEBUG_REASONING && reportCalls.length === 1 && actionableCalls.length === 1 && reportIndex > firstActionableIndex) {
-          turnViolation = "'report_progress' doit venir avant l'outil actionnable, jamais apres.";
+        if (!COWORK_DEBUG_REASONING && debugCalls.length > 0) {
+          turnViolation = "Les outils de statut/debug ne sont pas disponibles en mode normal. Agis directement avec des outils utiles ou reponds.";
+        } else if (debugCalls.length > 2) {
+          turnViolation = "N'abuse pas des outils de debug dans un meme tour.";
+        } else if (readOnlyCalls.length > 3) {
+          turnViolation = "Limite de tour depassee: au plus 3 outils read-only par tour.";
+        } else if (mutatingCalls.length > 1) {
+          turnViolation = "Limite de tour depassee: au plus 1 outil mutatif par tour.";
+        } else if (mutatingCalls.length === 1 && functionCalls[functionCalls.length - 1]?.name !== mutatingCalls[0]?.name) {
+          turnViolation = "Si tu appelles un outil mutatif, il doit venir en dernier apres les lectures/recherches utiles.";
         }
 
         if (turnViolation) {
@@ -8172,7 +7758,7 @@ app.post('/api/cowork', async (req, res) => {
           });
           contents.push({
             role: 'user',
-            parts: [{ text: COWORK_DEBUG_REASONING ? `${turnViolation}\nReprends proprement avec un seul 'report_progress' structure, puis au besoin un seul outil actionnable.` : `${turnViolation}\nReprends avec un seul outil actionnable utile, ou reponds directement si aucun outil n'est necessaire.` }]
+            parts: [{ text: `${turnViolation}\nReprends avec une petite chaine coherente: lectures/recherches d'abord, eventuelle mutation en dernier, ou reponds directement si aucun outil n'est necessaire.` }]
           });
           continue;
         }
@@ -8326,97 +7912,36 @@ app.post('/api/cowork', async (req, res) => {
               continue;
             }
 
-            if (tool.name === 'web_search') {
-              const pendingDirectPivot = getPendingDirectPivotForSearch(sessionState, toolScope.familyKey, {
-                strictTask: strictFactualSearch
+            if (tool.name === 'web_search' && lastSearchExactKey && toolScope.exactKey === lastSearchExactKey) {
+              const loopMsg = `La requete '${toolScope.label}' repete exactement la recherche precedente sans angle nouveau. Change reellement de formulation, de source ou d'outil avant d'insister.`;
+              recordSearchFailure({
+                query: toolScope.label,
+                family: toolScope.familyKey,
+                quality: 'degraded',
+                reason: 'duplicate_query'
               });
-              if (pendingDirectPivot) {
-                const nextDirectUrl = getNextPendingDirectPivotUrl(pendingDirectPivot);
-                const loopMsg = buildPendingDirectPivotMessage(pendingDirectPivot, toolScope.label);
-                recordBlockedTool('web_search', pendingDirectPivot.familyKey, 'pending_direct_pivot');
-                refreshSessionState();
-                toolResults.push({
-                  functionResponse: {
-                    ...(call.id ? { id: call.id } : {}),
-                    name: tool.name,
-                    response: {
-                      success: false,
-                      recoverable: true,
-                      quality: 'degraded',
-                      error: loopMsg,
-                      directSourceUrls: pendingDirectPivot.directSourceUrls,
-                      ...(nextDirectUrl ? { suggestedUrl: nextDirectUrl } : {}),
-                      warnings: [loopMsg]
-                    }
-                  }
-                });
-                emitEvent('warning', {
-                  iteration: iterations,
-                  title: 'Pivot direct requis',
-                  message: loopMsg,
-                  toolName: tool.name,
-                  meta: {
-                    family: clipText(pendingDirectPivot.query || toolScope.label, 120),
-                    ...(nextDirectUrl ? { suggestedUrl: clipText(nextDirectUrl, 120) } : {})
-                  },
-                  runMeta
-                });
-                continue;
-              }
-
-              if (lastSearchExactKey && toolScope.exactKey === lastSearchExactKey) {
-                const loopMsg = `La requete '${toolScope.label}' est identique a la recherche precedente. Change reellement d'angle, ouvre une source directe via 'web_fetch', ou admets que la recherche reste insuffisante.${formatDirectSourceHint(message)}`;
-                recordSearchFailure({
-                  query: toolScope.label,
-                  family: toolScope.familyKey,
-                  quality: 'degraded',
-                  reason: 'duplicate_query'
-                });
-                refreshSessionState();
-                toolResults.push({
-                  functionResponse: {
-                    ...(call.id ? { id: call.id } : {}),
-                    name: tool.name,
-                    response: { success: false, quality: 'degraded', error: loopMsg, warnings: [loopMsg] }
-                  }
-                });
-                emitEvent('warning', {
-                  iteration: iterations,
-                  title: 'Requete repetee',
-                  message: loopMsg,
-                  toolName: tool.name,
-                  meta: { query: clipText(toolScope.label, 120), reason: 'duplicate_query' },
-                  runMeta
-                });
-                continue;
-              }
-
-              if (blockedSearchFamilies.has(toolScope.familyKey)) {
-                const loopMsg = `La famille de requetes '${toolScope.label}' est bloquee apres plusieurs recherches faibles. Pivote: autre angle, 'web_fetch' direct, outil specialise, ou conclusion honnete d'insuffisance.${formatDirectSourceHint(message)}`;
-                recordBlockedTool(tool.name, toolScope.familyKey, 'weak_search_family');
-                refreshSessionState();
-                toolResults.push({
-                  functionResponse: {
-                    ...(call.id ? { id: call.id } : {}),
-                    name: tool.name,
-                    response: { success: false, quality: 'degraded', error: loopMsg, warnings: [loopMsg] }
-                  }
-                });
-                emitEvent('warning', {
-                  iteration: iterations,
-                  title: 'Famille bloquee',
-                  message: loopMsg,
-                  toolName: tool.name,
-                  meta: { family: clipText(toolScope.label, 120), reason: 'weak_family_blocked' },
-                  runMeta
-                });
-                continue;
-              }
+              refreshSessionState();
+              toolResults.push({
+                functionResponse: {
+                  ...(call.id ? { id: call.id } : {}),
+                  name: tool.name,
+                  response: { success: false, recoverable: true, quality: 'degraded', error: loopMsg, warnings: [loopMsg] }
+                }
+              });
+              emitEvent('warning', {
+                iteration: iterations,
+                title: 'Requete repetee',
+                message: loopMsg,
+                toolName: tool.name,
+                meta: { query: clipText(toolScope.label, 120), reason: 'duplicate_query' },
+                runMeta
+              });
+              continue;
             }
 
             runMeta.toolCalls += 1;
-            if (tool.name === 'web_search') runMeta.webSearches += 1;
-            if (tool.name === 'web_fetch') runMeta.webFetches += 1;
+            if (tool.name === 'web_search') runMeta.searchCount += 1;
+            if (tool.name === 'web_fetch') runMeta.fetchCount += 1;
 
             log.info(`Executing tool: ${tool.name}`, call.args);
             if (!iterationNarrationEmitted) {
@@ -8438,10 +7963,6 @@ app.post('/api/cowork', async (req, res) => {
               runMeta
             });
             try {
-              if (tool.name === 'web_fetch' && typeof call.args?.url === 'string') {
-                markPendingDirectPivotHostAttempt(sessionState, String(call.args.url));
-                refreshSessionState();
-              }
               const output = await tool.execute(call.args);
               const isError = (output as any).success === false || (output as any).error;
               const transientIssue = isError && isTransientToolIssue(tool.name, (output as any).error || (output as any).message || output);
@@ -8498,16 +8019,6 @@ app.post('/api/cowork', async (req, res) => {
                   recordBlockedTool(tool.name, toolScope.familyKey, 'cooldown_active', Date.now() + delayMs);
                 }
                 if (tool.name === 'web_search') {
-                  runMeta.degradedSearches += 1;
-                  successfulResearchMeta.degradedSearches += 1;
-                  if (Array.isArray((output as any).directSourceUrls) && (output as any).directSourceUrls.length > 0) {
-                    upsertPendingDirectPivot(sessionState, {
-                      familyKey: toolScope.familyKey,
-                      query: String((output as any).query || toolScope.label),
-                      reason: String((output as any).searchDisabledReason || searchQuality || 'search_failed'),
-                      directSourceUrls: (output as any).directSourceUrls
-                    });
-                  }
                   recordSearchFailure({
                     query: String((output as any).query || toolScope.label),
                     family: toolScope.familyKey,
@@ -8521,8 +8032,8 @@ app.post('/api/cowork', async (req, res) => {
                     if (weakCount >= 2) {
                       emitEvent('warning', {
                         iteration: iterations,
-                        title: 'Pivot requis',
-                        message: `Deux recherches faibles ou plus sur la famille '${clipText(toolScope.label, 120)}'. Change d'angle ou ouvre une source directe.${formatDirectSourceHint(message)}`,
+                        title: 'Piste faible',
+                        message: `Cette piste de recherche reste faible apres plusieurs essais. Change vraiment d'angle ou approfondis une source plus prometteuse.`,
                         toolName: tool.name,
                         meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
                         runMeta
@@ -8534,22 +8045,10 @@ app.post('/api/cowork', async (req, res) => {
                 clearToolFailures(toolScope);
                 clearTransientCooldown(toolScope.familyKey);
                 if (tool.name === 'web_search') {
+                  successfulResearchMeta.webSearches += 1;
                   if (searchQuality === 'relevant') {
-                    successfulResearchMeta.webSearches += 1;
-                    runMeta.validatedSearches += 1;
                     clearWeakSearch(toolScope);
-                    clearPendingDirectPivot(sessionState, toolScope.familyKey);
                   } else {
-                    runMeta.degradedSearches += 1;
-                    successfulResearchMeta.degradedSearches += 1;
-                    if (Array.isArray((output as any).directSourceUrls) && (output as any).directSourceUrls.length > 0) {
-                      upsertPendingDirectPivot(sessionState, {
-                        familyKey: toolScope.familyKey,
-                        query: String((output as any).query || toolScope.label),
-                        reason: String((output as any).searchDisabledReason || searchQuality || 'degraded_result'),
-                        directSourceUrls: (output as any).directSourceUrls
-                      });
-                    }
                     recordSearchFailure({
                       query: String((output as any).query || toolScope.label),
                       family: toolScope.familyKey,
@@ -8561,8 +8060,8 @@ app.post('/api/cowork', async (req, res) => {
                     if (weakCount >= 2) {
                       emitEvent('warning', {
                         iteration: iterations,
-                        title: 'Pivot requis',
-                        message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent trop faibles. Ne repete pas la meme famille de requetes.${formatDirectSourceHint(message)}`,
+                        title: 'Piste faible',
+                        message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent faibles. Si cette piste n'apporte rien, change d'angle au lieu d'insister.`,
                         toolName: tool.name,
                         meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
                         runMeta
@@ -8570,20 +8069,25 @@ app.post('/api/cowork', async (req, res) => {
                     }
                   }
                 }
-                if (tool.name === 'web_fetch' && hasValidatingFetch) {
+                if (tool.name === 'web_fetch') {
                   successfulResearchMeta.webFetches += 1;
-                  successfulResearchMeta.validatedFetches = (successfulResearchMeta.validatedFetches || 0) + 1;
                   addValidatedSource({
                     url: String((output as any).url || (call.args as any)?.url || ''),
                     domain: String((output as any).domain || ''),
                     kind: 'web_fetch'
                   });
-                  clearPendingDirectPivotForUrl(sessionState, String((output as any).url || (call.args as any)?.url || ''));
                   addFacts(String((output as any).title || ''), String((output as any).excerpt || ''));
                 }
                 if (tool.name === 'music_catalog_lookup') {
                   successfulResearchMeta.musicCatalogCoverage = (output as any).coverage || null;
                   successfulResearchMeta.musicCatalogCompleted = !(output as any).partial;
+                  for (const source of Array.isArray((output as any).sources) ? (output as any).sources : []) {
+                    addValidatedSource({
+                      url: String(source?.url || ''),
+                      domain: String(source?.domain || ''),
+                      kind: 'music_catalog_lookup'
+                    });
+                  }
                   addFacts(String((output as any).message || ''));
                 }
               }
@@ -8638,7 +8142,7 @@ app.post('/api/cowork', async (req, res) => {
                 emitEvent('warning', {
                   iteration: iterations,
                   title: 'Recherche degradee',
-                  message: `La requete '${clipText((output as any).query || toolScope.label, 120)}' n'a pas valide suffisamment le sujet. Ce resultat ne compte pas comme preuve.${Array.isArray((output as any).directSourceUrls) && (output as any).directSourceUrls.length > 0 ? ` Ouvre plutot: ${(output as any).directSourceUrls.slice(0, 3).join(' | ')}.` : formatDirectSourceHint(message)}`,
+                  message: `La requete '${clipText((output as any).query || toolScope.label, 120)}' renvoie une piste encore faible ou partielle. Utilise-la comme signal pour approfondir, recouper ou changer d'angle si besoin.${Array.isArray((output as any).directSourceUrls) && (output as any).directSourceUrls.length > 0 ? ` Pistes directes utiles: ${(output as any).directSourceUrls.slice(0, 3).join(' | ')}.` : ''}`,
                   toolName: tool.name,
                   meta: formatToolResultMeta(tool.name, call.args, output),
                   runMeta
@@ -8646,8 +8150,8 @@ app.post('/api/cowork', async (req, res) => {
               } else if (tool.name === 'web_fetch' && !hasValidatingFetch) {
                 emitEvent('warning', {
                   iteration: iterations,
-                  title: 'Source non validante',
-                  message: `La lecture de '${clipText((output as any).url || toolScope.label, 120)}' est ${fetchQuality || 'partielle'} avec pertinence ${fetchRelevance || 'off_topic'} et ne valide pas encore la recherche.`,
+                  title: 'Source a confirmer',
+                  message: `La lecture de '${clipText((output as any).url || toolScope.label, 120)}' reste ${fetchQuality || 'partielle'} avec pertinence ${fetchRelevance || 'off_topic'}. Utilise-la comme signal, pas comme preuve definitive si le sujet reste sensible.`,
                   toolName: tool.name,
                   meta: formatToolResultMeta(tool.name, call.args, output),
                   runMeta
@@ -8661,8 +8165,6 @@ app.post('/api/cowork', async (req, res) => {
                 recordBlockedTool(tool.name, toolScope.familyKey, 'cooldown_active', Date.now() + delayMs);
               }
               if (tool.name === 'web_search') {
-                runMeta.degradedSearches += 1;
-                successfulResearchMeta.degradedSearches += 1;
                 recordSearchFailure({
                   query: toolScope.label,
                   family: toolScope.familyKey,
@@ -8674,8 +8176,8 @@ app.post('/api/cowork', async (req, res) => {
                   if (weakCount >= 2) {
                     emitEvent('warning', {
                       iteration: iterations,
-                      title: 'Pivot requis',
-                      message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent improductives. Pivote ou conclue proprement.${formatDirectSourceHint(message)}`,
+                      title: 'Piste faible',
+                      message: `Les recherches sur '${clipText(toolScope.label, 120)}' restent improductives. Pivote, ouvre une meilleure source, ou conclus honnetement si la matiere manque.`,
                       toolName: tool.name,
                       meta: { family: clipText(toolScope.label, 120), reason: 'weak_search_family' },
                       runMeta
@@ -8755,12 +8257,28 @@ app.post('/api/cowork', async (req, res) => {
       }
 
       if (iterationVisibleText.trim()) {
-        // LIBERATION: quand le modele produit du texte visible, on l'accepte comme reponse finale.
-        // Plus de "Finalisation refusee", plus de blockers qui rejettent la reponse.
         if (markVisibleDeliveryAttempt(sessionState, executionMode, iterationVisibleText)) {
           refreshSessionState();
         }
-        sessionState.effectiveTaskComplete = true;
+        const hardBlockers = getHardCoworkBlockers(sessionState.blockers);
+        const artifactCompletionPrompt = buildArtifactCompletionPrompt(message, latestCreatedArtifactPath, latestReleasedFile);
+        if (hardBlockers.length > 0 && artifactCompletionPrompt) {
+          emitEvent('warning', {
+            iteration: iterations,
+            title: 'Livraison incomplete',
+            message: hardBlockers.map(blocker => blocker.message).join(' '),
+            runMeta
+          });
+          contents.push({
+            role: 'user',
+            parts: [{ text: artifactCompletionPrompt }]
+          });
+          if (handleNoProgress('artifact_delivery_incomplete')) {
+            break;
+          }
+          continue;
+        }
+
         finalVisibleText += iterationVisibleText;
         sessionState.pendingFinalAnswer = false;
         sessionState.phase = 'completed';

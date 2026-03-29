@@ -4,6 +4,7 @@ import { log } from './logger.js';
 import { getGcpCredentials } from './storage.js';
 
 export type RetryKind = 'quota' | 'concurrency' | 'server';
+export type GeminiThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 export type RetryOptions = {
   maxRetries?: number;
@@ -142,4 +143,32 @@ export function createGoogleAI(modelId?: string): GoogleGenAI {
     options.googleAuthOptions = { credentials: gcpCredentials };
   }
   return new GoogleGenAI(options);
+}
+
+export function buildThinkingConfig(
+  modelId: string,
+  options: {
+    thinkingLevel?: GeminiThinkingLevel;
+    maxThoughtTokens?: number;
+    includeThoughts?: boolean;
+  } = {},
+) {
+  const normalizedModel = String(modelId || '').toLowerCase();
+  const isGemini3Series = /gemini-3(\.1)?-/.test(normalizedModel);
+  const isGemini25Series = /gemini-2\.5-/.test(normalizedModel);
+  const thinkingConfig: Record<string, unknown> = {};
+
+  if (typeof options.includeThoughts === 'boolean') {
+    thinkingConfig.includeThoughts = options.includeThoughts;
+  }
+
+  if (isGemini3Series) {
+    if (options.thinkingLevel) {
+      thinkingConfig.thinkingLevel = options.thinkingLevel;
+    }
+  } else if (isGemini25Series && Number.isFinite(options.maxThoughtTokens)) {
+    thinkingConfig.thinkingBudget = Math.max(0, Math.round(options.maxThoughtTokens || 0));
+  }
+
+  return Object.keys(thinkingConfig).length > 0 ? thinkingConfig : undefined;
 }

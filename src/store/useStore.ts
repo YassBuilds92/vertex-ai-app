@@ -6,7 +6,10 @@ interface AppState {
   activeMode: AppMode;
   setActiveMode: (mode: AppMode) => void;
   activeSessionId: string | null;
-  setActiveSessionId: (id: string | null) => void;
+  setActiveSessionId: (id: string | null, options?: {
+    remember?: boolean;
+    modeOverride?: AppMode;
+  }) => void;
   lastSessionIdsByMode: Record<AppMode, string | null>;
   configs: Record<AppMode, ModelConfig>;
   setConfig: (config: Partial<ModelConfig>) => void;
@@ -96,13 +99,21 @@ export const useStore = create<AppState>()(
       activeMode: 'chat',
       setActiveMode: (mode) => set({ activeMode: mode }),
       activeSessionId: null,
-      setActiveSessionId: (id) => set((state) => ({
-        activeSessionId: id,
-        lastSessionIdsByMode: {
-          ...state.lastSessionIdsByMode,
-          [state.activeMode]: id,
-        },
-      })),
+      setActiveSessionId: (id, options) => set((state) => {
+        const remember = options?.remember ?? true;
+        const targetMode = options?.modeOverride ?? state.activeMode;
+        const shouldRemember = remember && !!id && id !== 'local-new';
+
+        return {
+          activeSessionId: id,
+          lastSessionIdsByMode: shouldRemember
+            ? {
+                ...state.lastSessionIdsByMode,
+                [targetMode]: id,
+              }
+            : state.lastSessionIdsByMode,
+        };
+      }),
       lastSessionIdsByMode: initialLastSessionIdsByMode,
       configs: initialConfigs,
       setConfig: (newConfig) => set((state) => ({ 

@@ -476,3 +476,24 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Methode de validation la plus fiable:
   - pour la batterie, lancer un serveur backend ephemere dans le meme shell que les tests
   - le vieux serveur local detache sur `:3000` s'est montre trop fragile pour les longues series et peut produire des faux negatifs
+
+## Mise a jour 2026-03-29 - Surface chat/agent clarifiee et allegee
+- Retour produit:
+  - le mode `Chat & Raisonnement` et les workspaces agent se melangeaient visuellement
+  - certaines copies continuaient a parler de Cowork dans un workspace agent
+  - le selecteur de modeles et plusieurs surfaces du shell etaient devenus trop serres et trop lourds
+- Correctifs appliques:
+  - les sessions agent restent basees sur le runtime outille, mais leur surface est maintenant mieux isolee du chat normal via `sessionKind='agent'`
+  - l'historique chat ne memorise plus par erreur le dernier workspace agent comme derniere vraie conversation chat
+  - l'en-tete et les placeholders runtime choisissent maintenant leur copy selon la surface active (chat, cowork, agent)
+  - le warning Hub local est compresse en indicateurs/pills discrets au lieu d'une grosse banniere jaune
+  - le panneau droit a un selecteur de modeles inline, sans overlay recouvert par `Capacites & outils`
+  - la perf shell a ete priorisee:
+    - suppression des transitions globales sur tout le DOM
+    - reduction des blurs sur panneaux et messages
+    - surfaces de messages/composition allegees
+- Validation:
+  - `npm run lint` OK
+  - `npm run build` OK
+  - validation Playwright locale OK sur le shell et le selecteur de modeles
+  - validation SSE brute OK: `/api/chat` renvoie maintenant des `thoughts` avec `gemini-3.1-pro-preview`

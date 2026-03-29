@@ -462,3 +462,31 @@
 - Intention exacte:
   - faire de "podcast" un vrai artefact audio premium de premiere classe dans Cowork
   - eviter que le modele livre des composants separes quand l'utilisateur attend un episode pret a publier
+
+## Mise a jour complementaire - 2026-03-29 (stabilisation chat/agent + perf frontend)
+- Retour produit traite:
+  - frontend trop serre
+  - selecteur de modeles recouvert par `Capacites & outils`
+  - warning Hub local trop envahissant
+  - sessions agent qui polluent `Chat & Raisonnement`
+  - copy/runtime qui affichait encore Cowork dans un workspace agent
+  - thinking Gemini invisible en chat standard
+  - shell visuellement trop lourd et moins fluide
+- Correctifs appliques:
+  - `server/routes/standard.ts` envoie maintenant `thinkingConfig` avec `includeThoughts: true` sur `/api/chat`
+  - `server/lib/google-genai.ts` centralise `buildThinkingConfig()` pour Gemini 3.x/3.1 et 2.5
+  - `api/index.ts` migre aussi vers `thinkingConfig` pour Cowork/agent et pour les reponses finales bloquees
+  - `src/store/useStore.ts` n'ecrase plus `lastSessionIdsByMode` pour `local-new` ou les sessions agent quand `remember` est desactive
+  - `src/components/SidebarLeft.tsx` separe maintenant l'historique normal et les sessions `sessionKind='agent'`
+  - `src/App.tsx` distingue mieux Cowork vs agent runtime dans les labels, placeholders et snapshots riches
+  - le gros bandeau jaune Hub local est remplace par une ligne d'etat compacte en pills
+  - `src/components/SidebarRight.tsx` remplace l'ancien dropdown absolu par une liste de modeles inline
+  - `src/index.css`, `MessageItem.tsx`, `ChatInput.tsx`, `SidebarLeft.tsx`, `SidebarRight.tsx` et `App.tsx` ont ete alleges pour la fluidite
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation Playwright locale sur `http://127.0.0.1:3000` : OK pour le shell, les libelles de mode et le selecteur de modeles non recouvert
+  - validation SSE brute `/api/chat` avec `gemini-3.1-pro-preview` : OK, le stream renvoie maintenant des events `thoughts` avant `text`
+- Limites restantes:
+  - le rendu live du bloc thinking dans l'UI complete n'a pas ete rejoue en session Google connectee pendant cette passe
+  - le warning Vite sur les chunks > 500 kB reste a traiter dans une prochaine passe perf si on veut pousser encore la fluidite

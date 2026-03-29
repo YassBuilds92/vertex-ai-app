@@ -182,6 +182,9 @@ export default function App() {
     sessionKind: 'standard' as const,
   };
 
+  const isAgentSession = activeSession.sessionKind === 'agent' && Boolean(activeSession.agentWorkspace);
+  const richSessionUsesCoworkSnapshots = activeMode === 'cowork' || isAgentSession;
+
   const activeAgentWorkspace = React.useMemo(() => {
     if (activeSession.sessionKind !== 'agent' || !activeSession.agentWorkspace) return null;
 
@@ -285,6 +288,14 @@ export default function App() {
     audio: 'Text-to-Speech',
   }[activeMode];
 
+  const activeSurfaceLabel = isAgentSession
+    ? 'Workspace Agent'
+    : activeModeLabel;
+
+  const getPreferredSessionsForMode = useCallback((mode: AppMode) => (
+    sessions.filter((session) => session.mode === mode && !(mode === 'chat' && session.sessionKind === 'agent'))
+  ), [sessions]);
+
   const handleGoogleLogin = useCallback(async () => {
     try {
       await signInWithPopup(auth, googleProvider);
@@ -310,25 +321,26 @@ export default function App() {
     setActiveMode(mode);
 
     const preferredSessionId = lastSessionIdsByMode[mode];
+    const availableSessions = getPreferredSessionsForMode(mode);
     const preferredSession = preferredSessionId
-      ? sessions.find(session => session.id === preferredSessionId && session.mode === mode)
+      ? availableSessions.find(session => session.id === preferredSessionId)
       : undefined;
-    const fallbackSession = sessions.find(session => session.mode === mode);
+    const fallbackSession = availableSessions[0];
 
     if (preferredSession) {
-      setActiveSessionId(preferredSession.id);
+      setActiveSessionId(preferredSession.id, { modeOverride: mode });
       return;
     }
 
     if (fallbackSession) {
-      setActiveSessionId(fallbackSession.id);
+      setActiveSessionId(fallbackSession.id, { modeOverride: mode });
       return;
     }
 
     setPendingAttachments([]);
     setCustomTitle(null);
-    setActiveSessionId('local-new');
-  }, [lastSessionIdsByMode, sessions, setActiveMode, setActiveSessionId]);
+    setActiveSessionId('local-new', { remember: false, modeOverride: mode });
+  }, [getPreferredSessionsForMode, lastSessionIdsByMode, setActiveMode, setActiveSessionId]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -442,7 +454,7 @@ export default function App() {
     return onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       let hydratedMessages = fetchedMessages;
-      if (activeMode === 'cowork') {
+      if (richSessionUsesCoworkSnapshots) {
         hydratedMessages = hydrateCoworkMessages(hydratedMessages, user.uid, activeSessionId);
       }
       hydratedMessages = hydrateSessionMessages(hydratedMessages, user.uid, activeSessionId);
@@ -470,14 +482,14 @@ export default function App() {
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${user?.uid}/sessions/${activeSessionId}/messages`);
     });
-  }, [user, activeMode, activeSessionId]);
+  }, [activeSessionId, richSessionUsesCoworkSnapshots, user]);
 
 
 
   const handleNewChat = useCallback(() => {
     setPendingAttachments([]);
     setCustomTitle(null);
-    setActiveSessionId('local-new');
+    setActiveSessionId('local-new', { remember: false });
   }, [setActiveSessionId]);
 
   const handleModeChange = (mode: AppMode) => {
@@ -711,7 +723,7 @@ export default function App() {
     await persistSessionShell(session);
     upsertSessionLocal(session);
     setActiveMode('cowork');
-    setActiveSessionId(sessionId);
+    setActiveSessionId(sessionId, { modeOverride: 'cowork' });
     setCustomTitle(null);
     setShowAgentsHub(false);
 
@@ -759,7 +771,7 @@ export default function App() {
     await persistSessionShell(session);
     upsertSessionLocal(session);
     setActiveMode('chat');
-    setActiveSessionId(sessionId);
+    setActiveSessionId(sessionId, { remember: false, modeOverride: 'chat' });
     setCustomTitle(null);
     setShowAgentsHub(false);
 
@@ -1048,7 +1060,10 @@ export default function App() {
         });
         setCustomTitle(null);
         currentSessionId = newId;
-        setActiveSessionId(newId);
+        setActiveSessionId(newId, {
+          remember: effectiveSession.sessionKind !== 'agent',
+          modeOverride: effectiveMode,
+        });
       }
 
       if (!user || !currentSessionId) return;
@@ -1285,18 +1300,24 @@ export default function App() {
         const decoder = new TextDecoder();
         let buffer = '';
 
+        const runtimeLabel = isAgentRun
+          ? (effectiveSession.agentWorkspace?.agent.name || 'Agent')
+          : 'Cowork';
+
         const modelMessage: Message = {
-          id: `cowork-${Date.now()}`,
+          id: `${isAgentRun ? 'agent' : 'cowork'}-${Date.now()}`,
           role: 'model',
           content: '',
           thoughts: '',
           activity: [{
-            id: `cw-init-${Date.now()}`,
+            id: `${isAgentRun ? 'agent' : 'cw'}-init-${Date.now()}`,
             kind: 'status',
             timestamp: Date.now(),
             iteration: 0,
             title: 'Initialisation',
-            message: "Connexion a la boucle Cowork...",
+            message: isAgentRun
+              ? `Connexion au workspace agent ${runtimeLabel}...`
+              : 'Connexion a la boucle Cowork...',
             status: 'info',
           }],
           runState: 'running',
@@ -1773,8 +1794,8 @@ export default function App() {
         >
           <div className="pointer-events-none absolute inset-0">
             <div className="absolute inset-x-0 top-0 h-[36vh] bg-[radial-gradient(circle_at_top,rgba(129,236,255,0.11),transparent_46%)]" />
-            <div className="absolute bottom-0 left-[18%] h-[22rem] w-[22rem] rounded-full bg-[radial-gradient(circle,rgba(255,191,134,0.08),transparent_68%)] blur-3xl" />
-            <div className="absolute right-[8%] top-[18%] h-[24rem] w-[24rem] rounded-full bg-[radial-gradient(circle,rgba(68,196,255,0.13),transparent_65%)] blur-3xl" />
+            <div className="absolute bottom-0 left-[18%] h-[18rem] w-[18rem] rounded-full bg-[radial-gradient(circle,rgba(255,191,134,0.08),transparent_68%)] blur-2xl" />
+            <div className="absolute right-[8%] top-[18%] h-[20rem] w-[20rem] rounded-full bg-[radial-gradient(circle,rgba(68,196,255,0.12),transparent_65%)] blur-2xl" />
           </div>
 
           {/* Global Dropzone Overlay */}
@@ -1804,7 +1825,7 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <header className="relative z-40 flex h-[74px] items-center justify-between border-b border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.72)] px-4 backdrop-blur-2xl sm:px-6">
+          <header className="relative z-40 flex h-[74px] items-center justify-between border-b border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.78)] px-4 backdrop-blur-xl sm:px-6">
             <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
                <button onClick={() => setLeftSidebarVisible(!isLeftSidebarVisible)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Menu size={18}/></button>
                
@@ -1836,7 +1857,7 @@ export default function App() {
                       <div className="min-w-0 max-w-[12rem] sm:max-w-none">
                         <div className="truncate text-sm font-semibold text-[var(--app-text)]">{activeSession.title}</div>
                         <div className="mt-0.5 flex items-center gap-2 overflow-hidden">
-                          <span className="truncate text-[10px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] sm:text-[11px]">{activeModeLabel}</span>
+                          <span className="truncate text-[10px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] sm:text-[11px]">{activeSurfaceLabel}</span>
                          {activeSession.sessionKind === 'agent' && (
                            <span className="rounded-full border border-[var(--app-border)] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--app-accent)]">
                              Agent
@@ -1877,6 +1898,12 @@ export default function App() {
                  >
                    <Bot size={15} />
                    <span className="hidden sm:inline">Hub Agents</span>
+                   {agentsWarning && (
+                     <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/18 bg-amber-300/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-amber-100/80">
+                       <span className="h-1.5 w-1.5 rounded-full bg-amber-200" />
+                       Local
+                     </span>
+                   )}
                    {agents.length > 0 && (
                      <span className="rounded-full bg-white/12 px-2 py-0.5 text-[11px] text-white/80">
                        {agents.length}
@@ -1890,49 +1917,37 @@ export default function App() {
             </div>
           </header>
 
-          {activeMode === 'cowork' && user && latestCreatedAgent && !showAgentsHub && (
-            <div className="border-b border-cyan-300/10 bg-cyan-300/[0.05] px-6 py-3">
-              <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.2em] text-cyan-100/55">Agent cree</div>
-                  <div className="truncate text-sm text-cyan-50">
-                    {latestCreatedAgent.name} est pret dans le Hub Agents.
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
+          {activeMode === 'cowork' && user && !showAgentsHub && (latestCreatedAgent || agentsWarning) && (
+            <div className="border-b border-[var(--app-border)] bg-white/[0.02] px-4 py-2.5 sm:px-6">
+              <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2.5">
+                {latestCreatedAgent && (
                   <button
                     onClick={() => setShowAgentsHub(true)}
-                    className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition-transform hover:translate-y-[-1px]"
+                    className="inline-flex items-center gap-2 rounded-full border border-cyan-300/18 bg-cyan-300/[0.08] px-3.5 py-2 text-xs font-medium text-cyan-50 transition-colors hover:bg-cyan-300/[0.12]"
                   >
-                    Ouvrir
+                    <Bot size={13} />
+                    <span className="max-w-[14rem] truncate">{latestCreatedAgent.name} est pret</span>
                   </button>
+                )}
+                {agentsWarning && (
+                  <button
+                    onClick={() => setShowAgentsHub(true)}
+                    className="inline-flex items-center gap-2 rounded-full border border-amber-300/14 bg-amber-300/[0.08] px-3.5 py-2 text-xs font-medium text-amber-50/88 transition-colors hover:bg-amber-300/[0.12]"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-amber-200" />
+                    Hub local
+                  </button>
+                )}
+                {latestCreatedAgent && (
                   <button
                     onClick={() => setLatestCreatedAgent(null)}
-                    className="rounded-full border border-white/10 px-3 py-2 text-sm text-white/60 transition-colors hover:text-white"
-                    title="Masquer"
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-white/58 transition-colors hover:text-white"
+                    title="Masquer le statut de creation"
                   >
-                    <X size={14} />
+                    <X size={13} />
+                    Masquer
                   </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeMode === 'cowork' && user && agentsWarning && !showAgentsHub && (
-            <div className="border-b border-amber-300/10 bg-amber-300/[0.06] px-6 py-3">
-              <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.2em] text-amber-100/55">Hub en mode local</div>
-                  <div className="text-sm text-amber-50/90">
-                    {agentsWarning}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowAgentsHub(true)}
-                  className="shrink-0 rounded-full border border-amber-200/18 bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/14"
-                >
-                  Voir le hub
-                </button>
+                )}
               </div>
             </div>
           )}
@@ -1996,7 +2011,7 @@ export default function App() {
                       width: '100%',
                       position: 'relative',
                     }}
-                    className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-10"
+                    className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-10"
                   >
                     {rowVirtualizer.getVirtualItems().map((virtualItem) => {
                       const msg = displayedMessages[virtualItem.index];
@@ -2031,13 +2046,13 @@ export default function App() {
                     })}
                   </div>
                 ) : (
-                  <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-10">
+                  <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-10">
                     {displayedMessages.map((msg, index) => renderMessageRow(msg, index))}
                   </div>
                 )}
                  {/* Refining Status */}
                  {refiningStatus && (
-                    <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-4 py-4 text-indigo-400 sm:px-6 lg:px-10">
+                    <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-4 text-indigo-400 sm:px-6 lg:px-10">
                      <div className="p-2 bg-indigo-500/10 rounded-lg animate-pulse">
                         <Sparkles size={18} className="animate-spin-slow" />
                      </div>
@@ -2046,8 +2061,8 @@ export default function App() {
                  )}
 
                  {/* Message en cours de génération — visible immédiatement avec toggle Thoughts */}
-                 {isLoading && !refiningStatus && activeMode !== 'cowork' && (
-                    <div className="mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 lg:px-10">
+                 {isLoading && !refiningStatus && activeMode !== 'cowork' && !isAgentSession && (
+                    <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 lg:px-10">
                      <MessageItem
                        msg={{ id: 'streaming', role: 'model', content: streamingContent, thoughts: streamingThoughts, createdAt: Date.now() }}
                       idx={displayedMessages.length}
@@ -2065,7 +2080,7 @@ export default function App() {
               </main>
 
               <div className="border-t border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] px-3 pb-4 pt-5 sm:px-5 sm:pt-6">
-                <div className="mx-auto max-w-3xl">
+                <div className="mx-auto max-w-4xl">
                   <ChatInput onSend={handleSend} onStop={() => abortControllerRef.current?.abort()} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} />
                 </div>
               </div>

@@ -156,7 +156,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     damping: 25,
                     delay: idx * 0.05 
                   }}
-                  className="group/att relative w-[140px] shrink-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl transition-all hover:border-[var(--app-border-strong)] hover:shadow-[0_20px_40px_-28px_rgba(68,196,255,0.4)]"
+                  className="group/att relative w-[140px] shrink-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-sm transition-all hover:border-[var(--app-border-strong)] hover:shadow-[0_16px_30px_-24px_rgba(68,196,255,0.32)]"
                 >
                   <div className="flex flex-col gap-2 p-2">
                     <div className="relative aspect-square rounded-xl overflow-hidden bg-black/20 ring-1 ring-white/5">

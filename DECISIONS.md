@@ -261,3 +261,38 @@
   - `server/lib/media-generation.ts` embarque maintenant parse WAV, resampling, adaptation mono/stereo, ducking, loop crossfade et limiter
   - en l'absence d'encodeur mp3 local, le systeme peut quand meme rendre un WAV final plutot que d'echouer
   - limite connue assumee: `lyria-3-*` reste plus dependant d'un decodeur externe si sa sortie est MP3
+
+## 2026-03-29 - Les sessions agent ne doivent pas contaminer le mode chat
+- Statut: adopte
+- Contexte: ouvrir un agent depuis le Hub le faisait vivre sous `mode: 'chat'`, mais l'experience attendue n'est pas "remplacer le dernier chat", c'est "ouvrir un workspace voisin".
+- Decision: conserver les agents sous la surface chat pour reutiliser le runtime, mais les isoler dans l'etat/navigation via `sessionKind='agent'`, une section historique dediee et une memorisation opt-in du dernier thread.
+- Pourquoi:
+  - evite l'impression que l'historique chat normal disparait
+  - garde le routing simple sans creer un sixieme mode entier
+  - permet a l'agent d'avoir son branding propre sans rebasculer en Cowork
+- Consequence:
+  - `setActiveSessionId()` accepte maintenant `remember` et `modeOverride`
+  - `SidebarLeft` separe les agents du reste de l'historique
+  - `App.tsx` choisit les bons placeholders et labels selon `sessionKind`
+
+## 2026-03-29 - Le selecteur de modeles doit vivre inline, pas en overlay absolu
+- Statut: adopte
+- Contexte: dans le panneau droit, le dropdown modeles se faisait recouvrir par `Capacites & outils`.
+- Decision: remplacer l'overlay absolu par une liste inline expandable dans le flux normal de `SidebarRight`.
+- Pourquoi:
+  - supprime les problemes de stacking context entre cartes
+  - rend le layout plus stable sur desktop et mobile
+  - simplifie le composant tout en donnant plus d'air au panneau
+- Consequence:
+  - `src/components/SidebarRight.tsx` utilise maintenant un bloc `AnimatePresence` en hauteur auto au lieu d'un menu flottant
+
+## 2026-03-29 - La fluidite prime sur le glassmorphism lourd
+- Statut: adopte
+- Contexte: la DA premium etait reussie visuellement, mais le cout GPU/paint etait trop eleve pour l'objectif produit de fluidite maximale.
+- Decision: conserver l'identite visuelle, mais retirer les effets globaux les plus couteux: transitions sur tout le DOM, flous trop forts et surfaces repetitives trop lourdes.
+- Pourquoi:
+  - le ressenti produit voulu est "fluide", pas "beau mais lourd"
+  - les bulles/messages et panneaux repetes sont les vraies surfaces critiques pour les FPS
+- Consequence:
+  - `src/index.css` cible seulement les transitions utiles
+  - les blur/shadows de `MessageItem`, `ChatInput`, `SidebarLeft`, `SidebarRight` et du shell sont reduits

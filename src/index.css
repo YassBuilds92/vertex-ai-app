@@ -90,7 +90,7 @@
       linear-gradient(var(--app-grid) 1px, transparent 1px),
       linear-gradient(90deg, var(--app-grid) 1px, transparent 1px);
     background-size: auto, auto, auto, 72px 72px, 72px 72px;
-    background-attachment: fixed;
+    background-attachment: scroll;
     overflow-x: hidden;
   }
 
@@ -103,8 +103,8 @@
       radial-gradient(circle at 20% 18%, rgba(129, 236, 255, 0.08), transparent 20%),
       radial-gradient(circle at 78% 58%, rgba(255, 191, 134, 0.08), transparent 18%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0));
-    mix-blend-mode: screen;
-    opacity: 0.9;
+    mix-blend-mode: normal;
+    opacity: 0.55;
   }
 
   body::after {
@@ -112,7 +112,7 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    opacity: 0.06;
+    opacity: 0.035;
     background-image:
       radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.9) 0.55px, transparent 0.65px),
       radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.85) 0.55px, transparent 0.65px);
@@ -279,21 +279,21 @@
   background:
     radial-gradient(circle at top center, rgba(129, 236, 255, 0.08), transparent 24%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0));
-  opacity: 0.9;
+  opacity: 0.55;
 }
 
 .studio-panel {
   background: var(--app-surface);
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-soft);
-  backdrop-filter: blur(24px);
+  backdrop-filter: blur(14px);
 }
 
 .studio-panel-strong {
   background: var(--app-panel-overlay), var(--app-surface-strong);
   border: 1px solid var(--app-border-strong);
   box-shadow: var(--app-shadow);
-  backdrop-filter: blur(28px);
+  backdrop-filter: blur(18px);
 }
 
 .studio-divider {
@@ -318,7 +318,7 @@
   background: rgba(255, 255, 255, 0.035);
   padding: 0.55rem 0.85rem;
   color: color-mix(in srgb, var(--app-text) 76%, var(--app-text-muted) 24%);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(10px);
 }
 
 .studio-button-primary {
@@ -351,7 +351,7 @@
   color: var(--app-text);
   border: 1px solid var(--app-border);
   background: rgba(255, 255, 255, 0.045);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(10px);
   transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
 }
 
@@ -370,7 +370,7 @@
   color: var(--app-text);
   outline: none;
   transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(8px);
 }
 
 .studio-input::placeholder {
@@ -405,18 +405,19 @@
   opacity: 1;
 }
 
-html *,
-html *::before,
-html *::after {
+button,
+input,
+textarea,
+select,
+a,
+.studio-panel,
+.studio-panel-strong,
+.studio-button-primary,
+.studio-button-secondary,
+.studio-input {
   transition-property: background-color, border-color, color, fill, stroke, box-shadow, opacity;
-  transition-duration: 260ms;
+  transition-duration: 220ms;
   transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-aside,
-main,
-header {
-  transition-property: background-color, border-color, color, fill, stroke, box-shadow, opacity;
 }
 
 ::-webkit-scrollbar {

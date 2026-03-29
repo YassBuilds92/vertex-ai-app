@@ -57,7 +57,7 @@ import {
   generateLyriaBinary,
   generatePodcastEpisode,
 } from '../server/lib/media-generation.js';
-import { createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
+import { buildThinkingConfig, createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
 import { log } from '../server/lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from '../server/lib/path-utils.js';
 import { ChatSchema } from '../server/lib/schemas.js';
@@ -5952,11 +5952,17 @@ app.post('/api/cowork', async (req, res) => {
               topP: config.topP || 1.0,
               topK: config.topK || 1,
               maxOutputTokens: Math.min(config.maxOutputTokens || 24576, 24576),
-              thinkingLevel: config.thinkingLevel || 'high',
-              maxThoughtTokens: Math.min(config.maxThoughtTokens || 2048, 2048),
               systemInstruction: delegatedSystemInstruction,
               ...(delegatedToolDeclarations ? { tools: delegatedToolDeclarations } : {})
             };
+            const delegatedThinkingConfig = buildThinkingConfig(delegatedModelId, {
+              thinkingLevel: config.thinkingLevel || 'high',
+              maxThoughtTokens: Math.min(config.maxThoughtTokens || 2048, 2048),
+              includeThoughts: COWORK_DEBUG_REASONING,
+            });
+            if (delegatedThinkingConfig) {
+              delegatedGenConfig.thinkingConfig = delegatedThinkingConfig;
+            }
 
             const delegatedResponse = await retryWithBackoff(() => ai.models.generateContent({
               model: delegatedModelId,
@@ -8433,8 +8439,6 @@ app.post('/api/cowork', async (req, res) => {
       topP: config.topP || 1.0,
       topK: config.topK || 1,
       maxOutputTokens: config.maxOutputTokens || 65536,
-      thinkingLevel: config.thinkingLevel || 'high', // ENABLE THINKING
-      maxThoughtTokens: config.maxThoughtTokens || 4096,
       systemInstruction: runtimeAgent
         ? buildAgentRuntimeSystemInstruction(runtimeAgent, {
             requestClock,
@@ -8452,6 +8456,14 @@ app.post('/api/cowork', async (req, res) => {
             debugReasoning: COWORK_DEBUG_REASONING
           })
     };
+    const thinkingConfig = buildThinkingConfig(modelId, {
+      thinkingLevel: config.thinkingLevel || 'high',
+      maxThoughtTokens: config.maxThoughtTokens || 4096,
+      includeThoughts: Boolean(runtimeAgent) || COWORK_DEBUG_REASONING,
+    });
+    if (thinkingConfig) {
+      genConfig.thinkingConfig = thinkingConfig;
+    }
     if (tools) genConfig.tools = tools;
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -8597,10 +8609,16 @@ app.post('/api/cowork', async (req, res) => {
           topP: config.topP || 1.0,
           topK: config.topK || 1,
           maxOutputTokens: Math.min(config.maxOutputTokens || 1024, 1024),
-          thinkingLevel: 'medium',
-          maxThoughtTokens: Math.min(config.maxThoughtTokens || 512, 512),
           systemInstruction: "Tu es Cowork. Tu rediges uniquement la reponse finale visible a l'utilisateur quand l'execution est bloquee. Tu dois etre honnete, humain, concis, et ne jamais exposer de jargon backend, de dump technique ou de liste d'outils."
         };
+        const finalReplyThinkingConfig = buildThinkingConfig(modelId, {
+          thinkingLevel: 'medium',
+          maxThoughtTokens: Math.min(config.maxThoughtTokens || 512, 512),
+          includeThoughts: false,
+        });
+        if (finalReplyThinkingConfig) {
+          finalReplyConfig.thinkingConfig = finalReplyThinkingConfig;
+        }
         const finalReply = await retryWithBackoff(() => ai.models.generateContent({
           model: modelId,
           contents: [{ role: 'user', parts: [{ text: prompt }] }],

@@ -11,7 +11,7 @@ import {
   generateLyriaBinary,
 } from '../lib/media-generation.js';
 import { normalizeConfiguredModelId } from '../lib/config.js';
-import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from '../lib/google-genai.js';
+import { buildThinkingConfig, createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from '../lib/google-genai.js';
 import { log } from '../lib/logger.js';
 import {
   AgentCreateSchema,
@@ -255,8 +255,14 @@ export function registerStandardApiRoutes(app: Express) {
         topK: config.topK,
         maxOutputTokens: config.maxOutputTokens || 65536,
       };
+      const thinkingConfig = buildThinkingConfig(modelId, {
+        thinkingLevel: config.thinkingLevel,
+        maxThoughtTokens: config.maxThoughtTokens,
+        includeThoughts: true,
+      });
       if (systemPromptText) genConfig.systemInstruction = systemPromptText;
       if (tools.length > 0) genConfig.tools = tools;
+      if (thinkingConfig) genConfig.thinkingConfig = thinkingConfig;
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');

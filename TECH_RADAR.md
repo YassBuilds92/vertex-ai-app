@@ -208,3 +208,21 @@
   - [Deployments and endpoints](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
   - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
   - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+
+## 2026-03-29 - Gemini thinking summaries via `thinkingConfig.includeThoughts`
+- Statut: reverifie et applique
+- Date de verification: 2026-03-29
+- Technologie: Gemini API / Google GenAI SDK
+- Choix: pour afficher le thinking resumee en streaming avec Gemini 3.x/3.1, utiliser `thinkingConfig.includeThoughts: true` et `thinkingConfig.thinkingLevel`, au lieu de compter sur des champs racine historiques.
+- Alternatives evaluees:
+  - garder uniquement `thinkingLevel` / `maxThoughtTokens` au niveau racine
+    - Ecartee: insuffisant pour obtenir les events `thoughts` en chat standard.
+  - reconstruire artificiellement un "thinking UI" cote frontend sans flux modele
+    - Ecartee: contraire a l'objectif de transparence reelle.
+- Cout: aucun cout de dependance supplementaire; cout modele normal Vertex AI.
+- Sources officielles:
+  - [Gemini API Thinking](https://ai.google.dev/gemini-api/docs/thinking)
+  - [Thought signatures](https://ai.google.dev/gemini-api/docs/thought-signatures)
+  - [Gemini 3.1 Pro Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-pro-preview)
+  - [Gemini 3.1 Flash Lite Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-flash-lite-preview)
+  - [Gemini 3 Flash Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3-flash-preview)

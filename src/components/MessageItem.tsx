@@ -34,7 +34,7 @@ const ThinkingBox = ({ thoughts, live = false }: { thoughts: string; live?: bool
       ref={boxRef}
       className={cn(
         "relative min-w-0 w-full p-5 md:p-6 rounded-[2rem] border border-indigo-500/15 overflow-hidden transition-all duration-700 thought-gradient",
-        "bg-[var(--app-surface)]/40 backdrop-blur-xl shadow-inner",
+        "bg-[var(--app-surface)]/55 backdrop-blur-sm shadow-inner",
         live ? "animate-in fade-in duration-1000" : ""
       )}
       style={{ maxHeight: live ? '400px' : '70vh', minHeight: '80px' }}
@@ -202,7 +202,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="rounded-[1.75rem] border border-indigo-500/15 bg-[var(--app-surface)]/35 backdrop-blur-xl shadow-inner overflow-hidden">
+      <div className="rounded-[1.75rem] border border-indigo-500/15 bg-[var(--app-surface)]/45 backdrop-blur-sm shadow-inner overflow-hidden">
         <div className="px-4 py-3 border-b border-white/6 flex flex-wrap items-center gap-2.5">
           <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-semibold', stateMeta.className)}>
             <StateIcon size={13} className={cn(runState === 'running' && 'animate-spin')} />
@@ -425,8 +425,8 @@ export const MessageItem = React.memo(({
         <div className={cn(
           "relative min-w-0 max-w-full px-5 py-4 md:px-7 md:py-5 rounded-[2rem] shadow-2xl transition-all duration-500 overflow-hidden",
           msg.role === 'user'
-            ? "w-fit max-w-full md:max-w-[42rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))] backdrop-blur-md text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)]"
-            : "w-full md:max-w-[48rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] backdrop-blur-xl text-[var(--app-text)]/90 rounded-bl-md border border-[var(--app-border)] shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
+            ? "w-fit max-w-full md:max-w-[42rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))] backdrop-blur-sm text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)]"
+            : "w-full md:max-w-[48rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] backdrop-blur-sm text-[var(--app-text)]/90 rounded-bl-md border border-[var(--app-border)] shadow-[0_20px_44px_rgba(0,0,0,0.14)]"
         )}>
           {msg.role === 'model' && !isLoading && (
             <button

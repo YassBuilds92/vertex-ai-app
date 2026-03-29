@@ -54,12 +54,83 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
     setLeftSidebarVisible,
   } = useStore();
 
-  const currentModeSessions = sessions.filter((session) => session.mode === activeMode);
+  const standardModeSessions = sessions
+    .filter((session) => session.mode === activeMode && session.sessionKind !== 'agent')
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const agentSessions = activeMode === 'chat'
+    ? sessions
+        .filter((session) => session.sessionKind === 'agent')
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+    : [];
+
+  const renderSessionList = (items: ChatSession[], options?: { agentLabel?: boolean }) => (
+    <div className="space-y-1">
+      {items.map((session) => (
+        <div key={session.id} className="group relative">
+          <button
+            onClick={() => setActiveSessionId(session.id, { remember: session.sessionKind !== 'agent' })}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-[1.2rem] border px-3 py-2.5 text-left text-[13px] transition-all duration-200',
+              activeSessionId === session.id
+                ? 'border-[var(--app-border)] bg-white/[0.06] text-[var(--app-text)]'
+                : 'border-transparent text-[var(--app-text-muted)] hover:bg-white/[0.04] hover:text-[var(--app-text)]'
+            )}
+          >
+            <div
+              className={cn(
+                'h-1.5 w-1.5 shrink-0 rounded-full transition-colors',
+                activeSessionId === session.id ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-text-muted)]/30'
+              )}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate">{session.title}</span>
+                {options?.agentLabel && (
+                  <span className="shrink-0 rounded-full border border-[var(--app-border)] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--app-accent)]">
+                    Agent
+                  </span>
+                )}
+              </div>
+            </div>
+          </button>
+
+          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+            {items.length > 1 && (
+              <button
+                onClick={async (event) => {
+                  event.stopPropagation();
+                  if (!user) return;
+                  if (!window.confirm('Supprimer cette conversation ?')) return;
+
+                  try {
+                    await deleteDoc(doc(db, 'users', user.uid, 'sessions', session.id));
+                    clearCoworkSessionSnapshots(user.uid, session.id);
+                    if (activeSessionId === session.id) {
+                      const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent');
+                      if (nextSession) setActiveSessionId(nextSession.id);
+                      else onNewChat();
+                    }
+                  } catch (error) {
+                    handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/sessions/${session.id}`);
+                  }
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-xl text-[var(--app-text-muted)] opacity-0 transition-all group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-300"
+                title="Supprimer"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <aside
       className={cn(
-        'fixed md:relative z-50 flex h-full flex-col overflow-hidden border-r border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.82)] backdrop-blur-3xl transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]',
+        'fixed md:relative z-50 flex h-full flex-col overflow-hidden border-r border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.88)] backdrop-blur-xl transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]',
         isLeftSidebarVisible
           ? 'w-[292px] translate-x-0 opacity-100'
           : 'pointer-events-none w-0 -translate-x-full opacity-0 md:border-none'
@@ -149,7 +220,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         </div>
 
         <div className="space-y-1">
-          {currentModeSessions.length === 0 && (
+          {standardModeSessions.length === 0 && agentSessions.length === 0 && (
             <div className="flex flex-col items-center gap-2.5 px-4 py-8 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04]">
                 {React.createElement(modeConfig[activeMode].icon, { size: 18, className: 'text-[var(--app-text-muted)]' })}
@@ -160,57 +231,16 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             </div>
           )}
 
-          {currentModeSessions
-            .sort((a, b) => b.updatedAt - a.updatedAt)
-            .map((session) => (
-              <div key={session.id} className="group relative">
-                <button
-                  onClick={() => setActiveSessionId(session.id)}
-                  className={cn(
-                    'flex w-full items-center gap-2.5 rounded-[1.2rem] border px-3 py-2.5 text-left text-[13px] transition-all duration-200',
-                    activeSessionId === session.id
-                      ? 'border-[var(--app-border)] bg-white/[0.06] text-[var(--app-text)]'
-                      : 'border-transparent text-[var(--app-text-muted)] hover:bg-white/[0.04] hover:text-[var(--app-text)]'
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'h-1.5 w-1.5 shrink-0 rounded-full transition-colors',
-                      activeSessionId === session.id ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-text-muted)]/30'
-                    )}
-                  />
-                  <span className="truncate pr-10">{session.title}</span>
-                </button>
+          {standardModeSessions.length > 0 && renderSessionList(standardModeSessions)}
 
-                <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-                  {currentModeSessions.length > 1 && (
-                    <button
-                      onClick={async (event) => {
-                        event.stopPropagation();
-                        if (!user) return;
-                        if (!window.confirm('Supprimer cette conversation ?')) return;
-
-                        try {
-                          await deleteDoc(doc(db, 'users', user.uid, 'sessions', session.id));
-                          clearCoworkSessionSnapshots(user.uid, session.id);
-                          if (activeSessionId === session.id) {
-                            const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode);
-                            if (nextSession) setActiveSessionId(nextSession.id);
-                            else onNewChat();
-                          }
-                        } catch (error) {
-                          handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/sessions/${session.id}`);
-                        }
-                      }}
-                      className="flex h-7 w-7 items-center justify-center rounded-xl text-[var(--app-text-muted)] opacity-0 transition-all group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-300"
-                      title="Supprimer"
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
+          {agentSessions.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <div className="px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                Agents
               </div>
-            ))}
+              {renderSessionList(agentSessions, { agentLabel: true })}
+            </div>
+          )}
         </div>
       </div>
 

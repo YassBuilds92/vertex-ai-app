@@ -497,3 +497,19 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
   - `npm run build` OK
   - validation Playwright locale OK sur le shell et le selecteur de modeles
   - validation SSE brute OK: `/api/chat` renvoie maintenant des `thoughts` avec `gemini-3.1-pro-preview`
+
+## Mise a jour 2026-03-29 - Podcast d'actu plus resilient
+- Retour produit:
+  - Cowork pouvait echouer sur `create_podcast_episode` pour de mauvaises raisons cumulees:
+    - prompt trop proche de l'actu reelle => recitation checks
+    - absence de `ffmpeg` => crash de mix
+    - reponse finale qui blamait les sources au lieu du vrai pipeline audio
+- Correctifs appliques:
+  - script podcast genere d'abord en texte original, puis narre par TTS
+  - prompt Lyria rendu plus abstrait et editorialisant, sans details d'actus ou listes de noms propres
+  - retry musique avec prompt degrade si recitation
+  - fallback `voice-only` si musique ou mix indisponibles
+  - la cloture Cowork garde maintenant la vraie cause d'echec recente au lieu d'inventer un manque de sources
+- Validation:
+  - smoke test reel podcast actu charge en noms propres: OK
+  - smoke test reel sans `ffmpeg` dans le `PATH`: OK, fallback `wav-fallback`

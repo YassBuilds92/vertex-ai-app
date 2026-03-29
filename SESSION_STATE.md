@@ -490,3 +490,29 @@
 - Limites restantes:
   - le rendu live du bloc thinking dans l'UI complete n'a pas ete rejoue en session Google connectee pendant cette passe
   - le warning Vite sur les chunks > 500 kB reste a traiter dans une prochaine passe perf si on veut pousser encore la fluidite
+
+## Mise a jour complementaire - 2026-03-29 (podcast actu robuste)
+- Bug produit traite:
+  - un run `FAIS MOI UN PODCAST SUR LACTU DU JOUR` pouvait echouer en chaine avec:
+    - blocage recitation
+    - `ffmpeg ENOENT`
+    - fallback WAV declare tronque
+    - puis une reponse finale mensongere qui accusait le manque de sources au lieu du pipeline podcast
+- Correctifs appliques:
+  - `server/lib/media-generation.ts`
+    - generation d'un script podcast original via `gemini-3.1-flash-lite-preview` avant passage au TTS
+    - prompt musique Lyria rendu beaucoup plus abstrait pour eviter les recitation checks lies aux noms propres / titres d'actualite
+    - retry musique avec prompt degrade si le premier prompt se fait bloquer
+    - fallback final `voice-only` si le fond musical ou le mix ne sont pas disponibles
+    - parser WAV assoupli quand seul le `data chunk` est tronque/plus court qu'annonce
+    - si `ffmpeg` est absent, le fallback `wav-fallback` prend proprement le relais
+  - `api/index.ts`
+    - `create_podcast_episode` remonte maintenant `warning`, `narrationScriptPreview` et un message honnete si le master est cree en `voice-only`
+    - la cloture Cowork conserve la vraie cause d'echec recente (`latestFailureContext`) au lieu d'inventer un probleme de sources
+    - `buildCoworkBlockedUserReplyPrompt()` insiste pour ne pas blamer la recherche si le blocage principal vient d'un media/podcast/PDF
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npm run build` : OK
+  - smoke test reel `generatePodcastEpisode()` sur un brief d'actu charge en noms propres : OK (`ffmpeg`, MP3)
+  - smoke test reel sans `ffmpeg` dans le `PATH` : OK (`wav-fallback`, WAV final au lieu d'un crash)

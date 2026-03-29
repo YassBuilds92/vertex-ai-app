@@ -3206,6 +3206,7 @@ Rappels absolus:
 - 2 a 5 phrases maximum.
 - N'utilise jamais les mots backend, phase, blocker, completion, pourcentage, iteration, tool, web_search, web_fetch, function, scope, degraded.
 - N'affiche jamais de dump technique ou de liste d'outils.
+- Si le blocage principal concerne un podcast, un audio, un mix, un PDF ou un media, explique cette limite reelle et n'accuse pas la recherche web a la place.
 - ${artifactNeed}
 - Propose si utile de reessayer dans quelques minutes ou de demander un angle plus precis.
 
@@ -5389,6 +5390,7 @@ app.post('/api/cowork', async (req, res) => {
           voice: clipText(output?.voice || '', 32),
           mixStrategy: clipText(output?.mixStrategy || '', 24),
           durationSeconds: Number(output?.durationSeconds || 0),
+          warning: clipText(output?.warning || '', 140),
         };
       }
       if (toolName === 'web_search') {
@@ -5547,6 +5549,7 @@ app.post('/api/cowork', async (req, res) => {
           output?.voice ? `voix ${output.voice}` : null,
           output?.mixStrategy ? `mix ${output.mixStrategy}` : null,
           Number(output?.durationSeconds || 0) > 0 ? `${Number(output.durationSeconds).toFixed(1)}s` : null,
+          output?.warning ? clipText(output.warning, 120) : null,
           output?.path ? clipText(output.path, 120) : null,
           output?.message ? clipText(output.message, 140) : null,
         ].filter(Boolean).join(' | ');
@@ -6380,7 +6383,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_podcast_episode",
-        description: "Fabrique un episode podcast audio complet dans '/tmp/': narration via Gemini 2.5 Pro TTS par defaut, fond sonore Lyria, ducking de la musique sous la voix, intro/outro, puis un seul master final pret a publier. Si tu fournis `script`, il sera narre tel quel. Sinon, le modele TTS cree lui-meme le texte parle a partir du `brief`. Utilise les tools separes seulement si l'utilisateur demande explicitement des stems distincts.",
+        description: "Fabrique un episode podcast audio complet dans '/tmp/': un script original est prepare, narre via Gemini 2.5 Pro TTS par defaut, puis melange a un fond sonore Lyria quand il est disponible. Le resultat reste un seul master final pret a publier, avec fallback voix seule si le bed ou le mix local sont indisponibles. Si tu fournis `script`, il sera narre tel quel.",
         parameters: {
           type: "object",
           properties: {
@@ -6489,8 +6492,12 @@ app.post('/api/cowork', async (req, res) => {
             mixStrategy: episode.mixStrategy,
             fileSizeBytes: episode.finalArtifact.buffer.length,
             narrationPromptPreview: clipText(episode.narrationPrompt, 240),
+            narrationScriptPreview: clipText(episode.narrationScript, 180),
             musicPromptPreview: clipText(episode.musicPrompt, 200),
-            message: `Podcast cree avec succes a ${outputPath} (${episode.mixStrategy}). Utilise maintenant 'release_file' pour obtenir un lien.`
+            ...(episode.warning ? { warning: episode.warning } : {}),
+            message: episode.mixStrategy === 'voice-only'
+              ? `Podcast vocal cree a ${outputPath} (fallback voix seule). Utilise maintenant 'release_file' pour obtenir un lien.`
+              : `Podcast cree avec succes a ${outputPath} (${episode.mixStrategy}). Utilise maintenant 'release_file' pour obtenir un lien.`
           };
         }
       },
@@ -8478,6 +8485,7 @@ app.post('/api/cowork', async (req, res) => {
     let finalTextEmitted = false;
     let finalRunState: 'running' | 'completed' | 'failed' | 'aborted' = 'completed';
     let blockedFinalReplyContext: { stopReason: string } | null = null;
+    let latestFailureContext: { toolName: string; message: string; iteration: number } | null = null;
     let latestReleasedFile: { url: string; path?: string } | null = null;
     let latestCreatedArtifactPath: string | null = null;
     const runMeta = createEmptyCoworkRunMeta();
@@ -8573,8 +8581,11 @@ app.post('/api/cowork', async (req, res) => {
       });
 
       if (stalledTurns >= 3) {
+        const enrichedStopReason = latestFailureContext && (iterations - latestFailureContext.iteration) <= 2
+          ? `Echec repete de ${latestFailureContext.toolName}: ${latestFailureContext.message}`
+          : message;
         blockedFinalReplyContext = {
-          stopReason: message
+          stopReason: enrichedStopReason
         };
         finalRunState = 'failed';
         return true;
@@ -9174,6 +9185,11 @@ app.post('/api/cowork', async (req, res) => {
               }
 
               if (isError) {
+                latestFailureContext = {
+                  toolName: tool.name,
+                  message: clipText(parseApiError((output as any).error || (output as any).message || output), 280),
+                  iteration: iterations,
+                };
                 if (!recoverableIssue) {
                   recordToolFailure(toolScope, transientIssue);
                 }
@@ -9329,6 +9345,11 @@ app.post('/api/cowork', async (req, res) => {
                 });
               }
             } catch (err: any) {
+              latestFailureContext = {
+                toolName: tool.name,
+                message: clipText(parseApiError(err), 280),
+                iteration: iterations,
+              };
               const transientIssue = isTransientToolIssue(tool.name, err);
               const failureCount = recordToolFailure(toolScope, transientIssue);
               if (transientIssue) {

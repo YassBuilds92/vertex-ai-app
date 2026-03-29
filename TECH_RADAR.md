@@ -226,3 +226,18 @@
   - [Gemini 3.1 Pro Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-pro-preview)
   - [Gemini 3.1 Flash Lite Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-flash-lite-preview)
   - [Gemini 3 Flash Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3-flash-preview)
+
+## 2026-03-29 - Gemini 3.1 Flash Lite pour l'ecriture de script podcast
+- Statut: retenu
+- Date de verification: 2026-03-29
+- Technologie: Gemini 3.1 Flash Lite Preview
+- Choix: utiliser `gemini-3.1-flash-lite-preview` pour ecrire un script podcast original avant TTS, puis reserver `gemini-2.5-pro-tts` a la narration.
+- Alternatives evaluees:
+  - laisser `gemini-2.5-pro-tts` ecrire et dire directement a partir du brief
+    - Ecartee pour les podcasts d'actu: plus fragile face aux recitation checks et moins controllable.
+  - `gemini-3.1-pro-preview`
+    - Possible, mais surdimensionne pour un petit script de narration.
+- Cout: payant a l'usage via Vertex AI; plus economique que Pro pour cette sous-tache.
+- Sources officielles:
+  - [Gemini 3.1 Flash Lite Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-flash-lite-preview)
+  - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)

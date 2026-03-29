@@ -7,7 +7,10 @@ const {
 
 const {
   buildPodcastNarrationPrompt,
+  buildPodcastScriptPrompt,
   buildPodcastMusicPrompt,
+  buildFallbackPodcastMusicPrompt,
+  cleanGeneratedPodcastScript,
   getWaveDurationSeconds,
   mixPodcastEpisodeWavFallback,
 } = __podcastMediaInternals;
@@ -87,6 +90,28 @@ function buildSineWaveWavBuffer({
 }
 
 {
+  const prompt = buildPodcastScriptPrompt({
+    brief: "Explique les trois infos du jour dans un ton de magazine radio, sans recopier des titres.",
+    title: 'Flash actu',
+    languageCode: 'fr-FR',
+    hostStyle: 'calme, editorial, pose',
+    approxDurationSeconds: 65,
+  });
+
+  assert.ok(prompt.includes('Write an original single-host podcast script'));
+  assert.ok(prompt.includes('Flash actu'));
+  assert.ok(prompt.includes('65 seconds'));
+  assert.ok(prompt.includes('Do not quote headlines'));
+}
+
+{
+  const cleaned = cleanGeneratedPodcastScript("```text\nTitre: Mon test\n- Salut a tous.\n- Aujourd'hui on parle d'arbres.\n```");
+  assert.ok(!cleaned.includes('```'));
+  assert.ok(!cleaned.toLowerCase().includes('titre:'));
+  assert.ok(cleaned.includes('Salut a tous.'));
+}
+
+{
   const explicitMusicPrompt = 'Warm ambient podcast bed, no vocals, soft piano and pads.';
   assert.equal(
     buildPodcastMusicPrompt({ musicPrompt: explicitMusicPrompt }),
@@ -104,6 +129,17 @@ function buildSineWaveWavBuffer({
   assert.ok(prompt.includes('No vocals'));
   assert.ok(prompt.includes('Loop-friendly'));
   assert.ok(prompt.includes('energetic but elegant'));
+  assert.ok(!prompt.includes('culture foot'));
+}
+
+{
+  const prompt = buildFallbackPodcastMusicPrompt({
+    hostStyle: 'serious, elegant, modern',
+  });
+
+  assert.ok(prompt.includes('Original instrumental podcast background bed'));
+  assert.ok(prompt.includes('no recognizable melody'));
+  assert.ok(prompt.includes('serious, elegant, modern'));
 }
 
 {
@@ -133,6 +169,35 @@ function buildSineWaveWavBuffer({
   assert.ok(mixed.buffer.length > voiceBuffer.length);
   assert.ok(Math.abs(mixed.durationSeconds - 2.1) < 0.03);
   assert.ok(Math.abs(getWaveDurationSeconds(mixed.buffer) - mixed.durationSeconds) < 0.01);
+}
+
+{
+  const voiceBuffer = buildSineWaveWavBuffer({
+    sampleRate: 24_000,
+    channels: 1,
+    durationSeconds: 0.8,
+    frequencyHz: 220,
+    amplitude: 0.3,
+  });
+  const musicBuffer = buildSineWaveWavBuffer({
+    sampleRate: 48_000,
+    channels: 2,
+    durationSeconds: 0.4,
+    frequencyHz: 110,
+    amplitude: 0.25,
+  });
+  musicBuffer.writeUInt32LE(musicBuffer.length * 3, 40);
+
+  const mixed = mixPodcastEpisodeWavFallback({
+    voiceBuffer,
+    musicBuffer,
+    introSeconds: 0.3,
+    outroSeconds: 0.4,
+    musicVolume: 0.1,
+  });
+
+  assert.ok(mixed.buffer.length > voiceBuffer.length);
+  assert.ok(mixed.durationSeconds > 1.4);
 }
 
 console.log('Podcast media OK');

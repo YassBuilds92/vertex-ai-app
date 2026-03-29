@@ -296,3 +296,15 @@
 - Consequence:
   - `src/index.css` cible seulement les transitions utiles
   - les blur/shadows de `MessageItem`, `ChatInput`, `SidebarLeft`, `SidebarRight` et du shell sont reduits
+
+## 2026-03-29 - Un podcast doit degrader vers un master voix seule plutot que tomber en echec
+- Statut: adopte
+- Contexte: pour l'utilisateur, un podcast avec voix seule reste un livrable utile. Un echec total a cause du fond musical ou de `ffmpeg` est pire qu'un master vocal propre et honnete.
+- Decision: `create_podcast_episode` doit preferer un fallback `voice-only` quand le bed musical ou le mix local echouent.
+- Pourquoi:
+  - respecte la promesse produit "livrer quelque chose d'exploitable"
+  - evite les faux echec totaux sur des problemes d'infra audio non essentiels
+  - reste honnete si le fallback est expose dans le resultat et dans la copy
+- Consequence:
+  - `server/lib/media-generation.ts` peut maintenant retourner `mixStrategy: 'voice-only'`
+  - `api/index.ts` remonte explicitement ce statut et son warning

@@ -13,6 +13,7 @@ export const DEFAULT_TTS_MODEL = 'gemini-2.5-flash-tts';
 export const DEFAULT_TTS_VOICE = 'Kore';
 export const DEFAULT_LYRIA_MODEL = 'lyria-002';
 export const DEFAULT_PODCAST_TTS_MODEL = 'gemini-2.5-pro-tts';
+export const DEFAULT_PODCAST_SCRIPT_MODEL = 'gemini-3.1-flash-lite-preview';
 
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 const PCM_SAMPLE_RATE_HZ = 24_000;
@@ -80,12 +81,14 @@ export type GeneratedBinaryArtifact = {
 export type GeneratedPodcastEpisode = {
   finalArtifact: GeneratedBinaryArtifact;
   voiceArtifact: GeneratedBinaryArtifact;
-  musicArtifact: GeneratedBinaryArtifact;
+  musicArtifact: GeneratedBinaryArtifact | null;
   narrationPrompt: string;
+  narrationScript: string;
   musicPrompt: string;
   voiceDurationSeconds: number;
   finalDurationSeconds: number;
-  mixStrategy: 'ffmpeg' | 'wav-fallback';
+  mixStrategy: 'ffmpeg' | 'wav-fallback' | 'voice-only';
+  warning?: string;
 };
 
 type ParsedWaveAudio = {
@@ -181,10 +184,14 @@ function parseWaveBuffer(buffer: Buffer): ParsedWaveAudio {
     const chunkId = buffer.toString('ascii', offset, offset + 4);
     const chunkSize = buffer.readUInt32LE(offset + 4);
     const chunkStart = offset + 8;
-    const chunkEnd = chunkStart + chunkSize;
+    let chunkEnd = chunkStart + chunkSize;
 
     if (chunkEnd > buffer.length) {
-      throw new Error("Le fichier WAV semble tronque.");
+      if (chunkId === 'data' && chunkStart < buffer.length) {
+        chunkEnd = buffer.length;
+      } else {
+        throw new Error("Le fichier WAV semble tronque.");
+      }
     }
 
     if (chunkId === 'fmt ') {
@@ -201,7 +208,7 @@ function parseWaveBuffer(buffer: Buffer): ParsedWaveAudio {
       bitsPerSample = buffer.readUInt16LE(chunkStart + 14);
     } else if (chunkId === 'data' && dataOffset === -1) {
       dataOffset = chunkStart;
-      dataLength = chunkSize;
+      dataLength = Math.max(0, chunkEnd - chunkStart);
     }
 
     offset = chunkEnd + (chunkSize % 2);
@@ -548,24 +555,106 @@ function buildPodcastNarrationPrompt(options: PodcastGenerationOptions): string 
   ].filter(Boolean).join('\n');
 }
 
+function buildPodcastScriptPrompt(options: PodcastGenerationOptions): string {
+  const title = clipText(options.title, 180);
+  const brief = clipText(options.brief, 4000);
+  const languageCode = clipText(options.languageCode || 'fr-FR', 32) || 'fr-FR';
+  const hostStyle = clipText(options.hostStyle, 280)
+    || 'warm, vivid, polished, confident podcast host';
+  const approxDurationSeconds = Math.round(clampNumber(options.approxDurationSeconds, 15, 600, 70));
+
+  if (!brief) {
+    throw new Error("Le podcast a besoin d'un `brief` ou d'un `script`.");
+  }
+
+  return [
+    `Write an original single-host podcast script in ${languageCode}.`,
+    title ? `Episode title: ${title}.` : null,
+    `Target spoken duration: about ${approxDurationSeconds} seconds.`,
+    `Delivery style: ${hostStyle}.`,
+    "Paraphrase facts in fresh spoken wording. Do not quote headlines, article sentences, lyrics, or source copy verbatim.",
+    "Keep the flow natural and spoken: a hook, a clear middle, and a concise closing.",
+    "Return only the script to narrate. No markdown, no bullet points, no scene directions, no title label.",
+    "Brief:",
+    brief,
+  ].filter(Boolean).join('\n');
+}
+
+function cleanGeneratedPodcastScript(value: string): string {
+  let text = String(value || '').trim();
+  text = text.replace(/^```[\w-]*\s*/i, '').replace(/\s*```$/i, '').trim();
+  text = text.replace(/^(episode title|title|titre)\s*:\s.*$/gim, '').trim();
+  text = text.replace(/^\s*[-*•]\s+/gm, '');
+  return clipText(text, 8000);
+}
+
+function inferPodcastMusicMood(options: PodcastGenerationOptions): string {
+  const signal = `${options.title || ''} ${options.brief || options.script || ''}`.toLowerCase();
+  if (/(sport|football|foot|rugby|nba|tennis|match|coupe)/.test(signal)) {
+    return 'Brisk, sporty, modern, clean, forward-driving but never overpowering.';
+  }
+  if (/(actu|actualité|actualite|news|politique|election|élection|france|monde|geopolit|econom|finance|crise)/.test(signal)) {
+    return 'Editorial, current-affairs, modern, poised, slightly urgent but controlled.';
+  }
+  if (/(culture|cinema|cinéma|musique|art|serie|série|film)/.test(signal)) {
+    return 'Cultural magazine, warm, elegant, slightly cinematic.';
+  }
+  return 'Contemporary spoken-word editorial, polished and supportive.';
+}
+
 function buildPodcastMusicPrompt(options: PodcastGenerationOptions): string {
   const explicitPrompt = clipText(options.musicPrompt, 2000);
   if (explicitPrompt) return explicitPrompt;
 
-  const title = clipText(options.title, 140);
-  const brief = clipText(options.brief || options.script, 240);
   const hostStyle = clipText(options.hostStyle, 140);
-  const topicHint = [title, brief].filter(Boolean).join(' | ');
+  const moodFrame = inferPodcastMusicMood(options);
 
   return [
     "A subtle instrumental podcast background bed.",
-    "Warm, modern, immersive, supportive and never distracting.",
-    "Loop-friendly and seamless under spoken narration, with no hard stop or dramatic final sting.",
-    "No vocals, no spoken word, no lead singer, no aggressive drops.",
+    "Original, abstract, warm, modern, immersive, supportive and never distracting.",
+    "Designed for spoken-word narration, Loop-friendly and seamless, with no hard stop or dramatic final sting.",
+    "No vocals, no spoken word, no quote, no recognizable melody, no lead singer, no aggressive drop.",
     "Soft pulse, light texture, elegant intro, gentle ending.",
+    `Mood frame: ${moodFrame}`,
     hostStyle ? `Mood cues: ${hostStyle}.` : null,
-    topicHint ? `Topic cues: ${topicHint}.` : null,
   ].filter(Boolean).join(' ');
+}
+
+function buildFallbackPodcastMusicPrompt(options: PodcastGenerationOptions): string {
+  const hostStyle = clipText(options.hostStyle, 140);
+  return [
+    "Original instrumental podcast background bed.",
+    "Abstract, modern, subtle, supportive, loop-friendly, seamless and elegant.",
+    "No vocals, no spoken words, no quotes, no recognizable melody, no dramatic sting, no aggressive percussion.",
+    "Gentle intro, stable body, soft ending, built to sit under narration.",
+    hostStyle ? `Host energy cues: ${hostStyle}.` : null,
+  ].filter(Boolean).join(' ');
+}
+
+function isRecitationError(error: unknown): boolean {
+  return parseApiError(error).toLowerCase().includes('recitation');
+}
+
+async function generatePodcastNarrationScript(
+  options: PodcastGenerationOptions,
+  model = DEFAULT_PODCAST_SCRIPT_MODEL,
+): Promise<string> {
+  const ai = createGoogleAI(model);
+  const result = await retryWithBackoff(() => ai.models.generateContent({
+    model,
+    contents: [{ role: 'user', parts: [{ text: buildPodcastScriptPrompt(options) }] }],
+    config: {
+      temperature: 0.7,
+      topP: 0.95,
+      maxOutputTokens: 1400,
+    },
+  }));
+
+  const script = cleanGeneratedPodcastScript(String(result.text || ''));
+  if (!script) {
+    throw new Error("Le modele de script podcast n'a renvoye aucun texte exploitable.");
+  }
+  return script;
 }
 
 async function runLocalCommand(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
@@ -797,10 +886,10 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
   }
 
   const sourceMimeType = String(part.inlineData.mimeType || '').toLowerCase();
-  const pcmBuffer = decodeBinaryData(part.inlineData.data);
-  const wavBuffer = sourceMimeType.includes('wav')
-    ? pcmBuffer
-    : pcmToWavBuffer(pcmBuffer);
+  const rawAudioBuffer = decodeBinaryData(part.inlineData.data);
+  const wavBuffer = isWaveBuffer(rawAudioBuffer)
+    ? rawAudioBuffer
+    : pcmToWavBuffer(rawAudioBuffer);
 
   return {
     buffer: wavBuffer,
@@ -810,6 +899,7 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
     metadata: {
       voice,
       languageCode: options.languageCode,
+      sourceMimeType,
       sampleRateHz: PCM_SAMPLE_RATE_HZ,
     },
   };
@@ -964,11 +1054,17 @@ export async function generateLyriaBinary(options: LyriaGenerationOptions): Prom
 }
 
 export async function generatePodcastEpisode(options: PodcastGenerationOptions): Promise<GeneratedPodcastEpisode> {
-  const narrationPrompt = buildPodcastNarrationPrompt(options);
-  const musicPrompt = buildPodcastMusicPrompt(options);
+  const narrationScript = options.script
+    ? cleanGeneratedPodcastScript(String(options.script))
+    : await generatePodcastNarrationScript(options);
+  const narrationPrompt = buildPodcastNarrationPrompt({
+    ...options,
+    script: narrationScript,
+  });
   const ttsModel = String(options.ttsModel || DEFAULT_PODCAST_TTS_MODEL).trim() || DEFAULT_PODCAST_TTS_MODEL;
   const musicModel = String(options.musicModel || DEFAULT_LYRIA_MODEL).trim() || DEFAULT_LYRIA_MODEL;
   const outputExtension = options.outputExtension === 'wav' ? 'wav' : 'mp3';
+  const warnings: string[] = [];
 
   const voiceArtifact = await generateGeminiTtsBinary({
     prompt: narrationPrompt,
@@ -976,59 +1072,135 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
     voice: options.voice,
     languageCode: options.languageCode,
   });
-  const musicArtifact = await generateLyriaBinary({
-    prompt: musicPrompt,
-    model: musicModel,
-    negativePrompt: options.negativeMusicPrompt,
-    seed: options.musicSeed,
-    sampleCount: options.musicSampleCount,
-    location: options.musicLocation,
-  });
+  let musicPrompt = buildPodcastMusicPrompt(options);
+  let musicArtifact: GeneratedBinaryArtifact | null = null;
+
+  try {
+    musicArtifact = await generateLyriaBinary({
+      prompt: musicPrompt,
+      model: musicModel,
+      negativePrompt: options.negativeMusicPrompt,
+      seed: options.musicSeed,
+      sampleCount: options.musicSampleCount,
+      location: options.musicLocation,
+    });
+  } catch (error) {
+    if (!options.musicPrompt && isRecitationError(error)) {
+      musicPrompt = buildFallbackPodcastMusicPrompt(options);
+      warnings.push("Fond musical simplifie apres blocage de securite sur le premier prompt.");
+      try {
+        musicArtifact = await generateLyriaBinary({
+          prompt: musicPrompt,
+          model: musicModel,
+          negativePrompt: options.negativeMusicPrompt,
+          seed: options.musicSeed,
+          sampleCount: options.musicSampleCount,
+          location: options.musicLocation,
+        });
+      } catch (fallbackMusicError) {
+        warnings.push(`Fond musical indisponible: ${clipText(parseApiError(fallbackMusicError), 180)}`);
+      }
+    } else {
+      warnings.push(`Fond musical indisponible: ${clipText(parseApiError(error), 180)}`);
+    }
+  }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cowork-podcast-'));
   const voicePath = path.join(tempDir, `voice.${voiceArtifact.fileExtension}`);
-  const musicPath = path.join(tempDir, `music.${musicArtifact.fileExtension}`);
   const outputPath = path.join(tempDir, `podcast.${outputExtension}`);
   fs.writeFileSync(voicePath, voiceArtifact.buffer);
-  fs.writeFileSync(musicPath, musicArtifact.buffer);
   const voiceDurationSeconds = getWaveDurationSeconds(voiceArtifact.buffer);
 
   try {
-    const mixed = await mixPodcastEpisodeAudio({
-      voicePath,
-      musicPath,
-      outputPath,
-      voiceArtifact,
-      musicArtifact,
-      voiceDurationSeconds,
-      introSeconds: clampNumber(options.introSeconds, 0, 12, 1.2),
-      outroSeconds: clampNumber(options.outroSeconds, 0, 12, 1.6),
-      musicVolume: clampNumber(options.musicVolume, 0.02, 0.6, 0.12),
-      outputExtension,
-    });
-
-    return {
-      finalArtifact: {
-        buffer: mixed.buffer,
-        mimeType: mixed.mimeType,
-        fileExtension: mixed.fileExtension,
-        model: `${ttsModel}+${musicModel}`,
-        metadata: {
-          voice: String(voiceArtifact.metadata?.voice || ''),
-          languageCode: String(voiceArtifact.metadata?.languageCode || ''),
-          voiceDurationSeconds: Number(voiceDurationSeconds.toFixed(3)),
-          finalDurationSeconds: Number(mixed.durationSeconds.toFixed(3)),
-          mixStrategy: mixed.mixStrategy,
+    if (!musicArtifact) {
+      return {
+        finalArtifact: {
+          ...voiceArtifact,
+          model: ttsModel,
+          metadata: {
+            ...voiceArtifact.metadata,
+            voiceDurationSeconds: Number(voiceDurationSeconds.toFixed(3)),
+            finalDurationSeconds: Number(voiceDurationSeconds.toFixed(3)),
+            mixStrategy: 'voice-only',
+          },
         },
-      },
-      voiceArtifact,
-      musicArtifact,
-      narrationPrompt,
-      musicPrompt,
-      voiceDurationSeconds,
-      finalDurationSeconds: mixed.durationSeconds,
-      mixStrategy: mixed.mixStrategy,
-    };
+        voiceArtifact,
+        musicArtifact: null,
+        narrationPrompt,
+        narrationScript,
+        musicPrompt,
+        voiceDurationSeconds,
+        finalDurationSeconds: voiceDurationSeconds,
+        mixStrategy: 'voice-only',
+        warning: warnings.join(' | ') || undefined,
+      };
+    }
+
+    const musicPath = path.join(tempDir, `music.${musicArtifact.fileExtension}`);
+    fs.writeFileSync(musicPath, musicArtifact.buffer);
+
+    try {
+      const mixed = await mixPodcastEpisodeAudio({
+        voicePath,
+        musicPath,
+        outputPath,
+        voiceArtifact,
+        musicArtifact,
+        voiceDurationSeconds,
+        introSeconds: clampNumber(options.introSeconds, 0, 12, 1.2),
+        outroSeconds: clampNumber(options.outroSeconds, 0, 12, 1.6),
+        musicVolume: clampNumber(options.musicVolume, 0.02, 0.6, 0.12),
+        outputExtension,
+      });
+
+      return {
+        finalArtifact: {
+          buffer: mixed.buffer,
+          mimeType: mixed.mimeType,
+          fileExtension: mixed.fileExtension,
+          model: `${ttsModel}+${musicModel}`,
+          metadata: {
+            voice: String(voiceArtifact.metadata?.voice || ''),
+            languageCode: String(voiceArtifact.metadata?.languageCode || ''),
+            voiceDurationSeconds: Number(voiceDurationSeconds.toFixed(3)),
+            finalDurationSeconds: Number(mixed.durationSeconds.toFixed(3)),
+            mixStrategy: mixed.mixStrategy,
+          },
+        },
+        voiceArtifact,
+        musicArtifact,
+        narrationPrompt,
+        narrationScript,
+        musicPrompt,
+        voiceDurationSeconds,
+        finalDurationSeconds: mixed.durationSeconds,
+        mixStrategy: mixed.mixStrategy,
+        warning: warnings.join(' | ') || undefined,
+      };
+    } catch (mixError) {
+      warnings.push(`Mix audio indisponible: ${clipText(parseApiError(mixError), 220)}`);
+      return {
+        finalArtifact: {
+          ...voiceArtifact,
+          model: ttsModel,
+          metadata: {
+            ...voiceArtifact.metadata,
+            voiceDurationSeconds: Number(voiceDurationSeconds.toFixed(3)),
+            finalDurationSeconds: Number(voiceDurationSeconds.toFixed(3)),
+            mixStrategy: 'voice-only',
+          },
+        },
+        voiceArtifact,
+        musicArtifact,
+        narrationPrompt,
+        narrationScript,
+        musicPrompt,
+        voiceDurationSeconds,
+        finalDurationSeconds: voiceDurationSeconds,
+        mixStrategy: 'voice-only',
+        warning: warnings.join(' | ') || undefined,
+      };
+    }
   } finally {
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -1038,7 +1210,10 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
 
 export const __podcastMediaInternals = {
   buildPodcastNarrationPrompt,
+  buildPodcastScriptPrompt,
   buildPodcastMusicPrompt,
+  buildFallbackPodcastMusicPrompt,
+  cleanGeneratedPodcastScript,
   getWaveDurationSeconds,
   mixPodcastEpisodeWavFallback,
 };

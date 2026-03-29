@@ -66,6 +66,34 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - `generate_music_audio` : generation musicale locale dans `/tmp/` via Lyria.
 - `release_file` : Uploade un fichier vers Google Cloud Storage et renvoie une URL signee de 7 jours.
 
+## Mise a jour 2026-03-29 - Podcast duo plus expressif + Lyria 3 rebranchee
+- Retour produit:
+  - l'utilisateur a signale qu'un "duo" pouvait encore sonner trop uniforme
+  - il veut que les mots/noms etrangers restent dans leur ecriture d'origine si cela ameliore la diction
+  - il veut tester Lyria 3 si c'est reellement faisable, sans perdre le bon rendu deja obtenu avec `lyria-002`
+- Changement applique:
+  - `server/lib/media-generation.ts`
+    - garantit maintenant 2 voix distinctes en duo
+    - genere des aliases TTS internes pour le routage des speakers
+    - pousse des notes de jeu plus contrastees dans les prompts podcast
+    - corrige l'endpoint Lyria 3 vers `aiplatform.googleapis.com/.../interactions`
+  - `api/index.ts` et `server/lib/agents.ts`
+    - rappellent explicitement a Cowork de:
+      - choisir 2 voix distinctes en duo
+      - garder les mots/noms etrangers dans leur ecriture d'origine si utile
+      - conserver `lyria-002` comme defaut robuste et n'utiliser Lyria 3 qu'en preview volontaire
+- Validation:
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - smoke test TTS duo : 2 speakers distincts confirmes
+  - smoke test Lyria 3 (`lyria-3-clip-preview`) : OK
+  - smoke test `create_podcast_episode` avec `lyria-3-clip-preview` : OK
+- Etat produit:
+  - `lyria-002` reste le choix robuste par defaut
+  - Lyria 3 est maintenant testable en vrai, mais reste une preview
+  - le duo podcast est mieux aligne avec la promesse "2 intervenants vraiment audibles comme 2 personnes"
+
 ## Etat d'Avancement
 - [x] Historique des discussions stabilise en local-first : les sessions `chat` / `cowork` / `image` / `video` / `audio` ne disparaissent plus de la sidebar si Firestore tarde a confirmer le shell `sessions/{sessionId}`. `src/utils/sessionShells.ts` garde les shells locaux `pendingRemote`, `src/App.tsx` fusionne cache local + snapshot distant, et `SidebarLeft` nettoie ce cache a la suppression.
 - [x] Decoupage serveur phase 2 : les middlewares transverses vivent maintenant dans `api/middleware/*` (`request-hardening`, `auth`, `api-errors`) et les routes standard (`/api/status`, `/api/refine`, `/api/generate-image`, `/api/generate-video`, `/api/metadata`, `/api/upload`, `/api/chat`) dans `api/routes/standard.ts`. `api/index.ts` reste le point d'entree Express et concentre davantage Cowork + l'orchestration globale.

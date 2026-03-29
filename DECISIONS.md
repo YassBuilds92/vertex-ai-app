@@ -1,5 +1,36 @@
 # DECISIONS
 
+## 2026-03-29 - Duo podcast avec voix forcees distinctes et labels TTS internes
+- Statut: adopte
+- Contexte: un script duo pouvait bien contenir 2 intervenants, mais le rendu restait trop monotone ou pouvait retomber sur 2 voix insuffisamment differenciees si le modele choisissait mal les voix/performance notes.
+- Decision:
+  - imposer une normalisation des speakers duo avec 2 voix distinctes
+  - ajouter des notes de jeu contrastees par defaut cote podcast
+  - utiliser des aliases TTS alphanumeriques internes pour le routage voix, sans casser les noms visibles du script
+- Pourquoi:
+  - durcit le contrat produit "2 intervenants" en rendu reel, pas seulement en texte
+  - colle mieux aux contraintes documentees du multi-speaker Gemini TTS
+  - laisse l'utilisateur garder des noms riches dans le texte tout en fiabilisant la synthese
+- Consequence:
+  - `server/lib/media-generation.ts` remappe maintenant les labels de dialogue avant TTS
+  - les metadonnees audio exposent `speakerAliases`
+  - les prompts podcast poussent des contrastes vocaux plus nets et l'ecriture d'origine pour les noms/mots etrangers
+
+## 2026-03-29 - Lyria 3 activee en preview, `lyria-002` conserve en defaut robuste
+- Statut: adopte
+- Contexte: l'utilisateur aime deja le rendu `lyria-002`, mais souhaite tester Lyria 3 si c'est reellement utilisable. Le code exposait Lyria 3 sans endpoint fonctionnel.
+- Decision:
+  - corriger l'appel Lyria 3 sur l'endpoint officiel `aiplatform.googleapis.com/.../interactions`
+  - garder `lyria-002` comme defaut podcast robuste
+  - laisser `lyria-3-clip-preview` et `lyria-3-pro-preview` en options preview, non par defaut
+- Pourquoi:
+  - permet les tests Lyria 3 reels sans casser le chemin fiable deja apprecie par l'utilisateur
+  - respecte la documentation officielle et les limites preview actuelles
+  - evite une migration produit precipitee vers un modele preview
+- Consequence:
+  - `generate_music_audio` et `create_podcast_episode` peuvent maintenant vraiment tester Lyria 3
+  - la copy produit/orchestrateur continue de recommander `lyria-002` comme choix robuste
+
 ## 2026-03-29 - Historique des discussions en local-first tant que Firestore n'a pas confirme
 - Statut: adopte
 - Contexte: les nouvelles discussions de `chat`, `cowork`, `image`, `video` et `audio` pouvaient apparaitre un instant dans la sidebar puis disparaitre si le document `users/{uid}/sessions/{sessionId}` n'etait pas encore confirme par Firestore.

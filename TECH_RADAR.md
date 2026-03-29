@@ -9,6 +9,56 @@
 - Cout
 - Sources officielles
 
+## 2026-03-29 - Lyria 3 preview corrigee, `lyria-002` conserve en defaut robuste
+- Statut: retenu et verifie en smoke test reel
+- Date de verification: 2026-03-29
+- Technologie: Lyria 2 / Lyria 3 sur Vertex AI
+- Choix:
+  - conserver `lyria-002` comme modele par defaut pour les beds podcast
+  - corriger le chemin preview Lyria 3 sur l'endpoint officiel `https://aiplatform.googleapis.com/v1beta1/projects/PROJECT_ID/locations/global/interactions`
+  - exposer `lyria-3-clip-preview` et `lyria-3-pro-preview` comme options preview explicites, non comme defaut
+- Pourquoi:
+  - la doc officielle "Generate music with Lyria" documente `lyria-002` sur `predict` et Lyria 3 sur `interactions`
+  - le mauvais host `global-aiplatform.googleapis.com` provoquait un 404 pour Lyria 3
+  - apres correction, le smoke test local a reussi sur `lyria-3-clip-preview` avec sortie `audio/mpeg`
+- Alternatives evaluees:
+  - basculer tout le produit sur Lyria 3
+    - Ecartee: preview, sortie MP3, quotas plus restreints et besoin produit deja satisfait par `lyria-002`
+  - retirer totalement Lyria 3 de l'UI/outillage
+    - Ecartee: la fonctionnalite existe officiellement et l'utilisateur veut pouvoir la tester
+- Cout:
+  - payant a l'usage via Vertex AI
+  - aucun package npm ajoute
+- Sources officielles:
+  - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
+  - [Lyria 2](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/lyria/lyria-002)
+  - [Lyria 3](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/lyria/lyria-3)
+
+## 2026-03-29 - Gemini TTS duo durci pour rendu conversationnel reel
+- Statut: retenu et verifie en smoke test reel
+- Date de verification: 2026-03-29
+- Technologie: Gemini TTS multi-speaker
+- Choix:
+  - forcer 2 voix distinctes cote normalisation duo
+  - ajouter des notes de jeu contrastees par defaut pour les podcasts duo
+  - utiliser des aliases TTS internes alphanumeriques pour le routage voix tout en gardant des noms visibles riches dans le script
+  - pousser l'ecriture d'origine des noms/mots etrangers dans les prompts podcast/TTS pour fluidifier la prononciation
+- Pourquoi:
+  - la doc Gemini-TTS impose des aliases alphanumeriques sans whitespace pour le multi-speaker structure
+  - un duo avec 2 voix/performance notes trop proches degrade la perception "deux intervenants"
+  - le smoke test local confirme qu'un duo avec voix distinctes est bien reconnu comme tel par un modele d'analyse audio
+- Alternatives evaluees:
+  - laisser le modele choisir librement 2 voix eventuellement identiques
+    - Ecartee: trop fragile sur le rendu final
+  - imposer des labels visibles artificiels type `Speaker1`/`Speaker2` partout
+    - Ecartee: moins bon pour l'UX script; les aliases internes suffisent
+- Cout:
+  - payant a l'usage Gemini TTS habituel
+  - aucune dependance supplementaire
+- Sources officielles:
+  - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+  - [Generate speech with Gemini TTS](https://ai.google.dev/gemini-api/docs/speech-generation)
+
 ## 2026-03-29 - Gemini TTS multi-speaker + style instructions
 - Statut: retenu et branche dans le code
 - Choix: conserver Gemini TTS sur Vertex AI, mais expliciter officiellement dans le produit:

@@ -1,5 +1,39 @@
 # BUGS GRAVEYARD
 
+## 2026-03-29 - Podcast duo trop monotone + Lyria 3 preview exposee mais casse
+- Statut: corrige localement et verifie en smoke tests reels
+- Symptome:
+  - un podcast duo pouvait afficher 2 intervenants differents dans le script, mais sonner trop uniforme ou comme un faux duo
+  - les mots et noms etrangers prononces en alphabet latin donnaient un rendu audio artificiel
+  - `lyria-3-clip-preview` etait cite comme option, mais renvoyait un `404` des qu'on le testait reellement
+- Stack trace / message:
+  - ressenti utilisateur: "les deux intervenants ont la meme voix" / "les voix sont monotones"
+  - erreur Lyria 3: `The requested URL /v1beta1/projects/.../locations/global/interactions was not found on this server.`
+- Tentatives:
+  - relecture du pipeline TTS/podcast dans `server/lib/media-generation.ts`
+  - smoke test duo TTS court + analyse automatique du rendu audio
+  - verification officielle des docs Gemini-TTS et Lyria 3
+  - smoke test Lyria 3 direct hors Cowork
+- Cause racine:
+  - le pipeline acceptait encore 2 voix identiques ou des notes de jeu trop proches en duo
+  - les prompts ne poussaient pas assez le contraste entre les deux roles ni l'ecriture d'origine des noms/mots etrangers
+  - l'endpoint Lyria 3 utilisait le mauvais host (`global-aiplatform.googleapis.com`) au lieu de `aiplatform.googleapis.com`
+- Resolution finale:
+  - normalisation duo durcie avec 2 voix distinctes garanties
+  - ajout d'aliases TTS internes alphanumeriques + remap des labels de script avant synthese
+  - enrichissement des prompts TTS/podcast pour:
+    - contraste vocal et rythmique
+    - ecriture d'origine des noms et termes etrangers
+  - correction du chemin Lyria 3 vers `https://aiplatform.googleapis.com/v1beta1/projects/PROJECT_ID/locations/global/interactions`
+  - maintien de `lyria-002` comme defaut robuste, Lyria 3 restant une preview optionnelle
+- Preuve:
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - smoke test Gemini TTS duo: `speakerCount: 2`, `voicesClearlyDifferent: true`
+  - smoke test Lyria 3: `lyria-3-clip-preview` OK, `audio/mpeg`
+  - smoke test `create_podcast_episode` + `musicModel: 'lyria-3-clip-preview'` : mix `ffmpeg` OK
+
 ## 2026-03-29 - Nouvelle discussion visible une seconde puis retiree de l'historique
 - Statut: resolu localement, a revalider en session authentifiee
 - Symptome:

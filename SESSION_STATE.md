@@ -4,6 +4,69 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-29 (podcast duo plus expressif + Lyria 3 rebranchee)
+- Besoin traite:
+  - l'utilisateur a signale que les podcasts duo donnaient deux intervenants nommes mais une impression de meme voix / rendu monotone
+  - il voulait aussi que les mots et noms etrangers soient ecrits dans leur ecriture d'origine pour fluidifier l'audio
+  - il a demande de verifier si Lyria 3 pouvait etre activee sans perdre le bon rendu deja obtenu avec `lyria-002`
+- Verification externe faite avant correctif:
+  - doc officielle Gemini-TTS relue:
+    - multi-speaker = 2 intervenants max
+    - aliases multi-speaker documentes en alphanumerique sans whitespace
+  - doc officielle Lyria relue:
+    - `lyria-002` = endpoint `predict`
+    - `lyria-3-clip-preview` / `lyria-3-pro-preview` = endpoint `https://aiplatform.googleapis.com/v1beta1/projects/PROJECT_ID/locations/global/interactions`
+- Cause racine confirmee:
+  - le pipeline acceptait encore qu'un duo arrive avec 2 voix identiques ou des notes de jeu trop proches, ce qui ecrasait la perception des roles
+  - les prompts podcast/TTS ne rappelaient pas assez la contrainte "voix distinctes + contrastes de jeu + ecriture d'origine des mots etrangers"
+  - le chemin Lyria 3 pointait vers `global-aiplatform.googleapis.com`, qui renvoyait 404 sur `interactions`
+- Correctifs appliques:
+  - `server/lib/media-generation.ts`
+    - normalisation duo durcie avec 2 voix distinctes garanties
+    - ajout d'aliases TTS internes (`ttsAlias`) et remap des labels via `remapDialogueSpeakerLabelsForTts()`
+    - prompts podcast TTS/script enrichis:
+      - contraste de cadence / energie / role
+      - ecriture d'origine des noms et mots etrangers
+    - endpoint Lyria 3 corrige vers `aiplatform.googleapis.com`
+  - `api/index.ts`
+    - consignes Cowork et descriptions d'outils audio mises a jour pour:
+      - forcer 2 voix distinctes en duo
+      - recommander l'ecriture d'origine pour les mots etrangers
+      - garder `lyria-002` comme defaut robuste et Lyria 3 en preview optionnelle
+  - `server/lib/agents.ts`
+    - prompt architecte agent realigne sur ces nouvelles regles podcast/TTS
+  - `test-podcast-media.ts`
+    - nouveaux tests sur aliases TTS, remap de labels et diversification automatique des voix
+- Verification effectuee:
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx verify-agent-blueprints.ts` : OK
+  - smoke test reel Gemini TTS:
+    - duo avec 2 speakers dont la meme voix demandee => sortie normalisee en 2 voix distinctes (`Charon | Kore`)
+    - analyse audio Gemini confirme `speakerCount: 2`, `voicesClearlyDifferent: true`
+  - smoke test reel Lyria:
+    - `lyria-3-clip-preview` : OK, sortie `audio/mpeg`
+    - `create_podcast_episode` + `musicModel: 'lyria-3-clip-preview'` : OK, mix `ffmpeg`
+- Limites restantes:
+  - `lyria-002` reste le meilleur defaut produit pour la robustesse globale
+  - si l'hebergement cible n'a pas `ffmpeg`, un podcast avec musique Lyria 3 peut toujours retomber sur le fallback voix seule car le fallback WAV maison ne decode pas le MP3 preview
+  - la perception exacte "voix suffisamment differentes" reste une question de DA; le moteur est durci, mais un peu de direction manuelle peut encore affiner le rendu
+- Fichiers touches:
+  - `server/lib/media-generation.ts`
+  - `api/index.ts`
+  - `server/lib/agents.ts`
+  - `test-podcast-media.ts`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `TECH_RADAR.md`
+  - `BUGS_GRAVEYARD.md`
+  - `COWORK.md`
+- Intention exacte:
+  - faire en sorte qu'un "duo podcast" s'entende vraiment comme un duo
+  - fluidifier la diction des noms et termes etrangers
+  - ouvrir Lyria 3 comme option reelle sans degrader le chemin robuste adore par l'utilisateur avec `lyria-002`
+
 ## Mise a jour complementaire - 2026-03-29 (historique discussions local-first)
 - Besoin traite:
   - l'utilisateur a signale qu'une nouvelle discussion apparaissait dans l'historique puis disparaissait aussitot

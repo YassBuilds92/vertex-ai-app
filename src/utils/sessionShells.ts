@@ -128,7 +128,7 @@ export function mergeSessionsWithLocal(userId: string, remoteSessions: ChatSessi
   const merged = new Map<string, ChatSession>();
 
   for (const [sessionId, record] of Object.entries(localRecords)) {
-    if (record?.pendingRemote && !remoteById.has(sessionId)) {
+    if (record?.session && !remoteById.has(sessionId)) {
       merged.set(sessionId, normalizeSessionShell(record.session));
     }
   }

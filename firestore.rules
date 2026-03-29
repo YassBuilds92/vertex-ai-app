@@ -224,6 +224,10 @@ service cloud.firestore {
       }
     }
 
+    match /{path=**}/messages/{messageId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;

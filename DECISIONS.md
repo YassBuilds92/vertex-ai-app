@@ -195,3 +195,24 @@
   - defaut podcast musique = `lyria-002`
   - le mix final passe par `ffmpeg` local avec intro/outro legeres
   - Cowork peut ensuite publier directement le fichier via `release_file`
+
+## 2026-03-29 - Batterie Cowork pilotee par prompt, pas par veto backend
+- Statut: adopte
+- Contexte: l'utilisateur a explicitement refuse un retour aux mots-cles declencheurs, quotas backend caches ou nudges injectes comme ordres. Il voulait que l'amelioration passe par la personnalite de l'agent, son prompt systeme et la clarte de ses outils.
+- Decision: corriger Cowork pour la batterie utilisateur via:
+  - renforcement du prompt systeme
+  - descriptions/outils de recherche plus explicites
+  - fingerprint de progression plus honnete
+  - mais sans reintroduire de blockers metier ou de forcing strategique cote backend
+- Pourquoi:
+  - reste coherent avec la philosophie produit "le modele decide, le backend verifie"
+  - laisse une vraie autonomie de strategie
+  - rend les progres observables sans theatre backend
+- Consequence:
+  - ajout de `test-cowork-battery.ts`
+  - `buildCoworkProgressFingerprint()` compte aussi la collecte de recherche
+  - `buildCoworkSystemInstruction()` insiste maintenant sur:
+    - `web_search` = reperage
+    - `web_fetch` = lecture/verif directe
+    - couverture multi-angle / multi-entites
+    - verification business / juridique / finance / RH / marche

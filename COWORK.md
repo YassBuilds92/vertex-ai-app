@@ -420,3 +420,32 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
     - MP3 final cree
 - Limite connue:
   - le mix final depend de `ffmpeg` sur la machine serveur; valide ici en local, pas encore verifie sur l'hebergement distant
+
+## Mise a jour 2026-03-29 - Batterie d'evaluation utilisateur
+- Une vraie batterie d'evaluation a ete ajoutee via `test-cowork-battery.ts`.
+- Objectif:
+  - mesurer Cowork sur:
+    - recherche & synthese
+    - production de documents
+    - raisonnement & logique
+    - stress & limites
+    - boucle & iteration
+- Correctifs runtime retenus pour cette passe:
+  - aucun retour aux forcing backend par mots-cles ou quotas metier caches
+  - renforcement du prompt systeme Cowork pour:
+    - distinguer clairement `web_search` (reperage) et `web_fetch` (lecture directe)
+    - encourager la couverture multi-angle / multi-pays / multi-entites
+    - verifier davantage les sujets business / juridiques / financiers / RH / marche
+  - `buildCoworkProgressFingerprint()` compte maintenant aussi les recherches/lectures pour eviter les faux stalls sur une vraie phase de collecte
+  - le resultat de `web_search` rappelle explicitement que les pistes ne sont pas encore des sources lues
+- Resultat produit observe:
+  - amelioration nette de plusieurs cas:
+    - `1.2` fact-check: beaucoup plus de recherches, ouverture de sources amorcee
+    - `4.4` multilingue: passe maintenant avec plusieurs recherches et sources lues
+    - `5.3` chaine complexe: va jusqu'aux 2 PDF et a la traduction, au lieu de casser en cours de route
+  - faiblesse restante:
+    - Cowork reste encore trop souvent sous-source sur les gros dossiers, les comparatifs de marche, les profils multi-entites et certains documents business/juridiques
+    - la vraie faiblesse dominante n'est plus le stall, mais la profondeur de lecture directe (`web_fetch`) sur les sujets larges
+- Methode de validation la plus fiable:
+  - pour la batterie, lancer un serveur backend ephemere dans le meme shell que les tests
+  - le vieux serveur local detache sur `:3000` s'est montre trop fragile pour les longues series et peut produire des faux negatifs

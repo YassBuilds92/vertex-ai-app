@@ -324,3 +324,40 @@
     - duree finale: ~14.5 s
 - Limite restante:
   - le mix final depend de `ffmpeg` present sur la machine serveur. Valide localement ici, mais non encore verifie sur l'hebergement distant.
+
+## Mise a jour complementaire - 2026-03-29 (batterie Cowork)
+- Nouveau besoin:
+  - l'utilisateur a demande une vraie batterie de tests pour mesurer Cowork sur recherche, documents, raisonnement, stress et iteration
+  - contrainte produit reconfirmee: corriger par personnalite / prompt systeme / descriptions d'outils, pas en remettant des forcing backend
+- Correctifs appliques:
+  - ajout du runner `test-cowork-battery.ts`
+  - renforcement du prompt systeme Cowork dans `api/index.ts` pour:
+    - dissocier clairement `web_search` (reperage) et `web_fetch` (lecture/verif directe)
+    - pousser la couverture multi-angle / multi-pays / multi-entites
+    - pousser la verification pour business / juridique / finance / RH / marche
+    - rappeler qu'une couverture large avec trop peu de lectures directes reste mince
+  - `buildCoworkProgressFingerprint()` compte maintenant aussi `webSearchCount` et `webFetchCount`, ce qui evite les faux stalls quand l'agent est encore en collecte utile
+  - le message de resultat `web_search` dit maintenant explicitement que les pistes ne sont pas encore des sources lues
+- Methode de test retenue:
+  - les runs batterie les plus fiables se font avec un serveur backend ephemere lance dans le meme process shell que la batterie
+  - le vieux serveur detache sur `:3000` etait instable pour les longues series de tests et produisait des faux negatifs
+- Etat mesure:
+  - rapports generes dans `tmp/cowork-battery/`
+  - la batterie complete a ete jouee presque entierement puis completee par des sous-ensembles cibles pour finir `5.2` / `5.3`
+  - passes robustes observes:
+    - `2.1` CV + lettre
+    - `3.1` arbitrage complexe
+    - `4.2` tache impossible
+    - `4.4` multilingue
+    - `5.1` feedback loop
+  - progres nets mais encore insuffisants:
+    - `1.1` dossier eau: lit enfin plusieurs sources mais ne cherche pas encore assez large
+    - `1.2` fact-check: forte hausse des recherches, ouverture de sources partielle mais encore sous le seuil cible
+    - `5.3` chaine startups: va maintenant jusqu'aux 2 PDF et a la traduction, mais l'etayage direct des profils reste trop mince
+  - faiblesse dominante restante:
+    - Cowork reste encore sous-source sur certains dossiers larges, comparatifs de marche et taches multi-entites
+    - plusieurs demandes business / juridiques / memo peuvent encore partir trop "de tete" ou avec trop peu de `web_fetch`
+- Fichiers touches:
+  - `api/index.ts`
+  - `test-cowork-battery.ts`
+  - `test-cowork-loop.ts`

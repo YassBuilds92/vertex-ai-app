@@ -40,6 +40,41 @@
   - garder une home chat haut de gamme mais non intrusive
   - remplacer les animations de cartes par un fond typographique lumineux, lent et peu couteux
 
+## Mise a jour complementaire - 2026-03-29 (empty state sans scroll + poster container-aware)
+- Besoin traite:
+  - l'utilisateur ne voulait aucune barre de defilement dans le panneau central tant qu'il n'y a pas encore de discussion
+  - il voulait aussi que l'accueil se recale proprement selon la largeur reelle du centre, y compris quand les volets lateraux s'ouvrent ou se ferment
+- Cause racine confirmee:
+  - `src/App.tsx` rendait toujours un spacer de fin de messages (`messagesEndRef` en `h-32 / h-40`) meme quand l'historique etait vide
+  - les `main` centraux dans le layout flex n'avaient pas `min-h-0`, ce qui laissait l'empty state depasser plus facilement
+  - `src/components/StudioEmptyState.tsx` restait calibre avec une hauteur minimale trop rigide et une typo peu sensible a la largeur effective du panneau
+- Correctifs appliques:
+  - `src/App.tsx`
+    - `main` central passe en `min-h-0`
+    - scroll vertical verrouille quand `shouldShowEmptyState` est vrai
+    - spacer `messagesEndRef` rendu seulement s'il y a des messages, un stream ou un statut actif
+  - `src/components/StudioEmptyState.tsx`
+    - section vide convertie en surface `h-full` au lieu d'une hauteur minimale rigide
+    - headline passe en taille `clamp(...cqw...)` pour suivre la largeur du container
+    - espacements verticaux compactes pour rester dans le viewport utile
+  - `src/index.css`
+    - `container-type: inline-size` sur `.studio-empty-state`
+    - mots d'ambiance et composition ajustes pour les petites hauteurs et les largeurs contraintes
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures locales Playwright:
+    - `1440x1200` : pas de scroll central visible sur l'empty state
+    - `1180x980` : poster recale proprement en largeur contrainte
+    - `390x844` : version mobile compacte sans barre de scroll visible
+- Fichiers touches:
+  - `src/App.tsx`
+  - `src/components/StudioEmptyState.tsx`
+  - `src/index.css`
+- Intention exacte:
+  - obtenir un ecran d'accueil totalement fixe et propre au repos
+  - faire en sorte que le poster s'adapte a la vraie place restante du panneau central
+
 ## Mise a jour complementaire - 2026-03-29 (podcast duo plus expressif + Lyria 3 rebranchee)
 - Besoin traite:
   - l'utilisateur a signale que les podcasts duo donnaient deux intervenants nommes mais une impression de meme voix / rendu monotone

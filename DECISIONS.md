@@ -16,6 +16,22 @@
   - `src/index.css` expose maintenant un systeme de glow theme-aware pour dark, light et oled
   - les quick prompts et micro-infos restent presents, mais dans une hierarchie beaucoup plus calme
 
+## 2026-03-29 - Shell idle sans scroll et hero calibre par largeur utile
+- Statut: adopte
+- Contexte: meme apres la refonte du poster, le panneau central pouvait encore afficher une barre de defilement au repos. Le probleme etait surtout visible avec les volets lateraux ouverts, quand la largeur utile du centre se resserrait.
+- Decision:
+  - verrouiller le scroll vertical du `main` quand on affiche l'empty state
+  - ne plus rendre le spacer `messagesEndRef` tant qu'il n'y a ni messages ni streaming
+  - rendre `StudioEmptyState` container-aware avec `container-type: inline-size` et des tailles pilotees par `cqw`
+- Pourquoi:
+  - supprime un scroll produit injustifie quand l'utilisateur n'a encore rien envoye
+  - stabilise la composition quelle que soit la largeur restante apres ouverture/fermeture des volets
+  - corrige le vrai budget de viewport au lieu de masquer le symptome
+- Consequence:
+  - `src/App.tsx` utilise maintenant `min-h-0` et un `overflow` conditionnel sur le panneau central
+  - `src/components/StudioEmptyState.tsx` remplit la hauteur disponible sans min-height rigide
+  - `src/index.css` adapte la typo et les mots d'ambiance a la largeur effective du hero
+
 ## 2026-03-29 - Duo podcast avec voix forcees distinctes et labels TTS internes
 - Statut: adopte
 - Contexte: un script duo pouvait bien contenir 2 intervenants, mais le rendu restait trop monotone ou pouvait retomber sur 2 voix insuffisamment differenciees si le modele choisissait mal les voix/performance notes.

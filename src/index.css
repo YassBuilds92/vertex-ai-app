@@ -295,6 +295,7 @@
 }
 
 .studio-empty-state {
+  container-type: inline-size;
   background:
     linear-gradient(140deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 28%),
     var(--app-panel-overlay),
@@ -356,7 +357,7 @@
 }
 
 .studio-empty-state__word {
-  font-size: clamp(0.92rem, 1.1vw + 0.62rem, 1.45rem);
+  font-size: clamp(0.82rem, 1.7cqw, 1.45rem);
   font-weight: 600;
   letter-spacing: 0.34em;
   text-transform: uppercase;
@@ -610,14 +611,14 @@ a,
 
 @media (min-width: 1024px) {
   .studio-empty-state__words {
-    left: 38%;
+    left: 36%;
   }
 }
 
 @media (max-width: 767px) {
   .studio-empty-state__words {
-    top: 26%;
-    gap: 1.3rem;
+    top: 32%;
+    gap: 1.1rem;
     padding-inline: 1.15rem;
   }
 
@@ -630,6 +631,13 @@ a,
 
   .studio-empty-state__word {
     letter-spacing: 0.24em;
+  }
+}
+
+@media (max-height: 860px) {
+  .studio-empty-state__words {
+    padding-top: 3.6rem;
+    gap: 1.3rem;
   }
 }
 

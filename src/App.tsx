@@ -290,6 +290,7 @@ export default function App() {
   }, [activeSessionId, currentMessages, optimisticMessages, liveCoworkMessage]);
 
   const shouldShowEmptyState = !activeAgentWorkspace && displayedMessages.length === 0 && !isLoading && !refiningStatus;
+  const shouldRenderMessageEndSpacer = displayedMessages.length > 0 || isLoading || Boolean(refiningStatus);
 
   const activeModeLabel = {
     chat: 'Chat & Raisonnement',
@@ -2067,7 +2068,7 @@ export default function App() {
           )}
 
           {!user ? (
-            <main className="relative flex-1 overflow-x-hidden overflow-y-auto">
+            <main className="relative flex-1 min-h-0 overflow-hidden">
               <StudioEmptyState
                 mode={activeMode}
                 isAuthenticated={false}
@@ -2089,7 +2090,13 @@ export default function App() {
                 onRunAgent={handleRunAgentFromHub}
               />
 
-              <main ref={parentRef} className="relative flex-1 overflow-x-hidden overflow-y-auto">
+              <main
+                ref={parentRef}
+                className={cn(
+                  'relative flex-1 min-h-0 overflow-x-hidden',
+                  shouldShowEmptyState ? 'overflow-hidden' : 'overflow-y-auto'
+                )}
+              >
                 {shouldShowEmptyState && (
                   <StudioEmptyState
                     mode={activeMode}
@@ -2190,7 +2197,9 @@ export default function App() {
                     />
                   </div>
                 )}
-                <div ref={messagesEndRef} className="h-32 sm:h-40" />
+                {shouldRenderMessageEndSpacer && (
+                  <div ref={messagesEndRef} className="h-32 sm:h-40" />
+                )}
               </main>
 
               <div className="border-t border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] px-3 pb-4 pt-5 sm:px-5 sm:pt-6">

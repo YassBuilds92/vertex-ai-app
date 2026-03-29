@@ -156,12 +156,12 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
           : 'text-to-speech';
 
   return (
-    <section className="mx-auto flex min-h-full w-full max-w-6xl items-center px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8">
+    <section className="mx-auto flex h-full min-h-0 w-full max-w-6xl items-stretch px-3 py-3 sm:px-5 sm:py-4 lg:px-8 lg:py-5">
       <motion.div
         initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
-        className="studio-empty-state studio-panel-strong relative min-h-[28rem] w-full overflow-hidden rounded-[2.45rem] p-5 sm:min-h-[31rem] sm:p-7 lg:min-h-[34rem] lg:p-9"
+        className="studio-empty-state studio-panel-strong relative flex h-full min-h-0 w-full overflow-hidden rounded-[2.45rem] p-4 sm:p-5 lg:p-6"
       >
         <div className="studio-empty-state__mesh" aria-hidden="true" />
         <div
@@ -199,14 +199,14 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
           ))}
         </div>
 
-        <div className="relative z-10 flex h-full flex-col justify-between">
+        <div className="relative z-10 flex h-full min-h-0 flex-col justify-between">
           <div className="max-w-[42rem]">
             <div className="inline-flex items-center gap-2 rounded-full border border-[var(--app-border)] bg-[var(--app-surface-hover)] px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] text-[var(--app-text)]/72">
               <Sparkles size={12} className="text-[var(--app-accent)]" />
               {content.eyebrow}
             </div>
 
-            <div className="mt-6 flex items-center gap-3">
+            <div className="mt-5 flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-[1.15rem] border border-[var(--app-border)] bg-[var(--app-surface-hover)] text-[var(--app-accent)] shadow-[0_24px_44px_-26px_rgba(68,196,255,0.45)]">
                 <Icon size={19} />
               </div>
@@ -216,15 +216,15 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
               </div>
             </div>
 
-            <h2 className="mt-7 max-w-[10.4ch] text-[2.25rem] font-semibold leading-[0.98] tracking-[-0.05em] text-[var(--app-text)] sm:max-w-[11.4ch] sm:text-[3.15rem] lg:max-w-[11.8ch] lg:text-[4.4rem]">
+            <h2 className="mt-6 max-w-[11ch] text-balance text-[clamp(2rem,7.4cqw,4.25rem)] font-semibold leading-[0.94] tracking-[-0.055em] text-[var(--app-text)]">
               {content.title}
             </h2>
 
-            <p className="mt-5 max-w-2xl text-[15px] leading-7 text-[var(--app-text)]/64 sm:text-base">
+            <p className="mt-4 max-w-[38rem] text-[14px] leading-7 text-[var(--app-text)]/64 sm:text-[15px]">
               {content.body}
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center gap-3">
+            <div className="mt-7 flex flex-wrap items-center gap-3">
               {!isAuthenticated ? (
                 <button onClick={onPrimaryAction} className="studio-button-primary studio-glow">
                   <Bot size={16} />
@@ -251,7 +251,7 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
               )}
             </div>
 
-            <div className="mt-9 space-y-3">
+            <div className="mt-7 space-y-3">
               <div className="studio-section-label">Impulsions rapides</div>
               <div className="flex flex-wrap gap-2.5">
                 {content.suggestions.map((suggestion) => (
@@ -267,7 +267,7 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
             </div>
           </div>
 
-          <div className="relative z-10 mt-10 border-t border-[var(--app-border)] pt-5">
+          <div className="relative z-10 mt-7 border-t border-[var(--app-border)] pt-4">
             <div className="grid gap-4 sm:grid-cols-3 sm:gap-5">
               {content.bullets.map((bullet, index) => (
                 <div key={bullet} className="min-w-0">

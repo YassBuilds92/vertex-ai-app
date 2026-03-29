@@ -229,3 +229,35 @@
   - `api/index.ts` devient l'unique fichier backend routable
   - `server/lib/*`, `server/middleware/*`, `server/routes/*` portent toute la logique interne
   - la verification de reference est `npx vercel build --prod` + un seul output `api/index.func`
+
+## 2026-03-29 - Un podcast doit sortir comme un master final unique
+- Statut: adopte
+- Contexte: l'utilisateur a explicitement rejete les livraisons podcast en composants separes. Pour lui, "fais un podcast" signifie un vrai episode bien monte, pas une voix d'un cote et une musique de l'autre.
+- Decision:
+  - `create_podcast_episode` devient le chemin podcast principal
+  - `generate_tts_audio` et `generate_music_audio` restent des outils de bas niveau, reserves aux demandes explicites de stems separes
+  - les agents podcast par defaut doivent viser `create_podcast_episode` + `generate_image_asset` + `release_file`
+- Pourquoi:
+  - colle au sens produit reel du mot "podcast"
+  - reduit les chances que le modele satisfasse techniquement la demande tout en ratant la promesse utilisateur
+  - garde une voie simple pour la cover sans complexifier le master audio
+- Consequence:
+  - `server/lib/agents.ts` oriente les blueprints podcast vers un livrable unique
+  - `api/index.ts` decrit explicitement `create_podcast_episode` comme le bon outil pour un podcast pret a publier
+  - l'UI du Hub Agents pousse maintenant la formulation "master final bien mixe + cover"
+
+## 2026-03-29 - Le pipeline podcast ne doit plus dependre durement de `ffprobe` / `ffmpeg`
+- Statut: adopte
+- Contexte: le premier pipeline podcast etait correct en local, mais fragile sur hebergement: `ffprobe` manquant cassait la mesure de duree, et sans `ffmpeg` il n'y avait plus de master final.
+- Decision:
+  - mesurer la duree de la narration directement depuis son WAV
+  - conserver `ffmpeg` comme chemin premium quand il existe
+  - ajouter un fallback TypeScript pur pour le mix WAV standard
+- Pourquoi:
+  - supprime le point de rupture `ffprobe ENOENT`
+  - permet toujours de livrer un master final unique avec le couple robuste `gemini-2.5-pro-tts` + `lyria-002`
+  - evite d'ajouter une dependance npm lourde de transcodage
+- Consequence:
+  - `server/lib/media-generation.ts` embarque maintenant parse WAV, resampling, adaptation mono/stereo, ducking, loop crossfade et limiter
+  - en l'absence d'encodeur mp3 local, le systeme peut quand meme rendre un WAV final plutot que d'echouer
+  - limite connue assumee: `lyria-3-*` reste plus dependant d'un decodeur externe si sa sortie est MP3

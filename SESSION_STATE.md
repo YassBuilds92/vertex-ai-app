@@ -406,3 +406,59 @@
   - `test-podcast-media.ts`
 - Intention exacte:
   - aligner l'arborescence backend avec l'intention produit et la semantique Vercel: un backend Express monolithique expose via une seule function, avec le reste du code en modules internes non routables
+
+## Mise a jour complementaire - 2026-03-29 (podcast master unique)
+- Nouveau besoin:
+  - l'utilisateur veut que Cowork livre un vrai podcast final, pas des stems separes voix/musique
+  - il faut un seul fichier bien monte, avec la voix prioritaire sur la musique
+  - il faut eviter que `create_podcast_episode` casse si `ffprobe` ou `ffmpeg` ne sont pas disponibles
+- Correctifs appliques:
+  - `server/lib/media-generation.ts`
+    - suppression de la dependance dure a `ffprobe` pour mesurer la duree: la narration TTS est maintenant lue directement depuis son header WAV
+    - ajout d'un fallback de mix WAV pur TypeScript quand `ffmpeg` est indisponible ou echoue
+    - fallback avec:
+      - resampling lineaire
+      - adaptation mono/stereo
+      - high-pass doux sur la voix
+      - ducking du bed sous la voix
+      - loop crossfade leger pour rendre la repetition musicale plus propre
+      - limitation de pic en sortie
+    - chemin `ffmpeg` ameliore quand disponible:
+      - high-pass / low-pass
+      - compression de voix
+      - sidechain ducking
+      - limiter final
+  - `api/index.ts`
+    - `create_podcast_episode` expose maintenant `outputExtension`
+    - le tool est decrit comme le chemin normal pour un podcast pret a publier
+    - `generate_tts_audio` / `generate_music_audio` sont explicitement recadres vers les cas ou l'utilisateur demande les composants separes
+    - les resultats remontent maintenant `mixStrategy`
+  - `server/lib/agents.ts`
+    - `create_podcast_episode` rejoint la bibliotheque d'outils autorises
+    - les agents podcast par defaut utilisent maintenant:
+      - `web_search`
+      - `web_fetch`
+      - `generate_image_asset`
+      - `create_podcast_episode`
+      - `release_file`
+    - le prompt d'architecte d'agents dit de preferer le master final unique aux stems separes
+  - `src/components/AgentsHub.tsx`
+    - copy et suggestion mises a jour pour pousser "master final bien mixe + cover"
+- Verification:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npx tsx verify-agent-blueprints.ts` : OK
+- Fichiers touches:
+  - `server/lib/media-generation.ts`
+  - `api/index.ts`
+  - `server/lib/agents.ts`
+  - `src/components/AgentsHub.tsx`
+  - `test-podcast-media.ts`
+  - `verify-agent-blueprints.ts`
+- Limites restantes:
+  - si on force un modele `lyria-3-*` et que l'hebergement n'a pas `ffmpeg`, le fallback WAV ne peut pas encore decoder le MP3 Lyria 3; le chemin le plus robuste reste `lyria-002` boucle sous toute la narration
+  - la cover n'est pas encore embeddee dans le MP3; le bon chemin produit reste `create_podcast_episode` pour le master audio puis `generate_image_asset` pour la cover
+- Intention exacte:
+  - faire de "podcast" un vrai artefact audio premium de premiere classe dans Cowork
+  - eviter que le modele livre des composants separes quand l'utilisateur attend un episode pret a publier

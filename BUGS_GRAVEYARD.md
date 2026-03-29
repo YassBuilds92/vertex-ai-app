@@ -193,3 +193,35 @@
   - sur Vercel, considerer `api/` comme une zone d'entrypoints seulement
   - ranger les helpers backend dans `server/`, pas dans `api/`
   - en cas de doute, lancer `npx vercel build --prod` avant push pour voir le shape reel du deploy
+
+## 2026-03-29 - Podcast Cowork livre des stems au lieu d'un master final
+- Statut: corrige localement, a revalider en prod
+- Symptome:
+  - sur une demande de podcast, Cowork pouvait:
+    - echouer sur `create_podcast_episode` avec `ffprobe a echoue. spawn ffprobe ENOENT`
+    - retomber ensuite sur `generate_tts_audio` + `generate_music_audio`
+    - publier une narration, une musique et une cover separees au lieu d'un seul episode final
+  - perception produit:
+    - la musique s'arrete ou devient inutilisable apres son clip natif si l'utilisateur n'assemble pas lui-meme
+    - Cowork "fait des composants" au lieu de "faire un podcast"
+- Tentatives:
+  - verification du pipeline audio existant dans `server/lib/media-generation.ts`
+  - verification des prompts/outils de Cowork et du Hub Agents
+  - relecture des docs officielles Vertex AI pour Lyria et Gemini TTS
+- Cause racine:
+  - la mesure de duree dependait inutilement de `ffprobe` alors que la narration TTS est deja un WAV lisible localement
+  - le mix final dependait entierement de `ffmpeg`
+  - les blueprints podcast du Hub Agents orientaient encore vers `generate_tts_audio` + `generate_music_audio`, donc vers des stems separes
+- Resolution:
+  - lecture directe de la duree via header WAV
+  - ajout d'un fallback de mix WAV pur TypeScript (resample, adaptation de canaux, ducking, loop crossfade, limiter)
+  - `create_podcast_episode` devient le chemin podcast recommande
+  - `server/lib/agents.ts` pousse maintenant les agents podcast vers `create_podcast_episode` + `generate_image_asset` + `release_file`
+- Verification:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npx tsx verify-agent-blueprints.ts` : OK
+- Prevention:
+  - ne jamais faire dependre un artefact "pret a publier" d'un seul binaire externe si un fallback technique raisonnable existe
+  - pour les output kinds produits (`podcast`, `pdf`, etc.), aligner les blueprints d'agents sur le livrable final, pas sur les sous-composants

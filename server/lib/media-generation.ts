@@ -85,6 +85,16 @@ export type GeneratedPodcastEpisode = {
   musicPrompt: string;
   voiceDurationSeconds: number;
   finalDurationSeconds: number;
+  mixStrategy: 'ffmpeg' | 'wav-fallback';
+};
+
+type ParsedWaveAudio = {
+  sampleRate: number;
+  channels: number;
+  bitsPerSample: number;
+  formatTag: number;
+  frameCount: number;
+  samples: Float32Array;
 };
 
 function clipText(value: unknown, max = 240): string {
@@ -149,6 +159,357 @@ function pcmToWavBuffer(
   return Buffer.concat([header, pcmBuffer]);
 }
 
+function isWaveBuffer(buffer: Buffer): boolean {
+  return buffer.length >= 12
+    && buffer.toString('ascii', 0, 4) === 'RIFF'
+    && buffer.toString('ascii', 8, 12) === 'WAVE';
+}
+
+function parseWaveBuffer(buffer: Buffer): ParsedWaveAudio {
+  if (!isWaveBuffer(buffer)) {
+    throw new Error("Le mix podcast local attend un fichier WAV valide.");
+  }
+
+  let formatTag = 0;
+  let channels = 0;
+  let sampleRate = 0;
+  let bitsPerSample = 0;
+  let dataOffset = -1;
+  let dataLength = 0;
+
+  for (let offset = 12; offset + 8 <= buffer.length;) {
+    const chunkId = buffer.toString('ascii', offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    const chunkStart = offset + 8;
+    const chunkEnd = chunkStart + chunkSize;
+
+    if (chunkEnd > buffer.length) {
+      throw new Error("Le fichier WAV semble tronque.");
+    }
+
+    if (chunkId === 'fmt ') {
+      if (chunkSize < 16) {
+        throw new Error("Le chunk fmt du WAV est invalide.");
+      }
+
+      formatTag = buffer.readUInt16LE(chunkStart);
+      if (formatTag === 0xfffe && chunkSize >= 40) {
+        formatTag = buffer.readUInt16LE(chunkStart + 24);
+      }
+      channels = buffer.readUInt16LE(chunkStart + 2);
+      sampleRate = buffer.readUInt32LE(chunkStart + 4);
+      bitsPerSample = buffer.readUInt16LE(chunkStart + 14);
+    } else if (chunkId === 'data' && dataOffset === -1) {
+      dataOffset = chunkStart;
+      dataLength = chunkSize;
+    }
+
+    offset = chunkEnd + (chunkSize % 2);
+  }
+
+  if (!sampleRate || !channels || !bitsPerSample || dataOffset < 0 || dataLength <= 0) {
+    throw new Error("Le WAV ne contient pas les informations audio minimales attendues.");
+  }
+
+  if (formatTag !== 1 && formatTag !== 3) {
+    throw new Error(`Le format WAV ${formatTag} n'est pas supporte pour le mix podcast local.`);
+  }
+
+  const bytesPerSample = bitsPerSample / 8;
+  if (!Number.isInteger(bytesPerSample) || bytesPerSample <= 0) {
+    throw new Error(`Bits par sample non supportes: ${bitsPerSample}.`);
+  }
+
+  const frameSize = bytesPerSample * channels;
+  const frameCount = Math.floor(dataLength / frameSize);
+  if (!frameCount) {
+    throw new Error("Le WAV ne contient aucune frame audio exploitable.");
+  }
+
+  const samples = new Float32Array(frameCount * channels);
+  for (let index = 0; index < samples.length; index += 1) {
+    const sampleOffset = dataOffset + (index * bytesPerSample);
+    let value = 0;
+
+    if (formatTag === 3 && bitsPerSample === 32) {
+      value = buffer.readFloatLE(sampleOffset);
+    } else if (bitsPerSample === 16) {
+      value = buffer.readInt16LE(sampleOffset) / 32768;
+    } else if (bitsPerSample === 24) {
+      value = buffer.readIntLE(sampleOffset, 3) / 8388608;
+    } else if (bitsPerSample === 32) {
+      value = buffer.readInt32LE(sampleOffset) / 2147483648;
+    } else {
+      throw new Error(`Le WAV ${bitsPerSample} bits n'est pas supporte pour le mix podcast local.`);
+    }
+
+    samples[index] = Math.max(-1, Math.min(1, Number.isFinite(value) ? value : 0));
+  }
+
+  return {
+    sampleRate,
+    channels,
+    bitsPerSample,
+    formatTag,
+    frameCount,
+    samples,
+  };
+}
+
+function getWaveDurationSeconds(buffer: Buffer): number {
+  const audio = parseWaveBuffer(buffer);
+  return audio.frameCount / audio.sampleRate;
+}
+
+function resampleWaveAudio(audio: ParsedWaveAudio, targetSampleRate: number): ParsedWaveAudio {
+  if (audio.sampleRate === targetSampleRate) {
+    return audio;
+  }
+
+  const targetFrameCount = Math.max(1, Math.round(audio.frameCount * targetSampleRate / audio.sampleRate));
+  const samples = new Float32Array(targetFrameCount * audio.channels);
+
+  for (let channel = 0; channel < audio.channels; channel += 1) {
+    for (let frame = 0; frame < targetFrameCount; frame += 1) {
+      const sourcePosition = targetFrameCount === 1
+        ? 0
+        : (frame * (audio.frameCount - 1)) / (targetFrameCount - 1);
+      const leftFrame = Math.floor(sourcePosition);
+      const rightFrame = Math.min(audio.frameCount - 1, leftFrame + 1);
+      const mix = sourcePosition - leftFrame;
+      const leftValue = audio.samples[(leftFrame * audio.channels) + channel];
+      const rightValue = audio.samples[(rightFrame * audio.channels) + channel];
+      samples[(frame * audio.channels) + channel] = leftValue + ((rightValue - leftValue) * mix);
+    }
+  }
+
+  return {
+    ...audio,
+    sampleRate: targetSampleRate,
+    frameCount: targetFrameCount,
+    samples,
+  };
+}
+
+function convertWaveChannels(audio: ParsedWaveAudio, targetChannels: number): ParsedWaveAudio {
+  if (audio.channels === targetChannels) {
+    return audio;
+  }
+
+  const samples = new Float32Array(audio.frameCount * targetChannels);
+  for (let frame = 0; frame < audio.frameCount; frame += 1) {
+    const sourceOffset = frame * audio.channels;
+    const targetOffset = frame * targetChannels;
+
+    if (targetChannels === 1) {
+      let sum = 0;
+      for (let channel = 0; channel < audio.channels; channel += 1) {
+        sum += audio.samples[sourceOffset + channel];
+      }
+      samples[targetOffset] = sum / audio.channels;
+      continue;
+    }
+
+    if (audio.channels === 1) {
+      const monoValue = audio.samples[sourceOffset];
+      for (let channel = 0; channel < targetChannels; channel += 1) {
+        samples[targetOffset + channel] = monoValue;
+      }
+      continue;
+    }
+
+    for (let channel = 0; channel < targetChannels; channel += 1) {
+      const sourceChannel = Math.min(channel, audio.channels - 1);
+      samples[targetOffset + channel] = audio.samples[sourceOffset + sourceChannel];
+    }
+  }
+
+  return {
+    ...audio,
+    channels: targetChannels,
+    samples,
+  };
+}
+
+function applyHighPassFilterInPlace(samples: Float32Array, channels: number, sampleRate: number, cutoffHz: number): void {
+  if (cutoffHz <= 0 || !samples.length) return;
+
+  const rc = 1 / (2 * Math.PI * cutoffHz);
+  const dt = 1 / sampleRate;
+  const alpha = rc / (rc + dt);
+
+  for (let channel = 0; channel < channels; channel += 1) {
+    let previousInput = 0;
+    let previousOutput = 0;
+
+    for (let frame = 0; frame < samples.length / channels; frame += 1) {
+      const index = (frame * channels) + channel;
+      const input = samples[index];
+      const output = alpha * (previousOutput + input - previousInput);
+      previousInput = input;
+      previousOutput = output;
+      samples[index] = output;
+    }
+  }
+}
+
+function normalizePeakInPlace(samples: Float32Array, targetPeak: number): void {
+  let peak = 0;
+  for (const sample of samples) {
+    peak = Math.max(peak, Math.abs(sample));
+  }
+
+  if (!peak || peak === targetPeak) return;
+  const gain = targetPeak / peak;
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] *= gain;
+  }
+}
+
+function limitPeakInPlace(samples: Float32Array, targetPeak: number): void {
+  let peak = 0;
+  for (const sample of samples) {
+    peak = Math.max(peak, Math.abs(sample));
+  }
+
+  if (!peak || peak <= targetPeak) return;
+
+  const drive = Math.min(1.9, peak / targetPeak);
+  const normalizer = Math.tanh(drive);
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = Math.tanh(samples[index] * drive) / normalizer;
+  }
+
+  let postPeak = 0;
+  for (const sample of samples) {
+    postPeak = Math.max(postPeak, Math.abs(sample));
+  }
+
+  if (!postPeak || postPeak <= targetPeak) return;
+  const trim = targetPeak / postPeak;
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] *= trim;
+  }
+}
+
+function floatSamplesToWavBuffer(samples: Float32Array, sampleRate: number, channels: number): Buffer {
+  const pcmBuffer = Buffer.alloc(samples.length * PCM_SAMPLE_WIDTH_BYTES);
+  for (let index = 0; index < samples.length; index += 1) {
+    const clamped = Math.max(-1, Math.min(1, Number.isFinite(samples[index]) ? samples[index] : 0));
+    const intValue = clamped < 0
+      ? Math.round(clamped * 32768)
+      : Math.round(clamped * 32767);
+    pcmBuffer.writeInt16LE(intValue, index * PCM_SAMPLE_WIDTH_BYTES);
+  }
+
+  return pcmToWavBuffer(pcmBuffer, sampleRate, channels, PCM_SAMPLE_WIDTH_BYTES);
+}
+
+function mixPodcastEpisodeWavFallback(options: {
+  voiceBuffer: Buffer;
+  musicBuffer: Buffer;
+  introSeconds: number;
+  outroSeconds: number;
+  musicVolume: number;
+}): { buffer: Buffer; durationSeconds: number } {
+  const voiceBase = parseWaveBuffer(options.voiceBuffer);
+  const musicBase = parseWaveBuffer(options.musicBuffer);
+  const targetSampleRateBase = Math.max(voiceBase.sampleRate, musicBase.sampleRate);
+  const targetChannels = Math.max(voiceBase.channels, musicBase.channels);
+  const voiceParsed = convertWaveChannels(
+    resampleWaveAudio(voiceBase, targetSampleRateBase),
+    targetChannels,
+  );
+  const musicParsed = convertWaveChannels(
+    resampleWaveAudio(musicBase, targetSampleRateBase),
+    targetChannels,
+  );
+
+  applyHighPassFilterInPlace(voiceParsed.samples, voiceParsed.channels, voiceParsed.sampleRate, 80);
+  normalizePeakInPlace(voiceParsed.samples, 0.86);
+  normalizePeakInPlace(musicParsed.samples, 0.92);
+
+  const introSeconds = clampNumber(options.introSeconds, 0, 12, 1.2);
+  const outroSeconds = clampNumber(options.outroSeconds, 0, 12, 1.6);
+  const musicVolume = clampNumber(options.musicVolume, 0.02, 0.6, 0.12);
+
+  const introFrames = Math.round(introSeconds * voiceParsed.sampleRate);
+  const outroFrames = Math.round(outroSeconds * voiceParsed.sampleRate);
+  const totalFrames = introFrames + voiceParsed.frameCount + outroFrames;
+  const output = new Float32Array(totalFrames * voiceParsed.channels);
+
+  const fadeInFrames = Math.max(1, Math.round(Math.min(Math.max(introSeconds, 0.25), 0.45) * voiceParsed.sampleRate));
+  const fadeOutFrames = Math.max(1, Math.round(Math.min(Math.max(outroSeconds, 0.6), 3) * voiceParsed.sampleRate));
+  const fadeOutStartFrame = Math.max(0, totalFrames - fadeOutFrames);
+  const loopCrossfadeFrames = Math.max(1, Math.min(
+    Math.round(0.18 * musicParsed.sampleRate),
+    Math.floor(musicParsed.frameCount / 5),
+  ));
+  const minMusicGain = Math.max(0.018, musicVolume * 0.18);
+
+  const attackCoefficient = Math.exp(-1 / (voiceParsed.sampleRate * 0.008));
+  const releaseCoefficient = Math.exp(-1 / (voiceParsed.sampleRate * 0.22));
+  let voiceEnvelope = 0;
+
+  for (let frame = 0; frame < totalFrames; frame += 1) {
+    const outputOffset = frame * voiceParsed.channels;
+    const musicFrame = frame % musicParsed.frameCount;
+    const musicOffset = musicFrame * musicParsed.channels;
+    const musicFramesRemaining = musicParsed.frameCount - musicFrame;
+    const shouldCrossfadeLoop = loopCrossfadeFrames > 1 && musicFramesRemaining <= loopCrossfadeFrames;
+    const crossfadeAlpha = shouldCrossfadeLoop
+      ? 1 - (musicFramesRemaining / loopCrossfadeFrames)
+      : 0;
+    const musicBlendOffset = shouldCrossfadeLoop
+      ? (loopCrossfadeFrames - musicFramesRemaining) * musicParsed.channels
+      : 0;
+
+    const voiceFrame = frame - introFrames;
+    let voicePeak = 0;
+
+    for (let channel = 0; channel < voiceParsed.channels; channel += 1) {
+      if (voiceFrame >= 0 && voiceFrame < voiceParsed.frameCount) {
+        const voiceSample = voiceParsed.samples[(voiceFrame * voiceParsed.channels) + channel] * 1.08;
+        voicePeak = Math.max(voicePeak, Math.abs(voiceSample));
+      }
+    }
+
+    const envelopeTarget = Math.min(1, voicePeak / 0.12);
+    const envelopeCoefficient = envelopeTarget > voiceEnvelope
+      ? attackCoefficient
+      : releaseCoefficient;
+    voiceEnvelope = envelopeTarget + (envelopeCoefficient * (voiceEnvelope - envelopeTarget));
+
+    let musicGain = Math.max(minMusicGain, musicVolume * (1 - (0.78 * voiceEnvelope)));
+    if (frame < fadeInFrames) {
+      musicGain *= frame / fadeInFrames;
+    }
+    if (frame >= fadeOutStartFrame) {
+      musicGain *= Math.max(0, (totalFrames - frame) / fadeOutFrames);
+    }
+
+    for (let channel = 0; channel < voiceParsed.channels; channel += 1) {
+      const index = outputOffset + channel;
+      const voiceSample = (voiceFrame >= 0 && voiceFrame < voiceParsed.frameCount)
+        ? voiceParsed.samples[(voiceFrame * voiceParsed.channels) + channel] * 1.08
+        : 0;
+      const musicSample = (() => {
+        const baseSample = musicParsed.samples[musicOffset + channel];
+        if (!shouldCrossfadeLoop) return baseSample;
+        const loopSample = musicParsed.samples[musicBlendOffset + channel];
+        return (baseSample * (1 - crossfadeAlpha)) + (loopSample * crossfadeAlpha);
+      })();
+      output[index] = voiceSample + (musicSample * musicGain);
+    }
+  }
+
+  limitPeakInPlace(output, 0.94);
+  return {
+    buffer: floatSamplesToWavBuffer(output, voiceParsed.sampleRate, voiceParsed.channels),
+    durationSeconds: totalFrames / voiceParsed.sampleRate,
+  };
+}
+
 function buildPodcastNarrationPrompt(options: PodcastGenerationOptions): string {
   const title = clipText(options.title, 180);
   const brief = clipText(options.brief, 4000);
@@ -199,6 +560,7 @@ function buildPodcastMusicPrompt(options: PodcastGenerationOptions): string {
   return [
     "A subtle instrumental podcast background bed.",
     "Warm, modern, immersive, supportive and never distracting.",
+    "Loop-friendly and seamless under spoken narration, with no hard stop or dramatic final sting.",
     "No vocals, no spoken word, no lead singer, no aggressive drops.",
     "Soft pulse, light texture, elegant intro, gentle ending.",
     hostStyle ? `Mood cues: ${hostStyle}.` : null,
@@ -222,41 +584,30 @@ async function runLocalCommand(command: string, args: string[]): Promise<{ stdou
   }
 }
 
-async function getAudioDurationSeconds(filePath: string): Promise<number> {
-  const { stdout } = await runLocalCommand('ffprobe', [
-    '-v', 'error',
-    '-show_entries', 'format=duration',
-    '-of', 'default=noprint_wrappers=1:nokey=1',
-    filePath,
-  ]);
-  const durationSeconds = Number(stdout.trim());
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-    throw new Error(`Impossible de mesurer la duree audio de ${filePath}.`);
-  }
-  return durationSeconds;
-}
-
 async function mixPodcastEpisodeAudio(options: {
   voicePath: string;
   musicPath: string;
   outputPath: string;
+  voiceArtifact: GeneratedBinaryArtifact;
+  musicArtifact: GeneratedBinaryArtifact;
+  voiceDurationSeconds: number;
   introSeconds: number;
   outroSeconds: number;
   musicVolume: number;
   outputExtension: 'mp3' | 'wav';
-}): Promise<{ buffer: Buffer; durationSeconds: number }> {
-  const voiceDurationSeconds = await getAudioDurationSeconds(options.voicePath);
+}): Promise<{ buffer: Buffer; durationSeconds: number; mimeType: string; fileExtension: 'mp3' | 'wav'; mixStrategy: 'ffmpeg' | 'wav-fallback' }> {
   const introSeconds = clampNumber(options.introSeconds, 0, 12, 1.2);
   const outroSeconds = clampNumber(options.outroSeconds, 0, 12, 1.6);
   const musicVolume = clampNumber(options.musicVolume, 0.02, 0.6, 0.12);
-  const totalDurationSeconds = Number((voiceDurationSeconds + introSeconds + outroSeconds).toFixed(3));
+  const totalDurationSeconds = Number((options.voiceDurationSeconds + introSeconds + outroSeconds).toFixed(3));
   const fadeOutDuration = Math.min(Math.max(outroSeconds, 0.6), 3);
   const fadeOutStart = Math.max(0, totalDurationSeconds - fadeOutDuration);
   const delayMs = Math.round(introSeconds * 1000);
   const filterGraph = [
-    `[0:a]volume=${musicVolume.toFixed(3)},atrim=0:${totalDurationSeconds.toFixed(3)},afade=t=in:st=0:d=0.35,afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${fadeOutDuration.toFixed(3)}[bed]`,
-    `[1:a]adelay=${delayMs}:all=true,volume=1.18[voice]`,
-    '[bed][voice]amix=inputs=2:duration=first:dropout_transition=0,aresample=48000[aout]',
+    `[0:a]atrim=0:${totalDurationSeconds.toFixed(3)},aresample=48000,highpass=f=40,lowpass=f=12000,volume=${musicVolume.toFixed(3)},afade=t=in:st=0:d=0.35,afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${fadeOutDuration.toFixed(3)}[bedraw]`,
+    `[1:a]adelay=${delayMs}:all=true,aresample=48000,highpass=f=80,lowpass=f=15000,acompressor=threshold=0.09:ratio=3:attack=15:release=180:makeup=2.0,volume=1.06[voice]`,
+    '[bedraw][voice]sidechaincompress=threshold=0.018:ratio=10:attack=12:release=320:makeup=1[bedduck]',
+    "[bedduck][voice]amix=inputs=2:weights='1 1':duration=first:dropout_transition=0,alimiter=limit=0.93[aout]",
   ].join(';');
 
   const ffmpegArgs = [
@@ -274,11 +625,37 @@ async function mixPodcastEpisodeAudio(options: {
     ffmpegArgs.push('-c:a', 'libmp3lame', '-b:a', '192k', options.outputPath);
   }
 
-  await runLocalCommand('ffmpeg', ffmpegArgs);
-  return {
-    buffer: fs.readFileSync(options.outputPath),
-    durationSeconds: totalDurationSeconds,
-  };
+  try {
+    await runLocalCommand('ffmpeg', ffmpegArgs);
+    return {
+      buffer: fs.readFileSync(options.outputPath),
+      durationSeconds: totalDurationSeconds,
+      mimeType: options.outputExtension === 'wav' ? 'audio/wav' : 'audio/mpeg',
+      fileExtension: options.outputExtension,
+      mixStrategy: 'ffmpeg',
+    };
+  } catch (ffmpegError) {
+    try {
+      const mixed = mixPodcastEpisodeWavFallback({
+        voiceBuffer: options.voiceArtifact.buffer,
+        musicBuffer: options.musicArtifact.buffer,
+        introSeconds,
+        outroSeconds,
+        musicVolume,
+      });
+      return {
+        buffer: mixed.buffer,
+        durationSeconds: mixed.durationSeconds,
+        mimeType: 'audio/wav',
+        fileExtension: 'wav',
+        mixStrategy: 'wav-fallback',
+      };
+    } catch (fallbackError: any) {
+      const ffmpegDetail = clipText(ffmpegError instanceof Error ? ffmpegError.message : String(ffmpegError), 260);
+      const fallbackDetail = clipText(fallbackError?.message || String(fallbackError), 260);
+      throw new Error(`Mix podcast impossible. ffmpeg: ${ffmpegDetail} | fallback WAV: ${fallbackDetail}`);
+    }
+  }
 }
 
 function extractFirstInlinePart(result: any, expectedKind: 'image' | 'audio') {
@@ -614,13 +991,16 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
   const outputPath = path.join(tempDir, `podcast.${outputExtension}`);
   fs.writeFileSync(voicePath, voiceArtifact.buffer);
   fs.writeFileSync(musicPath, musicArtifact.buffer);
-  const voiceDurationSeconds = await getAudioDurationSeconds(voicePath);
+  const voiceDurationSeconds = getWaveDurationSeconds(voiceArtifact.buffer);
 
   try {
     const mixed = await mixPodcastEpisodeAudio({
       voicePath,
       musicPath,
       outputPath,
+      voiceArtifact,
+      musicArtifact,
+      voiceDurationSeconds,
       introSeconds: clampNumber(options.introSeconds, 0, 12, 1.2),
       outroSeconds: clampNumber(options.outroSeconds, 0, 12, 1.6),
       musicVolume: clampNumber(options.musicVolume, 0.02, 0.6, 0.12),
@@ -630,14 +1010,15 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
     return {
       finalArtifact: {
         buffer: mixed.buffer,
-        mimeType: outputExtension === 'wav' ? 'audio/wav' : 'audio/mpeg',
-        fileExtension: outputExtension,
+        mimeType: mixed.mimeType,
+        fileExtension: mixed.fileExtension,
         model: `${ttsModel}+${musicModel}`,
         metadata: {
           voice: String(voiceArtifact.metadata?.voice || ''),
           languageCode: String(voiceArtifact.metadata?.languageCode || ''),
           voiceDurationSeconds: Number(voiceDurationSeconds.toFixed(3)),
           finalDurationSeconds: Number(mixed.durationSeconds.toFixed(3)),
+          mixStrategy: mixed.mixStrategy,
         },
       },
       voiceArtifact,
@@ -646,6 +1027,7 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
       musicPrompt,
       voiceDurationSeconds,
       finalDurationSeconds: mixed.durationSeconds,
+      mixStrategy: mixed.mixStrategy,
     };
   } finally {
     try {
@@ -657,4 +1039,6 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
 export const __podcastMediaInternals = {
   buildPodcastNarrationPrompt,
   buildPodcastMusicPrompt,
+  getWaveDurationSeconds,
+  mixPodcastEpisodeWavFallback,
 };

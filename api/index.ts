@@ -586,9 +586,9 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
   - 'run_hub_agent' : relance un agent deja present dans le Hub Agents comme vraie sous-mission.
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
   - 'generate_image_asset' : genere une image locale dans '/tmp/'.
-  - 'generate_tts_audio' : synthese Gemini TTS vers un fichier audio local.
-  - 'generate_music_audio' : generation musicale Lyria vers un fichier audio local.
-  - 'create_podcast_episode' : fabrique un episode podcast audio complet avec narration TTS, fond Lyria et mix final.
+  - 'generate_tts_audio' : synthese Gemini TTS vers un fichier audio local. A reserver surtout aux cas ou l'utilisateur veut la voix seule.
+  - 'generate_music_audio' : generation musicale Lyria vers un fichier audio local. A reserver surtout aux cas ou l'utilisateur veut la musique seule.
+  - 'create_podcast_episode' : fabrique un episode podcast audio complet, mixe la voix et la musique, puis livre un seul master final pret a publier.
   - 'begin_pdf_draft', 'append_to_draft', 'revise_pdf_draft', 'get_pdf_draft'
   - 'review_pdf_draft'
   - 'create_pdf'
@@ -5261,6 +5261,7 @@ app.post('/api/cowork', async (req, res) => {
           ttsModel: clipText(args?.ttsModel || DEFAULT_PODCAST_TTS_MODEL, 48),
           musicModel: clipText(args?.musicModel || DEFAULT_LYRIA_MODEL, 48),
           voice: clipText(args?.voice || '', 32),
+          outputExtension: clipText(args?.outputExtension || 'mp3', 8),
           filename: clipText(args?.filename || '', 80),
         };
       }
@@ -5386,6 +5387,7 @@ app.post('/api/cowork', async (req, res) => {
           ttsModel: clipText(output?.ttsModel || '', 48),
           musicModel: clipText(output?.musicModel || '', 48),
           voice: clipText(output?.voice || '', 32),
+          mixStrategy: clipText(output?.mixStrategy || '', 24),
           durationSeconds: Number(output?.durationSeconds || 0),
         };
       }
@@ -5543,6 +5545,7 @@ app.post('/api/cowork', async (req, res) => {
           output?.ttsModel ? `voix ${output.ttsModel}` : null,
           output?.musicModel ? `musique ${output.musicModel}` : null,
           output?.voice ? `voix ${output.voice}` : null,
+          output?.mixStrategy ? `mix ${output.mixStrategy}` : null,
           Number(output?.durationSeconds || 0) > 0 ? `${Number(output.durationSeconds).toFixed(1)}s` : null,
           output?.path ? clipText(output.path, 120) : null,
           output?.message ? clipText(output.message, 140) : null,
@@ -6270,7 +6273,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "generate_tts_audio",
-        description: "Synthese un audio via Gemini TTS, l'ecrit dans '/tmp/' au format WAV et renvoie le chemin du fichier. Utile pour une voix-off, un jingle parle, une narration ou une capsule audio avant publication via 'release_file'.",
+        description: "Synthese un audio via Gemini TTS, l'ecrit dans '/tmp/' au format WAV et renvoie le chemin du fichier. Utile pour une voix-off, un jingle parle, une narration ou une capsule audio quand l'utilisateur veut la voix seule. Pour un podcast pret a publier avec musique + mix final, prefere 'create_podcast_episode'.",
         parameters: {
           type: "object",
           properties: {
@@ -6317,7 +6320,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "generate_music_audio",
-        description: "Genere une boucle ou un clip musical via Lyria, l'ecrit dans '/tmp/' et renvoie le chemin du fichier. Utile pour une ambiance, un bed musical ou une texture sonore avant publication via 'release_file'.",
+        description: "Genere une boucle ou un clip musical via Lyria, l'ecrit dans '/tmp/' et renvoie le chemin du fichier. Utile pour une ambiance, un bed musical ou une texture sonore quand l'utilisateur veut la musique seule. Pour un podcast pret a publier avec voix + musique + mix final, prefere 'create_podcast_episode'.",
         parameters: {
           type: "object",
           properties: {
@@ -6371,7 +6374,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_podcast_episode",
-        description: "Fabrique un episode podcast audio complet dans '/tmp/': narration via Gemini 2.5 Pro TTS par defaut, fond sonore Lyria, puis mix final pret a publier. Si tu fournis `script`, il sera narre tel quel. Sinon, le modele TTS cree lui-meme le texte parle a partir du `brief`.",
+        description: "Fabrique un episode podcast audio complet dans '/tmp/': narration via Gemini 2.5 Pro TTS par defaut, fond sonore Lyria, ducking de la musique sous la voix, intro/outro, puis un seul master final pret a publier. Si tu fournis `script`, il sera narre tel quel. Sinon, le modele TTS cree lui-meme le texte parle a partir du `brief`. Utilise les tools separes seulement si l'utilisateur demande explicitement des stems distincts.",
         parameters: {
           type: "object",
           properties: {
@@ -6383,7 +6386,7 @@ app.post('/api/cowork', async (req, res) => {
             languageCode: { type: "string", description: "Locale de narration, ex: fr-FR." },
             ttsModel: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-pro-tts." },
             musicPrompt: { type: "string", description: "Prompt musical explicite pour Lyria. Recommande en anglais pour maximiser la qualite." },
-            musicModel: { type: "string", description: "Modele Lyria explicite, ex: lyria-002." },
+            musicModel: { type: "string", description: "Modele Lyria explicite, ex: lyria-002, lyria-3-clip-preview, lyria-3-pro-preview." },
             negativeMusicPrompt: { type: "string", description: "Prompt negatif Lyria optionnel." },
             musicSeed: { type: "number", description: "Seed optionnel Lyria 2." },
             musicSampleCount: { type: "number", description: "Nombre de samples Lyria 2. Le premier sera utilise pour le mix final." },
@@ -6392,6 +6395,7 @@ app.post('/api/cowork', async (req, res) => {
             outroSeconds: { type: "number", description: "Outro musicale apres la voix. Defaut: environ 1.6s." },
             musicVolume: { type: "number", description: "Volume relatif du fond musical entre 0.02 et 0.6." },
             approxDurationSeconds: { type: "number", description: "Cible indicative de duree si le texte doit etre cree a partir du brief." },
+            outputExtension: { type: "string", enum: ["mp3", "wav"], description: "Format prefere pour le master final. MP3 par defaut si le moteur de mix/encodage local le permet." },
             filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/ pour le mix final." }
           }
         },
@@ -6413,6 +6417,7 @@ app.post('/api/cowork', async (req, res) => {
           outroSeconds,
           musicVolume,
           approxDurationSeconds,
+          outputExtension,
           filename
         }: {
           brief?: string;
@@ -6432,6 +6437,7 @@ app.post('/api/cowork', async (req, res) => {
           outroSeconds?: number;
           musicVolume?: number;
           approxDurationSeconds?: number;
+          outputExtension?: 'mp3' | 'wav';
           filename?: string;
         }) => {
           if (!String(brief || '').trim() && !String(script || '').trim()) {
@@ -6460,6 +6466,7 @@ app.post('/api/cowork', async (req, res) => {
             outroSeconds,
             musicVolume,
             approxDurationSeconds,
+            outputExtension,
           });
 
           const outputPath = buildGeneratedArtifactPath('cowork-podcast', episode.finalArtifact.fileExtension, filename);
@@ -6473,10 +6480,11 @@ app.post('/api/cowork', async (req, res) => {
             voice: episode.voiceArtifact.metadata?.voice,
             languageCode: episode.voiceArtifact.metadata?.languageCode,
             durationSeconds: Number(episode.finalDurationSeconds.toFixed(3)),
+            mixStrategy: episode.mixStrategy,
             fileSizeBytes: episode.finalArtifact.buffer.length,
             narrationPromptPreview: clipText(episode.narrationPrompt, 240),
             musicPromptPreview: clipText(episode.musicPrompt, 200),
-            message: `Podcast cree avec succes a ${outputPath}. Utilise maintenant 'release_file' pour obtenir un lien.`
+            message: `Podcast cree avec succes a ${outputPath} (${episode.mixStrategy}). Utilise maintenant 'release_file' pour obtenir un lien.`
           };
         }
       },

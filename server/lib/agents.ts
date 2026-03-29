@@ -51,6 +51,7 @@ const TOOL_LIBRARY = [
   'generate_image_asset',
   'generate_tts_audio',
   'generate_music_audio',
+  'create_podcast_episode',
   'begin_pdf_draft',
   'append_to_draft',
   'get_pdf_draft',
@@ -99,7 +100,7 @@ Regles:
 - 3 a 6 champs UI max.
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - Les capabilities sont des promesses produit courtes, pas du jargon.
-- Si le brief parle de podcast, de voix ou d'ambiance sonore, pense aux tools \`generate_tts_audio\` et \`generate_music_audio\`.
+- Si le brief parle de podcast, de voix ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Le systemInstruction doit etre exigeant, concret et exploitable tel quel.
 - Le starterPrompt doit etre pret a l'emploi.
 - Le slug doit etre propre et stable.
@@ -141,7 +142,7 @@ Regles:
 - Modifie uniquement ce qui est necessaire pour satisfaire la demande d'evolution.
 - Si l'utilisateur demande une evolution d'interface, mets a jour \`uiSchema\`.
 - Si l'utilisateur demande une evolution de comportement, mets a jour \`systemInstruction\`, \`capabilities\` et \`tools\` si besoin.
-- Si la mission parle de voix, de narration ou d'ambiance sonore, pense aux tools \`generate_tts_audio\` et \`generate_music_audio\`.
+- Si la mission parle de voix, de narration ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Garde 3 a 6 champs UI max.
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - N'invente pas de cle hors schema.`;
@@ -390,7 +391,7 @@ export function sanitizeAgentBlueprint(raw: unknown, brief = ''): AgentBlueprint
     tools: tools.length > 0
       ? tools
       : outputKind === 'podcast'
-        ? ['web_search', 'web_fetch', 'generate_tts_audio', 'generate_music_audio']
+        ? ['web_search', 'web_fetch', 'generate_image_asset', 'create_podcast_episode', 'release_file']
         : ['web_search', 'web_fetch'],
     capabilities: capabilities.length > 0 ? capabilities : [
       'Cadre vite la mission',

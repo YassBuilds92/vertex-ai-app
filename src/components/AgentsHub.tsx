@@ -27,7 +27,7 @@ function cn(...inputs: ClassValue[]) {
 const suggestions = [
   "Cree un agent qui fait un PDF premium sur l'actu du jour.",
   "Cree un agent qui transforme une actu en mini-site HTML.",
-  "Cree un agent podcast qui prepare script, voix et ambiance musicale.",
+  "Cree un agent podcast qui livre un master final bien mixe avec cover.",
 ];
 
 const outputMeta = {
@@ -293,7 +293,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                       <textarea
                         value={brief}
                         onChange={(event) => setBrief(event.target.value)}
-                        placeholder="Ex: cree un agent podcast actu qui fait la veille, ecrit le script, prepare la voix et une ambiance musicale"
+                        placeholder="Ex: cree un agent podcast actu qui fait la veille, ecrit le script, genere un master final bien mixe et une cover"
                         className="min-h-[132px] w-full rounded-[1.6rem] border border-white/8 bg-white/[0.03] px-5 py-4 text-[15px] text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/35"
                       />
                       <div className="flex flex-wrap items-center gap-2">

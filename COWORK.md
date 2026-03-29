@@ -421,6 +421,33 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Limite connue:
   - le mix final depend de `ffmpeg` sur la machine serveur; valide ici en local, pas encore verifie sur l'hebergement distant
 
+## Mise a jour 2026-03-29 - Podcast master unique et fallback sans binaire
+- Retour produit:
+  - le comportement "voix + musique + cover separees" n'est pas acceptable pour une demande podcast
+  - l'utilisateur veut un seul master bien monte, avec la voix qui prend naturellement le dessus sur la musique
+- Changement applique:
+  - `create_podcast_episode` reste le tool podcast principal, mais il ne depend plus durement de `ffprobe`
+  - la duree de la narration est maintenant lue directement depuis le WAV TTS
+  - en cas d'absence ou d'echec `ffmpeg`, Cowork peut encore sortir un master WAV unique via un fallback TypeScript
+  - le fallback applique:
+    - resampling lineaire
+    - adaptation mono/stereo
+    - high-pass doux sur la voix
+    - ducking du fond sous la voix
+    - loop crossfade leger pour mieux supporter `lyria-002`
+    - limiter de pic final
+- Changement produit annexe:
+  - les agents podcast et leur copy sont maintenant orientes vers:
+    - master final unique
+    - cover optionnelle
+    - publication via `release_file`
+  - les tools `generate_tts_audio` / `generate_music_audio` restent disponibles mais sont recadres comme outils de stems, pas comme chemin podcast par defaut
+- Etat produit:
+  - Cowork est maintenant mieux aligne avec la promesse "fais-moi un podcast" = episode final pret a publier
+  - le choix robuste par defaut reste `lyria-002` boucle sous toute la narration
+- Limite connue:
+  - si on force un modele `lyria-3-*` sur un hebergement sans `ffmpeg`, le fallback WAV ne sait pas encore decoder la sortie MP3 preview; ne pas en faire le defaut tant que ce point n'est pas traite
+
 ## Mise a jour 2026-03-29 - Batterie d'evaluation utilisateur
 - Une vraie batterie d'evaluation a ete ajoutee via `test-cowork-battery.ts`.
 - Objectif:

@@ -181,3 +181,30 @@
   - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
   - [Convert text to speech in Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/speech/text-to-speech)
   - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
+
+## 2026-03-29 - Podcast Cowork robuste sans dependance binaire dure
+- Statut: retenu et branche dans le code
+- Date de verification: 2026-03-29
+- Choix:
+  - garder `gemini-2.5-pro-tts` pour la narration premium
+  - garder `lyria-002` comme bed podcast par defaut
+  - supporter officiellement `lyria-3-clip-preview` et `lyria-3-pro-preview` comme options explicites, sans en faire le defaut
+  - fiabiliser le mix via un fallback WAV pur TypeScript quand `ffmpeg`/`ffprobe` manquent
+- Pourquoi:
+  - la page Vertex AI locations liste toujours `gemini-2.5-pro-tts`, `gemini-2.5-flash-tts` et `gemini-2.5-flash-lite-preview-tts`
+  - la doc Lyria confirme `lyria-002` sur `predict` et montre aussi `lyria-3-pro-preview` via `interactions`
+  - `lyria-002` reste le choix le plus robuste pour un mix fallback maison car la sortie de travail est en WAV
+- Alternatives evaluees:
+  - `lyria-3-pro-preview` par defaut
+    - Ecarte comme defaut: preview, sortie audio MP3 plus dependante d'un decodeur externe si `ffmpeg` n'est pas present
+  - dependance npm de transcodage audio
+    - Ecartee: dette technique et poids supplementaire alors qu'un fallback WAV interne suffit au chemin principal
+  - stems separes voix/musique
+    - Ecartes: ne satisfont pas le contrat produit "podcast pret a publier"
+- Cout:
+  - payant a l'usage pour Gemini TTS et Lyria via Vertex AI
+  - pas de nouvelle dependance npm ajoutee
+- Sources officielles:
+  - [Deployments and endpoints](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
+  - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
+  - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)

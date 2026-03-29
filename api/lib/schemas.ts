@@ -42,6 +42,10 @@ const HubAgentSchema = z.object({
   updatedAt: z.number().optional(),
 });
 
+const AgentRuntimeSchema = HubAgentSchema.extend({
+  formValues: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
+});
+
 export const ImageGenSchema = z.object({
   prompt: z.string(),
   aspectRatio: z.string().optional(),
@@ -54,6 +58,23 @@ export const ImageGenSchema = z.object({
 export const ImageGenRequestSchema = ImageGenSchema.extend({
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
+});
+
+export const AudioGenRequestSchema = z.object({
+  prompt: z.string(),
+  model: z.string().optional(),
+  ttsVoice: z.string().optional(),
+  ttsLanguageCode: z.string().optional(),
+  temperature: z.number().optional(),
+});
+
+export const MusicGenRequestSchema = z.object({
+  prompt: z.string(),
+  model: z.string().optional(),
+  negativePrompt: z.string().optional(),
+  seed: z.number().int().optional(),
+  sampleCount: z.number().int().min(1).max(4).optional(),
+  location: z.string().optional(),
 });
 
 export const VideoGenSchema = z.object({
@@ -107,6 +128,7 @@ export const ChatSchema = z.object({
     nowIso: z.string().optional().nullable(),
   }).optional(),
   hubAgents: z.array(HubAgentSchema).optional(),
+  agentRuntime: AgentRuntimeSchema.optional(),
 });
 
 export const UploadSchema = z.object({

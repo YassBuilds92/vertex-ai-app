@@ -40,12 +40,23 @@ import {
 import {
   generateAgentBlueprintFromBrief,
   pickHubAgentRecord,
+  reviseAgentBlueprint,
   sanitizeAgentBlueprint,
   sanitizeHubAgentRecord,
   summarizeHubAgentsForPrompt,
   type AgentBlueprint,
   type HubAgentRecord,
 } from './lib/agents.js';
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_LYRIA_MODEL,
+  DEFAULT_PODCAST_TTS_MODEL,
+  DEFAULT_TTS_MODEL,
+  generateGeminiTtsBinary,
+  generateImageBinary,
+  generateLyriaBinary,
+  generatePodcastEpisode,
+} from './lib/media-generation.js';
 import { createGoogleAI, parseApiError, retryWithBackoff } from './lib/google-genai.js';
 import { log } from './lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from './lib/path-utils.js';
@@ -108,11 +119,40 @@ type PdfQualityTargets = {
 type PdfSectionInput = {
   heading?: string;
   body?: string | null;
+  visualTheme?: string;
+  accentColor?: string;
+  mood?: string;
+  motif?: string;
+  pageStyle?: 'standard' | 'feature' | 'hero' | null;
+  pageBreakBefore?: boolean;
+  flagHints?: string[] | null;
+};
+
+type PdfDraftSourcesMode = 'append' | 'replace';
+type PdfDraftSectionRevisionAction = 'replace' | 'remove' | 'insert_before' | 'insert_after' | 'append';
+
+type PdfDraftSectionOperationInput = {
+  action?: string | null;
+  index?: number | null;
+  section?: PdfSectionInput | null;
 };
 
 type NormalizedPdfSection = {
   heading?: string;
   body: string;
+  visualTheme?: string;
+  accentColor?: string;
+  mood?: string;
+  motif?: string;
+  pageStyle?: 'standard' | 'feature' | 'hero';
+  pageBreakBefore?: boolean;
+  flagHints?: string[];
+};
+
+type NormalizedPdfDraftSectionOperation = {
+  action: PdfDraftSectionRevisionAction;
+  index: number | null;
+  section?: NormalizedPdfSection;
 };
 
 type PdfDraftSnapshot = {
@@ -296,6 +336,7 @@ function createEmptyCoworkSessionState(): CoworkSessionState {
     stalledTurns: 0,
     lastProgressFingerprint: null,
     lastActionSignature: null,
+    lastEngagementNudgeSignature: null,
   };
 }
 
@@ -494,42 +535,11 @@ function buildCoworkSystemInstruction(
   runtime?: { originalMessage?: string; requestClock?: RequestClock; hubAgents?: HubAgentRecord[] },
   behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean }
 ): string {
-  const originalMessage = runtime?.originalMessage || '';
   const requestClock = runtime?.requestClock;
   const hubAgentsSummary = Array.isArray(runtime?.hubAgents) && runtime.hubAgents.length > 0
     ? summarizeHubAgentsForPrompt(runtime.hubAgents, 8)
     : '';
   const debugReasoning = Boolean(behavior?.debugReasoning);
-  const isMetaDiscussion = originalMessage ? requestIsCoworkMetaDiscussion(originalMessage) : false;
-  const needsArtifact = originalMessage && !isMetaDiscussion
-    ? requestNeedsDownloadableArtifact(originalMessage) || requestNeedsPdfArtifact(originalMessage)
-    : false;
-  const needsFreshOrExternalFacts = originalMessage
-    ? !isMetaDiscussion && (requestNeedsCurrentDateGrounding(originalMessage) || requestNeedsExternalGrounding(originalMessage) || requestNeedsStrictFactualSearch(originalMessage))
-    : false;
-  const usesMusicResearch = originalMessage && !isMetaDiscussion ? requestNeedsMusicCatalogResearch(originalMessage) : false;
-  const requestSpecificDirectives: string[] = [];
-
-  if (isMetaDiscussion) {
-    requestSpecificDirectives.push(
-      "Cette demande parle du comportement, des logs ou du code de Cowork lui-meme. Les termes cites comme PDF, VEN1, trackmusik.fr, create_pdf ou append_to_draft peuvent etre de simples exemples. Ne les traite pas comme une demande d'execution tant que l'utilisateur ne te demande pas explicitement de lancer ces pipelines maintenant."
-    );
-  }
-  if (needsFreshOrExternalFacts) {
-    requestSpecificDirectives.push(
-      "Si la reponse depend du reel, ne t'arrete pas au premier resultat plausible. Cherche, lis, recoupe, puis conclus. Si la matiere reste fragile, dis-le clairement."
-    );
-  }
-  if (needsArtifact) {
-    requestSpecificDirectives.push(
-      "Cette demande n'est pas terminee tant que l'artefact n'est pas reellement cree puis publie. Ne confonds jamais brouillon, texte intermediaire et livraison finale."
-    );
-  }
-  if (usesMusicResearch) {
-    requestSpecificDirectives.push(
-      "Pour une discographie, des paroles ou un catalogue artiste, pense naturellement a 'music_catalog_lookup' avant de bricoler des recherches web generiques."
-    );
-  }
 
   const baseInstruction = `Tu es Cowork, un operateur autonome haut niveau.
 Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu restes honnete quand les preuves sont insuffisantes.
@@ -538,21 +548,51 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
 - Decide toi-meme de la meilleure strategie.
 - Ne t'arrete pas au premier resultat plausible si quelque chose semble faible, ambigu, incomplet ou hors sujet.
 - Si une demande depend du reel, accumule assez d'elements avant de conclure.
+- Pour un travail factualise ambitieux, une passe de reperage n'est pas une passe de conclusion: reperer, ouvrir, comparer, puis seulement synthetiser.
 - Si une demande ne depend pas d'outils, reponds directement sans faux theatre agentique.
 - Si apres 3 tentatives materiellement differentes tu restes bloque, explique la limite au lieu de broder.
+- Calibre ton effort sur l'ambition reelle de la mission: question simple = reponse simple; dossier, comparaison large, briefing, PDF, podcast, mini-site, note premium ou synthese editoriale = effort plus engage.
+- Quand une demande couvre plusieurs angles, pays, entreprises, affirmations ou personnes, traite-les comme plusieurs mini-enquetes a couvrir serieusement, pas comme un seul bloc flou.
+- Si la demande exige des profils de fondateurs, de dirigeants ou de personnes reelles pour plusieurs entites, une seule page de classement ne suffit pas: ouvre aussi des pages ou profils directs pour etayer plusieurs cas.
+- Plus la demande est large, plus ta cartographie doit etre large: dossier multi-pays, classement de plusieurs acteurs, comparatif de marche ou chaine a plusieurs etapes = recherches ciblees par angle ou entite, pas seulement quelques requetes generiques.
+- Refuse les versions maigres quand la promesse implicite est plus haute que la matiere collectee.
+- Avant de livrer, demande-toi en interne si tu as vraiment assez de substance pour faire gagner du temps a l'utilisateur, ou si tu es en train d'expedier.
+- Si tu n'as encore lu aucune source directe sur une tache factualisee, considere que tu es probablement encore trop leger pour une synthese solide.
+- Sur une tache factualisee ambitieuse, zero 'web_fetch' doit te mettre en alerte: tu as peut-etre repere, mais pas encore vraiment lu.
+- Si une premiere voie technique marche mal ou produit quelque chose de trop pauvre, pivote vite et intelligemment au lieu de t'enteter ou de te contenter du minimum.
+- Pour un brouillon PDF, pense atelier de travail: premier jet, relecture, revision, puis export seulement quand le texte te semble vraiment mur.
+- Pour un fact-check, une veille, une comparaison, un benchmark, un memo juridique ou financier, les snippets ne suffisent presque jamais: lis de vraies sources directes avant d'affirmer.
+- Si tu n'as fait que chercher sans ouvrir les meilleures pages, considere que tu es encore en phase d'eclaireur, pas en phase de livraison.
+- Reflexe utile sur les demandes ancrees dans le reel: cartographie rapide par recherche, puis lecture de plusieurs URLs fortes avant arbitrage ou synthese.
+- Un seul article ou une seule page suffit rarement pour resumer toute une semaine d'actualite d'un pays, comparer plusieurs acteurs, ou couvrir un dossier multi-pays.
+- Si une source prometteuse echoue a la lecture (paywall, 401, page pauvre, acces bloque), remplace-la par une autre source lisible au lieu de conclure trop vite.
+- Quand l'utilisateur demande explicitement plusieurs items, angles ou pays, ta collecte doit refleter cette largeur de couverture avant l'ecriture finale.
+- Si tu t'appuies encore sur seulement une ou deux lectures directes pour couvrir plusieurs pays, plusieurs entreprises ou cinq profils, considere plutot que ta couverture reste mince et qu'il faut encore etayer ou reconnaitre la limite.
+- Si l'utilisateur demande une liste ou un comparatif avec un nombre explicite, garde ce nombre en tete et ne t'arrete pas silencieusement a mi-chemin. Si tu ne peux pas atteindre le compte demande proprement, dis-le clairement.
+- Si plusieurs sources donnent des chiffres differents, montre l'ecart, attribue chaque chiffre a sa source et explique la cause probable au lieu de choisir arbitrairement.
+- Si la meilleure documentation est dans une autre langue, va la chercher dans cette langue puis restitue proprement dans la langue de l'utilisateur.
+- En iteratif, ameliore le livrable precedent au lieu de repartir de zero, sauf si une refonte totale est vraiment plus intelligente.
+- Si la demande est impossible, privee, dangereuse ou non verifiable, refuse proprement sans halluciner puis propose une alternative utile si elle existe.
+- Avant toute livraison importante, pose-toi ce filtre interne: "Est-ce qu'un bon assistant humain bien paye serait a l'aise de rendre ca a un patron ?" Si non, travaille encore ou explicite honnêtement la limite.
 
 ### ENVIRONNEMENT
 - Node.js uniquement. Python n'est pas disponible.
 - N'expose jamais ton chain-of-thought brut.
 - Outils disponibles:
   - 'create_agent_blueprint' : concoit un agent specialise reutilisable pour le Hub Agents.
+  - 'update_agent_blueprint' : met a jour un agent deja present dans le Hub Agents.
   - 'run_hub_agent' : relance un agent deja present dans le Hub Agents comme vraie sous-mission.
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
-  - 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft'
+  - 'generate_image_asset' : genere une image locale dans '/tmp/'.
+  - 'generate_tts_audio' : synthese Gemini TTS vers un fichier audio local.
+  - 'generate_music_audio' : generation musicale Lyria vers un fichier audio local.
+  - 'create_podcast_episode' : fabrique un episode podcast audio complet avec narration TTS, fond Lyria et mix final.
+  - 'begin_pdf_draft', 'append_to_draft', 'revise_pdf_draft', 'get_pdf_draft'
   - 'review_pdf_draft'
   - 'create_pdf'
   - 'release_file'
-${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraiment necessaires.\n" : ""}${capabilities.webSearch ? "  - 'web_search' : signal de recherche web, utile pour trouver des angles ou des pistes.\n  - 'web_fetch' : lecture directe d'une URL precise.\n  - 'music_catalog_lookup' : raccourci specialise pour discographie, titres, catalogue, paroles et couverture artiste.\n" : ""}${debugReasoning ? "  - 'publish_status' et 'report_progress' existent seulement en debug. Ils sont facultatifs et ne conditionnent pas ta capacite a agir.\n" : ""}
+  - Pour les PDF premium en LaTeX, tu peux faire une vraie direction artistique par section/page via les champs de section: 'visualTheme', 'mood', 'motif', 'flagHints', 'pageStyle', 'pageBreakBefore', sans avoir a ecrire tout le .tex toi-meme.
+${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraiment necessaires.\n" : ""}${capabilities.webSearch ? "  - 'web_search' : reperage de pistes, de sources et d'angles; cherche souvent plusieurs fois quand le sujet est large ou sensible.\n  - 'web_fetch' : lecture directe d'une URL precise; sur un travail factualise ambitieux, c'est lui qui transforme une piste en source vraiment lue.\n  - 'music_catalog_lookup' : raccourci specialise pour discographie, titres, catalogue, paroles et couverture artiste.\n" : ""}${debugReasoning ? "  - 'publish_status' et 'report_progress' existent seulement en debug. Ils sont facultatifs et ne conditionnent pas ta capacite a agir.\n" : ""}
 ### REGLES DURES
 1. Pour un PDF, utilise toujours 'create_pdf'. N'essaie jamais de fabriquer un faux PDF avec 'write_file'.
 2. Tout fichier genere doit vivre dans '/tmp/'.
@@ -564,6 +604,7 @@ ${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraime
 8. Si tu dois faire plusieurs outils dans un meme tour, garde une mini-chaine coherente: lecture/recherche d'abord, mutation eventuelle en dernier.
 9. Si l'utilisateur veut un specialiste recurrent ou delegable, tu peux creer un agent pour le Hub puis l'annoncer clairement.
 10. Si un agent du Hub correspond deja a la mission, prefere 'run_hub_agent' a la creation d'un nouveau blueprint.
+11. Si l'utilisateur veut corriger un agent existant du Hub, prefere 'update_agent_blueprint' a la creation d'un nouveau blueprint.
 
 ### REPERES TEMPORELS
 ${requestClock
@@ -581,8 +622,14 @@ ${hubAgentsSummary}
 - Demande creative pure: pas d'outil, tu reflechis en interne puis tu livres directement un bon texte.
 - Demande creative ancree dans le reel: tu te documentes d'abord, tu lis assez de matiere, puis tu ecris ou tu bloques honnetement.
 - Demande latest/docs/version: tu cherches, tu lis la doc ou la source officielle utile, puis tu resumes sans sur-vendre une recherche faible.
+- Fact-check / benchmark / veille: tu ne te contentes pas d'une SERP; tu ouvres plusieurs sources directes avant de trancher.
+- Dossier / comparatif large / synthese multilingue: tu cartographies le sujet, tu lis plusieurs pages fortes, tu compares, puis tu produis.
+- Sujet multi-entites (5 startups, 10 concurrents, plusieurs pays): tu verifies assez d'elements pour que la couverture soit credible, sinon tu assumes honnetement la limite.
+- Classement + profils (fondateurs, CEO, parcours): tu identifies la liste, puis tu ouvres aussi des pages individuelles ou des profils solides pour ne pas ecrire tout le portrait depuis une seule source agregatrice.
+- Dossier large avec comparaison de pays ou de marches: tu fais des recherches distinctes par angle majeur au lieu de traiter tout le sujet comme un seul bloc.
+- Couverture large mais preuves minces: si tes lectures directes restent trop peu nombreuses pour la largeur du sujet, tu continues a etayer ou tu explicites une couverture partielle au lieu de livrer comme si tout etait solide.
 - Demande PDF/artefact: tu prepares le contenu utile, tu crÃƒÂ©es l'artefact, tu le publies, puis tu livres le lien.
-${requestSpecificDirectives.length > 0 ? `\n### SIGNALS POUR CETTE DEMANDE\n- ${requestSpecificDirectives.join('\n- ')}` : ''}`;
+`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -593,6 +640,63 @@ ${requestSpecificDirectives.length > 0 ? `\n### SIGNALS POUR CETTE DEMANDE\n- ${
 
 ### CONSIGNES SUPPLEMENTAIRES :
 ${trimmedInstruction}`;
+}
+
+function formatAgentRuntimeValues(
+  agent: HubAgentRecord,
+  formValues?: Record<string, string | boolean>
+): string {
+  if (!formValues || typeof formValues !== 'object') {
+    return '- aucune valeur pre-remplie';
+  }
+
+  const entries = Object.entries(formValues)
+    .map(([fieldId, value]) => {
+      const label = agent.uiSchema.find(field => field.id === fieldId)?.label || fieldId;
+      if (typeof value === 'boolean') {
+        return `${label}: ${value ? 'oui' : 'non'}`;
+      }
+
+      const text = String(value || '').trim();
+      if (!text) return '';
+      return `${label}: ${text}`;
+    })
+    .filter(Boolean);
+
+  return entries.length > 0
+    ? entries.map(entry => `- ${entry}`).join('\n')
+    : '- aucune valeur pre-remplie';
+}
+
+function buildAgentRuntimeSystemInstruction(
+  agent: HubAgentRecord,
+  runtime?: { requestClock?: RequestClock; formValues?: Record<string, string | boolean> }
+): string {
+  const requestClock = runtime?.requestClock;
+  const allowedTools = Array.isArray(agent.tools) && agent.tools.length > 0
+    ? agent.tools.join(', ')
+    : 'aucun outil specialise';
+  const runtimeValues = formatAgentRuntimeValues(agent, runtime?.formValues);
+
+  return [
+    agent.systemInstruction.trim(),
+    '### CONTEXTE DE SESSION',
+    `- Tu es l'agent '${agent.name}'. Tu aides directement l'utilisateur depuis ton interface dediee.`,
+    `- Type de sortie privilegie: ${agent.outputKind}.`,
+    `- Quand t'activer: ${agent.whenToUse}.`,
+    `- Outils autorises: ${allowedTools}.`,
+    "- N'expose jamais ton chain-of-thought brut.",
+    "- Si un livrable doit etre cree (PDF, fichier, artefact), cree-le reellement puis publie-le si necessaire.",
+    requestClock
+      ? `- Date et heure de reference: ${requestClock.absoluteDateTimeLabel} (${requestClock.timeZone}).`
+      : null,
+    '### VALEURS FOURNIES DANS L INTERFACE',
+    runtimeValues,
+    '### POSTURE',
+    "- Tu n'es pas Cowork. Tu es le specialiste final utilise directement par l'utilisateur.",
+    "- Si une information manque, utilise intelligemment les champs deja fournis avant de reclamer plus de friction.",
+    "- Si l'utilisateur demande de modifier ton interface, ton prompt ou tes outils, indique que Cowork peut faire cette evolution sur l'agent lui-meme.",
+  ].filter(Boolean).join('\n');
 }
 
 function buildCreativeSingleTurnSystemInstruction(
@@ -660,20 +764,113 @@ function buildCoworkFallbackMessage(releasedFile: { url: string; path?: string }
   return `Voici votre fichier : [Telecharger ${fileName}](${releasedFile.url})`;
 }
 
+function hasArtifactInFlightState(options: {
+  activePdfDraft?: ActivePdfDraft | null;
+  createdArtifactPath?: string | null;
+  releasedFile?: { url: string; path?: string } | null;
+}): boolean {
+  return Boolean(options.activePdfDraft || options.createdArtifactPath || options.releasedFile?.url);
+}
+
+function buildArtifactFailureFallbackMessage(options: {
+  activePdfDraft?: ActivePdfDraft | null;
+  createdArtifactPath?: string | null;
+  releasedFile?: { url: string; path?: string } | null;
+}): string {
+  const releasedFallback = buildCoworkFallbackMessage(options.releasedFile || null);
+  if (releasedFallback) return releasedFallback;
+
+  if (options.createdArtifactPath) {
+    return "Le fichier a bien ete cree, mais je n'ai pas reussi a finaliser proprement la livraison du lien. Relance-moi et je repartirai de ce fichier deja cree.";
+  }
+
+  if (options.activePdfDraft) {
+    return "J'ai commence le livrable, mais je ne suis pas alle jusqu'a l'export final. Relance-moi et je reprendrai a partir du brouillon deja en cours.";
+  }
+
+  return "Desole, je n'ai pas reussi a produire une reponse finale fiable sur cette tentative. Reessaie ou reformule avec un angle un peu plus precis.";
+}
+
+function buildCoworkEngagementNudge(options: {
+  state: CoworkSessionState;
+  research: MusicResearchProgress;
+  latestCreatedArtifactPath?: string | null;
+  latestReleasedFile?: { url: string; path?: string } | null;
+  recentToolName?: string;
+  recentToolOutput?: any;
+}): CoworkEngagementNudge | null {
+  if (options.latestReleasedFile?.url) return null;
+
+  const draft = options.state.activePdfDraft;
+  const directSourceCount = options.state.sourcesValidated.length;
+  const searchCount = options.research.webSearches;
+  const fetchCount = options.research.webFetches;
+  const noDirectReads = directSourceCount === 0 && fetchCount === 0;
+
+  if (
+    options.recentToolName === 'web_search'
+    && searchCount >= 2
+    && noDirectReads
+    && !draft
+  ) {
+    const signature = `search-only:${searchCount}:${directSourceCount}`;
+    return {
+      signature,
+      title: 'Matiere encore trop mince',
+      message: `Cowork a deja explore ${searchCount} piste(s), mais n'a encore lu aucune source directe. Le risque maintenant, c'est de resumer des snippets au lieu de construire une vraie reponse solide.`,
+      prompt: "Pause qualite. Tu n'as encore lu aucune source directe et la matiere reste mince. Ne choisis pas la voie la plus courte par reflexe. Decide toi-meme la meilleure suite, mais elle doit probablement enrichir la substance avant livraison: ouvrir une ou plusieurs vraies sources, changer d'angle si les resultats restent pauvres, ou conclure honnetement que la matiere manque."
+    };
+  }
+
+  if (!draft) return null;
+
+  const editorialDraft = draft.theme !== 'legal' || searchCount > 0 || draft.targetWords >= 900;
+  if (!editorialDraft) return null;
+
+  const draftSectionCount = draft.sections.length;
+  const draftSourceCount = draft.sources.length;
+  const draftTooShort = draft.wordCount < Math.min(Math.max(850, Math.floor(draft.targetWords * 0.45)), 1400);
+  const thinSubstance = noDirectReads || draftSourceCount === 0 || draftTooShort || draftSectionCount < 5;
+
+  if (!thinSubstance) return null;
+
+  const artifactAlreadyCreated = Boolean(options.latestCreatedArtifactPath);
+  const pageCount = Number(options.recentToolOutput?.pageCount || 0);
+  const createdButThin = artifactAlreadyCreated && options.recentToolName === 'create_pdf';
+  const signal = createdButThin
+    ? `Le fichier existe techniquement${pageCount > 0 ? ` (${pageCount} page(s))` : ''}, mais la matiere reste encore assez mince pour un rendu ambitieux.`
+    : `Le brouillon part vite, mais il reste leger pour la promesse implicite du livrable.`;
+
+  const signature = [
+    'draft-thin',
+    draft.draftId,
+    draft.wordCount,
+    draftSectionCount,
+    draftSourceCount,
+    directSourceCount,
+    artifactAlreadyCreated ? 1 : 0,
+    options.recentToolName || 'none'
+  ].join(':');
+
+  return {
+    signature,
+    title: 'Exigence editoriale',
+    message: `${signal} Etat actuel: ${draft.wordCount} mots, ${draftSectionCount} section(s), ${draftSourceCount} source(s) dans le brouillon, ${directSourceCount} source(s) directe(s) ouverte(s).`,
+      prompt: "Pause qualite editoriale. Tu n'es pas oblige de suivre un plan fixe, mais le rendu reste encore trop leger pour une livraison vraiment convaincante. Ne te contente pas d'un minimum proprement emballe. Decide toi-meme la meilleure suite, mais elle doit vraisemblablement enrichir ou retravailler la matiere avant livraison: ouvrir de vraies sources, diversifier les angles, densifier franchement le brouillon, relire puis reviser le texte, ou assumer explicitement une version courte et limitee."
+  };
+}
+
 export const __coworkPdfInternals = {
   extractRequestedWordCount,
   normalizePdfTheme,
   resolvePdfTheme,
   resolvePdfEngine,
-  requestNeedsFormalDocument,
-  requestNeedsFictionalDetails,
-  requestNeedsPdfArtifact,
-  requestNeedsPdfSelfReview,
   getPdfQualityTargets,
   buildPdfDraftSnapshot,
   buildActivePdfDraftSignature,
   createActivePdfDraft,
   appendToActivePdfDraft,
+  reviseActivePdfDraft,
   buildPdfDraftStats,
   reviewPdfDraft,
   buildLatexAwarePdfReview,
@@ -691,8 +888,6 @@ export const __coworkLoopInternals = {
   buildTavilySearchPlan,
   buildDirectSourceSearchOutcome,
   validateCreatePdfReviewSignature,
-  getDirectSourceFallbacks,
-  requestNeedsBroadNewsRoundup,
   getCooldownDelayMs,
   buildCoworkProgressFingerprint,
   registerCoworkProgressState,
@@ -701,11 +896,7 @@ export const __coworkLoopInternals = {
   normalizeCoworkPhase,
   classifyCoworkExecutionMode,
   requestIsCoworkMetaDiscussion,
-  requestNeedsDownloadableArtifact,
-  requestNeedsPdfArtifact,
-  requestNeedsMusicCatalogResearch,
   requestRequiresAbuseBlock,
-  requestIsPureCreativeComposition,
   assessReadablePageRelevance,
   searchWeb,
 };
@@ -715,6 +906,41 @@ function normalizeCoworkText(value?: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function getCoworkIntentWindow(message: string, maxChars = 320): string {
+  const normalized = normalizeCoworkText(message);
+  if (!normalized) return '';
+
+  const lines = normalized
+    .split(/\r?\n+/)
+    .map(line => line.replace(/^[>"'`\s]+|[>"'`\s]+$/g, '').trim())
+    .filter(line => /[a-z0-9]/.test(line));
+
+  const selected: string[] = [];
+  let totalChars = 0;
+
+  for (const line of lines) {
+    selected.push(line);
+    totalChars += line.length + 1;
+    if (selected.length >= 2 || totalChars >= maxChars) {
+      break;
+    }
+  }
+
+  return selected.join(' ').slice(0, maxChars);
+}
+
+function requestHasDeliverableIntent(window: string): boolean {
+  return /\b(cree|creer|genere|generer|fabrique|fabriquer|produis|produire|fournis|fournir|exporte|exporter|prepare|preparer|redige|rediger|fais|faire|donne|donner)\b/.test(window)
+    || /\b(j[' ]?veux|jveux|je veux|je voudrais|j[' ]?aimerais|il me faut|il me faudrait|peux tu|tu peux|merci de|besoin d[' ]?un|besoin d[' ]?une)\b/.test(window);
+}
+
+function requestStartsWithDeliverableNoun(window: string, nounPattern: RegExp): boolean {
+  const leadPattern = new RegExp(
+    `^(?:salam\\s+|stp\\s+|svp\\s+|please\\s+)?(?:(?:je\\s+veux|jveux|je\\s+voudrais|j[' ]?aimerais|il\\s+me\\s+faut)\\s+)?(?:un|une|des|mon|ma|mes)?\\s*${nounPattern.source}`
+  );
+  return leadPattern.test(window);
 }
 
 function requestIsCoworkMetaDiscussion(message: string): boolean {
@@ -729,9 +955,11 @@ function requestIsCoworkMetaDiscussion(message: string): boolean {
     'create_pdf',
     'append_to_draft',
     'begin_pdf_draft',
+    'revise_pdf_draft',
     'review_pdf_draft',
     'release_file',
     'music_catalog_lookup',
+    'create_podcast_episode',
     'web_search',
     'web_fetch',
     'pdfkit',
@@ -886,8 +1114,11 @@ function requestNeedsLongFormPdf(message: string): boolean {
 
 function requestNeedsFormalDocument(message: string): boolean {
   if (requestIsCoworkMetaDiscussion(message)) return false;
-  const normalized = normalizeCoworkText(message);
-  return /\b(attestation|certificat|lettre|courrier|declaration|convention|contrat|devis|facture)\b/.test(normalized);
+  const intentWindow = getCoworkIntentWindow(message);
+  const formalDocumentNoun = /\b(attestation|certificat|lettre|courrier|declaration|convention|contrat|devis|facture)\b/;
+  if (!formalDocumentNoun.test(intentWindow)) return false;
+  return requestHasDeliverableIntent(intentWindow)
+    || requestStartsWithDeliverableNoun(intentWindow, formalDocumentNoun);
 }
 
 function requestNeedsFictionalDetails(message: string): boolean {
@@ -898,9 +1129,12 @@ function requestNeedsFictionalDetails(message: string): boolean {
 
 function requestNeedsPdfArtifact(message: string): boolean {
   if (requestIsCoworkMetaDiscussion(message)) return false;
-  const normalized = normalizeCoworkText(message);
-  if (requestNeedsPdf(message) || requestNeedsFormalDocument(message)) return true;
-  return /\b(presentation|brochure|plaquette|cv)\b/.test(normalized);
+  const intentWindow = getCoworkIntentWindow(message);
+  const presentationArtifactNoun = /\b(presentation|brochure|plaquette|cv|diaporama|slides?|powerpoint|pptx?)\b/;
+  if (/\bpdf\b/.test(intentWindow) || requestNeedsFormalDocument(message)) return true;
+  if (!presentationArtifactNoun.test(intentWindow)) return false;
+  return requestHasDeliverableIntent(intentWindow)
+    || requestStartsWithDeliverableNoun(intentWindow, presentationArtifactNoun);
 }
 
 const PDF_SESSION_WORD_CAP = 3000;
@@ -931,7 +1165,7 @@ function normalizePdfTheme(value: string | undefined, fallback: PdfTheme = 'repo
 }
 
 function resolvePdfTheme(
-  message: string,
+  _message: string,
   options: { formalDocument?: boolean; explicitTheme?: string } = {}
 ): PdfTheme {
   if (options.explicitTheme) {
@@ -939,9 +1173,6 @@ function resolvePdfTheme(
   }
   if (options.formalDocument) {
     return 'legal';
-  }
-  if (requestIsCurrentAffairs(message) || /\b(news|revue de presse|magazine|presse|editorial|journal)\b/.test(normalizeCoworkText(message))) {
-    return 'news';
   }
   return 'report';
 }
@@ -957,60 +1188,18 @@ function resolvePdfLengthPolicy(message: string, baselineWords: number) {
   };
 }
 
-function getPdfQualityTargets(message: string): PdfQualityTargets | null {
-  if (!requestNeedsPdfArtifact(message)) return null;
-  const normalized = normalizeCoworkText(message);
-  const formalDocument = requestNeedsFormalDocument(message);
-  const requireInventedDetails = requestNeedsFictionalDetails(message);
-  if (/\btest\b/.test(normalized) && !requestNeedsLongFormPdf(message) && !requestIsCurrentAffairs(message) && !formalDocument) {
-    return null;
-  }
-
-  let minSections = 0;
-  let minWords = 0;
-
-  if (formalDocument) {
-    minSections = Math.max(minSections, 3);
-    minWords = Math.max(minWords, requireInventedDetails ? 200 : 140);
-  }
-
-  if (requestIsCurrentAffairs(message) || /\b(rapport|briefing|analyse|dossier|synthese|compte rendu)\b/.test(normalized)) {
-    minSections = Math.max(minSections, 6);
-    minWords = Math.max(minWords, 900);
-  }
-
-  if (requestNeedsLongFormPdf(message)) {
-    minSections = Math.max(minSections, 6);
-    minWords = Math.max(minWords, 900);
-  }
-
-  if (/\b(tres long|tres longue|ultra long|ultra longue|exhaustif|exhaustive|detaille|detaillee|complet|complete|magnifique|soigne|style)\b/.test(normalized) && !/\btest\b/.test(normalized)) {
-    minSections = Math.max(minSections, 8);
-    minWords = Math.max(minWords, 1400);
-  }
-
-  const lengthPolicy = resolvePdfLengthPolicy(message, minWords);
-  if (lengthPolicy.targetWords > 0) {
-    minWords = Math.max(minWords, lengthPolicy.targetWords);
-    minSections = Math.max(minSections, Math.ceil(lengthPolicy.targetWords / 500));
-  }
-
-  return minSections > 0
-    ? {
-        minSections,
-        minWords,
-        formalDocument,
-        requireInventedDetails,
-        requestedWordCount: lengthPolicy.requestedWordCount,
-        cappedWordCount: lengthPolicy.cappedWords,
-        maxWords: PDF_SESSION_WORD_CAP,
-        theme: resolvePdfTheme(message, { formalDocument })
-      }
-    : null;
+function getPdfQualityTargets(_message: string): PdfQualityTargets | null {
+  return null;
 }
 
-function requestNeedsPdfSelfReview(message: string): boolean {
-  return Boolean(getPdfQualityTargets(message));
+function requestNeedsPdfSelfReview(_message: string): boolean {
+  return false;
+}
+
+function normalizePdfSourcesMode(value?: string | null): PdfDraftSourcesMode {
+  return String(value || '').trim().toLowerCase() === 'replace'
+    ? 'replace'
+    : 'append';
 }
 
 function normalizePdfSections(sections: PdfSectionInput[] | null | undefined): NormalizedPdfSection[] {
@@ -1018,8 +1207,52 @@ function normalizePdfSections(sections: PdfSectionInput[] | null | undefined): N
     .filter(section => Boolean(section?.heading?.trim() || section?.body?.trim()))
     .map(section => ({
       heading: section.heading?.trim() || undefined,
-      body: section.body?.trim() || ''
+      body: section.body?.trim() || '',
+      visualTheme: section.visualTheme?.trim() || undefined,
+      accentColor: section.accentColor?.trim() || undefined,
+      mood: section.mood?.trim() || undefined,
+      motif: section.motif?.trim() || undefined,
+      pageStyle: section.pageStyle === 'hero' || section.pageStyle === 'feature' || section.pageStyle === 'standard'
+        ? section.pageStyle
+        : undefined,
+      pageBreakBefore: typeof section.pageBreakBefore === 'boolean' ? section.pageBreakBefore : undefined,
+      flagHints: Array.isArray(section.flagHints)
+        ? Array.from(new Set(section.flagHints.map(flag => flag.trim()).filter(Boolean))).slice(0, 6)
+        : undefined
     }));
+}
+
+function normalizePdfSectionOperations(
+  operations: PdfDraftSectionOperationInput[] | null | undefined
+): NormalizedPdfDraftSectionOperation[] {
+  return (Array.isArray(operations) ? operations : [])
+    .map(operation => {
+      const action = String(operation?.action || '').trim().toLowerCase();
+      if (
+        action !== 'replace'
+        && action !== 'remove'
+        && action !== 'insert_before'
+        && action !== 'insert_after'
+        && action !== 'append'
+      ) {
+        return null;
+      }
+
+      const numericIndex = Number(operation?.index);
+      const normalizedIndex = Number.isFinite(numericIndex) && numericIndex >= 1
+        ? Math.floor(numericIndex)
+        : null;
+      const normalizedSection = operation?.section
+        ? normalizePdfSections([operation.section])[0]
+        : undefined;
+
+      return {
+        action: action as PdfDraftSectionRevisionAction,
+        index: normalizedIndex,
+        section: normalizedSection,
+      };
+    })
+    .filter(Boolean) as NormalizedPdfDraftSectionOperation[];
 }
 
 function normalizePdfSources(sources: string[] | null | undefined): string[] {
@@ -1034,22 +1267,14 @@ function normalizePdfEngine(value?: string | null, fallback: PdfEngineSelection 
   return fallback;
 }
 
-function requestNeedsPremiumLatexPdf(message: string, pdfQualityTargets: PdfQualityTargets | null, theme?: string): boolean {
-  const normalized = normalizeCoworkText(message);
-  const resolvedTheme = normalizePdfTheme(theme, pdfQualityTargets?.theme || resolvePdfTheme(message, {
-    formalDocument: Boolean(pdfQualityTargets?.formalDocument),
-    explicitTheme: theme
-  }));
-  if (pdfQualityTargets?.formalDocument) return false;
-  if (resolvedTheme === 'news' || resolvedTheme === 'report') {
-    if (pdfQualityTargets && pdfQualityTargets.minWords >= 900) return true;
-    if (requestNeedsLongFormPdf(message) || requestNeedsExternalGrounding(message)) return true;
-  }
+function requestNeedsPremiumLatexPdf(_message: string, _pdfQualityTargets: PdfQualityTargets | null, _theme?: string): boolean {
+  const normalized = '';
+  return false;
   return /\b(pdf|rapport|magazine|news|journal|mise en page|beau|belle|premium|editorial|sublime|soigne|creatif|crÃƒÂ©atif|theme|th[eÃƒÂ¨]me|latex)\b/.test(normalized);
 }
 
 function resolvePdfEngine(
-  message: string,
+  _message: string,
   options: {
     explicitEngine?: string | null;
     pdfQualityTargets: PdfQualityTargets | null;
@@ -1058,16 +1283,7 @@ function resolvePdfEngine(
 ): PdfEngine {
   const normalized = normalizePdfEngine(options.explicitEngine, 'auto');
   if (normalized === 'latex' || normalized === 'pdfkit') return normalized;
-  const resolvedTheme = normalizePdfTheme(options.theme, options.pdfQualityTargets?.theme || resolvePdfTheme(message, {
-    formalDocument: Boolean(options.pdfQualityTargets?.formalDocument),
-    explicitTheme: options.theme || undefined
-  }));
-  const legalLikeDocument = resolvedTheme === 'legal'
-    || Boolean(options.pdfQualityTargets?.formalDocument)
-    || requestNeedsFormalDocument(message);
-  if (legalLikeDocument) return 'pdfkit';
-  if (requestNeedsPdfArtifact(message)) return 'latex';
-  return requestNeedsPremiumLatexPdf(message, options.pdfQualityTargets, options.theme) ? 'latex' : 'pdfkit';
+  return 'pdfkit';
 }
 
 function buildPdfDraftSnapshot(input: {
@@ -1094,7 +1310,14 @@ function buildPdfDraftCombinedContent(draft: PdfDraftSnapshot): string {
     draft.subtitle,
     draft.summary,
     draft.author,
-    ...draft.sections.flatMap(section => [section.heading || '', section.body]),
+    ...draft.sections.flatMap(section => [
+      section.heading || '',
+      section.body,
+      section.visualTheme || '',
+      section.mood || '',
+      section.motif || '',
+      ...(section.flagHints || [])
+    ]),
     ...draft.sources
   ].join(' ');
 }
@@ -1139,11 +1362,83 @@ function buildPdfDraftSignature(draft: PdfDraftSnapshot): string {
     author: draft.author,
     sections: draft.sections.map(section => ({
       heading: section.heading || '',
-      body: section.body
+      body: section.body,
+      visualTheme: section.visualTheme || '',
+      accentColor: section.accentColor || '',
+      mood: section.mood || '',
+      motif: section.motif || '',
+      pageStyle: section.pageStyle || '',
+      pageBreakBefore: Boolean(section.pageBreakBefore),
+      flagHints: section.flagHints || []
     })),
     sources: draft.sources
   };
   return createHash('sha1').update(JSON.stringify(payload)).digest('hex').slice(0, 16);
+}
+
+function createRecoverablePdfDraftError(message: string): Error {
+  const error = new Error(message);
+  (error as any).recoverable = true;
+  return error;
+}
+
+function applyPdfSectionOperations(
+  baseSections: NormalizedPdfSection[],
+  operations: NormalizedPdfDraftSectionOperation[]
+): NormalizedPdfSection[] {
+  const nextSections = [...baseSections];
+
+  for (let operationIndex = 0; operationIndex < operations.length; operationIndex += 1) {
+    const operation = operations[operationIndex];
+    const label = `operation ${operationIndex + 1}`;
+
+    if (operation.action === 'append') {
+      if (!operation.section) {
+        throw createRecoverablePdfDraftError(`Revision invalide: ${label} doit fournir une section a ajouter.`);
+      }
+      nextSections.push(operation.section);
+      continue;
+    }
+
+    if (nextSections.length === 0) {
+      if ((operation.action === 'insert_before' || operation.action === 'insert_after') && operation.index === 1 && operation.section) {
+        nextSections.push(operation.section);
+        continue;
+      }
+      throw createRecoverablePdfDraftError(`Revision invalide: ${label} vise un index alors que le brouillon n'a encore aucune section.`);
+    }
+
+    if (!operation.index || operation.index < 1 || operation.index > nextSections.length) {
+      throw createRecoverablePdfDraftError(`Revision invalide: ${label} doit viser un index compris entre 1 et ${nextSections.length}.`);
+    }
+
+    const resolvedIndex = operation.index - 1;
+    if (operation.action === 'remove') {
+      nextSections.splice(resolvedIndex, 1);
+      continue;
+    }
+
+    if (!operation.section) {
+      throw createRecoverablePdfDraftError(`Revision invalide: ${label} doit fournir une section complete pour l'action '${operation.action}'.`);
+    }
+
+    if (operation.action === 'replace') {
+      nextSections.splice(resolvedIndex, 1, operation.section);
+      continue;
+    }
+
+    if (operation.action === 'insert_before') {
+      nextSections.splice(resolvedIndex, 0, operation.section);
+      continue;
+    }
+
+    if (operation.action === 'insert_after') {
+      nextSections.splice(resolvedIndex + 1, 0, operation.section);
+      continue;
+    }
+  }
+
+  return nextSections;
 }
 
 function activePdfDraftToSnapshot(draft: ActivePdfDraft): PdfDraftSnapshot {
@@ -1322,10 +1617,10 @@ function appendToActivePdfDraft(
   const normalizedSources = normalizePdfSources(input.sources);
   const theme = input.theme
     ? normalizePdfTheme(input.theme, draft.theme)
-    : draft.theme || resolvePdfTheme(message, { formalDocument: requestNeedsFormalDocument(message) });
+    : draft.theme || 'report';
   const engine = resolvePdfEngine(message, {
     explicitEngine: input.engine || draft.engine,
-    pdfQualityTargets: getPdfQualityTargets(message),
+    pdfQualityTargets: null,
     theme
   });
   const compiler = engine === 'latex'
@@ -1381,6 +1676,126 @@ function appendToActivePdfDraft(
   });
 }
 
+function reviseActivePdfDraft(
+  message: string,
+  draft: ActivePdfDraft,
+  input: {
+    title?: string;
+    subtitle?: string;
+    summary?: string;
+    author?: string;
+    engine?: string;
+    compiler?: string;
+    latexSource?: string;
+    theme?: string;
+    accentColor?: string;
+    filename?: string;
+    sourcesMode?: string;
+    sources?: string[] | null;
+    sections?: PdfSectionInput[] | null;
+    sectionOperations?: PdfDraftSectionOperationInput[] | null;
+  },
+  requestClock?: RequestClock
+): ActivePdfDraft {
+  const normalizedReplacementSections = Array.isArray(input.sections)
+    ? normalizePdfSections(input.sections)
+    : null;
+  const normalizedOperations = normalizePdfSectionOperations(input.sectionOperations);
+  const normalizedSources = normalizePdfSources(input.sources);
+  if (Array.isArray(input.sections) && input.sections.length > 0 && normalizedReplacementSections.length === 0) {
+    throw createRecoverablePdfDraftError("Revision invalide: la liste `sections` doit contenir au moins une section exploitable ou etre explicitement vide pour repartir de zero.");
+  }
+  if (Array.isArray(input.sectionOperations) && input.sectionOperations.length > 0 && normalizedOperations.length === 0) {
+    throw createRecoverablePdfDraftError("Revision invalide: `sectionOperations` ne contient aucune operation reconnue.");
+  }
+  const sourcesMode = normalizePdfSourcesMode(input.sourcesMode);
+  const theme = input.theme
+    ? normalizePdfTheme(input.theme, draft.theme)
+    : draft.theme || 'report';
+  const engine = resolvePdfEngine(message, {
+    explicitEngine: input.engine || draft.engine,
+    pdfQualityTargets: null,
+    theme
+  });
+  const compiler = engine === 'latex'
+    ? normalizeLatexCompiler(input.compiler || draft.compiler || 'xelatex')
+    : null;
+
+  const hasRawLatexDependentChange = engine === 'latex'
+    && draft.engine === 'latex'
+    && draft.sourceMode === 'raw'
+    && !input.latexSource?.trim()
+    && (
+      input.title !== undefined
+      || input.subtitle !== undefined
+      || input.summary !== undefined
+      || input.author !== undefined
+      || input.theme !== undefined
+      || input.accentColor !== undefined
+      || Array.isArray(input.sources)
+      || Array.isArray(input.sections)
+      || normalizedOperations.length > 0
+    );
+  if (hasRawLatexDependentChange) {
+    throw createRecoverablePdfDraftError(
+      "Ce brouillon LaTeX est en mode source libre. Pour le reviser vraiment, renvoie un 'latexSource' complet mis a jour ou bascule explicitement vers 'engine=\"pdfkit\"'."
+    );
+  }
+
+  const baseSections = normalizedReplacementSections ?? [...draft.sections];
+  const sections = normalizedOperations.length > 0
+    ? applyPdfSectionOperations(baseSections, normalizedOperations)
+    : baseSections;
+  const sources = Array.isArray(input.sources)
+    ? (
+        sourcesMode === 'replace'
+          ? normalizedSources
+          : Array.from(new Set([...draft.sources, ...normalizedSources]))
+      )
+    : [...draft.sources];
+  const snapshot = buildPdfDraftSnapshot({
+    title: input.title ?? draft.title,
+    subtitle: input.subtitle ?? draft.subtitle,
+    summary: input.summary ?? draft.summary,
+    author: input.author ?? draft.author,
+    sections,
+    sources
+  });
+
+  let latexSource = engine === 'latex' ? draft.latexSource : null;
+  let sourceMode: PdfSourceMode = draft.sourceMode;
+  if (engine === 'latex') {
+    if (input.latexSource?.trim()) {
+      latexSource = input.latexSource.trim();
+      sourceMode = 'raw';
+    } else {
+      latexSource = buildPdfDraftLatexSource(snapshot, {
+        compiler,
+        theme,
+        accentColor: input.accentColor?.trim() || draft.accentColor,
+        requestClock
+      });
+      sourceMode = 'generated';
+    }
+  } else {
+    latexSource = null;
+    sourceMode = 'generated';
+  }
+
+  return refreshActivePdfDraft({
+    ...draft,
+    ...snapshot,
+    engine,
+    compiler,
+    sourceMode,
+    latexSource,
+    filename: sanitizePdfFilenameBase(input.filename || draft.filename || snapshot.title || draft.title),
+    theme,
+    accentColor: input.accentColor?.trim() || draft.accentColor,
+    approvedReviewSignature: null
+  });
+}
+
 function reviewPdfDraft(
   message: string,
   draft: PdfDraftSnapshot,
@@ -1400,8 +1815,8 @@ function reviewPdfDraft(
   const blockingIssues: string[] = [];
   const improvements: string[] = [];
   const strengths: string[] = [];
-  const formalDocument = Boolean(pdfQualityTargets?.formalDocument || requestNeedsFormalDocument(message));
-  const requireInventedDetails = Boolean(pdfQualityTargets?.requireInventedDetails || requestNeedsFictionalDetails(message));
+  const formalDocument = Boolean(pdfQualityTargets?.formalDocument);
+  const requireInventedDetails = Boolean(pdfQualityTargets?.requireInventedDetails);
 
   if (!effectiveTitle) {
     blockingIssues.push("ajoute un titre explicite et finalise");
@@ -1443,14 +1858,14 @@ function reviewPdfDraft(
     }
   }
 
-  if (!formalDocument && (requestNeedsLongFormPdf(message) || requestNeedsExternalGrounding(message)) && !draft.summary) {
-    blockingIssues.push("ajoute un resume executif clair avant le corps du PDF");
+  if (!formalDocument && !draft.summary && totalWords >= 700) {
+    improvements.push("ajoute un resume executif clair pour mieux cadrer le document");
   } else if (!formalDocument && draft.summary) {
     strengths.push("resume executif present");
   }
 
-  if (!formalDocument && (requestIsCurrentAffairs(message) || requestNeedsExternalGrounding(message) || requestNeedsStrictFactualSearch(message)) && draft.sources.length === 0) {
-    blockingIssues.push("ajoute au moins une source explicite pour soutenir le PDF");
+  if (!formalDocument && draft.sources.length === 0 && totalWords >= 500) {
+    improvements.push("ajoute des sources explicites si tu veux renforcer la credibilite du PDF");
   } else if (draft.sources.length > 0) {
     strengths.push(`${draft.sources.length} source(s) mentionnee(s)`);
   }
@@ -1671,14 +2086,17 @@ function alignSearchQueryWithRequest(query: string, originalMessage: string, req
 
 function requestNeedsDownloadableArtifact(message: string): boolean {
   if (requestIsCoworkMetaDiscussion(message)) return false;
-  const normalized = normalizeCoworkText(message);
-  if (/\b(pdf|document|rapport|attestation|presentation|telecharger|telecharge)\b/.test(normalized)) {
+  const intentWindow = getCoworkIntentWindow(message);
+  if (/\b(pdf|telecharger|telecharge|telechargement|download)\b/.test(intentWindow)
+    || /\.(pdf|docx?|pptx?)\b/.test(intentWindow)) {
     return true;
   }
 
-  const artifactVerb = /\b(cree|creer|genere|generer|fabrique|fabriquer|produis|produire|fournis|fournir|exporte|exporter|prepare|preparer)\b/;
-  const genericArtifactNoun = /\b(fichier|document)\b/;
-  return artifactVerb.test(normalized) && genericArtifactNoun.test(normalized);
+  const artifactNoun = /\b(fichier|document|rapport|attestation|presentation|brochure|plaquette|cv|certificat|lettre|courrier|declaration|convention|contrat|devis|facture|diaporama|slides?|powerpoint|pptx?)\b/;
+  if (!artifactNoun.test(intentWindow)) return false;
+
+  return requestHasDeliverableIntent(intentWindow)
+    || requestStartsWithDeliverableNoun(intentWindow, artifactNoun);
 }
 
 function requestNeedsPdf(message: string): boolean {
@@ -1730,7 +2148,7 @@ async function renderPdfArtifact(options: {
       formalDocument: Boolean(options.pdfQualityTargets?.formalDocument)
     })
   );
-  const formalDocumentLayout = theme === 'legal' || Boolean(options.pdfQualityTargets?.formalDocument || requestNeedsFormalDocument(options.message));
+  const formalDocumentLayout = theme === 'legal' || Boolean(options.pdfQualityTargets?.formalDocument);
   const totalWords = countWords([
     options.title,
     options.subtitle || '',
@@ -2313,25 +2731,21 @@ async function renderPdfArtifact(options: {
 }
 
 function buildArtifactCompletionPrompt(
-  originalMessage: string,
+  activePdfDraft: ActivePdfDraft | null,
   createdArtifactPath: string | null,
   releasedFile: { url: string; path?: string } | null
 ): string | null {
-  const needsArtifact = requestNeedsDownloadableArtifact(originalMessage) || requestNeedsPdfArtifact(originalMessage);
-  if (!needsArtifact || releasedFile?.url) {
+  if (!hasArtifactInFlightState({ activePdfDraft, createdArtifactPath, releasedFile }) || releasedFile?.url) {
     return null;
   }
 
-  const needsPdfArtifact = requestNeedsPdfArtifact(originalMessage);
   const nextStep = createdArtifactPath
     ? `Le fichier semble deja etre cree ici: '${createdArtifactPath}'. Utilise maintenant 'release_file' avec ce chemin, puis reponds uniquement avec le lien Markdown final.`
-    : needsPdfArtifact
-      ? "Tu n'as pas encore cree ni livre le document PDF demande. Si tu veux une passe qualite supplementaire, tu peux utiliser 'review_pdf_draft' juste avant l'export, mais ce n'est pas bloquant. Utilise maintenant 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
-      : "Tu n'as pas encore livre le fichier demande. Cree-le si necessaire, utilise 'release_file', puis reponds uniquement avec le lien Markdown final.";
+    : activePdfDraft
+      ? "Un livrable est deja en cours sous forme de brouillon. Relis-le et retravaille-le si necessaire avec 'get_pdf_draft', 'revise_pdf_draft' ou 'review_pdf_draft', puis seulement quand il est mur fais 'create_pdf', puis 'release_file', puis reponds uniquement avec le lien Markdown final."
+      : "Un livrable semble en cours. Termine la creation du fichier si necessaire, utilise 'release_file', puis reponds uniquement avec le lien Markdown final.";
 
   return `La tache n'est PAS terminee.
-L'utilisateur a explicitement demande un fichier telechargeable.
-Demande originale: "${originalMessage}"
 ${nextStep}
 Ne refais pas tout le resume si tu l'as deja donne. Termine la livraison du fichier.`;
 }
@@ -2340,6 +2754,27 @@ function clipText(value: unknown, max = MAX_PREVIEW_CHARS): string {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max)}... [tronque]` : text;
+}
+
+function sanitizeGeneratedArtifactBasename(value: unknown, fallback: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9-_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+  return normalized || fallback;
+}
+
+function buildGeneratedArtifactPath(prefix: string, extension: string, requestedFilename?: string) {
+  const baseName = sanitizeGeneratedArtifactBasename(
+    requestedFilename,
+    `${prefix}-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
+  );
+  const cleanExtension = extension.startsWith('.') ? extension : `.${extension}`;
+  return path.join('/tmp', baseName.endsWith(cleanExtension) ? baseName : `${baseName}${cleanExtension}`);
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -2461,26 +2896,12 @@ function buildTavilySearchPlan(
   maxResults = 5,
   options: SearchOptions = {}
 ): TavilySearchPlan {
-  const category = detectDirectSourceCategory(query);
-  const directSourceUrls = getDirectSourceFallbacks(query);
-  const topic: TavilyTopic =
-    searchQueryLooksNewsy(query)
-    || requestIsCurrentAffairs(query)
-    || ['broad_news', 'fr_news', 'intl_news', 'economy', 'sport'].includes(category)
-      ? 'news'
-      : 'general';
+  const directSourceUrls = dedupeStrings(options.directSourceUrls || [], 8);
+  const topic: TavilyTopic = options.topic || 'general';
   const searchDepth: TavilySearchDepth =
-    options.strictFactual || options.strictMusic || searchQueryLooksMusicLookup(query)
-      ? 'advanced'
-      : 'basic';
-  const includeDomains = [...new Set(
-    (
-      options.strictFactual
-      || ['broad_news', 'fr_news', 'intl_news', 'economy', 'tech_docs', 'sport'].includes(category)
-    )
-      ? getTrustedDirectSourceDomains(query)
-      : []
-  )];
+    options.searchDepth
+    || (options.strict || options.strictFactual || options.strictMusic ? 'advanced' : 'basic');
+  const includeDomains = dedupeStrings((options.includeDomains || []).map(domain => stripWww(domain)).filter(Boolean), 8);
   const requestBody: Record<string, unknown> = {
     query,
     max_results: Math.max(1, Math.min(maxResults, 8)),
@@ -2496,10 +2917,8 @@ function buildTavilySearchPlan(
   if (includeDomains.length > 0) {
     requestBody.include_domains = includeDomains;
   }
-  if (topic === 'news') {
-    requestBody.time_range = requestNeedsCurrentDateGrounding(query) ? 'day' : 'week';
-  } else if (category === 'fr_news' || category === 'broad_news') {
-    requestBody.country = 'france';
+  if (topic === 'news' && options.timeRange) {
+    requestBody.time_range = options.timeRange;
   }
 
   return {
@@ -2539,7 +2958,7 @@ function buildDirectSourceSearchOutcome(
     relevanceScore: Number(options.relevanceScore || 0),
     matchedAnchors: options.matchedAnchors || [],
     fallbackUsed: Boolean(options.fallbackUsed),
-    directSourceUrls: options.directSourceUrls || getDirectSourceFallbacks(query),
+    directSourceUrls: options.directSourceUrls || [],
     warnings: options.warnings || [],
     error: options.error,
     transient: options.transient,
@@ -2642,6 +3061,8 @@ function getHardCoworkBlockers(blockers: CoworkBlocker[]): CoworkBlocker[] {
 
 function buildCoworkProgressFingerprint(input: {
   executionMode: CoworkExecutionMode;
+  webSearchCount: number;
+  webFetchCount: number;
   openedSourceCount: number;
   openedDomainCount: number;
   activePdfDraft: ActivePdfDraft | null;
@@ -2657,6 +3078,8 @@ function buildCoworkProgressFingerprint(input: {
   const artifactAlreadyReleased = Boolean(input.latestReleasedFileUrl);
   return JSON.stringify({
     executionMode: input.executionMode,
+    webSearchCount: input.webSearchCount,
+    webFetchCount: input.webFetchCount,
     sourcesOpened: input.openedSourceCount,
     domainsOpened: input.openedDomainCount,
     activePdfDraftId: input.activePdfDraft?.draftId || null,
@@ -2710,20 +3133,24 @@ function computeCompletionState(options: CompletionComputationOptions): CoworkSe
   };
 
   const blockers: CoworkBlocker[] = [];
-  const needsArtifact = requestNeedsDownloadableArtifact(originalMessage) || requestNeedsPdfArtifact(originalMessage);
+  const artifactInFlight = hasArtifactInFlightState({
+    activePdfDraft: nextState.activePdfDraft,
+    createdArtifactPath: latestCreatedArtifactPath,
+    releasedFile: latestReleasedFile,
+  });
 
-  if (needsArtifact) {
-    if (!latestCreatedArtifactPath) {
+  if (artifactInFlight) {
+    if (nextState.activePdfDraft && !latestCreatedArtifactPath && !latestReleasedFile?.url && nextState.modelTaskComplete) {
       blockers.push({
         code: 'artifact_not_created',
-        message: "Le fichier demande n'a pas encore ete cree.",
+        message: "Le livrable a ete amorce, mais aucun fichier final n'a encore ete cree.",
         hard: true,
       });
     }
-    if (!latestReleasedFile?.url) {
+    if (latestCreatedArtifactPath && !latestReleasedFile?.url) {
       blockers.push({
         code: 'artifact_not_released',
-        message: "Le fichier existe peut-etre, mais il n'a pas encore ete publie via 'release_file'.",
+        message: "Le fichier existe deja, mais il n'a pas encore ete publie via 'release_file'.",
         hard: true,
       });
     }
@@ -2752,6 +3179,8 @@ function buildCoworkBlockedUserReplyPrompt(options: {
   requestClock: RequestClock;
   state: CoworkSessionState;
   research: MusicResearchProgress;
+  latestCreatedArtifactPath?: string | null;
+  latestReleasedFile?: { url: string; path?: string } | null;
   stopReason: string;
 }): string {
   const attemptedHosts = dedupeStrings(options.state.sourcesValidated.map(source => source.domain).filter(Boolean), 6);
@@ -2759,8 +3188,12 @@ function buildCoworkBlockedUserReplyPrompt(options: {
   const triedSourcesSummary = attemptedHosts.length > 0
     ? attemptedHosts.join(', ')
     : 'aucune source exploitable n a pu etre ouverte';
-  const pdfNeed = requestNeedsPdfArtifact(options.originalMessage)
-    ? "Si c'est pertinent, dis clairement que tu n'as pas encore pu aller jusqu'au PDF ou a la publication finale."
+  const artifactNeed = hasArtifactInFlightState({
+    activePdfDraft: options.state.activePdfDraft,
+    createdArtifactPath: options.latestCreatedArtifactPath,
+    releasedFile: options.latestReleasedFile,
+  })
+    ? "Si c'est pertinent, dis clairement que tu n'as pas encore pu aller jusqu'au livrable final ou a sa publication."
     : "Ne promets pas un livrable que tu n'as pas pu finaliser.";
 
   return `Tu rediges UNIQUEMENT la reponse finale visible a l'utilisateur pour un run Cowork bloque.
@@ -2770,7 +3203,7 @@ Rappels absolus:
 - 2 a 5 phrases maximum.
 - N'utilise jamais les mots backend, phase, blocker, completion, pourcentage, iteration, tool, web_search, web_fetch, function, scope, degraded.
 - N'affiche jamais de dump technique ou de liste d'outils.
-- ${pdfNeed}
+- ${artifactNeed}
 - Propose si utile de reessayer dans quelques minutes ou de demander un angle plus precis.
 
 Contexte utile:
@@ -2803,8 +3236,14 @@ type SearchResultItem = {
 type SearchQuality = 'relevant' | 'degraded' | 'off_topic' | 'transient_error';
 
 type SearchOptions = {
+  strict?: boolean;
   strictMusic?: boolean;
   strictFactual?: boolean;
+  topic?: TavilyTopic;
+  searchDepth?: TavilySearchDepth;
+  includeDomains?: string[];
+  directSourceUrls?: string[];
+  timeRange?: 'day' | 'week';
 };
 
 type SearchAssessment = {
@@ -2969,6 +3408,13 @@ type ToolCooldownState = {
   reason: string;
 };
 
+type CoworkEngagementNudge = {
+  signature: string;
+  title: string;
+  message: string;
+  prompt: string;
+};
+
 type CoworkSessionState = {
   factsCollected: string[];
   sourcesValidated: CoworkValidatedSource[];
@@ -2989,6 +3435,7 @@ type CoworkSessionState = {
   stalledTurns: number;
   lastProgressFingerprint: string | null;
   lastActionSignature: string | null;
+  lastEngagementNudgeSignature: string | null;
 };
 
 type LocalToolDefinition = {
@@ -3025,6 +3472,9 @@ function getPublicToolNarrationTarget(toolName: string, args: any): string | nul
     case 'create_agent_blueprint':
       rawTarget = args?.brief ?? args?.name ?? args?.title;
       break;
+    case 'update_agent_blueprint':
+      rawTarget = args?.agentId ?? args?.changeRequest ?? args?.brief;
+      break;
     case 'run_hub_agent':
       rawTarget = args?.agentId ?? args?.name ?? args?.mission;
       break;
@@ -3037,11 +3487,26 @@ function getPublicToolNarrationTarget(toolName: string, args: any): string | nul
     case 'music_catalog_lookup':
       rawTarget = args?.artist ?? args?.name ?? args?.query;
       break;
+    case 'generate_image_asset':
+      rawTarget = args?.filename ?? args?.prompt;
+      break;
+    case 'generate_tts_audio':
+      rawTarget = args?.filename ?? args?.text ?? args?.prompt;
+      break;
+    case 'generate_music_audio':
+      rawTarget = args?.filename ?? args?.prompt;
+      break;
+    case 'create_podcast_episode':
+      rawTarget = args?.title ?? args?.filename ?? args?.brief ?? args?.script;
+      break;
     case 'begin_pdf_draft':
       rawTarget = args?.title ?? args?.filename;
       break;
     case 'append_to_draft':
       rawTarget = args?.sections?.[0]?.heading ?? args?.title ?? args?.filename;
+      break;
+    case 'revise_pdf_draft':
+      rawTarget = args?.title ?? args?.sectionOperations?.[0]?.section?.heading ?? args?.sections?.[0]?.heading ?? args?.filename;
       break;
     case 'get_pdf_draft':
       rawTarget = args?.draftId ?? args?.title;
@@ -3080,6 +3545,13 @@ function buildPublicToolNarration(
           ? `Je dessine maintenant un agent specialise pour '${target}'.`
           : "Je prepare un agent specialise pour le Hub Agents."
       };
+    case 'update_agent_blueprint':
+      return {
+        title: 'Evolution agent',
+        message: target
+          ? `Je retravaille maintenant l'agent '${target}'.`
+          : "Je mets a jour un agent existant du Hub Agents."
+      };
     case 'run_hub_agent':
       return {
         title: 'Sous-mission',
@@ -3108,6 +3580,27 @@ function buildPublicToolNarration(
           ? `Je recoupe maintenant le catalogue de '${target}'.`
           : "Je recoupe maintenant le catalogue musical demande."
       };
+    case 'generate_image_asset':
+      return {
+        title: 'Image',
+        message: target
+          ? `Je genere maintenant l'image '${target}'.`
+          : "Je genere maintenant une image."
+      };
+    case 'generate_tts_audio':
+      return {
+        title: 'Voix',
+        message: target
+          ? `Je synthétise maintenant une voix pour '${target}'.`
+          : "Je synthétise maintenant une voix."
+      };
+    case 'generate_music_audio':
+      return {
+        title: 'Musique',
+        message: target
+          ? `Je génère maintenant une ambiance musicale pour '${target}'.`
+          : "Je génère maintenant une ambiance musicale."
+      };
     case 'begin_pdf_draft':
       return {
         title: 'Brouillon',
@@ -3121,6 +3614,13 @@ function buildPublicToolNarration(
         message: target
           ? `J'ajoute une nouvelle partie au brouillon: '${target}'.`
           : "J'ajoute une nouvelle partie au brouillon PDF."
+      };
+    case 'revise_pdf_draft':
+      return {
+        title: 'Revision',
+        message: target
+          ? `Je retravaille maintenant le brouillon PDF autour de '${target}'.`
+          : "Je retravaille maintenant le brouillon PDF."
       };
     case 'get_pdf_draft':
       return {
@@ -3497,13 +3997,6 @@ function scoreSearchResultRelevance(query: string, result: SearchResultItem): nu
     if (haystack.snippet.includes(token)) score += 0.75;
   }
 
-  if (
-    searchQueryLooksMusicLookup(query)
-    && /(spotify|deezer|music\.apple|genius|youtube|trackmusik|chartsinfrance|qobuz|parolesmusik|infoconcert|instagram)/i.test(result.url)
-  ) {
-    score += 2;
-  }
-
   return score;
 }
 
@@ -3555,26 +4048,9 @@ function assessSearchResults(
     return anchorTokens.some(token => haystack.includes(token));
   }).length;
   const matchedAnchorRatio = matchedAnchors.length / anchorTokens.length;
-  const matchedMeaningfulAnchors = matchedAnchors.filter(token => !/^\d+$/.test(token));
-  const directSourceCategory = detectDirectSourceCategory(query);
-
   const needsStrictMatch =
     anchorTokens.length === 1
-    || anchorTokens.some(token => /\d/.test(token))
-    || searchQueryLooksMusicLookup(query);
-
-  const broadNewsRelevant = (() => {
-    if (directSourceCategory !== 'broad_news') return false;
-    const trustedResults = topResults.filter(isLikelyBroadNewsArticleResult);
-    if (trustedResults.length < Math.min(2, topResults.length)) return false;
-    if (!trustedResults.some(hasBroadNewsFreshnessSignal)) return false;
-    const trustedBestScore = Math.max(...trustedResults.map(result => scoreSearchResultRelevance(query, result)));
-    return (
-      matchedMeaningfulAnchors.length > 0
-      || trustedBestScore >= 6
-      || requestNeedsCurrentDateGrounding(query)
-    );
-  })();
+    || anchorTokens.some(token => /\d/.test(token));
 
   const isRelevant = options.strict
     ? (
@@ -3590,7 +4066,7 @@ function assessSearchResults(
       );
 
   return {
-    quality: (isRelevant || broadNewsRelevant) ? 'relevant' : (bestScore > 0 || matchedAnchors.length > 0 ? 'degraded' : 'off_topic'),
+    quality: isRelevant ? 'relevant' : (bestScore > 0 || matchedAnchors.length > 0 ? 'degraded' : 'off_topic'),
     bestScore,
     matchedAnchors,
     matchedResults,
@@ -3774,8 +4250,8 @@ async function searchViaTavily(plan: TavilySearchPlan): Promise<SearchResultItem
 }
 
 async function searchWeb(query: string, maxResults = 5, options: SearchOptions = {}): Promise<SearchOutcome> {
-  const strictMode = Boolean(options.strictMusic || options.strictFactual || searchQueryLooksMusicLookup(query));
-  const newsy = searchQueryLooksNewsy(query) || requestIsCurrentAffairs(query);
+  const strictMode = Boolean(options.strict || options.strictMusic || options.strictFactual);
+  const newsy = options.topic === 'news';
   const tavilyPlan = buildTavilySearchPlan(query, maxResults, options);
   const publicFallbacksEnabled = allowPublicSearchFallbacks();
   const attempts: Array<{ label: string; run: () => Promise<SearchResultItem[]> }> = [];
@@ -3926,7 +4402,8 @@ async function searchWeb(query: string, maxResults = 5, options: SearchOptions =
 async function fetchDirectReadablePage(
   parsed: URL,
   headers: Record<string, string>,
-  contextQuery?: string
+  contextQuery?: string,
+  strict = false
 ): Promise<ReadablePage> {
   const direct = await fetch(parsed.toString(), { headers, redirect: 'follow' });
   if (!direct.ok) {
@@ -3947,7 +4424,7 @@ async function fetchDirectReadablePage(
     url: parsed.toString(),
     excerpt: normalizeReadableExcerpt(content),
     source: contentType.includes('text/html') ? 'direct-html' : 'direct-text',
-  }, { strict: contextQuery ? requestNeedsStrictFactualSearch(contextQuery) : false });
+  }, { strict: Boolean(contextQuery && strict) });
 
   return {
     url: parsed.toString(),
@@ -3969,7 +4446,8 @@ async function fetchDirectReadablePage(
 async function fetchJinaReadablePage(
   parsed: URL,
   headers: Record<string, string>,
-  contextQuery?: string
+  contextQuery?: string,
+  strict = false
 ): Promise<ReadablePage> {
   const jinaUrl = `https://r.jina.ai/http://${parsed.host}${parsed.pathname}${parsed.search}`;
   const response = await fetch(jinaUrl, { headers, redirect: 'follow' });
@@ -3986,7 +4464,7 @@ async function fetchJinaReadablePage(
     url: parsed.toString(),
     excerpt: normalizeReadableExcerpt(content),
     source: 'jina-ai',
-  }, { strict: contextQuery ? requestNeedsStrictFactualSearch(contextQuery) : false });
+  }, { strict: Boolean(contextQuery && strict) });
 
   return {
     url: parsed.toString(),
@@ -4005,7 +4483,7 @@ async function fetchJinaReadablePage(
   };
 }
 
-async function fetchReadableUrlDetailed(url: string, contextQuery?: string): Promise<ReadablePage> {
+async function fetchReadableUrlDetailed(url: string, contextQuery?: string, strict = false): Promise<ReadablePage> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -4028,7 +4506,7 @@ async function fetchReadableUrlDetailed(url: string, contextQuery?: string): Pro
 
   if (!preferJina) {
     try {
-      directPage = await fetchDirectReadablePage(parsed, headers, contextQuery);
+      directPage = await fetchDirectReadablePage(parsed, headers, contextQuery, strict);
     } catch (error) {
       errors.push(parseApiError(error));
     }
@@ -4041,7 +4519,7 @@ async function fetchReadableUrlDetailed(url: string, contextQuery?: string): Pro
     || (isMusicPlatformDomain(stripWww(parsed.hostname)) && readableQualityScore(directPage.quality) < 3)
   ) {
     try {
-      jinaPage = await fetchJinaReadablePage(parsed, headers, contextQuery);
+      jinaPage = await fetchJinaReadablePage(parsed, headers, contextQuery, strict);
     } catch (error) {
       errors.push(parseApiError(error));
     }
@@ -4049,7 +4527,7 @@ async function fetchReadableUrlDetailed(url: string, contextQuery?: string): Pro
 
   if (!directPage && !preferJina) {
     try {
-      directPage = await fetchDirectReadablePage(parsed, headers, contextQuery);
+      directPage = await fetchDirectReadablePage(parsed, headers, contextQuery, strict);
     } catch (error) {
       errors.push(parseApiError(error));
     }
@@ -4066,8 +4544,8 @@ async function fetchReadableUrlDetailed(url: string, contextQuery?: string): Pro
   return bestPage;
 }
 
-async function fetchReadableUrl(url: string, contextQuery?: string) {
-  const page = await fetchReadableUrlDetailed(url, contextQuery);
+async function fetchReadableUrl(url: string, contextQuery?: string, options: { strict?: boolean } = {}) {
+  const page = await fetchReadableUrlDetailed(url, contextQuery, Boolean(options.strict));
   return {
     url: page.url,
     title: page.title,
@@ -4652,7 +5130,7 @@ app.post('/api/cowork', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
   };
   try {
-    const { message, sessionId, history, config, clientContext, hubAgents } = ChatSchema.parse(req.body);
+    const { message, sessionId, history, config, clientContext, hubAgents, agentRuntime } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
     const availableHubAgents = Array.isArray(hubAgents)
       ? hubAgents
@@ -4661,6 +5139,15 @@ app.post('/api/cowork', async (req, res) => {
           .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
           .slice(0, 16)
       : [];
+    const runtimeAgent = agentRuntime ? sanitizeHubAgentRecord(agentRuntime) : null;
+    const runtimeAgentFormValues = agentRuntime?.formValues
+      ? Object.fromEntries(
+          Object.entries(agentRuntime.formValues).map(([fieldId, value]) => [
+            fieldId,
+            typeof value === 'boolean' ? value : String(value ?? ''),
+          ])
+        ) as Record<string, string | boolean>
+      : undefined;
     const executionMode = classifyCoworkExecutionMode(message, history);
 
     if (requestRequiresAbuseBlock(message)) {
@@ -4700,9 +5187,19 @@ app.post('/api/cowork', async (req, res) => {
 
     const ai = createGoogleAI(modelId);
 
-    const webSearchEnabled = config.googleSearch !== false;
-    const executeScriptEnabled = config.codeExecution !== false;
-    const strictFactualSearch = requestNeedsStrictFactualSearch(message);
+    const runtimeToolAllowList = runtimeAgent
+      ? new Set(
+          (Array.isArray(runtimeAgent.tools) ? runtimeAgent.tools : [])
+            .filter(Boolean)
+            .filter(name => !['create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
+        )
+      : null;
+    const webSearchEnabled = runtimeToolAllowList
+      ? ['web_search', 'web_fetch', 'music_catalog_lookup'].some(toolName => runtimeToolAllowList.has(toolName))
+      : config.googleSearch !== false;
+    const executeScriptEnabled = runtimeToolAllowList
+      ? runtimeToolAllowList.has('execute_script')
+      : config.codeExecution !== false;
     let lastSuccessfulSearchQuery: string | null = null;
 
     const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
@@ -4711,6 +5208,12 @@ app.post('/api/cowork', async (req, res) => {
         return {
           brief: clipText(args?.brief || '', 140),
           outputKind: clipText(args?.outputKindHint || '', 24),
+        };
+      }
+      if (toolName === 'update_agent_blueprint') {
+        return {
+          agent: clipText(args?.agentId || '', 80),
+          request: clipText(args?.changeRequest || '', 140),
         };
       }
       if (toolName === 'run_hub_agent') {
@@ -4723,6 +5226,39 @@ app.post('/api/cowork', async (req, res) => {
         return {
           artist: clipText(args?.artistQuery || '', 80),
           owned: Array.isArray(args?.ownedTracks) ? args.ownedTracks.length : 0
+        };
+      }
+      if (toolName === 'generate_image_asset') {
+        return {
+          prompt: clipText(args?.prompt || '', 140),
+          model: clipText(args?.model || DEFAULT_IMAGE_MODEL, 48),
+          filename: clipText(args?.filename || '', 80),
+        };
+      }
+      if (toolName === 'generate_tts_audio') {
+        return {
+          text: clipText(args?.text || args?.prompt || '', 140),
+          model: clipText(args?.model || DEFAULT_TTS_MODEL, 48),
+          voice: clipText(args?.voice || '', 32),
+          filename: clipText(args?.filename || '', 80),
+        };
+      }
+      if (toolName === 'generate_music_audio') {
+        return {
+          prompt: clipText(args?.prompt || '', 140),
+          model: clipText(args?.model || DEFAULT_LYRIA_MODEL, 48),
+          filename: clipText(args?.filename || '', 80),
+          sampleCount: Number(args?.sampleCount || 0),
+        };
+      }
+      if (toolName === 'create_podcast_episode') {
+        return {
+          title: clipText(args?.title || '', 120),
+          brief: clipText(args?.brief || args?.script || '', 140),
+          ttsModel: clipText(args?.ttsModel || DEFAULT_PODCAST_TTS_MODEL, 48),
+          musicModel: clipText(args?.musicModel || DEFAULT_LYRIA_MODEL, 48),
+          voice: clipText(args?.voice || '', 32),
+          filename: clipText(args?.filename || '', 80),
         };
       }
       if (toolName === 'begin_pdf_draft') {
@@ -4740,6 +5276,19 @@ app.post('/api/cowork', async (req, res) => {
           compiler: clipText(args?.compiler || '', 16),
           sections: Array.isArray(args?.sections) ? args.sections.length : 0,
           sources: Array.isArray(args?.sources) ? args.sources.length : 0,
+          theme: clipText(args?.theme || '', 24),
+          hasLatexSource: Boolean(args?.latexSource),
+        };
+      }
+      if (toolName === 'revise_pdf_draft') {
+        return {
+          title: clipText(args?.title || '', 120),
+          engine: clipText(args?.engine || '', 16),
+          compiler: clipText(args?.compiler || '', 16),
+          sections: Array.isArray(args?.sections) ? args.sections.length : 0,
+          operations: Array.isArray(args?.sectionOperations) ? args.sectionOperations.length : 0,
+          sources: Array.isArray(args?.sources) ? args.sources.length : 0,
+          sourcesMode: clipText(args?.sourcesMode || 'append', 16),
           theme: clipText(args?.theme || '', 24),
           hasLatexSource: Boolean(args?.latexSource),
         };
@@ -4805,6 +5354,17 @@ app.post('/api/cowork', async (req, res) => {
           tools: Array.isArray(blueprint?.tools) ? blueprint.tools.length : 0,
         };
       }
+      if (toolName === 'update_agent_blueprint') {
+        const blueprint = (output?.blueprint || output) as AgentBlueprint;
+        return {
+          agent: clipText(args?.agentId || blueprint?.name || '', 80),
+          name: clipText(blueprint?.name || '', 64),
+          slug: clipText(blueprint?.slug || '', 48),
+          outputKind: clipText(blueprint?.outputKind || '', 24),
+          fields: Array.isArray(blueprint?.uiSchema) ? blueprint.uiSchema.length : 0,
+          tools: Array.isArray(blueprint?.tools) ? blueprint.tools.length : 0,
+        };
+      }
       if (toolName === 'run_hub_agent') {
         return {
           agent: clipText(output?.agent?.name || args?.agentId || '', 80),
@@ -4813,6 +5373,17 @@ app.post('/api/cowork', async (req, res) => {
           iterations: Number(output?.iterations || 0),
           toolCalls: Number(output?.toolCalls || 0),
           released: Boolean(output?.releasedFile?.url),
+        };
+      }
+      if (toolName === 'create_podcast_episode') {
+        return {
+          path: clipText(output?.path || '', 120),
+          mimeType: clipText(output?.mimeType || '', 32),
+          fileSizeBytes: Number(output?.fileSizeBytes || 0),
+          ttsModel: clipText(output?.ttsModel || '', 48),
+          musicModel: clipText(output?.musicModel || '', 48),
+          voice: clipText(output?.voice || '', 32),
+          durationSeconds: Number(output?.durationSeconds || 0),
         };
       }
       if (toolName === 'web_search') {
@@ -4838,7 +5409,28 @@ app.post('/api/cowork', async (req, res) => {
           searchPage: Boolean(output?.isSearchPage),
         };
       }
-      if (toolName === 'begin_pdf_draft' || toolName === 'append_to_draft' || toolName === 'get_pdf_draft') {
+      if (toolName === 'generate_image_asset' || toolName === 'generate_tts_audio' || toolName === 'generate_music_audio') {
+        return {
+          path: clipText(output?.path || '', 120),
+          model: clipText(output?.model || '', 48),
+          mimeType: clipText(output?.mimeType || '', 32),
+          fileSizeBytes: Number(output?.fileSizeBytes || 0),
+          voice: clipText(output?.voice || '', 32),
+          location: clipText(output?.location || '', 24),
+        };
+      }
+      if (toolName === 'create_podcast_episode') {
+        return {
+          path: clipText(output?.path || '', 120),
+          mimeType: clipText(output?.mimeType || '', 32),
+          fileSizeBytes: Number(output?.fileSizeBytes || 0),
+          ttsModel: clipText(output?.ttsModel || '', 48),
+          musicModel: clipText(output?.musicModel || '', 48),
+          voice: clipText(output?.voice || '', 32),
+          durationSeconds: Number(output?.durationSeconds || 0),
+        };
+      }
+      if (toolName === 'begin_pdf_draft' || toolName === 'append_to_draft' || toolName === 'revise_pdf_draft' || toolName === 'get_pdf_draft') {
         return {
           draftId: clipText(output?.draft?.draftId || output?.draftId || '', 24),
           engine: clipText(output?.draft?.engine || output?.engine || '', 12),
@@ -4886,6 +5478,16 @@ app.post('/api/cowork', async (req, res) => {
           blueprint?.tagline ? clipText(blueprint.tagline, 90) : null,
         ].filter(Boolean).join(' | ');
       }
+      if (toolName === 'update_agent_blueprint') {
+        const blueprint = output?.blueprint || output;
+        return [
+          blueprint?.name ? `Agent mis a jour: ${blueprint.name}` : null,
+          blueprint?.outputKind ? `sortie ${blueprint.outputKind}` : null,
+          Array.isArray(blueprint?.uiSchema) ? `${blueprint.uiSchema.length} champ(s)` : null,
+          Array.isArray(blueprint?.tools) ? `${blueprint.tools.length} outil(s)` : null,
+          output?.message ? clipText(output.message, 120) : blueprint?.tagline ? clipText(blueprint.tagline, 90) : null,
+        ].filter(Boolean).join(' | ');
+      }
       if (toolName === 'run_hub_agent') {
         return [
           output?.agent?.name ? `Sous-mission: ${output.agent.name}` : null,
@@ -4905,6 +5507,42 @@ app.post('/api/cowork', async (req, res) => {
           coverage ? `${coverage.distinctDomains} domaine(s), catalogue=${coverage.hasCatalogPage ? 'oui' : 'non'}, album=${coverage.hasAlbumTracklist ? 'oui' : 'non'}` : null,
           sources > 0 ? `${sources} source(s)` : null,
           output?.partial ? 'Couverture partielle' : 'Couverture confirmee'
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'generate_image_asset') {
+        return [
+          output?.model ? `modèle ${output.model}` : null,
+          output?.mimeType ? output.mimeType : null,
+          output?.path ? clipText(output.path, 120) : null,
+          output?.message ? clipText(output.message, 140) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'generate_tts_audio') {
+        return [
+          output?.model ? `modèle ${output.model}` : null,
+          output?.voice ? `voix ${output.voice}` : null,
+          output?.mimeType ? output.mimeType : null,
+          output?.path ? clipText(output.path, 120) : null,
+          output?.message ? clipText(output.message, 140) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'generate_music_audio') {
+        return [
+          output?.model ? `modèle ${output.model}` : null,
+          output?.location ? `loc ${output.location}` : null,
+          output?.mimeType ? output.mimeType : null,
+          output?.path ? clipText(output.path, 120) : null,
+          output?.message ? clipText(output.message, 140) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'create_podcast_episode') {
+        return [
+          output?.ttsModel ? `voix ${output.ttsModel}` : null,
+          output?.musicModel ? `musique ${output.musicModel}` : null,
+          output?.voice ? `voix ${output.voice}` : null,
+          Number(output?.durationSeconds || 0) > 0 ? `${Number(output.durationSeconds).toFixed(1)}s` : null,
+          output?.path ? clipText(output.path, 120) : null,
+          output?.message ? clipText(output.message, 140) : null,
         ].filter(Boolean).join(' | ');
       }
       if (toolName === 'web_search') {
@@ -4930,7 +5568,7 @@ app.post('/api/cowork', async (req, res) => {
         const qualityPrefix = output?.quality ? `[${String(output.quality)}${output?.relevance ? `/${String(output.relevance)}` : ''}${output?.domain ? ` ${output.domain}` : ''}] ` : '';
         return `${qualityPrefix}${clipText(output?.excerpt || output?.content || output?.message || output?.error || '', 220)}`.trim();
       }
-      if (toolName === 'begin_pdf_draft' || toolName === 'append_to_draft' || toolName === 'get_pdf_draft') {
+      if (toolName === 'begin_pdf_draft' || toolName === 'append_to_draft' || toolName === 'revise_pdf_draft' || toolName === 'get_pdf_draft') {
         const draft = output?.draft || output;
         const capNote = draft?.cappedWords && draft?.requestedWordCount
           ? ` | cap ${draft.targetWords}/${draft.requestedWordCount} mots`
@@ -4999,7 +5637,7 @@ app.post('/api/cowork', async (req, res) => {
       return sessionState.activePdfDraft;
     }
 
-    const pdfQualityTargets = getPdfQualityTargets(message);
+    const pdfQualityTargets: PdfQualityTargets | null = null;
 
     const localTools: LocalToolDefinition[] = [
       ...(COWORK_DEBUG_REASONING ? [{
@@ -5110,6 +5748,82 @@ app.post('/api/cowork', async (req, res) => {
         }
       },
       {
+        name: "update_agent_blueprint",
+        description: "Met a jour un agent existant du Hub Agents. Utilise-le quand l'utilisateur veut corriger, enrichir ou refaire le prompt, les tools ou l'interface d'un agent deja cree.",
+        parameters: {
+          type: "object",
+          properties: {
+            agentId: { type: "string", description: "ID, slug ou nom de l'agent du hub a modifier." },
+            changeRequest: { type: "string", description: "Ce qui doit etre corrige, ajoute, retire ou ameliorer sur cet agent." }
+          },
+          required: ["agentId", "changeRequest"]
+        },
+        execute: async ({
+          agentId,
+          changeRequest
+        }: {
+          agentId: string;
+          changeRequest: string;
+        }) => {
+          const agentSelector = clipText(agentId, 120);
+          const effectiveRequest = clipText(changeRequest, 1600);
+
+          if (!availableHubAgents.length) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Aucun agent n'est disponible dans le Hub pour cette modification."
+            };
+          }
+
+          if (!agentSelector) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Precise l'agent du Hub a modifier via son id, son slug ou son nom."
+            };
+          }
+
+          const selectedAgent = pickHubAgentRecord(availableHubAgents, agentSelector);
+          if (!selectedAgent) {
+            return {
+              success: false,
+              recoverable: true,
+              error: `Aucun agent du Hub ne correspond a '${agentSelector}'.`,
+              availableAgents: availableHubAgents.slice(0, 8).map(agent => ({
+                id: agent.id,
+                slug: agent.slug,
+                name: agent.name,
+                outputKind: agent.outputKind,
+              }))
+            };
+          }
+
+          if (!effectiveRequest) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "La demande de modification est vide. Explique ce qu'il faut changer."
+            };
+          }
+
+          const blueprint = sanitizeAgentBlueprint(
+            await reviseAgentBlueprint(selectedAgent, effectiveRequest),
+            effectiveRequest
+          );
+
+          return {
+            success: true,
+            message: `Agent '${selectedAgent.name}' mis a jour pour le Hub Agents.`,
+            blueprint: {
+              ...blueprint,
+              id: selectedAgent.id,
+              createdBy: selectedAgent.createdBy,
+            },
+          };
+        }
+      },
+      {
         name: "run_hub_agent",
         description: "Relance un agent deja present dans le Hub Agents comme vraie sous-mission. Utilise-le quand un specialiste existant correspond deja a la demande, au lieu de recreer un blueprint.",
         parameters: {
@@ -5172,7 +5886,7 @@ app.post('/api/cowork', async (req, res) => {
           const delegatedToolNames = new Set(
             (Array.isArray(selectedAgent.tools) ? selectedAgent.tools : [])
               .filter(Boolean)
-              .filter(name => !['create_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
+              .filter(name => !['create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
           );
           const delegatedTools = localTools.filter(tool => delegatedToolNames.has(tool.name));
           const delegatedToolDeclarations = delegatedTools.length > 0
@@ -5364,6 +6078,9 @@ app.post('/api/cowork', async (req, res) => {
                   if (delegatedTool.name === 'create_pdf' && typeof (delegatedOutput as any).path === 'string') {
                     delegatedCreatedArtifactPath = (delegatedOutput as any).path;
                     latestCreatedArtifactPath = delegatedCreatedArtifactPath;
+                  } else if (['generate_image_asset', 'generate_tts_audio', 'generate_music_audio', 'create_podcast_episode'].includes(delegatedTool.name) && typeof (delegatedOutput as any).path === 'string') {
+                    delegatedCreatedArtifactPath = (delegatedOutput as any).path;
+                    latestCreatedArtifactPath = delegatedCreatedArtifactPath;
                   } else if (delegatedTool.name === 'write_file' && typeof (delegatedCall.args as any)?.path === 'string') {
                     delegatedCreatedArtifactPath = (delegatedCall.args as any).path;
                     latestCreatedArtifactPath = delegatedCreatedArtifactPath;
@@ -5488,6 +6205,279 @@ app.post('/api/cowork', async (req, res) => {
         }
       },
       {
+        name: "generate_image_asset",
+        description: "Genere une image locale avec le modele image de ton choix, l'ecrit dans '/tmp/' et renvoie le chemin du fichier. Utile pour une cover, une illustration, un visuel ou une vignette avant publication via 'release_file'.",
+        parameters: {
+          type: "object",
+          properties: {
+            prompt: { type: "string", description: "Prompt image exact." },
+            model: { type: "string", description: "Modele image explicite, ex: gemini-2.5-flash-image." },
+            filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/." },
+            aspectRatio: { type: "string", description: "Format optionnel, ex: 1:1, 16:9, 9:16." },
+            imageSize: { type: "string", description: "Taille optionnelle, ex: 1K." },
+            numberOfImages: { type: "number", description: "Nombre d'images demande au modele. Le premier rendu sera conserve localement." },
+            personGeneration: { type: "string", description: "Reglage optionnel de generation de personnes." },
+            safetySetting: { type: "string", description: "Reglage optionnel de filtre de securite." },
+            thinkingLevel: { type: "string", description: "Thinking optionnel pour certains modeles image Gemini." }
+          },
+          required: ["prompt"]
+        },
+        execute: async ({
+          prompt,
+          model,
+          filename,
+          aspectRatio,
+          imageSize,
+          numberOfImages,
+          personGeneration,
+          safetySetting,
+          thinkingLevel
+        }: {
+          prompt: string;
+          model?: string;
+          filename?: string;
+          aspectRatio?: string;
+          imageSize?: string;
+          numberOfImages?: number;
+          personGeneration?: string;
+          safetySetting?: string;
+          thinkingLevel?: string;
+        }) => {
+          const artifact = await generateImageBinary({
+            prompt,
+            model,
+            aspectRatio,
+            imageSize,
+            numberOfImages,
+            personGeneration,
+            safetySetting,
+            thinkingLevel
+          });
+          const outputPath = buildGeneratedArtifactPath('cowork-image', artifact.fileExtension, filename);
+          fs.writeFileSync(outputPath, artifact.buffer);
+          return {
+            success: true,
+            path: outputPath,
+            mimeType: artifact.mimeType,
+            model: artifact.model,
+            fileSizeBytes: artifact.buffer.length,
+            message: `Image creee avec succes a ${outputPath}. Utilise maintenant 'release_file' pour obtenir un lien.`
+          };
+        }
+      },
+      {
+        name: "generate_tts_audio",
+        description: "Synthese un audio via Gemini TTS, l'ecrit dans '/tmp/' au format WAV et renvoie le chemin du fichier. Utile pour une voix-off, un jingle parle, une narration ou une capsule audio avant publication via 'release_file'.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "Texte exact a dire." },
+            model: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-flash-tts ou gemini-2.5-pro-tts." },
+            voice: { type: "string", description: "Nom de voix prebuilt Gemini, ex: Kore." },
+            languageCode: { type: "string", description: "Locale optionnelle, ex: fr-FR." },
+            filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/." }
+          },
+          required: ["text"]
+        },
+        execute: async ({
+          text,
+          model,
+          voice,
+          languageCode,
+          filename
+        }: {
+          text: string;
+          model?: string;
+          voice?: string;
+          languageCode?: string;
+          filename?: string;
+        }) => {
+          const artifact = await generateGeminiTtsBinary({
+            prompt: text,
+            model,
+            voice,
+            languageCode
+          });
+          const outputPath = buildGeneratedArtifactPath('cowork-tts', artifact.fileExtension, filename);
+          fs.writeFileSync(outputPath, artifact.buffer);
+          return {
+            success: true,
+            path: outputPath,
+            mimeType: artifact.mimeType,
+            model: artifact.model,
+            voice: artifact.metadata?.voice,
+            languageCode: artifact.metadata?.languageCode,
+            fileSizeBytes: artifact.buffer.length,
+            message: `Audio TTS cree avec succes a ${outputPath}. Utilise maintenant 'release_file' pour obtenir un lien.`
+          };
+        }
+      },
+      {
+        name: "generate_music_audio",
+        description: "Genere une boucle ou un clip musical via Lyria, l'ecrit dans '/tmp/' et renvoie le chemin du fichier. Utile pour une ambiance, un bed musical ou une texture sonore avant publication via 'release_file'.",
+        parameters: {
+          type: "object",
+          properties: {
+            prompt: { type: "string", description: "Prompt musical exact." },
+            model: { type: "string", description: "Modele Lyria explicite, ex: lyria-002, lyria-3-clip-preview, lyria-3-pro-preview." },
+            negativePrompt: { type: "string", description: "Prompt negatif optionnel." },
+            seed: { type: "number", description: "Seed optionnel pour une sortie deterministe Lyria 2." },
+            sampleCount: { type: "number", description: "Nombre de samples Lyria 2 (1-4). Ne pas combiner avec seed." },
+            location: { type: "string", description: "Region Vertex explicite pour Lyria 2 si besoin." },
+            filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/." }
+          },
+          required: ["prompt"]
+        },
+        execute: async ({
+          prompt,
+          model,
+          negativePrompt,
+          seed,
+          sampleCount,
+          location,
+          filename
+        }: {
+          prompt: string;
+          model?: string;
+          negativePrompt?: string;
+          seed?: number;
+          sampleCount?: number;
+          location?: string;
+          filename?: string;
+        }) => {
+          const artifact = await generateLyriaBinary({
+            prompt,
+            model,
+            negativePrompt,
+            seed,
+            sampleCount,
+            location
+          });
+          const outputPath = buildGeneratedArtifactPath('cowork-music', artifact.fileExtension, filename);
+          fs.writeFileSync(outputPath, artifact.buffer);
+          return {
+            success: true,
+            path: outputPath,
+            mimeType: artifact.mimeType,
+            model: artifact.model,
+            location: artifact.metadata?.location,
+            fileSizeBytes: artifact.buffer.length,
+            message: `Audio musical cree avec succes a ${outputPath}. Utilise maintenant 'release_file' pour obtenir un lien.`
+          };
+        }
+      },
+      {
+        name: "create_podcast_episode",
+        description: "Fabrique un episode podcast audio complet dans '/tmp/': narration via Gemini 2.5 Pro TTS par defaut, fond sonore Lyria, puis mix final pret a publier. Si tu fournis `script`, il sera narre tel quel. Sinon, le modele TTS cree lui-meme le texte parle a partir du `brief`.",
+        parameters: {
+          type: "object",
+          properties: {
+            brief: { type: "string", description: "Brief haut niveau du podcast si tu veux que Gemini 2.5 Pro TTS cree aussi le texte parle." },
+            script: { type: "string", description: "Script exact a narrer si tu veux garder le controle total sur le texte." },
+            title: { type: "string", description: "Titre de l'episode ou angle editorial." },
+            hostStyle: { type: "string", description: "Style de l'animateur ou ton editorial souhaite." },
+            voice: { type: "string", description: "Voix Gemini TTS, ex: Kore." },
+            languageCode: { type: "string", description: "Locale de narration, ex: fr-FR." },
+            ttsModel: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-pro-tts." },
+            musicPrompt: { type: "string", description: "Prompt musical explicite pour Lyria. Recommande en anglais pour maximiser la qualite." },
+            musicModel: { type: "string", description: "Modele Lyria explicite, ex: lyria-002." },
+            negativeMusicPrompt: { type: "string", description: "Prompt negatif Lyria optionnel." },
+            musicSeed: { type: "number", description: "Seed optionnel Lyria 2." },
+            musicSampleCount: { type: "number", description: "Nombre de samples Lyria 2. Le premier sera utilise pour le mix final." },
+            musicLocation: { type: "string", description: "Region Vertex explicite pour Lyria 2 si besoin." },
+            introSeconds: { type: "number", description: "Intro musicale avant la voix. Defaut: environ 1.2s." },
+            outroSeconds: { type: "number", description: "Outro musicale apres la voix. Defaut: environ 1.6s." },
+            musicVolume: { type: "number", description: "Volume relatif du fond musical entre 0.02 et 0.6." },
+            approxDurationSeconds: { type: "number", description: "Cible indicative de duree si le texte doit etre cree a partir du brief." },
+            filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/ pour le mix final." }
+          }
+        },
+        execute: async ({
+          brief,
+          script,
+          title,
+          hostStyle,
+          voice,
+          languageCode,
+          ttsModel,
+          musicPrompt,
+          musicModel,
+          negativeMusicPrompt,
+          musicSeed,
+          musicSampleCount,
+          musicLocation,
+          introSeconds,
+          outroSeconds,
+          musicVolume,
+          approxDurationSeconds,
+          filename
+        }: {
+          brief?: string;
+          script?: string;
+          title?: string;
+          hostStyle?: string;
+          voice?: string;
+          languageCode?: string;
+          ttsModel?: string;
+          musicPrompt?: string;
+          musicModel?: string;
+          negativeMusicPrompt?: string;
+          musicSeed?: number;
+          musicSampleCount?: number;
+          musicLocation?: string;
+          introSeconds?: number;
+          outroSeconds?: number;
+          musicVolume?: number;
+          approxDurationSeconds?: number;
+          filename?: string;
+        }) => {
+          if (!String(brief || '').trim() && !String(script || '').trim()) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Fournis au moins un `brief` ou un `script` pour creer le podcast."
+            };
+          }
+
+          const episode = await generatePodcastEpisode({
+            brief,
+            script,
+            title,
+            hostStyle,
+            voice,
+            languageCode,
+            ttsModel,
+            musicPrompt,
+            musicModel,
+            negativeMusicPrompt,
+            musicSeed,
+            musicSampleCount,
+            musicLocation,
+            introSeconds,
+            outroSeconds,
+            musicVolume,
+            approxDurationSeconds,
+          });
+
+          const outputPath = buildGeneratedArtifactPath('cowork-podcast', episode.finalArtifact.fileExtension, filename);
+          fs.writeFileSync(outputPath, episode.finalArtifact.buffer);
+          return {
+            success: true,
+            path: outputPath,
+            mimeType: episode.finalArtifact.mimeType,
+            ttsModel: ttsModel || DEFAULT_PODCAST_TTS_MODEL,
+            musicModel: musicModel || DEFAULT_LYRIA_MODEL,
+            voice: episode.voiceArtifact.metadata?.voice,
+            languageCode: episode.voiceArtifact.metadata?.languageCode,
+            durationSeconds: Number(episode.finalDurationSeconds.toFixed(3)),
+            fileSizeBytes: episode.finalArtifact.buffer.length,
+            narrationPromptPreview: clipText(episode.narrationPrompt, 240),
+            musicPromptPreview: clipText(episode.musicPrompt, 200),
+            message: `Podcast cree avec succes a ${outputPath}. Utilise maintenant 'release_file' pour obtenir un lien.`
+          };
+        }
+      },
+      {
         name: "list_files",
         description: "Liste les fichiers et dossiers dans un rÃƒÂ©pertoire spÃƒÂ©cifique (par dÃƒÂ©faut la racine).",
         parameters: {
@@ -5579,27 +6569,64 @@ app.post('/api/cowork', async (req, res) => {
       },
       ...(webSearchEnabled ? [{
         name: "web_search",
-        description: "Recherche le web et renvoie une liste concise de resultats (titre, URL, extrait). La qualite retournee est un signal informatif pour t'aider a juger si tu dois approfondir, changer d'angle ou lire directement une source.",
+        description: "Recherche le web et renvoie une liste concise de resultats (titre, URL, extrait). Utilise-le pour reperer des pistes, pas pour faire semblant d'avoir lu. Sur un fact-check, un benchmark, une veille, une analyse commerciale/juridique/financiere, une actu multilingue ou un dossier ambitieux, fais souvent plusieurs recherches ciblees puis ouvre les meilleures URLs avec 'web_fetch' avant de conclure. La qualite retournee est un signal informatif pour t'aider a juger si tu dois approfondir, changer d'angle ou lire directement une source.",
         parameters: {
           type: "object",
           properties: {
             query: { type: "string", description: "Requete de recherche precise." },
-            maxResults: { type: "number", description: "Nombre maximum de resultats a renvoyer (1-8)." }
+            maxResults: { type: "number", description: "Nombre maximum de resultats a renvoyer (1-8)." },
+            strict: { type: "boolean", description: "Active un matching plus strict si tu veux verifier un sujet sensible ou tres precis." },
+            topic: { type: "string", description: "Topic Tavily optionnel: general ou news." },
+            searchDepth: { type: "string", description: "Profondeur optionnelle: basic ou advanced." },
+            timeRange: { type: "string", description: "Fenetre news optionnelle: day ou week." },
+            includeDomains: {
+              type: "array",
+              description: "Liste optionnelle de domaines fiables a privilegier.",
+              items: { type: "string" }
+            },
+            directSourceUrls: {
+              type: "array",
+              description: "URLs directes optionnelles a remonter comme pistes de lecture.",
+              items: { type: "string" }
+            }
           },
           required: ["query"]
         },
-        execute: async ({ query, maxResults }: { query: string; maxResults?: number }) => {
-          const effectiveQuery = alignSearchQueryWithRequest(query, message, requestClock);
+        execute: async ({
+          query,
+          maxResults,
+          strict,
+          topic,
+          searchDepth,
+          timeRange,
+          includeDomains,
+          directSourceUrls
+        }: {
+          query: string;
+          maxResults?: number;
+          strict?: boolean;
+          topic?: TavilyTopic;
+          searchDepth?: TavilySearchDepth;
+          timeRange?: 'day' | 'week';
+          includeDomains?: string[];
+          directSourceUrls?: string[];
+        }) => {
           const outcome = await searchWeb(
-            effectiveQuery,
+            query,
             Math.max(1, Math.min(maxResults || 5, 8)),
-            { strictFactual: strictFactualSearch }
+            {
+              strict,
+              topic,
+              searchDepth,
+              timeRange,
+              includeDomains,
+              directSourceUrls
+            }
           );
           const resultCount = outcome.results.length;
           return {
             success: outcome.success,
-            query: effectiveQuery,
-            ...(effectiveQuery !== query ? { originalQuery: query } : {}),
+            query,
             provider: outcome.provider,
             searchMode: outcome.searchMode,
             quality: outcome.quality,
@@ -5611,24 +6638,23 @@ app.post('/api/cowork', async (req, res) => {
             warnings: outcome.warnings,
             results: outcome.results,
             ...(outcome.error ? { error: outcome.error } : {}),
-            message:
-              effectiveQuery !== query
-                ? `${resultCount} resultat(s) pour "${effectiveQuery}" via ${outcome.provider}. Qualite: ${outcome.quality}. Mode: ${outcome.searchMode}.${outcome.directSourceUrls.length > 0 ? ` Sources directes: ${outcome.directSourceUrls.slice(0, 3).join(' | ')}.` : ''} Requete re-alignee sur la date du jour (${requestClock.dateLabel}).`
-                : `${resultCount} resultat(s) pour "${effectiveQuery}" via ${outcome.provider}. Qualite: ${outcome.quality}. Mode: ${outcome.searchMode}.${outcome.directSourceUrls.length > 0 ? ` Sources directes: ${outcome.directSourceUrls.slice(0, 3).join(' | ')}.` : ''}`
+            message: `${resultCount} piste(s) reperee(s) pour "${query}" via ${outcome.provider}. Ce ne sont pas encore des sources lues. Qualite: ${outcome.quality}. Mode: ${outcome.searchMode}.${outcome.directSourceUrls.length > 0 ? ` Sources directes a ouvrir: ${outcome.directSourceUrls.slice(0, 3).join(' | ')}.` : ''}`
           };
         }
       }, {
         name: "web_fetch",
-        description: "Ouvre une URL et renvoie son titre et son contenu nettoye. A utiliser apres 'web_search' pour lire une source precise.",
+        description: "Ouvre une URL et renvoie son titre et son contenu nettoye. C'est l'outil de lecture et de verification directe: utilise-le apres 'web_search' pour lire les pages les plus solides, confirmer des chiffres, comparer plusieurs sources, ou exploiter une source dans une autre langue avant restitution.",
         parameters: {
           type: "object",
           properties: {
-            url: { type: "string", description: "URL complete a ouvrir." }
+            url: { type: "string", description: "URL complete a ouvrir." },
+            contextQuery: { type: "string", description: "Contexte explicite optionnel pour evaluer la pertinence de la page." },
+            strict: { type: "boolean", description: "Active un matching plus strict sur la pertinence de la page." }
           },
           required: ["url"]
         },
-        execute: async ({ url }: { url: string }) => {
-          const page = await fetchReadableUrl(url, lastSuccessfulSearchQuery || message);
+        execute: async ({ url, contextQuery, strict }: { url: string; contextQuery?: string; strict?: boolean }) => {
+          const page = await fetchReadableUrl(url, contextQuery || lastSuccessfulSearchQuery || undefined, { strict });
           return {
             success: true,
             ...page,
@@ -5638,7 +6664,7 @@ app.post('/api/cowork', async (req, res) => {
       }] : []),
       {
         name: "begin_pdf_draft",
-        description: "Initialise ou reinitialise un brouillon PDF persistant pour cette session Cowork. En mode 'latex', le brouillon devient le vrai source .tex compile. Packages autorises: babel, xcolor, geometry, titlesec, fancyhdr, graphicx, tcolorbox, hyperref, fontenc, inputenc, enumitem, tabularx, multicol, tikz.",
+        description: "Initialise ou reinitialise un brouillon PDF persistant pour cette session Cowork. Pour un PDF premium, editorial ou tres thematique, prefere `engine='latex'`. Chaque section peut porter `visualTheme`, `mood`, `motif`, `flagHints`, `pageStyle` et `pageBreakBefore`. Si tu fournis `latexSource`, le brouillon devient le vrai source .tex compile.",
         parameters: {
           type: "object",
           properties: {
@@ -5659,12 +6685,23 @@ app.post('/api/cowork', async (req, res) => {
             },
             sections: {
               type: "array",
-              description: "Sections initiales optionnelles du brouillon.",
+              description: "Sections initiales optionnelles du brouillon. En LaTeX premium, tu peux donner une vraie direction artistique par section.",
               items: {
                 type: "object",
                 properties: {
-                  heading: { type: "string" },
-                  body: { type: "string" }
+                  heading: { type: "string", description: "Titre de la section." },
+                  body: { type: "string", description: "Contenu de la section." },
+                  visualTheme: { type: "string", description: "Theme visuel libre pour cette section/page: ex. arbres, guerre, football, world cup, finance, climat." },
+                  accentColor: { type: "string", description: "Couleur d'accent HEX optionnelle propre a cette section." },
+                  mood: { type: "string", description: "Ambiance editoriale: ex. dramatique, serein, stade en feu, contemplatif." },
+                  motif: { type: "string", description: "Motif ou dessin a evoquer: ex. canopee, ballon, trophee, lignes de front, feuilles, chandeliers boursiers." },
+                  pageStyle: { type: "string", description: "Style de page: standard, feature ou hero." },
+                  pageBreakBefore: { type: "boolean", description: "Force un saut de page avant cette section." },
+                  flagHints: {
+                    type: "array",
+                    description: "Pays ou drapeaux a afficher si pertinents pour cette section.",
+                    items: { type: "string" }
+                  }
                 }
               }
             }
@@ -5734,7 +6771,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "append_to_draft",
-        description: "Ajoute du contenu au brouillon PDF persistant. En mode LaTeX, tu peux soit fournir un 'latexSource' complet, soit ajouter des sections/sources qui seront injectees dans le document courant.",
+        description: "Ajoute du contenu au brouillon PDF persistant. En mode LaTeX, tu peux soit fournir un `latexSource` complet, soit enrichir le document courant avec des sections visuellement dirigees (`visualTheme`, `mood`, `motif`, `flagHints`, `pageStyle`, `pageBreakBefore`).",
         parameters: {
           type: "object",
           properties: {
@@ -5754,12 +6791,23 @@ app.post('/api/cowork', async (req, res) => {
             },
             sections: {
               type: "array",
-              description: "1 a 2 nouvelles sections a ajouter au brouillon.",
+              description: "1 a 2 nouvelles sections a ajouter au brouillon avec, si besoin, leur propre ambiance visuelle.",
               items: {
                 type: "object",
                 properties: {
-                  heading: { type: "string" },
-                  body: { type: "string" }
+                  heading: { type: "string", description: "Titre de la section." },
+                  body: { type: "string", description: "Contenu de la section." },
+                  visualTheme: { type: "string", description: "Theme visuel libre pour cette section/page." },
+                  accentColor: { type: "string", description: "Couleur d'accent HEX optionnelle propre a cette section." },
+                  mood: { type: "string", description: "Ambiance editoriale de la section." },
+                  motif: { type: "string", description: "Motif graphique a evoquer dans le rendu." },
+                  pageStyle: { type: "string", description: "Style de page: standard, feature ou hero." },
+                  pageBreakBefore: { type: "boolean", description: "Force un saut de page avant cette section." },
+                  flagHints: {
+                    type: "array",
+                    description: "Pays ou drapeaux a afficher si pertinents pour cette section.",
+                    items: { type: "string" }
+                  }
                 }
               }
             }
@@ -5852,6 +6900,189 @@ app.post('/api/cowork', async (req, res) => {
         }
       },
       {
+        name: "revise_pdf_draft",
+        description: "Retravaille le brouillon PDF persistant sans te limiter a l'append. Utilise-le pour reecrire, remplacer des sections, restructurer le plan, changer le titre ou remplacer toute l'ossature avant export. Si tu fournis `sections`, elles remplacent la structure courante; si tu fournis `sectionOperations`, elles s'appliquent dans l'ordre avec des index 1-based. En mode LaTeX source libre, fournis un `latexSource` complet mis a jour pour toute vraie revision.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Remplace le titre principal du brouillon." },
+            subtitle: { type: "string", description: "Remplace le sous-titre ou chapo du brouillon." },
+            summary: { type: "string", description: "Remplace le resume executif du brouillon." },
+            author: { type: "string", description: "Remplace l'auteur/signataire du brouillon." },
+            engine: { type: "string", description: "Moteur PDF: auto, pdfkit ou latex." },
+            compiler: { type: "string", description: "Compilateur LaTeX a utiliser si le moteur vaut 'latex'." },
+            latexSource: { type: "string", description: "Source .tex complete remplacant le document courant." },
+            theme: { type: "string", description: "Theme de mise en page: legal, news ou report." },
+            accentColor: { type: "string", description: "Couleur d'accent optionnelle HEX." },
+            filename: { type: "string", description: "Nom de base du futur fichier PDF (optionnel)." },
+            sourcesMode: { type: "string", description: "Gestion des sources fournies: append ou replace." },
+            sources: {
+              type: "array",
+              description: "Sources mises a jour pour le brouillon. Avec `sourcesMode='replace'`, cette liste remplace les sources courantes.",
+              items: { type: "string" }
+            },
+            sections: {
+              type: "array",
+              description: "Nouvelle liste complete de sections si tu veux remplacer toute l'ossature actuelle.",
+              items: {
+                type: "object",
+                properties: {
+                  heading: { type: "string", description: "Titre de la section." },
+                  body: { type: "string", description: "Contenu de la section." },
+                  visualTheme: { type: "string", description: "Theme visuel libre pour cette section/page." },
+                  accentColor: { type: "string", description: "Couleur d'accent HEX optionnelle propre a cette section." },
+                  mood: { type: "string", description: "Ambiance editoriale de la section." },
+                  motif: { type: "string", description: "Motif graphique a evoquer dans le rendu." },
+                  pageStyle: { type: "string", description: "Style de page: standard, feature ou hero." },
+                  pageBreakBefore: { type: "boolean", description: "Force un saut de page avant cette section." },
+                  flagHints: {
+                    type: "array",
+                    description: "Pays ou drapeaux a afficher si pertinents pour cette section.",
+                    items: { type: "string" }
+                  }
+                }
+              }
+            },
+            sectionOperations: {
+              type: "array",
+              description: "Operations de revision appliquees dans l'ordre. Les index sont 1-based.",
+              items: {
+                type: "object",
+                properties: {
+                  action: { type: "string", description: "Action: replace, remove, insert_before, insert_after, append." },
+                  index: { type: "number", description: "Index 1-based de la section cible si l'action en a besoin." },
+                  section: {
+                    type: "object",
+                    description: "Section complete a inserer ou utiliser pour un remplacement.",
+                    properties: {
+                      heading: { type: "string", description: "Titre de la section." },
+                      body: { type: "string", description: "Contenu de la section." },
+                      visualTheme: { type: "string", description: "Theme visuel libre pour cette section/page." },
+                      accentColor: { type: "string", description: "Couleur d'accent HEX optionnelle propre a cette section." },
+                      mood: { type: "string", description: "Ambiance editoriale de la section." },
+                      motif: { type: "string", description: "Motif graphique a evoquer dans le rendu." },
+                      pageStyle: { type: "string", description: "Style de page: standard, feature ou hero." },
+                      pageBreakBefore: { type: "boolean", description: "Force un saut de page avant cette section." },
+                      flagHints: {
+                        type: "array",
+                        description: "Pays ou drapeaux a afficher si pertinents pour cette section.",
+                        items: { type: "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        execute: async ({
+          title,
+          subtitle,
+          summary,
+          author,
+          engine,
+          compiler,
+          latexSource,
+          theme,
+          accentColor,
+          filename,
+          sourcesMode,
+          sources,
+          sections,
+          sectionOperations
+        }: {
+          title?: string;
+          subtitle?: string;
+          summary?: string;
+          author?: string;
+          engine?: string;
+          compiler?: string;
+          latexSource?: string;
+          theme?: string;
+          accentColor?: string;
+          filename?: string;
+          sourcesMode?: string;
+          sources?: string[];
+          sections?: PdfSectionInput[];
+          sectionOperations?: PdfDraftSectionOperationInput[];
+        }) => {
+          const currentDraft = requireActivePdfDraft();
+          if (!currentDraft) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Aucun brouillon PDF actif. Commence d'abord par 'begin_pdf_draft'."
+            };
+          }
+
+          const hasChanges =
+            title !== undefined
+            || subtitle !== undefined
+            || summary !== undefined
+            || author !== undefined
+            || engine !== undefined
+            || compiler !== undefined
+            || Boolean(latexSource?.trim())
+            || theme !== undefined
+            || accentColor !== undefined
+            || filename !== undefined
+            || sourcesMode !== undefined
+            || Array.isArray(sources)
+            || Array.isArray(sections)
+            || (Array.isArray(sectionOperations) && sectionOperations.length > 0);
+          if (!hasChanges) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Donne au moins une vraie revision: meta, sections completes, operations de section, sources ou un latexSource mis a jour."
+            };
+          }
+
+          try {
+            const nextDraft = reviseActivePdfDraft(message, currentDraft, {
+              title,
+              subtitle,
+              summary,
+              author,
+              engine,
+              compiler,
+              latexSource,
+              theme,
+              accentColor,
+              filename,
+              sourcesMode,
+              sources,
+              sections,
+              sectionOperations
+            }, requestClock);
+            applyActivePdfDraft(nextDraft, { invalidateArtifacts: true });
+            const draft = buildPdfDraftStats(nextDraft);
+            const capMessage = buildPdfLengthCapMessage(draft.targetWords, draft.requestedWordCount, draft.cappedWords);
+            return {
+              success: true,
+              draft,
+              engine: draft.engine,
+              compiler: draft.compiler,
+              theme: draft.theme,
+              signature: draft.signature,
+              wordCount: draft.wordCount,
+              sectionCount: draft.sectionCount,
+              sourceMode: draft.sourceMode,
+              message: [
+                `Brouillon revise. Il contient maintenant ${draft.wordCount} mots et ${draft.sectionCount} section(s).`,
+                capMessage
+              ].filter(Boolean).join(' ')
+            };
+          } catch (error: any) {
+            return {
+              success: false,
+              recoverable: Boolean(error?.recoverable),
+              error: error?.message || "Revision du brouillon impossible."
+            };
+          }
+        }
+      },
+      {
         name: "get_pdf_draft",
         description: "Relit l'etat courant du brouillon PDF persistant: moteur, compilateur, signature, statut de review, apercu de sections et, en mode LaTeX, preview du source .tex.",
         parameters: {
@@ -5886,6 +7117,11 @@ app.post('/api/cowork', async (req, res) => {
             sectionsPreview: currentDraft.sections.slice(0, 8).map((section, index) => ({
               index: index + 1,
               heading: section.heading || null,
+              visualTheme: section.visualTheme || null,
+              motif: section.motif || null,
+              mood: section.mood || null,
+              pageStyle: section.pageStyle || null,
+              flagHints: section.flagHints || [],
               preview: includeBodies ? clipText(section.body, 220) : undefined
             })),
             sourcePreview: currentDraft.engine === 'latex'
@@ -5918,12 +7154,23 @@ app.post('/api/cowork', async (req, res) => {
             },
             sections: {
               type: "array",
-              description: "Liste de sections du document. Chaque section a un 'heading' optionnel et un 'body'.",
+              description: "Liste de sections du document. Chaque section peut aussi porter une DA locale pour le rendu LaTeX premium.",
               items: {
                 type: "object",
                 properties: {
                   heading: { type: "string", description: "Titre de la section (optionnel)." },
-                  body: { type: "string", description: "Contenu texte de la section." }
+                  body: { type: "string", description: "Contenu texte de la section." },
+                  visualTheme: { type: "string", description: "Theme visuel libre pour cette section/page." },
+                  accentColor: { type: "string", description: "Couleur d'accent HEX optionnelle propre a cette section." },
+                  mood: { type: "string", description: "Ambiance editoriale de la section." },
+                  motif: { type: "string", description: "Motif graphique a evoquer dans le rendu." },
+                  pageStyle: { type: "string", description: "Style de page: standard, feature ou hero." },
+                  pageBreakBefore: { type: "boolean", description: "Force un saut de page avant cette section." },
+                  flagHints: {
+                    type: "array",
+                    description: "Pays ou drapeaux a afficher si pertinents pour cette section.",
+                    items: { type: "string" }
+                  }
                 }
               }
             }
@@ -5983,7 +7230,7 @@ app.post('/api/cowork', async (req, res) => {
                   sections
                 }), {
                   compiler: effectiveCompiler,
-                  theme: currentDraft?.theme || normalizePdfTheme(undefined, pdfQualityTargets?.theme || resolvePdfTheme(message)),
+                  theme: currentDraft?.theme || normalizePdfTheme(undefined, pdfQualityTargets?.theme || 'report'),
                   accentColor: currentDraft?.accentColor,
                   requestClock
                 })
@@ -6118,7 +7365,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_pdf",
-        description: "Cree un fichier PDF directement. En mode 'latex', compile un vrai source .tex via un provider HTTP externe compatible YtoTech et peut reutiliser le PDF deja compile pendant 'review_pdf_draft'. Cette review reste recommandee pour la qualite mais n'est plus bloquante; si tu fournis 'reviewSignature', elle doit correspondre a la derniere review approuvee.",
+        description: "Cree un fichier PDF directement. Pour un rendu premium, editorial ou tres thematique, prefere `engine='latex'`. En mode 'latex', l'outil compile un vrai source .tex via un provider HTTP externe compatible YtoTech et peut reutiliser le PDF deja compile pendant 'review_pdf_draft'. Le rendu premium supporte une direction artistique par section/page: `visualTheme`, `mood`, `motif`, `flagHints`, `pageStyle`, `pageBreakBefore`.",
         parameters: {
           type: "object",
           properties: {
@@ -6142,12 +7389,23 @@ app.post('/api/cowork', async (req, res) => {
             showPageNumbers: { type: "boolean", description: "Afficher les numeros de page dans le pied de page." },
             sections: {
               type: "array",
-              description: "Liste de sections inline. Si absente, le brouillon actif est exporte.",
+              description: "Liste de sections inline. Si absente, le brouillon actif est exporte. En LaTeX premium, chaque section peut avoir sa propre ambiance visuelle.",
               items: {
                 type: "object",
                 properties: {
                   heading: { type: "string", description: "Titre de la section (optionnel)." },
-                  body: { type: "string", description: "Contenu texte de la section." }
+                  body: { type: "string", description: "Contenu texte de la section." },
+                  visualTheme: { type: "string", description: "Theme visuel libre pour cette section/page." },
+                  accentColor: { type: "string", description: "Couleur d'accent HEX optionnelle propre a cette section." },
+                  mood: { type: "string", description: "Ambiance editoriale de la section." },
+                  motif: { type: "string", description: "Motif graphique a evoquer dans le rendu." },
+                  pageStyle: { type: "string", description: "Style de page: standard, feature ou hero." },
+                  pageBreakBefore: { type: "boolean", description: "Force un saut de page avant cette section." },
+                  flagHints: {
+                    type: "array",
+                    description: "Pays ou drapeaux a afficher si pertinents pour cette section.",
+                    items: { type: "string" }
+                  }
                 }
               }
             }
@@ -6184,7 +7442,7 @@ app.post('/api/cowork', async (req, res) => {
           reviewSignature?: string;
           sources?: string[];
           showPageNumbers?: boolean;
-          sections?: Array<{ heading?: string; body: string }>;
+          sections?: PdfSectionInput[];
         }) => {
           const currentDraft = requireActivePdfDraft();
           const shouldUseActiveDraft = useActiveDraft !== false && Boolean(currentDraft) && (!Array.isArray(sections) || sections.length === 0);
@@ -6227,7 +7485,7 @@ app.post('/api/cowork', async (req, res) => {
                 || (shouldUseActiveDraft ? currentDraft?.latexSource : null)
                 || buildPdfDraftLatexSource(rawDraft, {
                     compiler: effectiveCompiler,
-                    theme: normalizePdfTheme(theme, currentDraft?.theme || pdfQualityTargets?.theme || resolvePdfTheme(message)),
+                    theme: normalizePdfTheme(theme, currentDraft?.theme || pdfQualityTargets?.theme || 'report'),
                     accentColor: accentColor || currentDraft?.accentColor,
                     requestClock
                   })
@@ -6263,10 +7521,7 @@ app.post('/api/cowork', async (req, res) => {
           const outputPath = path.join('/tmp', `${effectiveFilename}.pdf`);
           const effectiveTheme = normalizePdfTheme(
             theme,
-            currentDraft?.theme || pdfQualityTargets?.theme || resolvePdfTheme(message, {
-              formalDocument: Boolean(pdfQualityTargets?.formalDocument),
-              explicitTheme: theme
-            })
+            currentDraft?.theme || pdfQualityTargets?.theme || 'report'
           );
           const draftForExport = buildPdfDraftSnapshot({
             title: draftForValidation.title || humanizePdfTitle(filename || currentDraft?.filename || effectiveFilename),
@@ -6541,6 +7796,11 @@ app.post('/api/cowork', async (req, res) => {
           showPageNumbers?: boolean;
           sections: Array<{ heading?: string, body: string }>;
         }) => {
+          return {
+            success: false,
+            recoverable: true,
+            error: "Cet outil legacy est retire. Utilise 'begin_pdf_draft' puis 'create_pdf'."
+          };
           const outputPath = path.join('/tmp', filename.endsWith('.pdf') ? filename : `${filename}.pdf`);
           const draft = buildPdfDraftSnapshot({
             title,
@@ -7144,10 +8404,11 @@ app.post('/api/cowork', async (req, res) => {
       }] : [])
     ];
 
-    // LIBERATION: tous les outils sont toujours disponibles. Le modele choisit.
-    const visibleLocalTools = localTools.filter(tool =>
-      !tool.name.endsWith('_legacy_unused')
-    );
+    const visibleLocalTools = localTools.filter(tool => {
+      if (tool.name.endsWith('_legacy_unused')) return false;
+      if (!runtimeToolAllowList) return true;
+      return runtimeToolAllowList.has(tool.name);
+    });
     const tools = visibleLocalTools.length > 0 ? [{
       functionDeclarations: visibleLocalTools.map(t => ({
         name: t.name,
@@ -7163,7 +8424,12 @@ app.post('/api/cowork', async (req, res) => {
       maxOutputTokens: config.maxOutputTokens || 65536,
       thinkingLevel: config.thinkingLevel || 'high', // ENABLE THINKING
       maxThoughtTokens: config.maxThoughtTokens || 4096,
-      systemInstruction: buildCoworkSystemInstruction(config.systemInstruction, {
+      systemInstruction: runtimeAgent
+        ? buildAgentRuntimeSystemInstruction(runtimeAgent, {
+            requestClock,
+            formValues: runtimeAgentFormValues,
+          })
+        : buildCoworkSystemInstruction(config.systemInstruction, {
             webSearch: webSearchEnabled,
             executeScript: executeScriptEnabled
           }, {
@@ -7244,6 +8510,8 @@ app.post('/api/cowork', async (req, res) => {
 
     const buildProgressFingerprint = () => buildCoworkProgressFingerprint({
       executionMode,
+      webSearchCount: successfulResearchMeta.webSearches,
+      webFetchCount: successfulResearchMeta.webFetches,
       openedSourceCount: sessionState.sourcesValidated.length,
       openedDomainCount: new Set(sessionState.sourcesValidated.map(source => source.domain).filter(Boolean)).size,
       activePdfDraft: sessionState.activePdfDraft,
@@ -7307,6 +8575,8 @@ app.post('/api/cowork', async (req, res) => {
         requestClock,
         state: sessionState,
         research: successfulResearchMeta,
+        latestCreatedArtifactPath,
+        latestReleasedFile,
         stopReason
       });
 
@@ -7346,9 +8616,11 @@ app.post('/api/cowork', async (req, res) => {
         accumulateUsageTotals(runMeta, modelId, finalReply);
         finalVisibleText = String(finalReply.text || '').trim();
         if (!finalVisibleText) {
-          finalVisibleText = requestNeedsPdfArtifact(message)
-            ? "Desole, je n'ai pas reussi a valider suffisamment de sources d'actualite pour aller jusqu'au PDF. Reessaie dans quelques minutes ou donne-moi un angle plus precis."
-            : "Desole, je n'ai pas reussi a valider suffisamment de sources d'actualite pour te repondre de facon fiable. Reessaie dans quelques minutes ou donne-moi un angle plus precis.";
+          finalVisibleText = buildArtifactFailureFallbackMessage({
+            activePdfDraft: sessionState.activePdfDraft,
+            createdArtifactPath: latestCreatedArtifactPath,
+            releasedFile: latestReleasedFile,
+          });
         }
       } catch (error) {
         const cleanError = parseApiError(error);
@@ -7358,9 +8630,11 @@ app.post('/api/cowork', async (req, res) => {
           message: `Le tour final de reformulation a echoue. Je bascule vers un message de secours humain. ${clipText(cleanError, 180)}`,
           runMeta
         });
-        finalVisibleText = requestNeedsPdfArtifact(message)
-          ? "Desole, je n'ai pas reussi a valider suffisamment de sources d'actualite pour aller jusqu'au PDF. Reessaie dans quelques minutes ou donne-moi un angle plus precis."
-          : "Desole, je n'ai pas reussi a valider suffisamment de sources d'actualite pour te repondre de facon fiable. Reessaie dans quelques minutes ou donne-moi un angle plus precis.";
+        finalVisibleText = buildArtifactFailureFallbackMessage({
+          activePdfDraft: sessionState.activePdfDraft,
+          createdArtifactPath: latestCreatedArtifactPath,
+          releasedFile: latestReleasedFile,
+        });
       }
     };
 
@@ -7514,7 +8788,9 @@ app.post('/api/cowork', async (req, res) => {
     emitEvent('status', {
       iteration: 0,
       title: 'Initialisation',
-      message: 'Cowork prepare la tache.',
+      message: runtimeAgent
+        ? `${runtimeAgent.name} prepare la mission.`
+        : 'Cowork prepare la tache.',
       runState: 'running',
       runMeta
     });
@@ -7595,42 +8871,15 @@ app.post('/api/cowork', async (req, res) => {
 
       if (functionCalls.length > 0) {
         const debugOnlyToolNames = new Set(['report_progress', 'publish_status']);
-        const readOnlyToolNames = new Set([
-          'publish_status',
-          'report_progress',
-          'list_files',
-          'list_recursive',
-          'read_file',
-          'web_search',
-          'web_fetch',
-          'music_catalog_lookup',
-          'get_pdf_draft',
-          'review_pdf_draft'
-        ]);
-        const mutatingToolNames = new Set([
-          'run_hub_agent',
-          'write_file',
-          'begin_pdf_draft',
-          'append_to_draft',
-          'create_pdf',
-          'release_file',
-          'execute_script'
-        ]);
         const debugCalls = functionCalls.filter(call => debugOnlyToolNames.has(call.name));
-        const readOnlyCalls = functionCalls.filter(call => readOnlyToolNames.has(call.name) && !debugOnlyToolNames.has(call.name));
-        const mutatingCalls = functionCalls.filter(call => mutatingToolNames.has(call.name));
         let turnViolation: string | null = null;
 
         if (!COWORK_DEBUG_REASONING && debugCalls.length > 0) {
           turnViolation = "Les outils de statut/debug ne sont pas disponibles en mode normal. Agis directement avec des outils utiles ou reponds.";
         } else if (debugCalls.length > 2) {
           turnViolation = "N'abuse pas des outils de debug dans un meme tour.";
-        } else if (readOnlyCalls.length > 3) {
-          turnViolation = "Limite de tour depassee: au plus 3 outils read-only par tour.";
-        } else if (mutatingCalls.length > 1) {
-          turnViolation = "Limite de tour depassee: au plus 1 outil mutatif par tour.";
-        } else if (mutatingCalls.length === 1 && functionCalls[functionCalls.length - 1]?.name !== mutatingCalls[0]?.name) {
-          turnViolation = "Si tu appelles un outil mutatif, il doit venir en dernier apres les lectures/recherches utiles.";
+        } else if (functionCalls.length > 12) {
+          turnViolation = "Tour refuse: trop d'outils demandes d'un coup. Regroupe mieux et reste sous 12 appels dans un meme tour.";
         }
 
         if (turnViolation) {
@@ -7645,7 +8894,7 @@ app.post('/api/cowork', async (req, res) => {
           });
           contents.push({
             role: 'user',
-            parts: [{ text: `${turnViolation}\nReprends avec une petite chaine coherente: lectures/recherches d'abord, eventuelle mutation en dernier, ou reponds directement si aucun outil n'est necessaire.` }]
+            parts: [{ text: `${turnViolation}\nReprends sans theatre, en choisissant toi-meme une meilleure repartition des appels.` }]
           });
           continue;
         }
@@ -7863,11 +9112,7 @@ app.post('/api/cowork', async (req, res) => {
               const fetchRelevance = tool.name === 'web_fetch'
                 ? ((output as any).relevance as FetchRelevance | undefined) || 'off_topic'
                 : null;
-              const isBroadNewsRequest = requestNeedsBroadNewsRoundup(message);
-              const hasValidatingFetch = tool.name === 'web_fetch' && fetchQuality === 'full' && (
-                fetchRelevance === 'relevant'
-                || (fetchRelevance === 'degraded' && isBroadNewsRequest)
-              );
+              const hasValidatingFetch = tool.name === 'web_fetch' && fetchQuality === 'full' && fetchRelevance === 'relevant';
               const reviewNotReady = tool.name === 'review_pdf_draft' && (output as any).ready === false;
               const warningResult =
                 recoverableIssue
@@ -7891,6 +9136,8 @@ app.post('/api/cowork', async (req, res) => {
               }
               if (!isError) {
                 if (tool.name === 'create_pdf' && typeof (output as any).path === 'string') {
+                  latestCreatedArtifactPath = (output as any).path;
+                } else if (['generate_image_asset', 'generate_tts_audio', 'generate_music_audio', 'create_podcast_episode'].includes(tool.name) && typeof (output as any).path === 'string') {
                   latestCreatedArtifactPath = (output as any).path;
                 } else if (tool.name === 'write_file' && typeof (call.args as any)?.path === 'string') {
                   latestCreatedArtifactPath = (call.args as any).path;
@@ -7997,9 +9244,10 @@ app.post('/api/cowork', async (req, res) => {
                 meta: formatToolResultMeta(tool.name, call.args, output),
                 runMeta
               });
-              if (!isError && tool.name === 'create_agent_blueprint' && (output as any).blueprint) {
+              if (!isError && ['create_agent_blueprint', 'update_agent_blueprint'].includes(tool.name) && (output as any).blueprint) {
                 emitEvent('agent_blueprint', {
                   iteration: iterations,
+                  operation: tool.name === 'update_agent_blueprint' ? 'update' : 'create',
                   blueprint: (output as any).blueprint,
                   runMeta
                 });
@@ -8155,22 +9403,18 @@ app.post('/api/cowork', async (req, res) => {
           refreshSessionState();
         }
         const hardBlockers = getHardCoworkBlockers(sessionState.blockers);
-        const artifactCompletionPrompt = buildArtifactCompletionPrompt(message, latestCreatedArtifactPath, latestReleasedFile);
-        if (hardBlockers.length > 0 && artifactCompletionPrompt) {
+        if (hardBlockers.length > 0) {
           emitEvent('warning', {
             iteration: iterations,
             title: 'Livraison incomplete',
             message: hardBlockers.map(blocker => blocker.message).join(' '),
             runMeta
           });
-          contents.push({
-            role: 'user',
-            parts: [{ text: artifactCompletionPrompt }]
-          });
-          if (handleNoProgress('artifact_delivery_incomplete')) {
-            break;
-          }
-          continue;
+          blockedFinalReplyContext = {
+            stopReason: hardBlockers.map(blocker => blocker.message).join(' ')
+          };
+          finalRunState = 'failed';
+          break;
         }
 
         finalVisibleText += iterationVisibleText;

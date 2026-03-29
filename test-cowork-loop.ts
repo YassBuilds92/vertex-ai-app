@@ -15,8 +15,6 @@ const {
   buildTavilySearchPlan,
   buildDirectSourceSearchOutcome,
   validateCreatePdfReviewSignature,
-  getDirectSourceFallbacks,
-  requestNeedsBroadNewsRoundup,
   getCooldownDelayMs,
   getCoworkPublicPhase,
   buildCoworkProgressFingerprint,
@@ -24,18 +22,18 @@ const {
   classifyCoworkExecutionMode,
   markVisibleDeliveryAttempt,
   requestIsCoworkMetaDiscussion,
-  requestNeedsDownloadableArtifact,
-  requestNeedsPdfArtifact,
-  requestNeedsMusicCatalogResearch,
   requestRequiresAbuseBlock,
-  requestIsPureCreativeComposition,
   assessReadablePageRelevance,
   searchWeb,
 } = __coworkLoopInternals;
 
 const {
+  resolvePdfTheme,
+  resolvePdfEngine,
+  getPdfQualityTargets,
   createActivePdfDraft,
   appendToActivePdfDraft,
+  reviseActivePdfDraft,
 } = __coworkPdfInternals;
 
 const requestClock = {
@@ -68,7 +66,7 @@ const baseResearch = {
       whenToUse: "Quand il faut un PDF d'actu premium et source.",
       outputKind: 'pdf',
       starterPrompt: "Prends en charge une revue de presse premium.",
-      systemInstruction: "Tu es News Premium.",
+      systemInstruction: 'Tu es News Premium.',
       uiSchema: [],
       tools: ['web_search', 'web_fetch', 'begin_pdf_draft', 'append_to_draft', 'create_pdf', 'release_file'],
       capabilities: ['Veille rapide', 'PDF magazine'],
@@ -96,11 +94,8 @@ const baseResearch = {
     }),
   ].filter(Boolean);
 
-  const pickedBySlug = pickHubAgentRecord(hubAgents, 'news-premium');
-  assert.equal(pickedBySlug?.id, 'news-premium-01');
-
-  const pickedByName = pickHubAgentRecord(hubAgents, 'podcast brief');
-  assert.equal(pickedByName?.id, 'podcast-brief-02');
+  assert.equal(pickHubAgentRecord(hubAgents, 'news-premium')?.id, 'news-premium-01');
+  assert.equal(pickHubAgentRecord(hubAgents, 'podcast brief')?.id, 'podcast-brief-02');
 
   const promptSummary = summarizeHubAgentsForPrompt(hubAgents, 2);
   assert.ok(promptSummary.includes('news-premium-01'));
@@ -129,58 +124,39 @@ const baseResearch = {
 {
   const state = createEmptyCoworkSessionState();
   state.modelTaskComplete = true;
-  state.phase = 'verification';
+  state.phase = 'delivery';
+  state.activePdfDraft = createActivePdfDraft(
+    'Cree-moi un PDF de test',
+    {
+      title: 'PDF test',
+      sections: [{ heading: 'Bloc 1', body: 'Contenu initial de brouillon.' }],
+    },
+    null
+  );
 
-  const result = computeCompletionState({
-    originalMessage: "Tariq Ramadan il va aller en prison ?",
+  const notReleased = computeCompletionState({
+    originalMessage: 'Cree-moi un PDF de test',
     requestClock,
     state,
-    research: { ...baseResearch, webSearches: 1, webFetches: 0 },
+    research: baseResearch,
+    latestCreatedArtifactPath: '/tmp/test.pdf',
+    latestReleasedFile: null,
+    latestApprovedPdfReviewSignature: null,
+  });
+  assert.equal(notReleased.effectiveTaskComplete, false);
+  assert.ok(notReleased.blockers.some((blocker: any) => blocker.code === 'artifact_not_released'));
+
+  const notCreated = computeCompletionState({
+    originalMessage: 'Cree-moi un PDF de test',
+    requestClock,
+    state,
+    research: baseResearch,
     latestCreatedArtifactPath: null,
     latestReleasedFile: null,
     latestApprovedPdfReviewSignature: null,
   });
-
-  assert.equal(result.effectiveTaskComplete, true);
-  assert.equal(result.blockers.length, 0);
-}
-
-{
-  const state = createEmptyCoworkSessionState();
-  state.modelTaskComplete = true;
-  state.phase = 'delivery';
-
-  const result = computeCompletionState({
-    originalMessage: 'Cree-moi un PDF de test',
-    requestClock,
-    state,
-    research: baseResearch,
-    latestCreatedArtifactPath: '/tmp/test.pdf',
-    latestReleasedFile: null,
-    latestApprovedPdfReviewSignature: null,
-  });
-
-  assert.equal(result.effectiveTaskComplete, false);
-  assert.ok(result.blockers.some((blocker: any) => blocker.code === 'artifact_not_released'));
-}
-
-{
-  const state = createEmptyCoworkSessionState();
-  state.modelTaskComplete = true;
-  state.phase = 'delivery';
-
-  const result = computeCompletionState({
-    originalMessage: 'Cree-moi un PDF de test',
-    requestClock,
-    state,
-    research: baseResearch,
-    latestCreatedArtifactPath: '/tmp/test.pdf',
-    latestReleasedFile: { url: 'https://example.com/test.pdf', path: '/tmp/test.pdf' },
-    latestApprovedPdfReviewSignature: null,
-  });
-
-  assert.equal(result.effectiveTaskComplete, true);
-  assert.equal(result.blockers.length, 0);
+  assert.equal(notCreated.effectiveTaskComplete, false);
+  assert.ok(notCreated.blockers.some((blocker: any) => blocker.code === 'artifact_not_created'));
 }
 
 {
@@ -194,6 +170,8 @@ const baseResearch = {
   const state = createEmptyCoworkSessionState();
   const baseFingerprint = buildCoworkProgressFingerprint({
     executionMode: 'autonomous',
+    webSearchCount: 0,
+    webFetchCount: 0,
     openedSourceCount: 0,
     openedDomainCount: 0,
     activePdfDraft: null,
@@ -212,6 +190,8 @@ const baseResearch = {
 
   const progressedFingerprint = buildCoworkProgressFingerprint({
     executionMode: 'autonomous',
+    webSearchCount: 1,
+    webFetchCount: 0,
     openedSourceCount: 1,
     openedDomainCount: 1,
     activePdfDraft: null,
@@ -231,10 +211,11 @@ const baseResearch = {
 
 {
   const draftA = createActivePdfDraft(
-    'fais un pdf sublime de 9000 mots sur l actu du jour',
+    'fais un pdf premium',
     {
       title: 'Panorama news',
-      sections: [{ heading: 'Bloc 1', body: 'Premier bloc de contenu assez dense pour initialiser le brouillon.' }]
+      theme: 'news',
+      sections: [{ heading: 'Bloc 1', body: 'Premier bloc de contenu assez dense pour initialiser le brouillon.' }],
     },
     {
       minSections: 6,
@@ -246,15 +227,17 @@ const baseResearch = {
     }
   );
   const draftB = appendToActivePdfDraft(
-    'fais un pdf sublime de 9000 mots sur l actu du jour',
+    'fais un pdf premium',
     draftA,
     {
-      sections: [{ heading: 'Bloc 2', body: 'Second bloc de contenu pour faire evoluer le fingerprint du brouillon.' }]
+      sections: [{ heading: 'Bloc 2', body: 'Second bloc de contenu pour faire evoluer le fingerprint du brouillon.' }],
     }
   );
 
   const fingerprintA = buildCoworkProgressFingerprint({
     executionMode: 'autonomous',
+    webSearchCount: 0,
+    webFetchCount: 0,
     openedSourceCount: 0,
     openedDomainCount: 0,
     activePdfDraft: draftA,
@@ -270,6 +253,8 @@ const baseResearch = {
 
   const fingerprintB = buildCoworkProgressFingerprint({
     executionMode: 'autonomous',
+    webSearchCount: 0,
+    webFetchCount: 0,
     openedSourceCount: 0,
     openedDomainCount: 0,
     activePdfDraft: draftB,
@@ -284,6 +269,85 @@ const baseResearch = {
   });
 
   assert.notEqual(fingerprintA, fingerprintB);
+}
+
+{
+  const draft = createActivePdfDraft(
+    'fais un pdf premium',
+    {
+      title: 'Panorama news',
+      theme: 'news',
+      sections: [
+        { heading: 'Bloc 1', body: 'Premier jet encore brouillon mais exploitable.' },
+        { heading: 'Bloc 2', body: 'Deuxieme bloc a retravailler apres relecture.' },
+      ],
+      sources: ['https://example.com/old-source'],
+    },
+    null
+  );
+
+  const revised = reviseActivePdfDraft(
+    'fais un pdf premium',
+    draft,
+    {
+      title: 'Panorama news retravaille',
+      summary: 'Version retravaillee apres une passe de relecture.',
+      sourcesMode: 'replace',
+      sources: ['https://example.com/new-source'],
+      sectionOperations: [
+        {
+          action: 'replace',
+          index: 1,
+          section: { heading: 'Bloc 1 retravaille', body: 'Premier bloc reecrit avec un angle plus net et plus de matiere.' },
+        },
+        {
+          action: 'insert_after',
+          index: 2,
+          section: { heading: 'Bloc 3', body: 'Nouvelle section de synthese ajoutee apres relecture.' },
+        },
+        {
+          action: 'remove',
+          index: 2,
+        },
+      ],
+    }
+  );
+
+  assert.equal(revised.title, 'Panorama news retravaille');
+  assert.equal(revised.summary, 'Version retravaillee apres une passe de relecture.');
+  assert.deepEqual(revised.sources, ['https://example.com/new-source']);
+  assert.deepEqual(revised.sections.map(section => section.heading), ['Bloc 1 retravaille', 'Bloc 3']);
+  assert.equal(revised.approvedReviewSignature, null);
+}
+
+{
+  const rawLatexDraft = createActivePdfDraft(
+    'fais un pdf latex',
+    {
+      title: 'Source libre',
+      engine: 'latex',
+      latexSource: String.raw`\documentclass{article}
+\title{Source libre}
+\author{Cowork}
+\begin{document}
+\maketitle
+Premier jet.
+\end{document}`,
+      sections: [{ heading: 'Bloc 1', body: 'Premier jet.' }],
+    },
+    null
+  );
+
+  assert.throws(
+    () => reviseActivePdfDraft(
+      'fais un pdf latex',
+      rawLatexDraft,
+      {
+        summary: 'Je tente une vraie revision sans renvoyer le .tex complet.',
+      }
+    ),
+    /mode source libre/i
+  );
 }
 
 {
@@ -304,7 +368,6 @@ const baseResearch = {
     latestReleasedFile: null,
     latestApprovedPdfReviewSignature: null,
   });
-
   assert.equal(buildBlockerPrompt('Iran : actualite brulante', requestClock, result), null);
 }
 
@@ -332,16 +395,19 @@ assert.equal(getCoworkPublicPhase('analysis', 'autonomous'), 'plan');
 assert.equal(getCoworkPublicPhase('production', 'autonomous'), 'redaction');
 assert.equal(getCoworkPublicPhase('completed', 'autonomous'), 'termine');
 assert.equal(classifyCoworkExecutionMode('fais un son coupe au couteau'), 'autonomous');
-assert.equal(requestIsPureCreativeComposition('fais un son couplet unique hyper enerve sur les divisions et la cancel culture'), true);
 assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les juifs et les chretiens, termine tout le monde salement'), true);
 
 {
   const diagnosticPrompt = `t'en penses quoi ?\n\nSTOP. Le commit "Cowork V3" n'a rien change en profondeur.\nLOG REEL:\n- create_pdf utilise toujours pdfkit avec theme auto\n- append_to_draft retourne 0 mots/undefined\n- VEN1 declenche music_catalog_lookup\n- begin_pdf_draft part sur theme legal`;
-
   assert.equal(requestIsCoworkMetaDiscussion(diagnosticPrompt), true);
-  assert.equal(requestNeedsDownloadableArtifact(diagnosticPrompt), false);
-  assert.equal(requestNeedsPdfArtifact(diagnosticPrompt), false);
-  assert.equal(requestNeedsMusicCatalogResearch(diagnosticPrompt), false);
+}
+
+{
+  assert.equal(resolvePdfTheme('fais moi un pdf premium', {}), 'report');
+  assert.equal(resolvePdfTheme('fais moi un pdf premium', { explicitTheme: 'news' }), 'news');
+  assert.equal(resolvePdfEngine('ignored', { explicitEngine: null, pdfQualityTargets: null }), 'pdfkit');
+  assert.equal(resolvePdfEngine('ignored', { explicitEngine: 'latex', pdfQualityTargets: null }), 'latex');
+  assert.equal(getPdfQualityTargets('fais moi un magnifique pdf sur l actu du jour'), null);
 }
 
 {
@@ -373,30 +439,44 @@ assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les 
 }
 
 {
-  assert.equal(requestNeedsBroadNewsRoundup('fais moi un pdf sur l actu du jour'), true);
-
-  const broadNewsFallbacks = getDirectSourceFallbacks('actualite mondiale economie tech climat 27 mars 2026');
-  assert.ok(broadNewsFallbacks.some((url: string) => url.includes('reuters.com')));
-  assert.ok(broadNewsFallbacks.some((url: string) => url.includes('bbc.com')));
-  assert.ok(broadNewsFallbacks.some((url: string) => url.includes('aljazeera.com')));
-
-  const musicFallbacks = getDirectSourceFallbacks('Ven1 paroles Genius Nichen Vanilla Bougie GTALG');
-  assert.ok(musicFallbacks.some((url: string) => url.includes('genius.com')));
-  assert.ok(musicFallbacks.some((url: string) => url.includes('music.apple.com')));
-  assert.ok(!musicFallbacks.some((url: string) => url.includes('franceinfo.fr')));
-}
-
-{
   process.env.TAVILY_API_KEY = 'tvly-test-key';
   process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS = 'false';
 
-  const plan = buildTavilySearchPlan('actualite mondiale economie tech climat 27 mars 2026', 6, { strictFactual: true });
-  assert.equal(plan.topic, 'news');
-  assert.equal(plan.searchDepth, 'advanced');
-  assert.equal(plan.searchMode, 'tavily:news:advanced');
-  assert.ok(plan.includeDomains.includes('reuters.com'));
-  assert.ok(plan.includeDomains.includes('bbc.com'));
-  assert.ok(plan.includeDomains.includes('aljazeera.com'));
+  const neutralPlan = buildTavilySearchPlan('actualite mondiale economie tech climat 27 mars 2026', 6, { strict: true });
+  assert.equal(neutralPlan.topic, 'general');
+  assert.equal(neutralPlan.searchDepth, 'advanced');
+  assert.deepEqual(neutralPlan.includeDomains, []);
+  assert.deepEqual(neutralPlan.directSourceUrls, []);
+
+  const explicitPlan = buildTavilySearchPlan('actualite mondiale economie tech climat 27 mars 2026', 6, {
+    strict: true,
+    topic: 'news',
+    timeRange: 'day',
+    includeDomains: ['reuters.com', 'bbc.com', 'aljazeera.com'],
+    directSourceUrls: [
+      'https://www.reuters.com/world/',
+      'https://www.bbc.com/news',
+      'https://www.aljazeera.com/news/',
+    ],
+  });
+  assert.equal(explicitPlan.topic, 'news');
+  assert.equal(explicitPlan.searchDepth, 'advanced');
+  assert.equal(explicitPlan.requestBody?.time_range, 'day');
+  assert.ok(explicitPlan.includeDomains.includes('reuters.com'));
+  assert.ok(explicitPlan.directSourceUrls.some((url: string) => url.includes('reuters.com')));
+}
+
+{
+  const fallbackOutcome = buildDirectSourceSearchOutcome('Ven1 paroles Genius Nichen Vanilla Bougie GTALG', {
+    quality: 'degraded',
+    provider: 'tavily',
+    searchMode: 'tavily:general:advanced',
+    warnings: ['tavily: resultats faibles'],
+    searchDisabledReason: 'tavily_low_relevance',
+  });
+  assert.equal(fallbackOutcome.success, true);
+  assert.equal(fallbackOutcome.quality, 'degraded');
+  assert.deepEqual(fallbackOutcome.directSourceUrls, []);
 }
 
 {
@@ -424,12 +504,6 @@ assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les 
                 content: 'BBC News follows the latest world developments, diplomacy and international reactions on March 27 2026.',
                 score: 0.89,
               },
-              {
-                title: 'Iran conflict live updates - Al Jazeera',
-                url: 'https://www.aljazeera.com/news/2026/3/27/iran-conflict-live-updates',
-                content: 'Al Jazeera reports the latest updates, world reactions and the broader climate for the day.',
-                score: 0.87,
-              }
             ]
           };
         }
@@ -439,7 +513,14 @@ assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les 
   };
 
   try {
-    const outcome = await searchWeb('actualite mondiale economie tech climat 27 mars 2026', 5, { strictFactual: true });
+    const outcome = await searchWeb('iran trump diplomatie 27 mars 2026', 5, {
+      strict: true,
+      topic: 'news',
+      searchDepth: 'advanced',
+      timeRange: 'day',
+      includeDomains: ['reuters.com', 'bbc.com'],
+      directSourceUrls: ['https://www.reuters.com/world/', 'https://www.bbc.com/news'],
+    });
     assert.equal(outcome.quality, 'relevant');
     assert.equal(outcome.searchMode, 'tavily:news:advanced');
     assert.ok(outcome.directSourceUrls.some((url: string) => url.includes('reuters.com')));
@@ -482,12 +563,15 @@ assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les 
   };
 
   try {
-    const outcome = await searchWeb('Ven1 paroles Genius Nichen Vanilla Bougie GTALG', 5, { strictMusic: true });
+    const outcome = await searchWeb('Ven1 paroles Genius Nichen Vanilla Bougie GTALG', 5, {
+      strict: true,
+      searchDepth: 'advanced',
+      directSourceUrls: ['https://genius.com/', 'https://music.apple.com/'],
+    });
     assert.equal(outcome.success, true);
     assert.equal(outcome.quality, 'degraded');
     assert.equal(outcome.searchDisabledReason, 'tavily_low_relevance');
     assert.ok(outcome.directSourceUrls.some((url: string) => url.includes('genius.com')));
-    assert.ok(!outcome.directSourceUrls.some((url: string) => url.includes('franceinfo.fr')));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -497,25 +581,15 @@ assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les 
   delete process.env.TAVILY_API_KEY;
   process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS = 'false';
 
-  const outcome = await searchWeb('Ven1 paroles Genius Nichen Vanilla Bougie GTALG', 5, { strictMusic: true });
+  const outcome = await searchWeb('Ven1 paroles Genius Nichen Vanilla Bougie GTALG', 5, {
+    strict: true,
+    directSourceUrls: ['https://genius.com/', 'https://music.apple.com/'],
+  });
   assert.equal(outcome.success, true);
   assert.equal(outcome.provider, 'direct-sources');
   assert.equal(outcome.searchMode, 'direct-sources');
   assert.equal(outcome.searchDisabledReason, 'missing_tavily_key');
   assert.ok(outcome.directSourceUrls.some((url: string) => url.includes('genius.com')));
-}
-
-{
-  const fallbackOutcome = buildDirectSourceSearchOutcome('Ven1 paroles Genius Nichen Vanilla Bougie GTALG', {
-    quality: 'degraded',
-    provider: 'tavily',
-    searchMode: 'tavily:general:advanced',
-    warnings: ['tavily: resultats faibles'],
-    searchDisabledReason: 'tavily_low_relevance',
-  });
-  assert.equal(fallbackOutcome.success, true);
-  assert.equal(fallbackOutcome.quality, 'degraded');
-  assert.ok(fallbackOutcome.directSourceUrls.some((url: string) => url.includes('music.apple.com')));
 }
 
 {

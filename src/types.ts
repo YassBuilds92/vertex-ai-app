@@ -129,6 +129,14 @@ export interface StudioAgent extends AgentBlueprint {
   createdBy: 'manual' | 'cowork';
 }
 
+export type AgentFormValues = Record<string, string | boolean>;
+
+export interface AgentWorkspaceState {
+  agent: StudioAgent;
+  formValues: AgentFormValues;
+  lastLaunchPrompt?: string;
+}
+
 export interface SystemPromptVersion {
   version: number;
   prompt: string;
@@ -145,6 +153,8 @@ export interface ChatSession {
   userId: string;
   systemInstruction?: string;
   systemPromptHistory?: SystemPromptVersion[];
+  sessionKind?: 'standard' | 'agent';
+  agentWorkspace?: AgentWorkspaceState;
 }
 
 export interface ModelConfig {
@@ -171,6 +181,7 @@ export interface ModelConfig {
   responseMimeType?: 'text/plain' | 'application/json';
   maxThoughtTokens?: number;
   ttsVoice?: string;
+  ttsLanguageCode?: string;
   videoResolution?: '720p' | '1080p';
   videoAspectRatio?: '16:9' | '9:16';
   autoSystemInstruction?: boolean;

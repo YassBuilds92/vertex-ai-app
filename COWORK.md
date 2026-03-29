@@ -61,6 +61,9 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - `begin_pdf_draft` : initialise un brouillon PDF persistant pour la session courante.
 - `append_to_draft` : ajoute des sections et sources au brouillon PDF sans regenirer tout le document.
 - `get_pdf_draft` : relit l'etat courant du brouillon PDF (mots, sections, theme, review approuvee).
+- `generate_image_asset` : generation d'image locale dans `/tmp/` via les modeles image Gemini.
+- `generate_tts_audio` : synthese vocale locale dans `/tmp/` via Gemini TTS.
+- `generate_music_audio` : generation musicale locale dans `/tmp/` via Lyria.
 - `release_file` : Uploade un fichier vers Google Cloud Storage et renvoie une URL signee de 7 jours.
 
 ## Etat d'Avancement
@@ -75,6 +78,16 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - [x] Carte Cowork epuree : l'en-tete n'affiche plus `% complet`, `En verification`, `blocages` ni les compteurs `validated/degraded`. Il expose maintenant la phase, l'etat du run, les sources/domaines ouverts, l'etat artefact, les retries et les tokens/cout.
 - [x] Tests V3 realignes : `test-cowork-loop.ts` couvre maintenant le mode `autonomous`, le gate artefact, les fallbacks musique, le fingerprint de progression et la recherche `degraded` non bloquante, au lieu des anciens pivots imposes.
 - [x] Initialisation du mode Cowork.
+- [x] Shell frontend premium : le centre n'est plus un vide utilitaire. `StudioEmptyState` transforme chaque mode en poster d'entree, et `SidebarLeft` / `SidebarRight` / `ChatInput` / `MessageItem` partagent maintenant une meme DA "control room" plus nette.
+- [x] Responsive critique rejoue visuellement : desktop et mobile ont ete verifies avec Playwright; le drawer parametres mobile est lisible et le header evite mieux les debordements grace a la troncature des labels.
+
+## Notes UX 2026-03-29
+- Le produit doit evoquer un studio haut de gamme, pas une app de demo. Le shell actuel suit cette direction avec:
+  - un fond structure et vivant
+  - des surfaces fortes mais pas lourdes
+  - un hero central qui propose immediatement des actions
+  - des controles secondaires encore visibles sans casser la hierarchie
+- Les captures Playwright sont la source de verite UX. L'arbre d'accessibilite peut encore laisser croire que certains drawers sont "ouverts" alors que le rendu reel capture est correct. Pour les validations visuelles, privilegier toujours les screenshots reels.
 - [x] Boucle agentique avec support des outils locaux.
 - [x] Support du streaming des pensees (thoughts).
 - [x] Correction des erreurs de lecture seule sur Vercel.
@@ -222,3 +235,188 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 1. Rejouer le cas `fais un son "allo salam" avec une vraie boucle agentique ... puis fais un beau pdf` pour verifier qu'apres `review_pdf_draft -> create_pdf -> release_file`, Cowork livre bien le texte final ou le lien sans repasser par `Finalisation refusee`.
 2. Verifier en production qu'un tour final texte sans `report_progress` est bien accepte quand les blocages backend sont leves, au lieu d'etre compte comme `blocked_visible_text`.
 3. Verifier que les nouvelles narrations publiques (`Recherche`, `Verification`, `Relecture`, `Mise en page`, `Livraison`) apparaissent bien meme quand Gemini appelle un outil sans texte d'accompagnement.
+
+## Mise a jour 2026-03-29 - Hub executable + resilience prod
+- Le Hub Agents n'est plus seulement un registre de blueprints. Il rend maintenant une vraie interface d'execution a partir du `uiSchema`, avec champs reels, validation simple et CTA `Lancer dans Cowork`.
+- Si un agent n'a pas encore de schema exploitable, le hub injecte un fallback `missionBrief` pour conserver une surface de lancement immediatement utile.
+- `src/App.tsx` construit des prompts de relance explicites qui disent a Cowork de reutiliser l'agent existant du hub, sans recreer un nouveau blueprint.
+- Le Hub Agents est maintenant tolerant aux erreurs Firestore:
+  - lecture cloud -> fallback local `loadLocalAgents()`
+  - creation -> `saveLocalAgent()` puis `setDoc()` best effort
+  - resynchro -> `mergeAgentsWithLocal()`
+  - UX -> warning visible, plus de popup bloquante pour la collection agents
+- Deploiement production execute sur Vercel:
+  - alias prod confirme sur `https://vertex-ai-app-pearl.vercel.app`
+  - la prod contient maintenant le Hub executable et le fallback local-first
+- Validation reelle restante:
+  - rejouer en session Google connectee sur le domaine Vercel autorise pour confirmer la disparition du popup agent et la bonne relance d'un specialiste via le formulaire.
+
+## Mise a jour 2026-03-29 - Clarification produit agent
+- Clarification cruciale: Cowork ne doit pas etre le consommateur principal de l'agent. Cowork doit etre l'architecte/editeur de l'agent. L'utilisateur, lui, doit ouvrir et utiliser l'agent directement.
+- Le hub ouvre maintenant des sessions agent dediees:
+  - prompt systeme = celui de l'agent
+  - tools = ceux de l'agent
+  - interface = `uiSchema` rempli par l'utilisateur
+  - runtime = boucle outillee backend, mais brandee comme agent et non comme Cowork
+- Cowork sert maintenant aussi d'editeur d'agent:
+  - depuis le workspace agent, l'utilisateur peut envoyer une demande de correction/evolution a Cowork
+  - Cowork utilise `update_agent_blueprint`
+  - le meme agent du hub est mis a jour, sans duplication
+- `run_hub_agent` reste disponible comme brique technique de delegation interne, mais ce n'est plus le flux produit principal a pousser dans l'UI.
+
+## Mise a jour 2026-03-29 - Cowork moins paresseux sans pipeline rigide
+- Retour produit explicite: l'utilisateur veut des boucles plus engagees, mais ne veut PAS qu'on transforme Cowork en automate deterministe a base de checklist fixe.
+- Changement applique:
+  - le system prompt Cowork renforce maintenant la posture "calibre ton effort sur l'ambition reelle de la mission" et "refuse les versions maigres"
+  - la boucle ajoute un helper `buildCoworkEngagementNudge()` qui observe l'etat reel du run
+  - si Cowork part trop vite avec trop peu de matiere (ex: plusieurs recherches, zero source lue; brouillon PDF encore maigre pour un rendu editorial), il recoit une relance douce de qualite au lieu d'un plan impose
+- Philosophie retenue:
+  - pas de schema dur du type "8 recherches obligatoires"
+  - pas de plan editorial force
+  - oui a une exigence de substance quand la promesse du livrable est haute
+  - oui a des pivots plus intelligents si la premiere voie donne un rendu pauvre ou cosmetique
+- Validation locale:
+  - `npm run lint` OK
+  - `npx tsx test-cowork-loop.ts` OK
+  - `npm run build` OK
+
+## Mise a jour 2026-03-29 - Fin des heuristiques implicites restantes
+- Retour produit explicite: plus aucun mot-cle declencheur et plus aucune relance backend qui pousse la strategie du modele pendant le run.
+- Changement applique:
+  - retrait de `buildCoworkEngagementNudge()` du chemin runtime normal
+  - retrait de la relance `artifactCompletionPrompt` qui ordonnait de finir `create_pdf -> release_file`
+  - `web_search` et `web_fetch` sont maintenant orientes par des options explicites si le modele en a besoin (`topic`, `searchDepth`, `strict`, `timeRange`, `includeDomains`, `directSourceUrls`, `contextQuery`)
+  - sans option explicite, `searchWeb()` et `buildTavilySearchPlan()` restent neutres: pas de categorie `news`, pas de domaines de confiance injectes, pas de realignement automatique sur la date
+  - sans indication explicite, le pipeline PDF reste neutre lui aussi: `getPdfQualityTargets()` => `null`, `resolvePdfEngine(auto)` => `pdfkit`, `theme` par defaut => `report`
+- Philosophie retenue:
+  - le backend ne choisit plus la methode
+  - le backend ne fait plus de rattrapage strategique en douce
+  - le backend garde seulement les verifications d'etat reel, l'anti-boucle, le sandbox et l'honnetete de livraison
+- Validation locale:
+  - `npm run lint` OK
+  - `npx tsx test-cowork-loop.ts` OK
+  - `npx tsx test-pdf-heuristics.ts` OK
+  - `npm run build` OK
+
+## Mise a jour 2026-03-29 - Media generation reelle dans Cowork
+- Cowork sait maintenant appeler explicitement trois nouveaux outils media:
+  - `generate_image_asset`
+  - `generate_tts_audio`
+  - `generate_music_audio`
+- Ces outils ne publient rien automatiquement:
+  - ils creent un vrai fichier dans `/tmp/`
+  - puis le modele choisit lui-meme s'il faut appeler `release_file`
+- Le backend partage maintenant la logique media dans `api/lib/media-generation.ts`, ce qui evite de dupliquer les appels Vertex AI entre l'UI standard et Cowork.
+- Le mode `audio` de l'UI n'etait pas branche: il appelle maintenant `/api/generate-audio`, avec choix du modele TTS, de la voix et de la locale.
+- Verification reelle minimale faite sans upload superflu:
+  - `gemini-2.5-flash-image` OK
+  - `gemini-2.5-flash-tts` OK
+  - `lyria-002` OK
+- Detail important pour Lyria 2:
+  - l'audio est recu dans `bytesBase64Encoded`
+  - la region qui a repondu pendant le test est `us-central1`
+
+## Mise a jour 2026-03-29 - PDF LaTeX premium par section/page
+- Nouveau cap implemente:
+  - les sections PDF peuvent maintenant porter une vraie direction artistique locale:
+    - `visualTheme`
+    - `accentColor`
+    - `mood`
+    - `motif`
+    - `flagHints`
+    - `pageStyle`
+    - `pageBreakBefore`
+- Effet produit:
+  - un meme PDF peut changer de ton visuel d'une section/page a l'autre sans raw `.tex` obligatoire
+  - ex: page guerre avec tonalite geopolitique + drapeaux, puis page football avec motif ballon/trophee
+  - un dossier entier "arbres" peut aussi rester coherent via `visualTheme='arbres'` sur tout le document
+- Implementation:
+  - `api/index.ts` preserve ces metadonnees dans `begin_pdf_draft` / `append_to_draft` / `review_pdf_draft` / `create_pdf`
+  - `server/pdf/latex.ts` compose maintenant des couvertures premium et des spreads de section TikZ a partir de ces champs
+  - le prompt Cowork rappelle que pour un rendu premium, il vaut mieux choisir explicitement `engine='latex'`
+- Validation locale:
+  - `npm run lint` OK
+  - `npx tsx test-latex-provider.ts` OK
+  - `npx tsx test-cowork-loop.ts` OK
+  - `npm run build` OK
+  - smoke test reeel `compileLatexDocument()` via provider externe `ytotech` / `xelatex` OK
+
+## Mise a jour 2026-03-29 - Brouillon PDF = vrai atelier, pas tampon avant export
+- Retour produit:
+  - le mot "brouillon" etait mensonger tant que Cowork ne savait qu'append puis exporter
+  - il fallait une vraie capacite de reprise de texte, pas seulement l'empilement de sections
+- Changement applique:
+  - ajout du tool `revise_pdf_draft` dans `api/index.ts`
+  - ajout du helper `reviseActivePdfDraft()`
+  - le brouillon peut maintenant:
+    - changer son titre, son sous-titre, son resume et son auteur
+    - remplacer toute l'ossature en une fois
+    - appliquer des operations de revision ordonnees sur les sections:
+      - `replace`
+      - `remove`
+      - `insert_before`
+      - `insert_after`
+      - `append`
+    - remplacer ou enrichir la liste des sources
+- Contrat important:
+  - les index de revision sont 1-based pour rester ergonomiques cote modele
+  - si le brouillon est en LaTeX raw (`sourceMode='raw'`), une vraie revision structurelle exige un `latexSource` complet mis a jour
+  - sinon, le modele peut aussi repartir en `pdfkit` s'il veut abandonner le raw `.tex`
+- Effet produit:
+  - Cowork peut maintenant faire:
+    - premier jet
+    - lecture de l'etat courant (`get_pdf_draft`)
+    - revision (`revise_pdf_draft`)
+    - review (`review_pdf_draft`)
+    - export final (`create_pdf`)
+  - on garde une boucle modele-led, sans checklist obligatoire ni forcing backend
+- Validation locale:
+  - `npm run lint` OK
+  - `npx tsx test-cowork-loop.ts` OK
+  - `npx tsx test-latex-provider.ts` OK
+  - `npm run build` OK
+
+## Mise a jour 2026-03-29 - Podcast audio complet dans Cowork
+- Retour produit:
+  - l'utilisateur veut que Cowork sache produire un vrai podcast
+  - pas juste un texte
+  - pas juste une voix separee d'une musique
+  - un vrai episode audio final
+- Changement applique:
+  - ajout du tool `create_podcast_episode`
+  - pipeline backend:
+    - narration generee et parlee par `gemini-2.5-pro-tts` par defaut
+    - fond sonore genere par `lyria-002`
+    - mix final via `ffmpeg`
+- Contrat d'usage:
+  - si Cowork veut garder la main sur le wording exact:
+    - il passe `script`
+  - si Cowork veut laisser le modele TTS creer le texte parle:
+    - il passe `brief`
+  - options utiles:
+    - `title`
+    - `hostStyle`
+    - `voice`
+    - `languageCode`
+    - `musicPrompt`
+    - `introSeconds`
+    - `outroSeconds`
+    - `musicVolume`
+- Effet produit:
+  - Cowork peut maintenant livrer un vrai fichier podcast pret a publier via `release_file`
+  - il n'a plus besoin d'orchestrer a la main:
+    - un texte
+    - une voix
+    - une musique
+    - puis un mix externe
+- Validation locale:
+  - `npm run lint` OK
+  - `npx tsx test-podcast-media.ts` OK
+  - `npx tsx test-cowork-loop.ts` OK
+  - `npm run build` OK
+  - smoke test reel minimal OK:
+    - `gemini-2.5-pro-tts`
+    - `lyria-002`
+    - MP3 final cree
+- Limite connue:
+  - le mix final depend de `ffmpeg` sur la machine serveur; valide ici en local, pas encore verifie sur l'hebergement distant

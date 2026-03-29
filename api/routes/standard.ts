@@ -2,14 +2,36 @@ import { type Express } from 'express';
 
 import { normalizeLatexProvider, resolveLatexProviderBaseUrl } from '../../server/pdf/latex.js';
 import { generateAgentBlueprintFromBrief } from '../lib/agents.js';
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_LYRIA_MODEL,
+  DEFAULT_TTS_MODEL,
+  generateGeminiTtsBinary,
+  generateImageBinary,
+  generateLyriaBinary,
+} from '../lib/media-generation.js';
 import { normalizeConfiguredModelId } from '../lib/config.js';
 import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from '../lib/google-genai.js';
 import { log } from '../lib/logger.js';
-import { AgentCreateSchema, ChatRefineSchema, ChatSchema, ImageGenRequestSchema, UploadSchema, VideoGenSchema } from '../lib/schemas.js';
+import {
+  AgentCreateSchema,
+  AudioGenRequestSchema,
+  ChatRefineSchema,
+  ChatSchema,
+  ImageGenRequestSchema,
+  MusicGenRequestSchema,
+  UploadSchema,
+  VideoGenSchema,
+} from '../lib/schemas.js';
 import { getServiceAccountEmail, uploadToGCS } from '../lib/storage.js';
 
 const REFINER_SYSTEM_PROMPT = `Optimise l'instruction systeme suivante pour un modele IA puissant. Sois concis.`;
 const ICON_PROMPT_SYSTEM_PROMPT = `Genere un prompt d'image pour un logo minimaliste representant ce role IA.`;
+
+function createUploadFileName(prefix: string, extension: string) {
+  const safeExtension = extension.startsWith('.') ? extension : `.${extension}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExtension}`;
+}
 
 export function registerStandardApiRoutes(app: Express) {
   app.get('/api/status', (_req, res) => {
@@ -55,51 +77,26 @@ export function registerStandardApiRoutes(app: Express) {
   app.post('/api/generate-image', async (req, res) => {
     try {
       const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel } = ImageGenRequestSchema.parse(req.body);
-
-      const modelId = req.body.model || 'gemini-2.5-flash-image';
+      const modelId = req.body.model || DEFAULT_IMAGE_MODEL;
       log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { modelId, aspectRatio, numberOfImages });
-
-      const ai = createGoogleAI(modelId);
-
-      const config: any = {
-        ...(aspectRatio ? { aspectRatio } : {}),
-        ...(numberOfImages ? { candidateCount: numberOfImages } : {}),
-      };
-
-      if (modelId.includes('gemini-3') || modelId.includes('nano-banana')) {
-        if (thinkingLevel) config.thinkingLevel = thinkingLevel;
-      }
-
-      if (modelId.includes('imagen') || modelId.includes('image-preview') || modelId.includes('gemini-2.5-flash-image')) {
-        if (personGeneration) config.personGeneration = personGeneration;
-        if (safetySetting) config.safetyFilterLevel = safetySetting;
-        if (imageSize) config.imageSize = imageSize;
-      }
-
-      const result = await retryWithBackoff(() => ai.models.generateContent({
+      const artifact = await generateImageBinary({
+        prompt,
         model: modelId,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config
-      }));
-
-      if (!result.candidates || result.candidates.length === 0) {
-        log.error('Image generation failed - no candidates', result);
-        throw new Error("Le modele n'a pas genere d'image (possible blocage de securite ou quota).");
-      }
-
-      const part = result.candidates[0].content?.parts?.find((candidatePart: any) => candidatePart.inlineData);
-      const base64 = (part as any)?.inlineData?.data;
-
-      if (!base64) {
-        log.error('No base64 data found in candidates', result.candidates[0]);
-        throw new Error("Aucune donnee d'image (base64) n'a ete trouvee dans la reponse.");
-      }
-
-      const buffer = Buffer.from(base64, 'base64');
-      const fileName = `generated-${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
-      const url = await uploadToGCS(buffer, fileName, 'image/png');
-
-      res.json({ url, base64: `data:image/png;base64,${base64}` });
+        aspectRatio,
+        numberOfImages,
+        imageSize,
+        personGeneration,
+        safetySetting,
+        thinkingLevel,
+      });
+      const fileName = createUploadFileName('generated-image', artifact.fileExtension);
+      const url = await uploadToGCS(artifact.buffer, fileName, artifact.mimeType);
+      res.json({
+        url,
+        base64: `data:${artifact.mimeType};base64,${artifact.buffer.toString('base64')}`,
+        mimeType: artifact.mimeType,
+        model: artifact.model,
+      });
     } catch (error) {
       const cleanError = parseApiError(error);
       log.error('Image gen error', cleanError);
@@ -107,6 +104,68 @@ export function registerStandardApiRoutes(app: Express) {
         error: 'Image failed',
         message: "Echec de la generation d'image",
         details: cleanError
+      });
+    }
+  });
+
+  app.post('/api/generate-audio', async (req, res) => {
+    try {
+      const { prompt, model, ttsVoice, ttsLanguageCode, temperature } = AudioGenRequestSchema.parse(req.body);
+      const artifact = await generateGeminiTtsBinary({
+        prompt,
+        model: model || DEFAULT_TTS_MODEL,
+        voice: ttsVoice,
+        languageCode: ttsLanguageCode,
+        temperature,
+      });
+      const fileName = createUploadFileName('generated-audio', artifact.fileExtension);
+      const url = await uploadToGCS(artifact.buffer, fileName, artifact.mimeType);
+
+      res.json({
+        url,
+        mimeType: artifact.mimeType,
+        model: artifact.model,
+        voice: artifact.metadata?.voice,
+        languageCode: artifact.metadata?.languageCode,
+      });
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.error('Audio gen error', cleanError);
+      res.status(500).json({
+        error: 'Audio failed',
+        message: "Echec de la generation audio",
+        details: cleanError,
+      });
+    }
+  });
+
+  app.post('/api/generate-music', async (req, res) => {
+    try {
+      const { prompt, model, negativePrompt, seed, sampleCount, location } = MusicGenRequestSchema.parse(req.body);
+      const artifact = await generateLyriaBinary({
+        prompt,
+        model: model || DEFAULT_LYRIA_MODEL,
+        negativePrompt,
+        seed,
+        sampleCount,
+        location,
+      });
+      const fileName = createUploadFileName('generated-music', artifact.fileExtension);
+      const url = await uploadToGCS(artifact.buffer, fileName, artifact.mimeType);
+
+      res.json({
+        url,
+        mimeType: artifact.mimeType,
+        model: artifact.model,
+        location: artifact.metadata?.location,
+      });
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.error('Music gen error', cleanError);
+      res.status(500).json({
+        error: 'Music failed',
+        message: "Echec de la generation musicale",
+        details: cleanError,
       });
     }
   });

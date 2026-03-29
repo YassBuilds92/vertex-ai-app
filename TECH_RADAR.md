@@ -115,3 +115,69 @@
 - Sources officielles:
   - [Generate videos with Veo from text prompts](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-text)
   - [Deployments and endpoints](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
+
+## 2026-03-29 - Gemini TTS pour audio direct et Cowork
+- Statut: retenu et branche dans le code
+- Choix: utiliser `gemini-2.5-flash-tts` par defaut, avec support explicite de `gemini-2.5-pro-tts` et `gemini-2.5-flash-lite-preview-tts`.
+- Pourquoi: la doc officielle Cloud TTS liste ces modeles, le SDK `@google/genai` supporte `responseModalities: ['AUDIO']` + `speechConfig`, et ce chemin marche deja en test reel local.
+- Alternatives evaluees:
+  - `gemini-2.5-flash-lite-preview-tts`
+    - Garde comme option eco, mais pas choisi par defaut.
+  - solutions TTS tierces
+    - Non etudiees pour l'instant car la contrainte produit privilegie l'ecosysteme Google.
+- Cout: payant a l'usage via Cloud TTS / Vertex AI.
+- Sources officielles:
+  - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+  - [Convert text to speech in Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/speech/text-to-speech)
+
+## 2026-03-29 - Lyria pour la musique directe et Cowork
+- Statut: retenu et branche dans le code
+- Choix: utiliser `lyria-002` par defaut pour la generation musicale, avec support prepare pour les modeles `lyria-3-*` via l'endpoint interactions.
+- Pourquoi: la doc officielle Lyria 2 confirme l'endpoint `predict`, la doc Lyria 3 confirme l'endpoint interactions, et `lyria-002` a repondu en test reel local.
+- Alternatives evaluees:
+  - banques musicales ou services tiers
+    - Non etudies pour l'instant, car hors cible tant que le flux Google repond correctement.
+- Cout: payant a l'usage via Vertex AI.
+- Sources officielles:
+  - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
+  - [Lyria music generation reference](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/model-reference/lyria-music-generation)
+
+## 2026-03-29 - `google-auth-library` transitive pour Lyria REST
+- Statut: retenu sans ajout de dependance directe
+- Choix: reutiliser `google-auth-library` deja present transitivement dans `node_modules` pour obtenir un token OAuth Cloud Platform sur les appels REST Lyria.
+- Pourquoi: evite d'ajouter une nouvelle dependance au `package.json`, reste officiel Google, et simplifie l'auth des endpoints Vertex AI non couverts par le chemin SDK deja utilise.
+- Alternatives evaluees:
+  - signer un JWT manuellement
+    - Ecarte: plus fragile et plus verbeux sans gain produit.
+  - ajouter `google-auth-library` comme dependance directe
+    - Non retenu pour l'instant car la librairie est deja installee transitivement et suffit au besoin actuel.
+- Cout: gratuit cote librairie, Vertex AI reste payant a l'usage.
+- Sources officielles:
+  - [google-auth-library-nodejs](https://github.com/googleapis/google-auth-library-nodejs)
+  - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
+
+## 2026-03-29 - Pipeline podcast autonome Cowork
+- Statut: retenu et branche dans le code
+- Date de verification: 2026-03-29
+- Choix:
+  - narration podcast par defaut via `gemini-2.5-pro-tts`
+  - bed musical par defaut via `lyria-002`
+  - mix final local via `ffmpeg` deja disponible sur la machine, sans nouvelle dependance npm
+- Pourquoi:
+  - `gemini-2.5-pro-tts` est le meilleur choix premium pour une narration podcast "texte + voix" dans l'ecosysteme Google
+  - `lyria-002` est deja stable dans le code et repond en test reel
+  - `ffmpeg` evite d'ajouter une grosse dependance JS juste pour le mix et gere proprement loop, fade et resampling
+- Alternatives evaluees:
+  - `gemini-2.5-flash-tts`
+    - Plus rapide, mais non retenu comme defaut podcast car moins premium que `pro-tts`
+  - sortir deux stems separes sans mix
+    - Ecarte: ne livre pas un vrai podcast pret a publier
+  - mix PCM/WAV en pur JavaScript
+    - Ecarte: plus fragile sur les differences de sample rate/canaux et moins fiable que `ffmpeg`
+- Cout:
+  - payant a l'usage pour Gemini TTS et Lyria via Vertex AI
+  - `ffmpeg` local gratuit
+- Sources officielles:
+  - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+  - [Convert text to speech in Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/speech/text-to-speech)
+  - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)

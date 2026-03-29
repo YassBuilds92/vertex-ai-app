@@ -21,7 +21,9 @@ import { SidebarRight } from './components/SidebarRight';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
 import { AgentsHub } from './components/AgentsHub';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint } from './types';
+import { AgentWorkspacePanel } from './components/AgentWorkspacePanel';
+import { StudioEmptyState } from './components/StudioEmptyState';
+import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -39,6 +41,11 @@ import {
   hydrateSessionMessages,
   saveSessionSnapshot,
 } from './utils/sessionSnapshots';
+import {
+  loadLocalAgents,
+  mergeAgentsWithLocal,
+  saveLocalAgent,
+} from './utils/agentSnapshots';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -54,6 +61,42 @@ const slugifyAgentLabel = (value: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 48) || 'agent-studio';
+
+const buildAgentRuntimeFormValues = (agent: StudioAgent, values: AgentFormValues): AgentFormValues => {
+  const normalizedEntries = (agent.uiSchema.length > 0 ? agent.uiSchema : [{
+    id: 'missionBrief',
+    label: 'Brief libre',
+    type: 'textarea',
+  }]).map((field) => {
+    const rawValue = values[field.id];
+    if (field.type === 'boolean') {
+      return [field.id, Boolean(rawValue)] as const;
+    }
+
+    return [field.id, typeof rawValue === 'string' ? rawValue : ''] as const;
+  });
+
+  return Object.fromEntries(normalizedEntries);
+};
+
+const formatAgentFormValues = (agent: StudioAgent, values: AgentFormValues) =>
+  Object.entries(buildAgentRuntimeFormValues(agent, values))
+    .filter(([, value]) => typeof value === 'boolean' || String(value).trim().length > 0)
+    .map(([fieldId, value]) => {
+      const fieldLabel = agent.uiSchema.find(field => field.id === fieldId)?.label
+        || (fieldId === 'missionBrief' ? 'Brief libre' : fieldId);
+      return `- ${fieldLabel}: ${typeof value === 'boolean' ? (value ? 'oui' : 'non') : String(value).trim()}`;
+    });
+
+const buildAgentLaunchPrompt = (agent: StudioAgent, values: AgentFormValues) => {
+  const formattedValues = formatAgentFormValues(agent, values);
+
+  return [
+    agent.starterPrompt || `Prends en charge la mission de ${agent.name}.`,
+    formattedValues.length > 0 ? `Parametres de l'interface:\n${formattedValues.join('\n')}` : '',
+    `Type de sortie attendu: ${agent.outputKind}.`,
+  ].filter(Boolean).join('\n\n');
+};
 
 export default function App() {
   const { 
@@ -72,6 +115,20 @@ export default function App() {
     if (theme === 'light') root.classList.add('light');
     if (theme === 'oled') root.classList.add('oled');
   }, [theme]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const syncVisibility = () => {
+      if (media.matches) {
+        setLeftSidebarVisible(false);
+        setRightSidebarVisible(false);
+      }
+    };
+
+    syncVisibility();
+    media.addEventListener('change', syncVisibility);
+    return () => media.removeEventListener('change', syncVisibility);
+  }, [setLeftSidebarVisible, setRightSidebarVisible]);
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [agents, setAgents] = useState<StudioAgent[]>([]);
@@ -99,6 +156,8 @@ export default function App() {
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
   const [showAgentsHub, setShowAgentsHub] = useState(false);
   const [latestCreatedAgent, setLatestCreatedAgent] = useState<StudioAgent | null>(null);
+  const [agentsWarning, setAgentsWarning] = useState<string | null>(null);
+  const [isRunningHubAgent, setIsRunningHubAgent] = useState(false);
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -110,6 +169,7 @@ export default function App() {
   const coworkStorageModeRef = useRef<'rich' | 'legacy'>('rich');
   const coworkStorageWarningShownRef = useRef(false);
   const sendInFlightRef = useRef(false);
+  const handleSendRuntimeRef = useRef<((text: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession) => Promise<void>) | null>(null);
 
   const activeSession = sessions.find(s => s.id === activeSessionId) || { 
     id: 'local-new', 
@@ -118,8 +178,22 @@ export default function App() {
     updatedAt: Date.now(), 
     mode: activeMode, 
     userId: user?.uid || '', 
-    systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || '' 
+    systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || '',
+    sessionKind: 'standard' as const,
   };
+
+  const activeAgentWorkspace = React.useMemo(() => {
+    if (activeSession.sessionKind !== 'agent' || !activeSession.agentWorkspace) return null;
+
+    const latestAgent = agents.find(agent => agent.id === activeSession.agentWorkspace?.agent.id)
+      || activeSession.agentWorkspace.agent;
+
+    return {
+      ...activeSession.agentWorkspace,
+      agent: latestAgent,
+      formValues: buildAgentRuntimeFormValues(latestAgent, activeSession.agentWorkspace.formValues || {}),
+    };
+  }, [activeSession, agents]);
 
   const materializeAgentBlueprint = useCallback((blueprint: AgentBlueprint, overrides?: Partial<StudioAgent>): StudioAgent => {
     const now = Date.now();
@@ -170,10 +244,17 @@ export default function App() {
       setShowAgentsHub(true);
     }
 
-    await setDoc(
-      doc(db, 'users', user.uid, 'agents', nextAgent.id),
-      cleanForFirestore(nextAgent)
-    );
+    saveLocalAgent(user.uid, nextAgent);
+
+    try {
+      await setDoc(
+        doc(db, 'users', user.uid, 'agents', nextAgent.id),
+        cleanForFirestore(nextAgent)
+      );
+    } catch (error) {
+      console.error('Agent persistence degraded, keeping local snapshot only:', error);
+      setAgentsWarning("Le Hub Agents ne peut pas se synchroniser avec Firestore pour l'instant. Les agents restent disponibles sur cet appareil.");
+    }
 
     return nextAgent;
   }, [materializeAgentBlueprint, user]);
@@ -193,6 +274,37 @@ export default function App() {
 
     return Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt);
   }, [activeSessionId, currentMessages, optimisticMessages, liveCoworkMessage]);
+
+  const shouldShowEmptyState = !activeAgentWorkspace && displayedMessages.length === 0 && !isLoading && !refiningStatus;
+
+  const activeModeLabel = {
+    chat: 'Chat & Raisonnement',
+    cowork: 'Cowork',
+    image: "Generation d'Images",
+    video: 'Generation Video',
+    audio: 'Text-to-Speech',
+  }[activeMode];
+
+  const handleGoogleLogin = useCallback(async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      console.error("Login error:", error);
+      alert(`Erreur de connexion : ${error.message || String(error)}`);
+    }
+  }, []);
+
+  const handleQuickStartPrompt = useCallback(async (prompt: string) => {
+    if (!user) {
+      await handleGoogleLogin();
+      return;
+    }
+
+    if (isLoading || sendInFlightRef.current) return;
+    if (handleSendRuntimeRef.current) {
+      await handleSendRuntimeRef.current(prompt);
+    }
+  }, [handleGoogleLogin, isLoading, user]);
 
   const activateMode = useCallback((mode: AppMode) => {
     setActiveMode(mode);
@@ -270,13 +382,29 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setAgents([]);
+      setAgentsWarning(null);
       return;
     }
+
+    const localAgents = loadLocalAgents(user.uid);
+    if (localAgents.length > 0) {
+      setAgents(localAgents);
+    }
+
     const q = query(collection(db, 'users', user.uid, 'agents'), orderBy('updatedAt', 'desc'));
     return onSnapshot(q, (snapshot) => {
-      setAgents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudioAgent)));
+      const remoteAgents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudioAgent));
+      setAgents(mergeAgentsWithLocal(user.uid, remoteAgents));
+      setAgentsWarning(null);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/agents`);
+      console.error('Agent list sync degraded, using local snapshots:', error);
+      const fallbackAgents = loadLocalAgents(user.uid);
+      setAgents(fallbackAgents);
+      setAgentsWarning(
+        fallbackAgents.length > 0
+          ? "Le Hub Agents n'a pas pu se synchroniser avec Firestore. Affichage du cache local sur cet appareil."
+          : "Le Hub Agents n'a pas pu se synchroniser avec Firestore. Les prochains agents seront gardes localement sur cet appareil."
+      );
     });
   }, [user]);
 
@@ -507,6 +635,139 @@ export default function App() {
     }
   }, [activeSessionId, isCreatingAgent, persistAgentBlueprint, user]);
 
+  const persistSessionShell = useCallback(async (session: ChatSession) => {
+    if (!user) return;
+
+    const { messages, ...sessionPayload } = session;
+    try {
+      await setDoc(
+        doc(db, 'users', user.uid, 'sessions', session.id),
+        cleanForFirestore(sessionPayload)
+      );
+    } catch (error) {
+      console.warn('Session shell persistence degraded, keeping local state:', error);
+    }
+  }, [user]);
+
+  const upsertSessionLocal = useCallback((session: ChatSession) => {
+    setSessions(prev => {
+      const withoutCurrent = prev.filter(existing => existing.id !== session.id);
+      return [session, ...withoutCurrent].sort((left, right) => right.updatedAt - left.updatedAt);
+    });
+  }, []);
+
+  const updateAgentWorkspaceValues = useCallback(async (nextValues: AgentFormValues) => {
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeAgentWorkspace) return;
+
+    const normalizedValues = buildAgentRuntimeFormValues(activeAgentWorkspace.agent, nextValues);
+
+    setSessions(prev => prev.map(session => {
+      if (session.id !== activeSessionId || session.sessionKind !== 'agent' || !session.agentWorkspace) {
+        return session;
+      }
+
+      return {
+        ...session,
+        updatedAt: Date.now(),
+        agentWorkspace: {
+          ...session.agentWorkspace,
+          formValues: normalizedValues,
+        }
+      };
+    }));
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId), {
+        updatedAt: Date.now(),
+        agentWorkspace: cleanForFirestore({
+          ...activeAgentWorkspace,
+          formValues: normalizedValues,
+        }),
+      });
+    } catch (error) {
+      console.warn('Agent workspace form persistence degraded:', error);
+    }
+  }, [activeAgentWorkspace, activeSessionId, user]);
+
+  const requestCoworkAgentEdit = useCallback(async (agent: StudioAgent, request: string, formValues: AgentFormValues) => {
+    if (!user) return;
+
+    const cleanedRequest = request.trim();
+    if (!cleanedRequest || isLoading || sendInFlightRef.current) return;
+
+    const agentContextLines = formatAgentFormValues(agent, formValues);
+    const sessionId = `cw-agent-edit-${Date.now()}`;
+    const session: ChatSession = {
+      id: sessionId,
+      title: `Cowork · ${agent.name}`,
+      messages: [],
+      updatedAt: Date.now(),
+      mode: 'cowork',
+      userId: user.uid,
+      systemInstruction: configs.cowork.systemInstruction || '',
+      sessionKind: 'standard',
+    };
+
+    await persistSessionShell(session);
+    upsertSessionLocal(session);
+    setActiveMode('cowork');
+    setActiveSessionId(sessionId);
+    setCustomTitle(null);
+    setShowAgentsHub(false);
+
+    const editPrompt = [
+      `Modifie l'agent existant du Hub "${agent.name}" (id: ${agent.id}, slug: ${agent.slug}).`,
+      "N'en cree pas un nouveau. Mets a jour cet agent existant avec l'outil update_agent_blueprint.",
+      `Demande utilisateur: ${cleanedRequest}`,
+      `Systeme actuel: ${agent.systemInstruction}`,
+      agent.tools.length > 0 ? `Outils actuels: ${agent.tools.join(', ')}` : '',
+      agent.capabilities.length > 0 ? `Capacites actuelles: ${agent.capabilities.join(', ')}` : '',
+      agent.uiSchema.length > 0
+        ? `Interface actuelle: ${agent.uiSchema.map(field => `${field.label} (${field.type})`).join(', ')}`
+        : 'Interface actuelle: aucune interface detaillee.',
+      agentContextLines.length > 0 ? `Dernieres valeurs utilisees:\n${agentContextLines.join('\n')}` : '',
+      "Si l'utilisateur demande un changement d'interface, mets a jour uiSchema. Si l'utilisateur demande un changement de comportement, mets a jour le prompt systeme et les outils si necessaire.",
+    ].filter(Boolean).join('\n\n');
+
+    if (handleSendRuntimeRef.current) {
+      await handleSendRuntimeRef.current(editPrompt, undefined, session);
+    }
+  }, [configs.cowork.systemInstruction, isLoading, persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
+
+  const openAgentWorkspace = useCallback(async (agent: StudioAgent, values: AgentFormValues) => {
+    if (!user) return;
+
+    const normalizedValues = buildAgentRuntimeFormValues(agent, values);
+    const sessionId = `agent-${agent.id}-${Date.now()}`;
+    const launchPrompt = buildAgentLaunchPrompt(agent, normalizedValues);
+    const session: ChatSession = {
+      id: sessionId,
+      title: `Agent · ${agent.name}`,
+      messages: [],
+      updatedAt: Date.now(),
+      mode: 'chat',
+      userId: user.uid,
+      systemInstruction: agent.systemInstruction,
+      sessionKind: 'agent',
+      agentWorkspace: {
+        agent,
+        formValues: normalizedValues,
+        lastLaunchPrompt: launchPrompt,
+      },
+    };
+
+    await persistSessionShell(session);
+    upsertSessionLocal(session);
+    setActiveMode('chat');
+    setActiveSessionId(sessionId);
+    setCustomTitle(null);
+    setShowAgentsHub(false);
+
+    if (handleSendRuntimeRef.current) {
+      await handleSendRuntimeRef.current(launchPrompt, undefined, session);
+    }
+  }, [persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
+
   const releaseCoworkDraft = useCallback(async (options?: { clear?: boolean }) => {
     const draft = liveCoworkMessageRef.current;
     const target = coworkFlushTargetRef.current;
@@ -646,7 +907,7 @@ export default function App() {
     estimateSize: () => 180,
     overscan: 5,
   });
-  const shouldVirtualizeMessages = activeMode !== 'cowork' && !isLoading && displayedMessages.length > 80;
+  const shouldVirtualizeMessages = activeMode !== 'cowork' && !activeAgentWorkspace && !isLoading && displayedMessages.length > 80;
 
   useEffect(() => {
     if (!shouldVirtualizeMessages) return;
@@ -734,7 +995,7 @@ export default function App() {
     }
   };
 
-  const handleSend = async (textToSend: string, overrideMessages?: Message[]) => {
+  const handleSend = async (textToSend: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession) => {
     if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading || sendInFlightRef.current) return;
     
     // Clear old response state immediately to prevent "phantom" previous responses
@@ -747,26 +1008,36 @@ export default function App() {
     setLiveCoworkMessage(null);
     liveCoworkMessageRef.current = null;
     
-    const isCoworkRun = activeMode === 'cowork';
     sendInFlightRef.current = true;
     setIsLoading(true);
     setStreamingThoughtsExpanded(true);
     setExpandedThoughts(prev => ({ ...prev, streaming: true }));
     abortControllerRef.current = new AbortController();
+    let isRichToolRun = false;
 
     try {
-      let currentSessionId = activeSessionId;
+      const effectiveSession = runtimeSessionOverride || activeSession;
+      const effectiveMode = runtimeSessionOverride?.mode || activeMode;
+      const effectiveConfig = configs[effectiveMode];
+      const effectiveSessionMessages = runtimeSessionOverride?.messages || currentMessages;
+      const isCoworkRun = effectiveMode === 'cowork';
+      const isAgentRun = effectiveSession.sessionKind === 'agent' && Boolean(effectiveSession.agentWorkspace);
+      isRichToolRun = isCoworkRun || isAgentRun;
+
+      let currentSessionId = runtimeSessionOverride?.id || activeSessionId;
       if (user && (currentSessionId === 'local-new' || !currentSessionId)) {
         const newId = Date.now().toString();
         const sessionPayload = {
           title: customTitle || textToSend.slice(0, 30) || 'Nouvelle conversation',
           updatedAt: Date.now(),
-          mode: activeMode,
+          mode: effectiveMode,
           userId: user.uid,
-          systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || ''
+          systemInstruction: effectiveSession.systemInstruction || effectiveConfig?.systemInstruction || configs.chat?.systemInstruction || '',
+          sessionKind: effectiveSession.sessionKind || 'standard',
+          agentWorkspace: effectiveSession.agentWorkspace,
         };
         try {
-          await setDoc(doc(db, 'users', user.uid, 'sessions', newId), sessionPayload);
+          await setDoc(doc(db, 'users', user.uid, 'sessions', newId), cleanForFirestore(sessionPayload));
         } catch (error) {
           console.warn('Session creation degraded, continuing with local state:', error);
         }
@@ -820,13 +1091,13 @@ export default function App() {
       }
 
       // In Image/Video mode, the refined instruction IS the prompt
-      const generationPrompt = (activeMode === 'image' || activeMode === 'video') && refinedInstruction 
+      const generationPrompt = (effectiveMode === 'image' || effectiveMode === 'video' || effectiveMode === 'audio') && refinedInstruction 
         ? refinedInstruction 
         : finalPrompt;
 
       // --- BRANCHED LOGIC BASED ON MODE ---
       
-      if (activeMode === 'image') {
+      if (effectiveMode === 'image') {
         // IMAGE GENERATION FLOW
         if (!overrideMessages) {
           const userMessage: Message = {
@@ -843,13 +1114,13 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: generationPrompt,
-            model: config?.model || configs.chat.model,
-            aspectRatio: config?.aspectRatio,
-            imageSize: config.imageSize,
-            numberOfImages: config.numberOfImages,
-            personGeneration: config.personGeneration,
-            safetySetting: config.safetySetting,
-            thinkingLevel: config.thinkingLevel
+            model: effectiveConfig?.model || configs.chat.model,
+            aspectRatio: effectiveConfig?.aspectRatio,
+            imageSize: effectiveConfig.imageSize,
+            numberOfImages: effectiveConfig.numberOfImages,
+            personGeneration: effectiveConfig.personGeneration,
+            safetySetting: effectiveConfig.safetySetting,
+            thinkingLevel: effectiveConfig.thinkingLevel
           })
         });
 
@@ -877,7 +1148,62 @@ export default function App() {
         return;
       }
 
-      if (activeMode === 'cowork') {
+      if (effectiveMode === 'audio') {
+        if (!overrideMessages) {
+          const userMessage: Message = {
+            id: createClientMessageId('msg'),
+            role: 'user',
+            content: finalPrompt,
+            createdAt: Date.now(),
+            attachments: cleanAttachments,
+            refinedInstruction,
+          };
+          setOptimisticMessages(prev => [...prev, userMessage]);
+          await persistSessionMessage(currentSessionId, userMessage);
+          setPendingAttachments([]);
+        }
+
+        const response = await fetch('/api/generate-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: generationPrompt,
+            model: effectiveConfig?.model || configs.audio.model,
+            ttsVoice: effectiveConfig?.ttsVoice,
+            ttsLanguageCode: effectiveConfig?.ttsLanguageCode,
+            temperature: effectiveConfig?.temperature,
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.details || errData.message || 'Erreur génération audio');
+        }
+
+        const data = await response.json();
+        const modelMessage: Message = {
+          id: createClientMessageId('model'),
+          role: 'model',
+          content: "Audio généré avec succès.",
+          attachments: [{
+            id: Date.now().toString(),
+            type: 'audio',
+            url: data.url,
+            mimeType: data.mimeType || 'audio/wav',
+            name: 'Audio généré',
+          }],
+          createdAt: Date.now(),
+        };
+        const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
+        if (!persistedModel) {
+          setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
+        }
+
+        setIsLoading(false);
+        return;
+      }
+
+      if (isCoworkRun || isAgentRun) {
         if (!overrideMessages) {
           const userMessage: Message = {
             id: createClientMessageId('msg'),
@@ -891,7 +1217,7 @@ export default function App() {
           setPendingAttachments([]);
         }
 
-        const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : currentMessages;
+        const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
         const historyForApi = apiHistory.map(m => ({
           role: m.role,
           parts:
@@ -906,11 +1232,17 @@ export default function App() {
                 ]
               : [{ text: m.content || ' ' }],
         }));
-        const coworkSystemInstruction = config?.systemInstruction?.trim();
+        const coworkSystemInstruction = effectiveConfig?.systemInstruction?.trim();
         const sanitizedCoworkSystemInstruction =
           coworkSystemInstruction && coworkSystemInstruction !== LEGACY_COWORK_SYSTEM_INSTRUCTION
             ? coworkSystemInstruction
             : undefined;
+        const agentRuntime = isAgentRun && effectiveSession.agentWorkspace
+          ? {
+              ...effectiveSession.agentWorkspace.agent,
+              formValues: effectiveSession.agentWorkspace.formValues,
+            }
+          : undefined;
 
         const response = await fetch('/api/cowork', {
           method: 'POST',
@@ -921,15 +1253,15 @@ export default function App() {
             history: historyForApi,
             attachments: cleanAttachments,
             config: {
-              model: config?.model || configs.chat.model,
-              temperature: config?.temperature ?? 0.1,
-              topP: config?.topP ?? 1.0,
-              topK: config?.topK ?? 1,
-              maxOutputTokens: config?.maxOutputTokens || 65536,
+              model: effectiveConfig?.model || configs.chat.model,
+              temperature: effectiveConfig?.temperature ?? 0.1,
+              topP: effectiveConfig?.topP ?? 1.0,
+              topK: effectiveConfig?.topK ?? 1,
+              maxOutputTokens: effectiveConfig?.maxOutputTokens || 65536,
               systemInstruction: sanitizedCoworkSystemInstruction,
-              googleSearch: config?.googleSearch !== false,
-              codeExecution: config?.codeExecution !== false,
-              thinkingLevel: config?.thinkingLevel || 'high',
+              googleSearch: effectiveConfig?.googleSearch !== false,
+              codeExecution: effectiveConfig?.codeExecution !== false,
+              thinkingLevel: effectiveConfig?.thinkingLevel || 'high',
             },
             clientContext: {
               locale: navigator.language || 'fr-FR',
@@ -937,6 +1269,7 @@ export default function App() {
               nowIso: new Date().toISOString(),
             },
             hubAgents: agents,
+            agentRuntime,
             sessionId: currentSessionId,
           }),
         });
@@ -1031,7 +1364,7 @@ export default function App() {
         return;
       }
 
-      if (activeMode === 'video') {
+      if (effectiveMode === 'video') {
         // VIDEO GENERATION FLOW
         if (!overrideMessages) {
           const userMessage: Message = {
@@ -1048,9 +1381,9 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: generationPrompt,
-            videoResolution: config?.videoResolution || '720p',
-            videoAspectRatio: config?.videoAspectRatio || '16:9',
-            videoDurationSeconds: config?.videoDurationSeconds || 6
+            videoResolution: effectiveConfig?.videoResolution || '720p',
+            videoAspectRatio: effectiveConfig?.videoAspectRatio || '16:9',
+            videoDurationSeconds: effectiveConfig?.videoDurationSeconds || 6
           })
         });
 
@@ -1096,7 +1429,7 @@ export default function App() {
         finalRefinedInstruction = lastMsg.refinedInstruction || refinedInstruction;
       }
 
-      const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : currentMessages;
+      const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
       const historyForApi = apiHistory.map(m => ({
         role: m.role,
         parts: m.attachments && m.attachments.length > 0 
@@ -1113,14 +1446,15 @@ export default function App() {
           history: historyForApi,
           attachments: finalAttachments,
           config: {
-            model: activeMode === 'chat' ? (config?.model || configs.chat.model) : configs.chat.model,
-            temperature: config?.temperature ?? 0.7,
-            topP: config?.topP ?? 0.95,
-            topK: config?.topK ?? 40,
-            maxOutputTokens: config?.maxOutputTokens || 8192,
-            systemInstruction: config?.systemInstruction || configs.chat.systemInstruction || '',
-            googleSearch: !!config?.googleSearch,
-            thinkingLevel: config?.thinkingLevel || 'high'
+            model: effectiveMode === 'chat' ? (effectiveConfig?.model || configs.chat.model) : configs.chat.model,
+            temperature: effectiveConfig?.temperature ?? 0.7,
+            topP: effectiveConfig?.topP ?? 0.95,
+            topK: effectiveConfig?.topK ?? 40,
+            maxOutputTokens: effectiveConfig?.maxOutputTokens || 8192,
+            systemInstruction: effectiveConfig?.systemInstruction || configs.chat.systemInstruction || '',
+            googleSearch: !!effectiveConfig?.googleSearch,
+            codeExecution: !!effectiveConfig?.codeExecution,
+            thinkingLevel: effectiveConfig?.thinkingLevel || 'high'
           },
           refinedSystemInstruction: finalRefinedInstruction
         })
@@ -1180,7 +1514,7 @@ export default function App() {
       }
 
     } catch (error: any) {
-      if (isCoworkRun && liveCoworkMessageRef.current) {
+      if (isRichToolRun && liveCoworkMessageRef.current) {
         if (error.name === 'AbortError') {
           setCoworkDraft(prev => {
             if (!prev || prev.runState === 'aborted') return prev;
@@ -1215,6 +1549,46 @@ export default function App() {
       sendInFlightRef.current = false;
     }
   };
+  handleSendRuntimeRef.current = handleSend;
+
+  const rerunActiveAgentWorkspace = useCallback(async () => {
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeAgentWorkspace) return;
+    if (isLoading || sendInFlightRef.current) return;
+
+    const launchPrompt = buildAgentLaunchPrompt(activeAgentWorkspace.agent, activeAgentWorkspace.formValues);
+    const updatedSession: ChatSession = {
+      ...activeSession,
+      updatedAt: Date.now(),
+      sessionKind: 'agent',
+      agentWorkspace: {
+        ...activeAgentWorkspace,
+        formValues: buildAgentRuntimeFormValues(activeAgentWorkspace.agent, activeAgentWorkspace.formValues),
+        lastLaunchPrompt: launchPrompt,
+      },
+    };
+
+    upsertSessionLocal(updatedSession);
+    await persistSessionShell(updatedSession);
+
+    if (handleSendRuntimeRef.current) {
+      await handleSendRuntimeRef.current(launchPrompt, undefined, updatedSession);
+    }
+  }, [activeAgentWorkspace, activeSession, activeSessionId, isLoading, persistSessionShell, upsertSessionLocal, user]);
+
+  const handleRunAgentFromHub = useCallback(async (
+    agent: StudioAgent,
+    values: AgentFormValues
+  ) => {
+    if (isLoading || sendInFlightRef.current) return;
+
+    setIsRunningHubAgent(true);
+
+    try {
+      await openAgentWorkspace(agent, values);
+    } finally {
+      setIsRunningHubAgent(false);
+    }
+  }, [isLoading, openAgentWorkspace]);
 
   const handleRetry = async (idx: number) => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading || sendInFlightRef.current) return;
@@ -1358,7 +1732,7 @@ export default function App() {
 
   return (
     <div className={cn(
-      "flex h-[100dvh] w-full transition-all duration-500 font-sans",
+      "studio-shell flex h-[100dvh] w-full transition-all duration-500 font-sans",
       "bg-[var(--app-bg)] text-[var(--app-text)]"
     )}>
       <SidebarLeft user={user} sessions={sessions} isVertexConfigured={isVertexConfigured} onNewChat={handleNewChat} onModeChange={handleModeChange} />
@@ -1384,14 +1758,25 @@ export default function App() {
       </AnimatePresence>
 
       {!isAuthReady ? (
-        <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-indigo-500" /></div>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="studio-panel flex items-center gap-3 rounded-full px-5 py-3 text-sm text-[var(--app-text-muted)]">
+            <Loader2 className="animate-spin text-[var(--app-accent)]" size={16} />
+            Chargement du studio...
+          </div>
+        </div>
       ) : (
         <div 
-          className="flex-1 flex flex-col relative w-full overflow-hidden"
+          className="relative flex w-full flex-1 flex-col overflow-hidden"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute inset-x-0 top-0 h-[36vh] bg-[radial-gradient(circle_at_top,rgba(129,236,255,0.11),transparent_46%)]" />
+            <div className="absolute bottom-0 left-[18%] h-[22rem] w-[22rem] rounded-full bg-[radial-gradient(circle,rgba(255,191,134,0.08),transparent_68%)] blur-3xl" />
+            <div className="absolute right-[8%] top-[18%] h-[24rem] w-[24rem] rounded-full bg-[radial-gradient(circle,rgba(68,196,255,0.13),transparent_65%)] blur-3xl" />
+          </div>
+
           {/* Global Dropzone Overlay */}
           <AnimatePresence>
             {isDragging && (
@@ -1399,15 +1784,15 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 z-[100] bg-[var(--app-bg)]/40 backdrop-blur-md flex items-center justify-center border-2 border-dashed border-indigo-500/40 m-4 rounded-[2.5rem] pointer-events-none"
+                className="absolute inset-0 z-[100] m-4 flex items-center justify-center rounded-[2.5rem] border-2 border-dashed border-[var(--app-border-strong)] bg-[rgba(var(--app-bg-rgb),0.46)] backdrop-blur-md pointer-events-none"
               >
                 <motion.div 
                   initial={{ scale: 0.9, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 1.1, opacity: 0 }}
-                  className="flex flex-col items-center gap-4 p-12 bg-[var(--app-surface)]/80 backdrop-blur-2xl rounded-[3rem] border border-white/10 shadow-2xl ring-1 ring-indigo-500/20"
+                  className="studio-panel-strong flex flex-col items-center gap-4 rounded-[3rem] p-12"
                 >
-                  <div className="w-20 h-20 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 ring-8 ring-indigo-500/5">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[var(--app-accent-soft)] text-[var(--app-accent)] ring-8 ring-[rgba(129,236,255,0.08)]">
                     <Plus size={40} className="animate-pulse" />
                   </div>
                   <div className="flex flex-col items-center gap-1">
@@ -1419,32 +1804,50 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <header className="h-16 border-b border-[var(--app-border)] flex items-center justify-between px-6 bg-[var(--app-bg)]/80 backdrop-blur-md z-40 relative">
-            <div className="flex items-center gap-4 flex-1 overflow-hidden">
-               <button onClick={() => setLeftSidebarVisible(!isLeftSidebarVisible)} className="p-2 hover:bg-[var(--app-text)]/5 rounded-lg transition-colors shrink-0"><Menu size={20}/></button>
+          <header className="relative z-40 flex h-[74px] items-center justify-between border-b border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.72)] px-4 backdrop-blur-2xl sm:px-6">
+            <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
+               <button onClick={() => setLeftSidebarVisible(!isLeftSidebarVisible)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Menu size={18}/></button>
                
-               <div className="flex items-center gap-2 overflow-hidden flex-1 group/title">
+               <div className="group/title flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                  {!user ? (
-                   <h1 className="text-sm font-semibold text-[var(--app-text)] truncate">Studio Pro</h1>
+                   <>
+                     <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-accent)]">
+                       <Sparkles size={16} />
+                     </div>
+                      <div className="min-w-0 max-w-[10rem] sm:max-w-none">
+                        <div className="truncate text-sm font-semibold text-[var(--app-text)]">Studio Pro</div>
+                        <div className="mt-0.5 truncate text-[10px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] sm:text-[11px]">{activeModeLabel}</div>
+                     </div>
+                   </>
                  ) : isEditingTitle ? (
-                   <div className="flex items-center gap-2 w-full max-w-md">
+                   <div className="flex w-full max-w-md items-center gap-2">
                      <input 
                        autoFocus 
                        value={titleInput} 
                        onChange={e => setTitleInput(e.target.value)}
                        onKeyDown={e => e.key === 'Enter' && handleManualTitleUpdate()}
                        onBlur={() => setIsEditingTitle(false)}
-                       className="bg-[var(--app-text)]/[0.05] border border-indigo-500/30 rounded-lg px-3 py-1.5 text-sm w-full outline-none focus:ring-1 focus:ring-indigo-500/30" 
+                       className="studio-input text-sm" 
                      />
-                     <button onClick={handleManualTitleUpdate} className="p-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"><Check size={14}/></button>
+                     <button onClick={handleManualTitleUpdate} className="studio-button-primary px-3 py-2 text-xs"><Check size={14}/></button>
                    </div>
                  ) : (
                    <>
-                     <h1 className="text-sm font-semibold text-[var(--app-text)] truncate">{activeSession.title}</h1>
-                     <div className="flex items-center gap-1 opacity-0 group-hover/title:opacity-100 transition-opacity">
+                      <div className="min-w-0 max-w-[12rem] sm:max-w-none">
+                        <div className="truncate text-sm font-semibold text-[var(--app-text)]">{activeSession.title}</div>
+                        <div className="mt-0.5 flex items-center gap-2 overflow-hidden">
+                          <span className="truncate text-[10px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] sm:text-[11px]">{activeModeLabel}</span>
+                         {activeSession.sessionKind === 'agent' && (
+                           <span className="rounded-full border border-[var(--app-border)] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--app-accent)]">
+                             Agent
+                           </span>
+                         )}
+                       </div>
+                     </div>
+                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/title:opacity-100">
                         <button 
                           onClick={() => { setTitleInput(activeSession.title); setIsEditingTitle(true); }}
-                          className="p-1.5 hover:bg-[var(--app-text)]/5 rounded-md text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-all"
+                          className="flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border)] hover:bg-white/[0.04] hover:text-[var(--app-text)]"
                           title="Modifier manuellement"
                         >
                           <Pencil size={13} />
@@ -1453,7 +1856,7 @@ export default function App() {
                           onClick={handleAiTitleUpdate}
                           disabled={isGeneratingTitle}
                           className={cn(
-                            "p-1.5 hover:bg-[var(--app-text)]/5 rounded-md text-[var(--app-text-muted)] hover:text-indigo-400 transition-all",
+                            "flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border)] hover:bg-white/[0.04] hover:text-[var(--app-accent)]",
                             isGeneratingTitle && "animate-pulse"
                           )}
                           title="Générer par IA"
@@ -1465,11 +1868,11 @@ export default function App() {
                  )}
                </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex shrink-0 items-center gap-2">
                {activeMode === 'cowork' && user && (
                  <button
                    onClick={() => setShowAgentsHub(true)}
-                   className="inline-flex items-center gap-2 rounded-full border border-cyan-300/18 bg-cyan-300/[0.07] px-3 py-2 text-sm font-medium text-cyan-100 transition-colors hover:bg-cyan-300/[0.12]"
+                   className="hidden items-center gap-2 rounded-full border border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] px-3.5 py-2 text-sm font-medium text-[var(--app-text)] transition-colors hover:bg-[rgba(129,236,255,0.2)] sm:inline-flex"
                    title="Ouvrir le Hub Agents"
                  >
                    <Bot size={15} />
@@ -1481,9 +1884,9 @@ export default function App() {
                    )}
                  </button>
                )}
-               <button onClick={() => setShowSearch(!showSearch)} className="p-2 hover:bg-[var(--app-text)]/5 rounded-lg text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"><Search size={20}/></button>
-               <button onClick={() => handleExport('md')} className="p-2 hover:bg-[var(--app-text)]/5 rounded-lg text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"><Download size={20}/></button>
-               <button onClick={() => setRightSidebarVisible(!isRightSidebarVisible)} className="p-2 hover:bg-[var(--app-text)]/5 rounded-lg text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"><SlidersHorizontal size={20}/></button>
+               <button onClick={() => setShowSearch(!showSearch)} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Search size={18}/></button>
+               <button onClick={() => handleExport('md')} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Download size={18}/></button>
+               <button onClick={() => setRightSidebarVisible(!isRightSidebarVisible)} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><SlidersHorizontal size={18}/></button>
             </div>
           </header>
 
@@ -1515,34 +1918,77 @@ export default function App() {
             </div>
           )}
 
-          {!user ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                <button 
-                  onClick={async () => {
-                    try {
-                      await signInWithPopup(auth, googleProvider);
-                    } catch (error: any) {
-                      console.error("Login error:", error);
-                      alert(`Erreur de connexion : ${error.message || String(error)}`);
-                    }
-                  }} 
-                  className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20"
+          {activeMode === 'cowork' && user && agentsWarning && !showAgentsHub && (
+            <div className="border-b border-amber-300/10 bg-amber-300/[0.06] px-6 py-3">
+              <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-[0.2em] text-amber-100/55">Hub en mode local</div>
+                  <div className="text-sm text-amber-50/90">
+                    {agentsWarning}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAgentsHub(true)}
+                  className="shrink-0 rounded-full border border-amber-200/18 bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/14"
                 >
-                  Se connecter avec Google
+                  Voir le hub
                 </button>
+              </div>
             </div>
+          )}
+
+          {!user ? (
+            <main className="relative flex-1 overflow-x-hidden overflow-y-auto">
+              <StudioEmptyState
+                mode={activeMode}
+                isAuthenticated={false}
+                onPrimaryAction={handleGoogleLogin}
+                onQuickPrompt={handleGoogleLogin}
+              />
+            </main>
           ) : (
             <>
               <AgentsHub
                 isOpen={showAgentsHub}
                 agents={agents}
                 isCreating={isCreatingAgent}
+                isRunningAgent={isRunningHubAgent || isLoading}
                 latestCreatedAgent={latestCreatedAgent}
+                warningMessage={agentsWarning}
                 onClose={() => setShowAgentsHub(false)}
                 onCreateAgent={handleCreateAgent}
+                onRunAgent={handleRunAgentFromHub}
               />
 
               <main ref={parentRef} className="relative flex-1 overflow-x-hidden overflow-y-auto">
+                {shouldShowEmptyState && (
+                  <StudioEmptyState
+                    mode={activeMode}
+                    isAuthenticated={true}
+                    onPrimaryAction={() => handleQuickStartPrompt("Commence une nouvelle mission dans ce mode.")}
+                    onQuickPrompt={handleQuickStartPrompt}
+                    onOpenAgentsHub={activeMode === 'cowork' ? () => setShowAgentsHub(true) : undefined}
+                  />
+                )}
+                {activeAgentWorkspace && (
+                  <AgentWorkspacePanel
+                    agent={activeAgentWorkspace.agent}
+                    formValues={activeAgentWorkspace.formValues}
+                    isRunning={isLoading}
+                    onFieldChange={(fieldId, value) => {
+                      void updateAgentWorkspaceValues({
+                        ...activeAgentWorkspace.formValues,
+                        [fieldId]: value,
+                      });
+                    }}
+                    onRunAgent={() => rerunActiveAgentWorkspace()}
+                    onAskCowork={(request) => requestCoworkAgentEdit(
+                      activeAgentWorkspace.agent,
+                      request,
+                      activeAgentWorkspace.formValues
+                    )}
+                  />
+                )}
                 {shouldVirtualizeMessages ? (
                   <div
                     style={{
@@ -1615,11 +2061,11 @@ export default function App() {
                     />
                   </div>
                 )}
-                <div ref={messagesEndRef} className="h-44" />
+                <div ref={messagesEndRef} className="h-32 sm:h-40" />
               </main>
 
-              <div className="p-5 bg-gradient-to-t from-inherit via-inherit to-transparent pt-10">
-                <div className="max-w-3xl mx-auto">
+              <div className="border-t border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] px-3 pb-4 pt-5 sm:px-5 sm:pt-6">
+                <div className="mx-auto max-w-3xl">
                   <ChatInput onSend={handleSend} onStop={() => abortControllerRef.current?.abort()} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} />
                 </div>
               </div>
@@ -1633,12 +2079,12 @@ export default function App() {
       {/* Search Overlay */}
       <AnimatePresence>
         {showSearch && (
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="absolute top-20 left-1/2 -translate-x-1/2 w-full max-w-xl z-[100] px-4">
-            <div className="bg-[var(--app-surface)]/90 backdrop-blur-xl border border-[var(--app-border)] rounded-2xl p-4 shadow-2xl">
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="absolute left-1/2 top-24 z-[100] w-full max-w-xl -translate-x-1/2 px-4">
+            <div className="studio-panel-strong rounded-[1.8rem] p-4">
               <div className="flex items-center gap-3">
-                <Search size={18} className="text-[var(--app-text-muted)]" />
-                <input autoFocus placeholder="Rechercher dans la conversation..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-[var(--app-text)] w-full text-sm placeholder:text-[var(--app-text-muted)]/50" />
-                <button onClick={() => setShowSearch(false)}><X size={18} className="text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors" /></button>
+                <Search size={18} className="text-[var(--app-accent)]" />
+                <input autoFocus placeholder="Rechercher dans la conversation..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full bg-transparent border-none outline-none text-sm text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/55" />
+                <button onClick={() => setShowSearch(false)} className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04]"><X size={16} className="text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors" /></button>
               </div>
             </div>
           </motion.div>
@@ -1647,8 +2093,8 @@ export default function App() {
 
       {/* Modal image */}
       {selectedImage && (
-        <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4" onClick={() => setSelectedImage(null)}>
-          <img src={selectedImage} className="max-w-full max-h-full rounded-2xl shadow-2xl" />
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 p-4 backdrop-blur-xl" onClick={() => setSelectedImage(null)}>
+          <img src={selectedImage} className="max-h-full max-w-full rounded-[2rem] border border-white/10 shadow-[0_30px_80px_-28px_rgba(0,0,0,0.9)]" />
         </div>
       )}
     </div>

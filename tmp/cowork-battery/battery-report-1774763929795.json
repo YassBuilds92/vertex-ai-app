@@ -1,0 +1,99 @@
+{
+  "createdAt": "2026-03-29T05:57:07.920Z",
+  "baseUrl": "http://127.0.0.1:3000",
+  "model": "gemini-3.1-pro-preview",
+  "tests": [
+    {
+      "id": "1.1",
+      "category": "Recherche & Synthese",
+      "title": "Dossier d'investigation",
+      "prompts": [
+        "Fais-moi un dossier complet sur la crise de l'eau en France : etat des nappes phreatiques, restrictions en cours, projections 2030, comparaison avec l'Espagne et l'Italie. PDF avec graphiques si possible."
+      ],
+      "expectations": {
+        "expectsArtifact": true,
+        "minSearches": 8,
+        "minSources": 4,
+        "maxStalls": 1,
+        "minReleaseCount": 1
+      },
+      "turns": [
+        {
+          "prompt": "Fais-moi un dossier complet sur la crise de l'eau en France : etat des nappes phreatiques, restrictions en cours, projections 2030, comparaison avec l'Espagne et l'Italie. PDF avec graphiques si possible.",
+          "runState": "completed",
+          "runMeta": {
+            "iterations": 8,
+            "modelCalls": 8,
+            "toolCalls": 12,
+            "searchCount": 4,
+            "fetchCount": 4,
+            "sourcesOpened": 4,
+            "domainsOpened": 4,
+            "artifactState": "released",
+            "stalledTurns": 0,
+            "retryCount": 0,
+            "queueWaitMs": 0,
+            "mode": "autonomous",
+            "phase": "completed",
+            "taskComplete": true,
+            "inputTokens": 119546,
+            "outputTokens": 3933,
+            "thoughtTokens": 2500,
+            "toolUseTokens": 0,
+            "totalTokens": 125979,
+            "estimatedCostUsd": 0.316288,
+            "estimatedCostEur": 0.274103
+          },
+          "durationMs": 101872,
+          "warnings": [
+            "La lecture de 'https://www.info.gouv.fr/grand-dossier/preservons-notre-ressource-en-eau/les-53-mesures-du-plan-eau' reste full avec pertinence degraded. Utilise-la comme signal, pas comme preuve definitive si le sujet reste sensible."
+          ],
+          "toolCalls": [
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "begin_pdf_draft",
+            "begin_pdf_draft",
+            "review_pdf_draft",
+            "review_pdf_draft",
+            "create_pdf",
+            "create_pdf",
+            "release_file",
+            "release_file"
+          ],
+          "releasedUrlCount": 1,
+          "finalTextPreview": "Voici un dossier complet sur la situation hydrologique en France et en Europe du Sud, actualisé avec les dernières données de **mars 2026**.\n\n### 1. État des nappes phréatiques en France (Mars 2026)\nContrairement aux craintes de l'automne dernier, la France connaît une **accalmie inespérée**. Selon le dernier bulletin officiel du BRGM (Bureau de Recherches Géologiques et Minières) publié début mars 2026, la recharge hivernale a été exceptionnelle, particulièrement en février.\n*   **84 %** des nappes phréatiques affichent des niveaux en hausse.\n*   **67 %** des points d'observation se situent au-dessus des normales mensuelles (contre 61 % à la même période en 2025).\n*   Les trois quarts sud-ouest de l'Hexagone présentent des niveaux excédentaires, qualifiés de « modérément hauts à très hauts ». Seules quelques nappes du quart nord-est conservent des niveaux modérément bas, bien que la tendance soit à l'amélioration.\n\n### 2. Restrictions en cours\nConséquence directe de cette abondance (avec des précipitations ayant atteint 1,5 à 3 fois la normale sur une grande partie du pays), **la carte des restrictions d'eau est actuellement très allégée**.\nLes arrêtés préfectoraux limitant les usages (arrosage, piscines, irrigation) ont été massivement levés ou rétrogradés au simple stade de « vigilance ». Même des départements historiquement sous tension, comme les Pyrénées-Orientales, ont vu leurs restrictions significativement assouplies en début d'année. Les autorités maintiennent toute"
+        }
+      ],
+      "final": {
+        "searchCount": 4,
+        "sourcesOpened": 4,
+        "stalledTurns": 0,
+        "artifactState": "released",
+        "wordCount": 620,
+        "failures": [
+          "searches 4 < 8"
+        ],
+        "passed": false
+      }
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "total": 1
+  }
+}

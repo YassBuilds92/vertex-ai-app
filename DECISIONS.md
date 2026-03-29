@@ -54,3 +54,144 @@
 - Alternatives ecartees:
   - lecture Firestore directe cote backend: plus lourde et inutile pour cette etape
   - nouveau service dedie aux sous-agents: premature et trop risquee pour le lot actuel
+
+## 2026-03-29 - Hub Agents local-first si Firestore degrade
+- Statut: adopte
+- Contexte: en production, des refus `Missing or insufficient permissions` pouvaient encore survenir sur `users/{uid}/agents`, et la lecture Firestore cassait l'UX du hub avec une popup bloquante.
+- Decision: rendre le Hub Agents local-first avec snapshots `localStorage`, synchro Firestore en best effort et warning visible au lieu d'une erreur modale.
+- Pourquoi:
+  - l'agent cree doit rester utilisable meme si le cloud refuse temporairement la collection
+  - la creation d'agent ne doit plus faire echouer Cowork ni l'interface manuelle
+  - le hub reste coherent avec la promesse produit "delegation reutilisable"
+- Consequence:
+  - ajout de `src/utils/agentSnapshots.ts`
+  - lecture `users/{uid}/agents` degradee en warning non bloquant
+  - persistance locale avant tentative Firestore dans `persistAgentBlueprint()`
+
+## 2026-03-29 - Le Hub doit etre une surface d'execution, pas un catalogue
+- Statut: adopte
+- Contexte: afficher seulement le `uiSchema` sous forme de badges donnait l'illusion d'une UI sans permettre de lancer reellement la mission.
+- Decision: faire du Hub Agents une vraie interface de lancement avec renderer de champs, validation minimale et CTA direct vers Cowork.
+- Pourquoi:
+  - un agent sans interface executable reste trop abstrait pour l'utilisateur
+  - la relance explicite reduit la dependance au choix implicite du modele
+  - cela rend visible la difference entre blueprint, mission et execution
+- Consequence:
+  - `src/components/AgentsHub.tsx` rend maintenant un formulaire complet
+
+## 2026-03-29 - Direction frontend "studio editorial premium"
+- Statut: adopte
+- Contexte: l'interface etait fonctionnelle mais encore trop proche d'un dashboard generique, avec un grand vide central et des panneaux visuellement inegaux.
+- Decision: assumer une direction artistique forte type "atelier / control room" avec un hero editorial au centre, des panneaux unifies, une typographie plus marquee et un responsive pense des le shell.
+- Pourquoi:
+  - donne une vraie personnalite produit a Studio Pro au lieu d'un simple habillage
+  - rend les etats vides utiles et desirables au lieu de montrer un trou dans l'interface
+  - cree une base coherente pour tous les modes (`chat`, `cowork`, `image`, `video`, `audio`)
+- Consequence:
+  - refonte des fondations CSS dans `src/index.css`
+  - ajout de `src/components/StudioEmptyState.tsx`
+  - harmonisation de `src/App.tsx`, `SidebarLeft`, `SidebarRight`, `ChatInput` et `MessageItem`
+  - validation visuelle systematique desktop + mobile via Playwright
+  - `src/App.tsx` expose `handleRunAgentFromHub()`
+  - le hub peut relancer un specialiste existant meme si son `uiSchema` est vide grace au fallback `missionBrief`
+
+## 2026-03-29 - L'utilisateur utilise l'agent, Cowork l'edite
+- Statut: adopte
+- Contexte: le besoin produit a ete precise apres livraison du niveau 2. Le workflow vise n'est pas "Cowork utilise le specialiste pour toi", mais "Cowork construit l'agent, puis toi tu utilises cet agent directement".
+- Decision: transformer les agents du hub en workspaces utilisateurs de premiere classe, et releguer Cowork a la creation et a l'edition de ces agents.
+- Pourquoi:
+  - colle au besoin reel formule par l'utilisateur
+  - rend l'agent concret et accessible sans prompt technique
+  - permet une boucle produit claire: usage direct -> feedback -> modification par Cowork
+- Consequence:
+  - sessions `sessionKind='agent'`
+  - panneau `AgentWorkspacePanel`
+  - runtime backend `agentRuntime` sur `/api/cowork`
+  - nouvel outil `update_agent_blueprint` pour modifier un agent existant
+
+## 2026-03-29 - Exigence qualitative guidee par l'etat, pas par un plan rigide
+- Statut: adopte
+- Contexte: l'utilisateur veut des boucles plus engagees et moins paresseuses, mais refuse qu'on code un plan fixe du type "8 recherches obligatoires" ou des checklists deterministes par demande.
+- Decision: renforcer la posture du system prompt et ajouter des nudges qualite fondes sur l'etat reel du run (matiere collectee, sources ouvertes, densite du brouillon, artefact en cours), sans forcer une sequence d'actions predefinie.
+- Pourquoi:
+  - laisse le modele libre de sa strategie
+  - corrige la paresse observable quand Cowork part trop vite en livraison avec peu de substance
+  - evite de retomber dans des pipelines rigides pilotes par mots-cles
+- Consequence:
+  - system prompt Cowork plus exigeant sur la substance
+  - ajout d'un helper `buildCoworkEngagementNudge()` dans `api/index.ts`
+  - relance douce du modele quand un brouillon ou une recherche restent trop maigres pour la promesse implicite du livrable
+
+## 2026-03-29 - Options explicites et defaults neutres
+- Statut: adopte
+- Contexte: meme apres avoir retire les gros faux positifs, le runtime restait encore partiellement pilote par des heuristiques lexicales et des relances backend invisibles.
+- Decision: basculer Cowork vers des outils a options explicites et des defaults neutres, sans deduction backend de la strategie a partir du prompt utilisateur.
+- Pourquoi:
+  - colle au cap produit "le modele decide, le backend verifie"
+  - supprime les derniers effets de bord ou le backend choisissait `news`, `strict`, `latex`, `theme`, `time_range` ou un nudge qualite a la place du modele
+  - rend le comportement beaucoup plus lisible a debugger: si une recherche est stricte ou orientee news, c'est parce que le modele l'a demande
+- Consequence:
+  - `web_search` accepte maintenant `topic`, `searchDepth`, `strict`, `timeRange`, `includeDomains`, `directSourceUrls`
+  - `web_fetch` accepte maintenant `contextQuery` et `strict`
+  - `buildTavilySearchPlan()` et `searchWeb()` ont des defaults neutres quand ces options ne sont pas fournies
+  - `getPdfQualityTargets()` retourne `null` par defaut et `resolvePdfEngine(auto)` tombe sur `pdfkit`
+  - les relances backend `buildCoworkEngagementNudge()` et `artifactCompletionPrompt` sortent du chemin runtime normal
+
+## 2026-03-29 - Les media generators deviennent des outils de premiere classe
+- Statut: adopte
+- Contexte: l'utilisateur veut que Cowork puisse appeler librement la generation d'image, Gemini TTS et Lyria, sans passer par des mots-cles backend ni des workflows caches.
+- Decision: exposer trois vrais `localTools` (`generate_image_asset`, `generate_tts_audio`, `generate_music_audio`) qui creent des fichiers locaux dans `/tmp/`, puis laissent le modele decider s'il faut les publier via `release_file`.
+- Pourquoi:
+  - reste coherent avec la philosophie "le modele decide, le backend verifie"
+  - rend ces capacites reutilisables par Cowork et par les agents du hub
+  - evite de dupliquer des pipelines speciaux cote frontend uniquement
+- Consequence:
+  - ajout d'un helper partage `api/lib/media-generation.ts`
+  - ajout des routes `/api/generate-audio` et `/api/generate-music`
+  - le mode `audio` de l'UI fonctionne enfin reellement
+
+## 2026-03-29 - PDF premium modele-led via metadonnees de section
+- Statut: adopte
+- Contexte: l'utilisateur veut des PDF LaTeX tres beaux et vraiment thematiques, y compris avec une ambiance differente d'une page/section a l'autre, sans revenir a des mots-cles backend qui imposent une strategie.
+- Decision: faire porter l'art direction par les sections elles-memes (`visualTheme`, `mood`, `motif`, `flagHints`, `pageStyle`, `pageBreakBefore`) et laisser Cowork choisir explicitement `engine='latex'` quand il vise un rendu premium.
+- Pourquoi:
+  - permet des spreads visuels differents (ex: guerre puis football) sans raw `.tex` obligatoire
+  - reste coherent avec la philosophie "le modele decide, le backend rend"
+  - garde un fallback simple (`pdfkit`) pour les documents ordinaires
+- Consequence:
+  - `api/index.ts` accepte et preserve ces champs dans les brouillons PDF
+  - `server/pdf/latex.ts` sait maintenant composer des couvertures/sections premium avec motifs et badges drapeaux
+  - Cowork est informe dans son prompt et ses outils qu'il peut piloter cette DA sans heuristique backend
+
+## 2026-03-29 - Le brouillon PDF devient un vrai atelier de revision
+- Statut: adopte
+- Contexte: l'utilisateur ne veut pas d'un "brouillon" qui est en pratique un premier jet pousse presque directement en PDF. Il veut que Cowork puisse relire, reprendre, couper, reordonner et maturer le texte avant export.
+- Decision: ajouter un vrai verbe de revision au contrat PDF avec `revise_pdf_draft`, au lieu de garder un workflow limite a `begin_pdf_draft -> append_to_draft -> create_pdf`.
+- Pourquoi:
+  - `append_to_draft` seul cree un comportement d'empilement, pas de reecriture
+  - la qualite editoriale demande parfois de remplacer ou supprimer, pas seulement d'ajouter
+  - cela reste modele-led: on ne force pas une checklist, on donne juste au modele une vraie surface de travail
+- Consequence:
+  - `api/index.ts` expose `reviseActivePdfDraft()` et le tool `revise_pdf_draft`
+  - revision possible des metas (`title`, `subtitle`, `summary`, `author`)
+  - remplacement complet des sections ou operations 1-based (`replace`, `remove`, `insert_before`, `insert_after`, `append`)
+  - `sourcesMode=append|replace`
+  - la consigne systeme Cowork parle du brouillon comme d'un atelier de travail avant `create_pdf`
+
+## 2026-03-29 - Le podcast devient un artefact audio de premiere classe
+- Statut: adopte
+- Contexte: l'utilisateur veut que Cowork puisse produire un vrai podcast audio complet, pas juste un script ou deux assets separes. La voix doit pouvoir venir de `gemini-2.5-pro-tts` et le fond sonore de Lyria.
+- Decision: ajouter un tool autonome `create_podcast_episode` qui orchestre un pipeline complet:
+  - narration TTS
+  - bed musical Lyria
+  - mix final audio unique
+- Pourquoi:
+  - correspond exactement au besoin produit "il fait ce qu'il veut" pour le podcast
+  - garde la logique modele-led: Cowork choisit s'il fournit un `script` exact ou juste un `brief`
+  - evite de demander a l'utilisateur de mixer lui-meme la voix et la musique
+- Consequence:
+  - `api/lib/media-generation.ts` expose `generatePodcastEpisode()`
+  - defaut podcast narration = `gemini-2.5-pro-tts`
+  - defaut podcast musique = `lyria-002`
+  - le mix final passe par `ffmpeg` local avec intro/outro legeres
+  - Cowork peut ensuite publier directement le fichier via `release_file`

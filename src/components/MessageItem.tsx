@@ -410,10 +410,10 @@ export const MessageItem = React.memo(({
       )}
     >
       <div className={cn(
-        "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-1 transition-all duration-300",
+        "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 mt-1 transition-all duration-300 border",
         msg.role === 'user' 
-          ? "bg-[var(--app-text)]/[0.05] border border border-[var(--app-border)] shadow-md text-[var(--app-text)]" 
-          : "bg-gradient-to-br from-indigo-500/20 to-purple-500/15 border border-indigo-500/15 text-indigo-500 shadow-md shadow-indigo-500/5"
+          ? "bg-white/[0.05] border-[var(--app-border)] shadow-md text-[var(--app-text)]" 
+          : "bg-[linear-gradient(135deg,rgba(129,236,255,0.16),rgba(68,196,255,0.08))] border-[var(--app-border-strong)] text-[var(--app-accent)] shadow-[0_20px_36px_-24px_rgba(68,196,255,0.55)]"
       )}>
         {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
       </div>
@@ -423,16 +423,16 @@ export const MessageItem = React.memo(({
         msg.role === 'user' ? "items-end" : "items-start"
       )}>
         <div className={cn(
-          "relative min-w-0 max-w-full px-5 py-4 md:px-7 md:py-5 rounded-[2rem] shadow-2xl transition-all duration-500",
+          "relative min-w-0 max-w-full px-5 py-4 md:px-7 md:py-5 rounded-[2rem] shadow-2xl transition-all duration-500 overflow-hidden",
           msg.role === 'user'
-            ? "w-fit max-w-full md:max-w-[42rem] bg-[var(--app-text)]/[0.03] backdrop-blur-md text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)] ring-1 ring-[var(--app-border)]"
-            : "w-full md:max-w-[48rem] bg-[var(--app-surface)]/[0.24] backdrop-blur-xl text-[var(--app-text)]/90 rounded-bl-md border border-white/[0.06] shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
+            ? "w-fit max-w-full md:max-w-[42rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))] backdrop-blur-md text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)]"
+            : "w-full md:max-w-[48rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] backdrop-blur-xl text-[var(--app-text)]/90 rounded-bl-md border border-[var(--app-border)] shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
         )}>
           {msg.role === 'model' && !isLoading && (
             <button
               onClick={() => onRetry(idx)}
               disabled={isLoading}
-              className="absolute -right-12 top-10 p-2 text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/5 hover:bg-[var(--app-text)]/10 rounded-lg opacity-0 group-hover/msg:opacity-100 transition-all border border-[var(--app-border)] shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
+              className="absolute -right-12 top-10 flex h-9 w-9 items-center justify-center text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/5 hover:bg-[var(--app-text)]/10 rounded-xl opacity-0 group-hover/msg:opacity-100 transition-all border border-[var(--app-border)] shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
               title="Régénérer la réponse"
             >
               <RotateCcw size={14} />
@@ -441,7 +441,7 @@ export const MessageItem = React.memo(({
           {msg.role === 'model' && msg.content && (
             <button 
               onClick={handleCopyMsg}
-              className="absolute -right-12 top-2 p-2 text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/5 hover:bg-[var(--app-text)]/10 rounded-lg opacity-0 group-hover/msg:opacity-100 transition-all border border-[var(--app-border)] shadow-lg"
+              className="absolute -right-12 top-2 flex h-9 w-9 items-center justify-center text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/5 hover:bg-[var(--app-text)]/10 rounded-xl opacity-0 group-hover/msg:opacity-100 transition-all border border-[var(--app-border)] shadow-lg"
               title="Copier le message"
             >
               {isCopied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
@@ -453,7 +453,7 @@ export const MessageItem = React.memo(({
               {msg.attachments && (msg.attachments?.length ?? 0) > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-1">
                   {msg.attachments.map(att => (
-                    <div key={att.id} className="inline-flex items-center gap-1.5 bg-white/[0.06] px-2.5 py-1.5 rounded-lg border border-white/[0.06] text-[11px] text-zinc-400">
+                    <div key={att.id} className="inline-flex items-center gap-1.5 bg-white/[0.06] px-2.5 py-1.5 rounded-full border border-[var(--app-border)] text-[11px] text-zinc-300">
                       {att.type === 'image' && <ImageIcon size={12} />}
                       {att.type === 'video' && <Video size={12} />}
                       {att.type === 'audio' && <Music size={12} />}
@@ -475,12 +475,12 @@ export const MessageItem = React.memo(({
                       if (e.key === 'Escape') handleEditCancel();
                     }}
                     autoFocus
-                    className="message-copy w-full bg-black/30 border border-indigo-500/40 rounded-xl px-3.5 py-3 text-[15px] text-zinc-100 leading-[1.8] resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
+                    className="message-copy w-full bg-black/30 border border-[var(--app-border-strong)] rounded-[1.2rem] px-3.5 py-3 text-[15px] text-zinc-100 leading-[1.8] resize-none focus:outline-none focus:ring-1 focus:ring-[rgba(129,236,255,0.24)]"
                     rows={Math.max(2, editText.split('\n').length)}
                   />
                   <div className="flex gap-2 justify-end">
-                    <button onClick={handleEditCancel} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white rounded-lg bg-white/5 hover:bg-white/10 transition-all">Annuler</button>
-                    <button onClick={handleEditSave} className="px-3 py-1.5 text-xs text-white bg-indigo-500/80 hover:bg-indigo-500 rounded-lg transition-all flex items-center gap-1.5"><Send size={11} />Envoyer</button>
+                    <button onClick={handleEditCancel} className="px-3 py-1.5 text-xs text-zinc-300 hover:text-white rounded-full border border-[var(--app-border)] bg-white/5 hover:bg-white/10 transition-all">Annuler</button>
+                    <button onClick={handleEditSave} className="px-3 py-1.5 text-xs text-[#041018] border border-[var(--app-border-strong)] bg-[linear-gradient(135deg,rgba(129,236,255,0.95),rgba(68,196,255,0.78))] rounded-full transition-all flex items-center gap-1.5"><Send size={11} />Envoyer</button>
                   </div>
                 </div>
               ) : (
@@ -494,7 +494,7 @@ export const MessageItem = React.memo(({
                   {msg.role === 'user' && msg.content && msg.content.length > 800 && (
                     <button
                       onClick={() => setIsCollapsed(!isCollapsed)}
-                      className="mt-2 text-[12px] font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1 rounded-lg transition-colors border border-indigo-500/20"
+                      className="mt-2 text-[12px] font-medium text-[var(--app-accent)] hover:text-white bg-[rgba(129,236,255,0.08)] hover:bg-[rgba(129,236,255,0.14)] px-3 py-1 rounded-full transition-colors border border-[var(--app-border-strong)]"
                     >
                       {isCollapsed ? "Afficher la suite (" + msg.content.length + " caractères)" : "Réduire le message"}
                     </button>
@@ -739,8 +739,8 @@ export const MessageItem = React.memo(({
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-all rounded-lg border",
                   showRefined 
-                    ? "text-indigo-400 bg-indigo-500/15 border-indigo-500/30" 
-                    : "text-zinc-500 hover:text-indigo-400 bg-[var(--app-text)]/[0.04] hover:bg-indigo-500/10 border-[var(--app-border)] hover:border-indigo-500/20"
+                    ? "text-[var(--app-accent)] bg-[rgba(129,236,255,0.12)] border-[var(--app-border-strong)]" 
+                    : "text-zinc-500 hover:text-[var(--app-accent)] bg-[var(--app-text)]/[0.04] hover:bg-[rgba(129,236,255,0.08)] border-[var(--app-border)] hover:border-[var(--app-border-strong)]"
                 )}
                 title="Voir le prompt optimisé"
               >
@@ -751,7 +751,7 @@ export const MessageItem = React.memo(({
             <button
               onClick={() => { setEditText(msg.content); setIsEditing(true); }}
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-lg border border-[var(--app-border)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-full border border-[var(--app-border)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Pencil size={11} />
               Modifier
@@ -759,7 +759,7 @@ export const MessageItem = React.memo(({
             <button
               onClick={() => onRetry(idx)}
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-lg border border-[var(--app-border)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-full border border-[var(--app-border)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCcw size={11} />
               Renvoyer

@@ -1,5 +1,22 @@
 # BUGS GRAVEYARD
 
+## 2026-03-29 - Lyria 2 semblait repondre sans audio
+- Symptomes:
+  - le smoke test Lyria retournait `Lyria 2 n'a renvoye aucun clip audio exploitable.`
+  - l'endpoint `predict` repondait pourtant en `200 OK`
+- Cause racine:
+  - le parseur cherchait `predictions[0].audioContent`
+  - la vraie reponse Vertex AI Lyria 2 utilise `predictions[0].bytesBase64Encoded`
+- Tentatives:
+  - verifier le prompt
+  - verifier la region
+  - inspecter ensuite la reponse brute de l'API
+- Resolution finale:
+  - lire `bytesBase64Encoded`
+  - traiter la sortie comme un WAV (`RIFF...`)
+- Preuve:
+  - smoke test relance ensuite: `lyria-002` OK, `audio/wav`, `6291544` bytes, region `us-central1`
+
 ## Format
 - Date
 - Statut
@@ -31,3 +48,111 @@
 - Prevention:
   - verifier les domaines Firebase autorises avant toute campagne de validation UI authentifiee en local
   - documenter clairement dans `SESSION_STATE.md` quand une validation visuelle reste partielle a cause d'un blocage d'environnement
+
+## 2026-03-29 - Hub Agents prod casse par permissions Firestore encore visibles
+- Statut: resolu cote app / a revalider cote session connectee
+- Symptome:
+  - popup au chargement: `Erreur Base de donnees (list): Missing or insufficient permissions.`
+  - popup a la creation d'agent: `Missing or insufficient permissions.`
+  - perception produit: le hub cree des blueprints sans interface executable ni resilience cloud
+- Stack trace / message:
+  - `handleFirestoreError(error, OperationType.LIST, users/{uid}/agents)` depuis `src/App.tsx`
+  - refus Firestore sur `setDoc(doc(db, 'users', user.uid, 'agents', nextAgent.id), ...)`
+- Tentatives:
+  - redeploiement initial des regles Firestore seulement
+  - observation que le frontend prod continuait a lancer une modal bloquante pour la liste agents
+  - verification locale du code App / Hub / persistance blueprint
+  - ajout d'un cache local d'agents + warning non bloquant
+  - redeploiement production Vercel
+- Cause racine:
+  - les regles Firestore seules ne suffisaient pas: le frontend traitait encore la collection `agents` comme un prerequis dur
+  - `uiSchema` etait affiche comme un schema decoratif, pas comme une interface executable, donc la creation d'agent paraissait inutile des que la synchro cloud echouait
+- Resolution:
+  - ajout de `src/utils/agentSnapshots.ts`
+  - lecture agents: fallback `loadLocalAgents()` + warning visible au lieu d'une popup
+  - creation agents: `saveLocalAgent()` avant `setDoc()` et persistance Firestore en best effort
+  - hub refondu en formulaire executable avec CTA `Lancer dans Cowork`
+  - deploiement production: `vercel deploy --prod --yes`
+- Prevention:
+  - toute nouvelle surface Firestore non critique doit avoir un mode degrade local ou best effort
+  - ne jamais lier la valeur produit d'un agent a la seule reussite d'une synchro cloud
+  - valider en production la UX authentifiee apres tout redeploiement de regles ET tout redeploiement frontend
+
+## 2026-03-29 - Mauvaise interpretation du besoin "utiliser un agent"
+- Statut: resolu
+- Symptome:
+  - le hub permettait de creer un agent, mais le bouton principal relancait Cowork au lieu d'ouvrir un vrai usage direct de l'agent
+  - l'utilisateur percevait le hub comme un catalogue ou une sous-mission, pas comme un produit utilisable
+- Tentatives:
+  - ajout d'un formulaire dans le hub
+  - branchement de `run_hub_agent`
+  - verification du retour utilisateur montrant que le besoin n'etait toujours pas satisfait
+- Cause racine:
+  - confusion entre deux modeles:
+    - modele technique: "Cowork peut deleguer a un specialiste"
+    - modele produit voulu: "Cowork cree/edite, l'utilisateur utilise"
+- Resolution:
+  - sessions agent dediees cote frontend
+  - runtime agent via `/api/cowork` avec `agentRuntime`
+  - panneau `AgentWorkspacePanel`
+  - outil `update_agent_blueprint` pour que Cowork modifie le meme agent existant
+- Prevention:
+  - quand le mot "utiliser" concerne un agent, valider explicitement QUI l'utilise avant d'architecturer le flux
+  - distinguer systematiquement la brique technique interne du flux produit expose a l'utilisateur final
+
+## 2026-03-29 - Boucle editoriale paresseuse sur PDF d'actu
+- Statut: corrige localement, a revalider en prod
+- Symptome:
+  - sur une demande du type `fais moi un pdf actu du soir`, Cowork pouvait lancer 2 recherches generiques, n'ouvrir aucune source, initialiser un brouillon maigre puis produire/livrer un PDF trop leger
+  - perception utilisateur: boucle paresseuse, vite satisfaite du minimum, avec rendu "propre" mais pas vraiment travaille
+- Tentatives:
+  - simple renforcement des heuristiques lexicales de detection de livrable
+  - observation que cela ne regle pas le fond: la paresse ne vient pas d'un mauvais mot-cle, mais d'un manque d'exigence pendant la boucle
+- Cause racine:
+  - le system prompt n'etait pas assez ferme sur l'ecart entre promesse implicite du livrable et matiere reellement collecte
+  - la boucle n'avait aucun mecanisme doux pour dire au modele "tu vas trop vite avec trop peu de substance"
+- Resolution:
+  - renforcement de la posture Cowork dans `buildCoworkSystemInstruction()`
+  - ajout de `buildCoworkEngagementNudge()` dans `api/index.ts`
+  - relance qualite fondee sur l'etat reel du run:
+    - plusieurs recherches sans lecture directe
+    - brouillon PDF editorial trop court ou peu source
+    - fichier cree mais encore trop mince pour une livraison ambitieuse
+- Verification:
+  - `npm run lint` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+- Prevention:
+  - ne pas corriger la paresse par une checklist rigide
+  - privilegier des nudges qualite fondes sur l'etat reel (matiere, sources, densite) plutot que sur des mots-cles ou un plan impose
+
+## 2026-03-29 - Heuristiques residuelles et relances backend qui reprenaient la main
+- Statut: corrige localement, a revalider en prod
+- Symptome:
+  - meme apres plusieurs correctifs, Cowork gardait encore des comportements decides par le backend:
+    - `web_search` realignait des requetes
+    - `searchWeb()` choisissait `news` / `advanced` / des domaines de confiance
+    - le PDF choisissait encore implicitement theme, moteur ou exigences
+    - la boucle reinjectait des messages `user` (`buildCoworkEngagementNudge()`, `artifactCompletionPrompt`) pour redresser le modele
+  - perception utilisateur: "il y a encore des mots-cle declencheurs et du forcing"
+- Tentatives:
+  - durcissement des heuristiques de faux positifs PDF
+  - relances qualite plus douces fondees sur l'etat
+  - constat que meme des heuristiques plus fines gardent un backend trop interventionniste
+- Cause racine:
+  - le runtime conservait encore une logique historique "backend choisit une strategie par deduction"
+  - certaines aides etaient devenues des rails invisibles qui reprenaient la main sur le modele
+- Resolution:
+  - suppression de `buildCoworkEngagementNudge()` du chemin runtime
+  - suppression de la relance `artifactCompletionPrompt`
+  - passage de `web_search` / `web_fetch` a des options explicites (`topic`, `searchDepth`, `strict`, `timeRange`, `includeDomains`, `directSourceUrls`, `contextQuery`)
+  - defaults neutres dans `buildTavilySearchPlan()` / `searchWeb()`
+  - defaults neutres dans le pipeline PDF (`getPdfQualityTargets() => null`, `resolvePdfEngine(auto) => pdfkit`)
+- Verification:
+  - `npm run lint` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npx tsx test-pdf-heuristics.ts` : OK
+  - `npm run build` : OK
+- Prevention:
+  - toute aide backend qui change la methode doit etre explicite, visible et justifiable
+  - preferer des parametres d'outil explicites a des deductions implicites a partir du prompt utilisateur

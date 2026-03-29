@@ -44,6 +44,7 @@ export const GEMINI_MODEL_ALIASES: Record<string, string> = {
   'gemini-3.1-flash': 'gemini-3.1-flash-lite-preview',
   'gemini-3-pro': 'gemini-3-pro-preview',
   'gemini-3-flash': 'gemini-3-flash-preview',
+  'gemini-2.5-flash-preview-tts': 'gemini-2.5-flash-tts',
 };
 
 export function normalizeConfiguredModelId(modelId?: string | null, fallback = 'gemini-3.1-pro-preview'): string {

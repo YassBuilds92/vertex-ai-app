@@ -69,24 +69,24 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
 
   return (
     <div className={cn(
-      "fixed md:relative h-full border-l border-white/5 bg-[var(--app-bg)]/45 backdrop-blur-[40px] flex flex-col z-50 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] overflow-hidden shadow-2xl",
+      "fixed inset-y-0 right-0 h-full border-l border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.84)] backdrop-blur-[42px] flex flex-col z-50 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] overflow-hidden shadow-[0_30px_80px_-30px_rgba(0,0,0,0.75)] md:relative md:inset-auto",
       isRightSidebarVisible 
-        ? "w-[320px] translate-x-0 opacity-100" 
-        : "w-0 translate-x-full opacity-0 pointer-events-none md:border-none"
+        ? "w-[min(100vw,380px)] translate-x-0 opacity-100" 
+        : "w-0 translate-x-full opacity-0 pointer-events-none"
     )}>
       {/* Glossy Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(129,236,255,0.12),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.04),transparent_22%)] pointer-events-none" />
       
-      <div className="h-16 border-b border-white/5 flex items-center justify-between px-6 relative z-10">
-        <div className="flex items-center gap-3 text-[var(--app-text)] font-bold text-[15px] tracking-tight">
-          <Settings2 size={16} className="text-indigo-400" />
+      <div className="h-auto border-b border-[var(--app-border)] flex items-center justify-between px-5 py-4 relative z-10">
+        <div className="flex items-center gap-3 text-[var(--app-text)] font-semibold text-[15px] tracking-tight">
+          <Settings2 size={17} className="text-[var(--app-accent)]" />
           Paramètres
         </div>
         <button 
           onClick={() => setRightSidebarVisible(false)}
-          className="md:hidden p-1.5 hover:bg-white/5 rounded-full transition-colors text-[var(--app-text-muted)] hover:text-[var(--app-text)]"
+          className="md:hidden flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04] transition-colors text-[var(--app-text-muted)] hover:text-[var(--app-text)]"
         >
-          <X size={18} />
+          <X size={16} />
         </button>
       </div>
     
@@ -94,12 +94,12 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
         variants={containerVariants}
         initial="hidden"
         animate={isRightSidebarVisible ? "visible" : "hidden"}
-        className="flex-1 overflow-y-auto p-6 space-y-8 relative z-10 scrollbar-hide"
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-5 relative z-10 scrollbar-hide sm:px-5"
       >
         {/* Theme Segmented Control */}
-        <motion.div variants={itemVariants} className="space-y-3">
+        <motion.div variants={itemVariants} className="studio-panel rounded-[1.7rem] p-4 space-y-3">
           <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em] ml-1">Thème</label>
-          <div className="grid grid-cols-3 gap-1 p-1 bg-black/20 border border-white/5 rounded-2xl relative overflow-hidden">
+          <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-black/20 border border-[var(--app-border)] rounded-[1.35rem] relative overflow-hidden">
             {[
               { id: 'dark', icon: Moon, label: 'Sombre' },
               { id: 'light', icon: Sun, label: 'Clair' },
@@ -109,7 +109,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                 key={t.id}
                 onClick={() => setTheme(t.id as any)}
                 className={cn(
-                  "relative z-10 py-2.5 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center gap-1.5",
+                  "relative z-10 py-3 rounded-[1rem] text-[11px] font-bold transition-all flex flex-col items-center gap-1.5",
                   theme === t.id 
                     ? "text-[var(--app-text)]" 
                     : "text-[var(--app-text-muted)] hover:text-[var(--app-text)]"
@@ -118,7 +118,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                 {theme === t.id && (
                   <motion.div 
                     layoutId="activeTheme"
-                    className="absolute inset-0 bg-white/10 border border-white/10 rounded-xl shadow-lg backdrop-blur-md z-0"
+                    className="absolute inset-0 bg-white/[0.08] border border-[var(--app-border-strong)] rounded-[1rem] shadow-lg backdrop-blur-md z-0"
                     transition={{ type: 'spring', damping: 20, stiffness: 200 } as const}
                   />
                 )}
@@ -134,28 +134,28 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           <button 
             onClick={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
             className={cn(
-              "w-full px-5 py-4 rounded-2xl border transition-all duration-300 text-left relative overflow-hidden flex items-center justify-between",
+              "studio-panel w-full px-5 py-4 rounded-[1.7rem] border transition-all duration-300 text-left relative overflow-hidden flex items-center justify-between",
               isPromptRefinerEnabled 
-                ? "bg-indigo-500/15 border-indigo-500/30 shadow-lg shadow-indigo-500/5" 
-                : "bg-white/[0.02] border-white/5 hover:border-white/10"
+                ? "bg-[rgba(129,236,255,0.08)] border-[var(--app-border-strong)]" 
+                : "hover:border-[var(--app-border-strong)]"
             )}
           >
             <div className="flex items-center gap-3.5 relative z-10">
               <div className={cn(
                 "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
-                isPromptRefinerEnabled ? "bg-indigo-500 text-white shadow-lg" : "bg-white/5 text-[var(--app-text-muted)]"
+                isPromptRefinerEnabled ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)] border border-[var(--app-border-strong)]" : "bg-white/5 text-[var(--app-text-muted)]"
               )}>
                 <Sparkles size={18} fill={isPromptRefinerEnabled ? "currentColor" : "none"} />
               </div>
               <div className="flex flex-col gap-0.5">
-                <span className={cn("text-[14px] font-bold tracking-tight", isPromptRefinerEnabled ? "text-indigo-400" : "text-[var(--app-text)]")}>Raffineur IA</span>
+                <span className={cn("text-[14px] font-bold tracking-tight", isPromptRefinerEnabled ? "text-[var(--app-accent)]" : "text-[var(--app-text)]")}>Raffineur IA</span>
                 <span className="text-[10px] text-[var(--app-text-muted)] font-medium">Optimisation auto</span>
               </div>
             </div>
             
             <div className={cn(
               "w-10 h-5 rounded-full relative transition-colors duration-500",
-              isPromptRefinerEnabled ? "bg-indigo-500/40" : "bg-white/10"
+              isPromptRefinerEnabled ? "bg-[var(--app-accent-soft)]" : "bg-white/10"
             )}>
               <motion.div 
                 animate={{ x: isPromptRefinerEnabled ? 22 : 2 }}
@@ -167,18 +167,18 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
         </motion.div>
 
         {/* Model Selection Card */}
-        <motion.div variants={itemVariants} className="space-y-3">
+        <motion.div variants={itemVariants} className="studio-panel rounded-[1.7rem] p-4 space-y-3">
           <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em] ml-1">Modèle de langage</label>
           <div className="relative">
             <button
               onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
               className={cn(
-                "w-full bg-white/[0.03] border border-white/5 rounded-2xl px-5 py-4 text-left flex items-center justify-between group transition-all duration-300 hover:bg-white/[0.05] hover:border-white/10",
-                isModelDropdownOpen && "border-indigo-500/40 ring-4 ring-indigo-500/5 bg-white/[0.05]"
+                "w-full bg-white/[0.03] border border-[var(--app-border)] rounded-[1.35rem] px-5 py-4 text-left flex items-center justify-between group transition-all duration-300 hover:bg-white/[0.05] hover:border-[var(--app-border-strong)]",
+                isModelDropdownOpen && "border-[var(--app-border-strong)] ring-4 ring-[rgba(129,236,255,0.08)] bg-white/[0.05]"
               )}
             >
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform duration-500">
+                <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-[var(--app-accent)] group-hover:scale-110 transition-transform duration-500">
                   <Brain size={20} />
                 </div>
                 <div className="flex flex-col gap-0.5">
@@ -191,12 +191,14 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     'gemini-3-pro-image-preview': 'Nano Banana Pro',
                     'gemini-2.5-flash-image': 'Nano Banana',
                     'veo-3.1-generate-001': 'Veo 3.1 Video',
-                    'gemini-2.5-flash-preview-tts': 'Audio TTS',
+                    'gemini-2.5-flash-tts': 'Gemini Flash TTS',
+                    'gemini-2.5-flash-lite-preview-tts': 'Gemini Flash Lite TTS',
+                    'gemini-2.5-pro-tts': 'Gemini Pro TTS',
 
                     } as any)[config?.model || ''] || config?.model}
                   </span>
                   <span className="text-[10px] text-[var(--app-text-muted)] opacity-70">
-                    {activeMode === 'image' ? "Générateur d'images" : activeMode === 'video' ? "Générateur de vidéos" : activeMode === 'cowork' ? 'Assistant Autonome' : 'Fenêtre massive'}
+                    {activeMode === 'image' ? "Générateur d'images" : activeMode === 'video' ? "Générateur de vidéos" : activeMode === 'audio' ? 'Synthèse vocale' : activeMode === 'cowork' ? 'Assistant Autonome' : 'Fenêtre massive'}
                   </span>
                 </div>
               </div>
@@ -211,7 +213,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
-                    className="absolute left-0 right-0 top-full mt-3 z-[70] bg-[var(--app-surface)]/80 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] overflow-hidden"
+                    className="absolute left-0 right-0 top-full mt-3 z-[70] bg-[var(--app-surface)]/88 backdrop-blur-3xl border border-[var(--app-border-strong)] rounded-[1.6rem] shadow-[0_30px_70px_-28px_rgba(0,0,0,0.72)] overflow-hidden"
                   >
                     <div className="p-3 space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
                       {[
@@ -222,7 +224,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                         { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', info: 'State-of-the-art Generative', modes: ['image'] },
                         { id: 'gemini-2.5-flash-image', label: 'Nano Banana', info: 'Polyvalent & Stable', modes: ['image'] },
                         { id: 'veo-3.1-generate-001', label: 'Veo 3.1 Video', info: 'Ultra Real', modes: ['video'] },
-                        { id: 'gemini-2.5-flash-preview-tts', label: 'Audio TTS', info: 'Naturel', modes: ['audio'] },
+                        { id: 'gemini-2.5-flash-tts', label: 'Gemini Flash TTS', info: 'Rapide & naturel', modes: ['audio'] },
+                        { id: 'gemini-2.5-flash-lite-preview-tts', label: 'Gemini Flash Lite TTS', info: 'Eco & léger', modes: ['audio'] },
+                        { id: 'gemini-2.5-pro-tts', label: 'Gemini Pro TTS', info: 'Voix premium', modes: ['audio'] },
 
                       ]
                       .filter(m => m.modes.includes(activeMode))
@@ -231,15 +235,15 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                           key={m.id}
                           onClick={() => { setConfig({ model: m.id }); setIsModelDropdownOpen(false); }}
                           className={cn(
-                            "w-full text-left p-3.5 hover:bg-white/5 rounded-2xl text-[13px] transition-all flex items-center justify-between group",
-                            config?.model === m.id ? "bg-indigo-500/10 text-indigo-400 font-bold" : "text-[var(--app-text)] font-medium"
+                            "w-full text-left p-3.5 rounded-[1.1rem] text-[13px] transition-all flex items-center justify-between group border border-transparent hover:bg-white/[0.05] hover:border-[var(--app-border)]",
+                            config?.model === m.id ? "bg-[rgba(129,236,255,0.08)] border-[var(--app-border-strong)] text-[var(--app-accent)] font-bold" : "text-[var(--app-text)] font-medium"
                           )}
                         >
                           <div className="flex flex-col">
                             <span>{m.label}</span>
                             <span className="text-[10px] text-[var(--app-text-muted)] opacity-60 font-normal">{m.info}</span>
                           </div>
-                          {config?.model === m.id && <Check size={14} className="text-indigo-500" />}
+                          {config?.model === m.id && <Check size={14} className="text-[var(--app-accent)]" />}
                         </button>
                       ))}
                     </div>
@@ -252,7 +256,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
 
         {/* Model Specific Settings */}
         {activeMode === 'image' && (
-          <motion.div variants={itemVariants} className="space-y-6 pt-2">
+          <motion.div variants={itemVariants} className="studio-panel rounded-[1.7rem] p-4 space-y-5">
             <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em] ml-1">Paramètres Image</label>
             
             <div className="space-y-4">
@@ -324,7 +328,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
         )}
 
         {activeMode === 'video' && (
-          <motion.div variants={itemVariants} className="space-y-6 pt-2">
+          <motion.div variants={itemVariants} className="studio-panel rounded-[1.7rem] p-4 space-y-5">
             <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em] ml-1">Paramètres Vidéo</label>
             
             <div className="space-y-4">
@@ -388,9 +392,37 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           </motion.div>
         )}
 
+        {activeMode === 'audio' && (
+          <motion.div variants={itemVariants} className="studio-panel rounded-[1.7rem] p-4 space-y-5">
+            <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em] ml-1">Paramètres Audio</label>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-[var(--app-text-muted)] ml-1">Voix Gemini</span>
+                <input
+                  value={config.ttsVoice || 'Kore'}
+                  onChange={(e) => setConfig({ ttsVoice: e.target.value })}
+                  placeholder="Kore"
+                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-2.5 text-[12px] text-[var(--app-text)] outline-none focus:border-indigo-500/40"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-[var(--app-text-muted)] ml-1">Langue / locale</span>
+                <input
+                  value={config.ttsLanguageCode || 'fr-FR'}
+                  onChange={(e) => setConfig({ ttsLanguageCode: e.target.value })}
+                  placeholder="fr-FR"
+                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-2.5 text-[12px] text-[var(--app-text)] outline-none focus:border-indigo-500/40"
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Tools Section - Premium Grid */}
         {config && isGroundingSupported(config.model) && (
-          <motion.div variants={itemVariants} className="space-y-4">
+          <motion.div variants={itemVariants} className="studio-panel rounded-[1.7rem] p-4 space-y-4">
             <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em] ml-1">Capacités & Outils</label>
             <div className="grid grid-cols-1 gap-2.5">
               {[
@@ -403,7 +435,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   onClick={() => setConfig({ [tool.id]: !Boolean((config as any)[tool.id]) })}
                   className={cn(
                     "p-4 rounded-2xl border flex items-center justify-between transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]",
-                    (config as any)[tool.id] ? tool.activeBg : "bg-white/[0.02] border-white/5 hover:border-white/10"
+                    (config as any)[tool.id] ? tool.activeBg : "bg-white/[0.02] border-[var(--app-border)] hover:border-[var(--app-border-strong)]"
                   )}
                 >
                   <div className={cn("flex items-center gap-3.5", (config as any)[tool.id] ? tool.color : "text-[var(--app-text-muted)]")}>
@@ -421,12 +453,12 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
 
         {/* System Prompt Context */}
         {config && (!config.model?.includes('image') && !config.model?.includes('veo') && !config.model?.includes('tts')) && (
-          <motion.div variants={itemVariants} className="space-y-4 pt-4 border-t border-white/5">
+          <motion.div variants={itemVariants} className="studio-panel rounded-[1.7rem] p-4 space-y-4">
             <div className="flex items-center justify-between mb-1 px-1">
               <label className="text-[10px] font-black text-[var(--app-text-muted)] uppercase tracking-[0.2em]">Instructions Système</label>
               <button
                 onClick={() => setShowGallery(true)}
-                className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors uppercase tracking-wider"
+                className="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-white/[0.04] px-3 py-1.5 text-[10px] font-bold text-[var(--app-accent)] transition-colors uppercase tracking-wider hover:border-[var(--app-border-strong)]"
               >
                 <LayoutDashboard size={12} />
                 Galerie
@@ -442,7 +474,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   updateSessionInstruction(newVal);
                 }}
                 placeholder="Définissez la personnalité et les règles..."
-                className="w-full bg-white/[0.02] rounded-2xl p-4 text-[13px] text-[var(--app-text)] border border-white/5 focus:border-indigo-500/40 focus:ring-4 focus:ring-indigo-500/5 resize-none h-32 transition-all outline-none leading-relaxed placeholder:text-white/10"
+                className="studio-input rounded-[1.35rem] p-4 text-[13px] resize-none h-32 transition-all outline-none leading-relaxed placeholder:text-white/10"
               />
               <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="p-1 px-2 rounded-md bg-white/5 text-[9px] font-mono text-white/30 backdrop-blur-sm">PROMPT_MD</div>
@@ -463,10 +495,10 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     key={level.id}
                     onClick={() => setConfig({ thinkingLevel: level.id as any })}
                     className={cn(
-                      "flex-1 py-2 px-1 rounded-xl text-[11px] font-bold border transition-all duration-300",
+                      "flex-1 py-2 px-1 rounded-[1rem] text-[11px] font-bold border transition-all duration-300",
                       config.thinkingLevel === level.id 
-                        ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-400 shadow-lg shadow-indigo-500/5" 
-                        : "bg-white/[0.02] border-white/5 text-[var(--app-text-muted)] hover:border-white/10"
+                        ? "bg-[rgba(129,236,255,0.08)] border-[var(--app-border-strong)] text-[var(--app-accent)] shadow-lg shadow-[rgba(68,196,255,0.12)]" 
+                        : "bg-white/[0.02] border-[var(--app-border)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]"
                     )}
                    >
                      {level.label}
@@ -478,13 +510,13 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
         )}
 
         {/* Global Stats/Advanced Toggle */}
-        <motion.div variants={itemVariants} className="pt-2">
+        <motion.div variants={itemVariants}>
             <button 
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full py-4 px-5 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-between hover:bg-white/[0.04] transition-all group"
+              className="studio-panel w-full py-4 px-5 rounded-[1.7rem] bg-white/[0.02] border border-[var(--app-border)] flex items-center justify-between hover:bg-white/[0.04] transition-all group"
             >
               <div className="flex items-center gap-3">
-                <Settings2 size={14} className={cn("transition-colors", showAdvanced ? "text-indigo-400" : "text-[var(--app-text-muted)]")} />
+                <Settings2 size={14} className={cn("transition-colors", showAdvanced ? "text-[var(--app-accent)]" : "text-[var(--app-text-muted)]")} />
                 <span className="text-[12px] font-bold tracking-tight">Paramètres avancés</span>
               </div>
               <ChevronDown size={14} className={cn("text-[var(--app-text-muted)] transition-transform duration-500", showAdvanced && "rotate-180")} />
@@ -512,7 +544,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                             <div className="flex items-center gap-2">
                               <label className="text-[11px] font-bold text-[var(--app-text-muted)] tracking-wide">{s.label}</label>
                             </div>
-                            <span className="font-mono text-[12px] text-indigo-400 font-bold">
+                            <span className="font-mono text-[12px] text-[var(--app-accent)] font-bold">
                               {(config as any)[s.key]}
                             </span>
                           </div>
@@ -520,7 +552,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                               type="range" min={s.min} max={s.max} step={s.step}
                               value={(config as any)[s.key] || 8192}
                               onChange={(e) => setConfig({ [s.key]: parseFloat(e.target.value) })}
-                              className="w-full accent-indigo-500 h-1 bg-white/10 rounded-full appearance-none cursor-pointer hover:accent-indigo-400 transition-all"
+                              className="w-full accent-[var(--app-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer transition-all"
                             />
                         </div>
                       );
@@ -528,7 +560,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     
                     <button 
                       onClick={() => resetConfig()}
-                      className="w-full py-3 rounded-xl border border-white/5 text-[11px] font-bold text-[var(--app-text-muted)] hover:text-red-400 hover:bg-red-400/5 hover:border-red-400/20 transition-all flex items-center justify-center gap-2"
+                      className="w-full py-3 rounded-full border border-[var(--app-border)] text-[11px] font-bold text-[var(--app-text-muted)] hover:text-[var(--app-text)] hover:bg-white/[0.05] hover:border-[var(--app-border-strong)] transition-all flex items-center justify-center gap-2"
                     >
                       <RotateCcw size={12} />
                       Réinitialiser les paramètres

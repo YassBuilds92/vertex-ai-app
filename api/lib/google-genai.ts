@@ -128,7 +128,7 @@ export function createGoogleAI(modelId?: string): GoogleGenAI {
   if (!projectId || !envLocation) throw new Error('Vertex AI non configuré');
 
   let finalLocation = envLocation;
-  if (modelId && (modelId.includes('preview') || modelId.includes('3.1') || modelId.includes('3-flash') || modelId.includes('image'))) {
+  if (modelId && (modelId.includes('preview') || modelId.includes('3.1') || modelId.includes('3-flash') || modelId.includes('image') || modelId.includes('tts'))) {
     finalLocation = 'global';
   }
 

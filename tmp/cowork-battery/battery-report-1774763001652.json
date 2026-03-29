@@ -1,0 +1,175 @@
+{
+  "createdAt": "2026-03-29T05:38:24.196Z",
+  "baseUrl": "http://127.0.0.1:3000",
+  "model": "gemini-3.1-pro-preview",
+  "tests": [
+    {
+      "id": "1.2",
+      "category": "Recherche & Synthese",
+      "title": "Fact-checking",
+      "prompts": [
+        "Verifie ces 5 affirmations et dis-moi lesquelles sont vraies, fausses ou partiellement vraies : 1. La France est le 1er producteur nucleaire d'Europe 2. Le Bitcoin a depasse 200k$ en 2026 3. L'Inde a depasse la Chine en population en 2023 4. Le salaire median en France est de 2100EUR net 5. TikTok est interdit aux USA"
+      ],
+      "expectations": {
+        "minSearches": 5,
+        "minSources": 3,
+        "maxStalls": 1
+      },
+      "turns": [
+        {
+          "prompt": "Verifie ces 5 affirmations et dis-moi lesquelles sont vraies, fausses ou partiellement vraies : 1. La France est le 1er producteur nucleaire d'Europe 2. Le Bitcoin a depasse 200k$ en 2026 3. L'Inde a depasse la Chine en population en 2023 4. Le salaire median en France est de 2100EUR net 5. TikTok est interdit aux USA",
+          "runState": "completed",
+          "runMeta": {
+            "iterations": 7,
+            "modelCalls": 7,
+            "toolCalls": 10,
+            "searchCount": 7,
+            "fetchCount": 3,
+            "sourcesOpened": 3,
+            "domainsOpened": 3,
+            "artifactState": "none",
+            "stalledTurns": 0,
+            "retryCount": 0,
+            "queueWaitMs": 0,
+            "mode": "autonomous",
+            "phase": "completed",
+            "taskComplete": true,
+            "inputTokens": 91121,
+            "outputTokens": 851,
+            "thoughtTokens": 2661,
+            "toolUseTokens": 0,
+            "totalTokens": 94633,
+            "estimatedCostUsd": 0.224386,
+            "estimatedCostEur": 0.194459
+          },
+          "durationMs": 71033,
+          "warnings": [
+            "La lecture de 'https://en.wikipedia.org/wiki/Efforts_to_ban_TikTok_in_the_United_States' reste full avec pertinence off_topic. Utilise-la comme signal, pas comme preuve definitive si le sujet reste sensible."
+          ],
+          "toolCalls": [
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_search",
+            "web_search"
+          ],
+          "releasedUrlCount": 0,
+          "finalTextPreview": "Voici la vérification de ces 5 affirmations avec les données actualisées à ce jour (mars 2026) :\n\n**1. La France est le 1er producteur nucléaire d'Europe : VRAI**\nLa France est le leader incontesté en Europe. Elle possède le plus grand parc de réacteurs et génère à elle seule plus de la moitié de toute l'électricité d'origine nucléaire produite dans l'Union européenne (environ 338 000 GWh). \n\n**2. Le Bitcoin a dépassé 200k$ en 2026 : FAUX**\nLe Bitcoin n'a jamais atteint ce seuil. En mars 2026, son cours oscille autour des 70 000 $. Si certains analystes très optimistes avaient prédit des sommets à plus de 150 000 $ ou 200 000 $ pour cette année, le marché ne leur a pas (encore) donné raison.\n\n**3. L'Inde a dépassé la Chine en population en 2023 : VRAI**\nC'est un fait démographique historique confirmé par les Nations Unies. Au printemps 2023, la population indienne a officiellement dépassé celle de la Chine, franchissant le cap des 1,428 milliard d'habitants.\n\n**4. Le salaire médian en France est de 2100€ net : PARTIELLEMENT VRAI**\nC'est un bon ordre de grandeur, mais le chiffre a légèrement augmenté. Selon les dernières données officielles de l'INSEE, le salaire médian net dans le secteur privé en France s'établit aujourd'hui à **2 190 €** par mois (ce qui signifie que 50 % des salariés gagnent moins, et 50 % gagnent plus). À titre de comparaison, le salaire *moyen* est tiré vers le haut par les gros revenus et se situe autour de 2 730 € net.\n\n**5. TikTok est interdit aux USA"
+        }
+      ],
+      "final": {
+        "searchCount": 7,
+        "sourcesOpened": 3,
+        "stalledTurns": 0,
+        "artifactState": "none",
+        "wordCount": 342,
+        "failures": [],
+        "passed": true
+      }
+    },
+    {
+      "id": "4.4",
+      "category": "Stress & limites",
+      "title": "Multilingue",
+      "prompts": [
+        "Fais-moi un resume de l'actualite japonaise de cette semaine. Cherche en japonais, restitue en francais."
+      ],
+      "expectations": {
+        "minSearches": 4,
+        "minSources": 3,
+        "maxStalls": 1
+      },
+      "turns": [
+        {
+          "prompt": "Fais-moi un resume de l'actualite japonaise de cette semaine. Cherche en japonais, restitue en francais.",
+          "runState": "completed",
+          "runMeta": {
+            "iterations": 10,
+            "modelCalls": 10,
+            "toolCalls": 10,
+            "searchCount": 7,
+            "fetchCount": 1,
+            "sourcesOpened": 1,
+            "domainsOpened": 1,
+            "artifactState": "none",
+            "stalledTurns": 0,
+            "retryCount": 2,
+            "queueWaitMs": 0,
+            "mode": "autonomous",
+            "phase": "completed",
+            "taskComplete": true,
+            "inputTokens": 113882,
+            "outputTokens": 1067,
+            "thoughtTokens": 2611,
+            "toolUseTokens": 0,
+            "totalTokens": 117560,
+            "estimatedCostUsd": 0.2719,
+            "estimatedCostEur": 0.235636
+          },
+          "durationMs": 226420,
+          "warnings": [
+            "L'outil web_fetch est bloque pour 'https://www.reuters.com/business/energy/japan-start-releasing-oil-joint-stockpiles-by-end-march-pm-says-2026-03-24/' apres 2 echecs proches.",
+            "Aucun progres concret sur ce tour. Passe a une vraie action utile ou change d'angle.",
+            "Saturation simultanee detectee. Nouvelle tentative dans 2.0 s. Quota dépassé (429). Trop de demandes simultanées ou limite quotidienne atteinte. Réessayez dans quelques minutes.",
+            "Saturation simultanee detectee. Nouvelle tentative dans 4.0 s. Quota dépassé (429). Trop de demandes simultanées ou limite quotidienne atteinte. Réessayez dans quelques minutes."
+          ],
+          "toolCalls": [
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_fetch",
+            "web_fetch",
+            "web_search",
+            "web_search"
+          ],
+          "releasedUrlCount": 0,
+          "finalTextPreview": "Voici un résumé des événements marquants de l'actualité japonaise pour cette semaine (jusqu'au 29 mars 2026), basé sur les dernières informations économiques, politiques et sociales :\n\n### 1. Économie : Salaires historiques et politique monétaire\n*   **Hausse des salaires record :** Pour la troisième année consécutive, les grandes entreprises japonaises ont accepté d'augmenter les salaires de plus de 5 %, selon les données préliminaires publiées cette semaine par le puissant syndicat Rengo. C'est un signal très attendu pour tenter de relancer la consommation intérieure face à l'inflation.\n*   **Banque du Japon (BOJ) et inflation :** Bien que l'inflation à la consommation ralentisse légèrement, l'inflation des services aux entreprises a augmenté de 2,7 % en février. La BOJ prépare le terrain pour un ajustement de sa communication en avril, gardant la porte ouverte à une nouvelle hausse des taux d'intérêt à court terme pour contrer la faiblesse persistante du yen et les pressions inflationnistes mondiales.\n*   **Énergie :** Le Premier ministre a annoncé que le Japon commencerait à puiser dans ses réserves stratégiques de pétrole conjointes d'ici la fin du mois de mars pour contribuer à la stabilisation du marché énergétique.\n\n### 2. Société et Sécurité\n*   **Incident diplomatique à Tokyo :** Un officier d'active des Forces d'autodéfense japonaises (FAD) a été arrêté par les autorités après s'être introduit illégalement dans l'enceinte de l'ambassade de Chine à Tokyo. Les motiva"
+        }
+      ],
+      "final": {
+        "searchCount": 7,
+        "sourcesOpened": 1,
+        "stalledTurns": 0,
+        "artifactState": "none",
+        "wordCount": 425,
+        "failures": [
+          "sources 1 < 3"
+        ],
+        "passed": false
+      }
+    }
+  ],
+  "summary": {
+    "passed": 1,
+    "failed": 1,
+    "total": 2
+  }
+}

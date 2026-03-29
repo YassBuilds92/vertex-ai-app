@@ -1,0 +1,183 @@
+{
+  "createdAt": "2026-03-29T05:59:33.145Z",
+  "baseUrl": "http://127.0.0.1:3000",
+  "model": "gemini-3.1-pro-preview",
+  "tests": [
+    {
+      "id": "1.1",
+      "category": "Recherche & Synthese",
+      "title": "Dossier d'investigation",
+      "prompts": [
+        "Fais-moi un dossier complet sur la crise de l'eau en France : etat des nappes phreatiques, restrictions en cours, projections 2030, comparaison avec l'Espagne et l'Italie. PDF avec graphiques si possible."
+      ],
+      "expectations": {
+        "expectsArtifact": true,
+        "minSearches": 8,
+        "minSources": 4,
+        "maxStalls": 1,
+        "minReleaseCount": 1
+      },
+      "turns": [
+        {
+          "prompt": "Fais-moi un dossier complet sur la crise de l'eau en France : etat des nappes phreatiques, restrictions en cours, projections 2030, comparaison avec l'Espagne et l'Italie. PDF avec graphiques si possible.",
+          "runState": "completed",
+          "runMeta": {
+            "iterations": 6,
+            "modelCalls": 6,
+            "toolCalls": 10,
+            "searchCount": 5,
+            "fetchCount": 3,
+            "sourcesOpened": 3,
+            "domainsOpened": 3,
+            "artifactState": "released",
+            "stalledTurns": 0,
+            "retryCount": 0,
+            "queueWaitMs": 0,
+            "mode": "autonomous",
+            "phase": "completed",
+            "taskComplete": true,
+            "inputTokens": 93391,
+            "outputTokens": 2642,
+            "thoughtTokens": 2677,
+            "toolUseTokens": 0,
+            "totalTokens": 98710,
+            "estimatedCostUsd": 0.25061,
+            "estimatedCostEur": 0.217185
+          },
+          "durationMs": 84578,
+          "warnings": [],
+          "toolCalls": [
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_search",
+            "web_search",
+            "create_pdf",
+            "create_pdf",
+            "release_file",
+            "release_file"
+          ],
+          "releasedUrlCount": 1,
+          "finalTextPreview": "Voici un dossier complet sur la situation hydrologique en France et en Europe du Sud, actualisé avec les dernières données de mars 2026. \n\nJ'ai compilé ces informations dans un rapport PDF éditorialisé (avec une mise en page premium et des thèmes visuels par section) que vous pouvez télécharger ici :\n**[📥 Télécharger le Dossier : La Crise de l'Eau en France et en Europe (PDF)](https://storage.googleapis.com/videosss92/uploaded/dossier-crise-eau-france-2026-pdf.pdf?GoogleAccessId=google-ai-studio%40gen-lang-client-0405707007.iam.gserviceaccount.com&Expires=1775368842&Signature=B2JGwLvLtULNGRV1LTaUlBl42GF1v9ErwAWeNAM%2Fci9LcCFwwpQNj4EcrH1NqYPJp93O5HOXLF8UYYv2kc9AQpo%2BATxyBOUYCcagq7A3AvjzEv7H6OipdzcniBUaUhnayynwgAXRF%2FD%2F1S6aONfWUNYrIl1fVRpNRDGdoQgwNYBtRc7aiF7zXT0t2E7SyZjjV%2BMo%2FN%2Fwuq%2B7MB4zjIsXCteFrUb9axH%2FAHP6D1up4VbgNuR5Sx0fP5UXsqHwFMGEELmIhl3buY7a4cM2kHOJdKXR07cvqJcJSnHVpVg0TpvZnDVBjpmQTsmie1Ue9vw8a5TsVZGWvrx7RGQ3zjv0Dg%3D%3D)**\n\nVoici la synthèse des points clés abordés dans le dossier :\n\n### 1. État des nappes phréatiques en France (Mars 2026)\nContrairement aux années précédentes, la France connaît une **embellie hivernale exceptionnelle**. Selon le dernier bulletin du BRGM (Bureau de Recherches Géologiques et Minières) publié le 1er mars 2026 :\n*   **84 %** des niveaux des nappes phréatiques sont en hausse.\n*   **67 %** des points d'observation se situent au-dessus des normales de saison.\n*   Les précipitations excédentaires de février ont permis une recharge gé"
+        }
+      ],
+      "final": {
+        "searchCount": 5,
+        "sourcesOpened": 3,
+        "stalledTurns": 0,
+        "artifactState": "released",
+        "wordCount": 498,
+        "failures": [
+          "searches 5 < 8",
+          "sources 3 < 4"
+        ],
+        "passed": false
+      }
+    },
+    {
+      "id": "5.3",
+      "category": "Boucle & iteration",
+      "title": "Chaine de taches",
+      "prompts": [
+        "1. Cherche les 5 startups francaises les plus financees en 2025 2. Pour chacune, trouve le fondateur et son parcours 3. Redige un article de 1500 mots style Les Echos 4. Mets en PDF avec mise en page magazine 5. Traduis en anglais dans un 2e PDF"
+      ],
+      "expectations": {
+        "expectsArtifact": true,
+        "minSearches": 6,
+        "minSources": 4,
+        "maxStalls": 1,
+        "minReleaseCount": 2
+      },
+      "turns": [
+        {
+          "prompt": "1. Cherche les 5 startups francaises les plus financees en 2025 2. Pour chacune, trouve le fondateur et son parcours 3. Redige un article de 1500 mots style Les Echos 4. Mets en PDF avec mise en page magazine 5. Traduis en anglais dans un 2e PDF",
+          "runState": "completed",
+          "runMeta": {
+            "iterations": 9,
+            "modelCalls": 9,
+            "toolCalls": 14,
+            "searchCount": 6,
+            "fetchCount": 2,
+            "sourcesOpened": 2,
+            "domainsOpened": 2,
+            "artifactState": "released",
+            "stalledTurns": 0,
+            "retryCount": 0,
+            "queueWaitMs": 0,
+            "mode": "autonomous",
+            "phase": "completed",
+            "taskComplete": true,
+            "inputTokens": 146779,
+            "outputTokens": 8757,
+            "thoughtTokens": 5164,
+            "toolUseTokens": 0,
+            "totalTokens": 160700,
+            "estimatedCostUsd": 0.46061,
+            "estimatedCostEur": 0.399176
+          },
+          "durationMs": 268787,
+          "warnings": [],
+          "toolCalls": [
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "begin_pdf_draft",
+            "begin_pdf_draft",
+            "create_pdf",
+            "create_pdf",
+            "revise_pdf_draft",
+            "revise_pdf_draft",
+            "create_pdf",
+            "create_pdf",
+            "release_file",
+            "release_file",
+            "release_file",
+            "release_file"
+          ],
+          "releasedUrlCount": 2,
+          "finalTextPreview": "Voici les résultats de l'enquête sur les 5 startups françaises les plus financées en 2025, avec les profils de leurs fondateurs, rédigés sous la forme d'un article de fond (style *Les Echos*). \n\nJ'ai généré deux éditions PDF avec une mise en page magazine premium (thème \"News\", moteur LaTeX) : l'une en version originale française, l'autre traduite en anglais.\n\n### 📥 Vos éditions PDF (Mise en page Magazine)\n- 🇫🇷 **Édition Française** : [Télécharger le PDF (French_Tech_Top_5_Startups_2025.pdf)](https://storage.googleapis.com/videosss92/uploaded/french-tech-top-5-startups-2025-pdf.pdf?GoogleAccessId=google-ai-studio%40gen-lang-client-0405707007.iam.gserviceaccount.com&Expires=1775369094&Signature=lKwRnFXEcLPP1jxuFFa7kASZKEjszOjCwbr%2BBkZcMFHN90Ef3Ndu85%2BczKr1%2F9E3oTJUp6%2BIS2vQkcEXlTSGLcfpi0NVltrD0YpNze023rbtOJkc1ukd1IiQjxUvF9eqnhwWplM3aO9oUyQHeM8U8ijawGNF09c9r1%2Bx0vPJzn8gNFiEufme2yw8VSPi8nOong3GseJtr6f9juEys4Dixb9cU0CHDKZSi0M2T2fgomfSwsMqiBhtGBrL%2BE6s%2BkxgDSctzRWxtEb4%2BRHf6r1vuplMe3091gg6D4eMrjdrBjq0%2BP%2BbJW67K0oZFpkbebAS4OO%2BsB1BK8YnnE53wen83g%3D%3D)\n- 🇬🇧 **Édition Anglaise** : [Télécharger le PDF (French_Tech_Top_5_Startups_2025_EN.pdf)](https://storage.googleapis.com/videosss92/uploaded/french-tech-top-5-startups-2025-en-pdf.pdf?GoogleAccessId=google-ai-studio%40gen-lang-client-0405707007.iam.gserviceaccount.com&Expires=1775369094&Signature=IfdJ%2BDACLmuyUzBAawzuzxKaZ0MrqcqO07yRgN8Vo3SAjZu%2FcgQAQubSGxRDfjyUbtFMr3Gg0fJPJmgZfVa%2F1%2FWqMzfUSAMxwREV%2BL93AZrtYBpe"
+        }
+      ],
+      "final": {
+        "searchCount": 6,
+        "sourcesOpened": 2,
+        "stalledTurns": 0,
+        "artifactState": "released",
+        "wordCount": 721,
+        "failures": [
+          "sources 2 < 4"
+        ],
+        "passed": false
+      }
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 2,
+    "total": 2
+  }
+}

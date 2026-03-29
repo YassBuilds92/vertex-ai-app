@@ -48,6 +48,9 @@ const TOOL_LIBRARY = [
   'web_search',
   'web_fetch',
   'music_catalog_lookup',
+  'generate_image_asset',
+  'generate_tts_audio',
+  'generate_music_audio',
   'begin_pdf_draft',
   'append_to_draft',
   'get_pdf_draft',
@@ -96,10 +99,51 @@ Regles:
 - 3 a 6 champs UI max.
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - Les capabilities sont des promesses produit courtes, pas du jargon.
-- Si le brief parle de podcast ou d'audio, tu peux mentionner Gemini TTS et Lyria comme familles d'outils, sans figer de model IDs fragiles.
+- Si le brief parle de podcast, de voix ou d'ambiance sonore, pense aux tools \`generate_tts_audio\` et \`generate_music_audio\`.
 - Le systemInstruction doit etre exigeant, concret et exploitable tel quel.
 - Le starterPrompt doit etre pret a l'emploi.
 - Le slug doit etre propre et stable.
+- N'invente pas de cle hors schema.`;
+
+const AGENT_REVISION_SYSTEM_PROMPT = `Tu es l'architecte d'agents de Studio Pro.
+Tu dois mettre a jour un agent existant.
+Tu retournes UNIQUEMENT un objet JSON valide, sans markdown et sans texte autour.
+
+Schema attendu:
+{
+  "name": "Nom court de l'agent",
+  "slug": "slug-kebab-case",
+  "tagline": "phrase courte produit",
+  "summary": "resume concret en 1 phrase",
+  "mission": "ce que l'agent accomplit exactement",
+  "whenToUse": "quand l'utilisateur doit preferer cet agent",
+  "outputKind": "pdf | html | podcast | code | research | automation",
+  "starterPrompt": "prompt de depart que l'utilisateur peut envoyer a cet agent",
+  "systemInstruction": "prompt systeme complet, directement reutilisable",
+  "tools": ["liste d'outils pertinents"],
+  "capabilities": ["3 a 6 capacites lisibles cote produit"],
+  "uiSchema": [
+    {
+      "id": "champ",
+      "label": "Label",
+      "type": "text | textarea | select | number | boolean | url",
+      "placeholder": "placeholder court",
+      "helpText": "aide courte",
+      "required": true,
+      "options": ["si type=select"]
+    }
+  ]
+}
+
+Regles:
+- Ecris en francais.
+- Conserve l'identite utile de l'agent quand la demande ne demande pas de la changer.
+- Modifie uniquement ce qui est necessaire pour satisfaire la demande d'evolution.
+- Si l'utilisateur demande une evolution d'interface, mets a jour \`uiSchema\`.
+- Si l'utilisateur demande une evolution de comportement, mets a jour \`systemInstruction\`, \`capabilities\` et \`tools\` si besoin.
+- Si la mission parle de voix, de narration ou d'ambiance sonore, pense aux tools \`generate_tts_audio\` et \`generate_music_audio\`.
+- Garde 3 a 6 champs UI max.
+- Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - N'invente pas de cle hors schema.`;
 
 function slugify(value: string): string {
@@ -343,7 +387,11 @@ export function sanitizeAgentBlueprint(raw: unknown, brief = ''): AgentBlueprint
     starterPrompt: clipText(input.starterPrompt, 420) || `Prends en charge cette mission: ${brief || name}.`,
     systemInstruction: clipText(input.systemInstruction, 4000) || `Tu es ${name}, un agent specialise. Tu livres un resultat net, exploitable et honnete.`,
     uiSchema,
-    tools: tools.length > 0 ? tools : ['web_search', 'web_fetch'],
+    tools: tools.length > 0
+      ? tools
+      : outputKind === 'podcast'
+        ? ['web_search', 'web_fetch', 'generate_tts_audio', 'generate_music_audio']
+        : ['web_search', 'web_fetch'],
     capabilities: capabilities.length > 0 ? capabilities : [
       'Cadre vite la mission',
       'Propose un livrable net',
@@ -448,6 +496,63 @@ export async function generateAgentBlueprintFromBrief(brief: string, source: 'ma
   } catch (error) {
     const cleanError = parseApiError(error);
     log.error('Agent blueprint generation failed', cleanError);
+    throw new Error(cleanError);
+  }
+}
+
+export async function reviseAgentBlueprint(existingAgent: HubAgentRecord, changeRequest: string): Promise<AgentBlueprint> {
+  const cleanedRequest = clipText(changeRequest, 1600);
+  if (!cleanedRequest) {
+    throw new Error("La demande de modification d'agent est vide.");
+  }
+
+  const ai = createGoogleAI(AGENT_ARCHITECT_MODEL);
+  const prompt = [
+    "Agent existant a mettre a jour:",
+    JSON.stringify({
+      name: existingAgent.name,
+      slug: existingAgent.slug,
+      tagline: existingAgent.tagline,
+      summary: existingAgent.summary,
+      mission: existingAgent.mission,
+      whenToUse: existingAgent.whenToUse,
+      outputKind: existingAgent.outputKind,
+      starterPrompt: existingAgent.starterPrompt,
+      systemInstruction: existingAgent.systemInstruction,
+      tools: existingAgent.tools,
+      capabilities: existingAgent.capabilities,
+      uiSchema: existingAgent.uiSchema,
+    }, null, 2),
+    "",
+    "Demande d'evolution utilisateur:",
+    cleanedRequest,
+    "",
+    "Retourne l'agent complet mis a jour, pas un patch partiel.",
+  ].join('\n');
+
+  try {
+    const result = await retryWithBackoff(() => ai.models.generateContent({
+      model: AGENT_ARCHITECT_MODEL,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: AGENT_REVISION_SYSTEM_PROMPT,
+        temperature: 0.3,
+        topP: 0.95,
+        maxOutputTokens: 4096,
+        responseMimeType: 'text/plain',
+      }
+    }));
+
+    const parsed = extractJsonObject(result.text || '');
+    const blueprint = sanitizeAgentBlueprint(parsed, cleanedRequest);
+    blueprint.id = existingAgent.id;
+    blueprint.createdBy = existingAgent.createdBy;
+    blueprint.sourcePrompt = cleanedRequest;
+    blueprint.sourceSessionId = existingAgent.sourceSessionId;
+    return blueprint;
+  } catch (error) {
+    const cleanError = parseApiError(error);
+    log.error('Agent blueprint revision failed', cleanError);
     throw new Error(cleanError);
   }
 }

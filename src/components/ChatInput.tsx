@@ -109,9 +109,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
   return (
     <div className="relative group/input">
-      <div className="absolute -inset-px rounded-[1.4rem] bg-gradient-to-r from-indigo-500/0 via-indigo-500/0 to-purple-500/0 group-focus-within/input:from-indigo-500/20 group-focus-within/input:via-purple-500/15 group-focus-within/input:to-pink-500/20 transition-all duration-700 blur-sm" />
+      <div className="absolute -inset-px rounded-[1.7rem] bg-[linear-gradient(135deg,rgba(129,236,255,0),rgba(129,236,255,0),rgba(255,191,134,0))] blur-sm transition-all duration-700 group-focus-within/input:bg-[linear-gradient(135deg,rgba(129,236,255,0.24),rgba(68,196,255,0.1),rgba(255,191,134,0.18))]" />
       
-      <div className="relative bg-[var(--app-surface)]/80 backdrop-blur-3xl border border-[var(--app-border)] rounded-[2rem] p-2.5 shadow-2xl transition-all duration-500 ring-1 ring-[var(--app-border)]">
+      <div className="studio-panel-strong relative rounded-[2rem] p-2.5 ring-1 ring-white/5 transition-all duration-500">
         
         
         {/* Recording Indicator */}
@@ -142,7 +142,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="flex flex-wrap gap-2.5 p-2 pb-1 mx-1 mb-1 border-b border-[var(--app-border)]/50 overflow-hidden"
+              className="mx-1 mb-1 flex flex-wrap gap-2.5 overflow-hidden border-b border-[var(--app-border)]/60 p-2 pb-1"
             >
               {pendingAttachments.map((att, idx) => (
                 <motion.div 
@@ -156,7 +156,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     damping: 25,
                     delay: idx * 0.05 
                   }}
-                  className="relative group/att bg-[var(--app-surface-hover)]/40 backdrop-blur-xl rounded-2xl border border-white/[0.08] transition-all hover:border-indigo-500/30 hover:shadow-lg hover:shadow-indigo-500/5 overflow-hidden shrink-0 w-[140px]"
+                  className="group/att relative w-[140px] shrink-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl transition-all hover:border-[var(--app-border-strong)] hover:shadow-[0_20px_40px_-28px_rgba(68,196,255,0.4)]"
                 >
                   <div className="flex flex-col gap-2 p-2">
                     <div className="relative aspect-square rounded-xl overflow-hidden bg-black/20 ring-1 ring-white/5">
@@ -187,7 +187,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     </div>
                     
                     <div className="px-1 pb-1">
-                      <span className="text-[10px] font-medium text-[var(--app-text)]/90 truncate block">{att.name}</span>
+                      <span className="block truncate text-[10px] font-medium text-[var(--app-text)]/90">{att.name}</span>
                     </div>
                   </div>
 
@@ -204,7 +204,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </AnimatePresence>
 
         {/* Controls Row */}
-        <div className="flex items-end gap-1.5">
+        <div className="rounded-[1.55rem] border border-[var(--app-border)] bg-black/15 px-2 py-2 sm:px-2.5 flex items-end gap-1.5">
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -217,7 +217,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           />
           <button 
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 text-[var(--app-text-muted)] hover:text-[var(--app-text)] hover:bg-[var(--app-text)]/[0.06] rounded-xl transition-all duration-200 shrink-0"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-transparent bg-white/[0.03] text-[var(--app-text-muted)] transition-all duration-200 hover:border-[var(--app-border)] hover:bg-white/[0.06] hover:text-[var(--app-text)]"
             title="Joindre un fichier"
           >
             <Paperclip size={19} />
@@ -225,10 +225,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <button 
             onClick={onToggleRecording}
             className={cn(
-              "p-2.5 rounded-xl transition-all duration-200 shrink-0",
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl transition-all duration-200 border",
               isRecording 
-                ? "text-red-400 bg-red-500/10 hover:bg-red-500/15 border border-red-500/20" 
-                : "text-[var(--app-text-muted)] hover:text-[var(--app-text)] hover:bg-[var(--app-text)]/[0.06]"
+                ? "text-red-400 bg-red-500/10 hover:bg-red-500/15 border-red-500/20" 
+                : "text-[var(--app-text-muted)] hover:text-[var(--app-text)] hover:bg-white/[0.06] border-transparent hover:border-[var(--app-border)]"
             )}
             title={isRecording ? "Arrêter l'enregistrement" : "Enregistrer un message vocal"}
           >
@@ -247,7 +247,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             onPaste={handlePaste}
             placeholder={isRecording ? "Enregistrement en cours…" : "Envoyer un message…"}
             disabled={isRecording}
-            className="w-full max-h-60 min-h-[48px] bg-transparent border-none focus:ring-0 resize-none py-3 px-2 text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 text-[15px] outline-none disabled:opacity-50"
+            className="w-full max-h-60 min-h-[48px] bg-transparent border-none focus:ring-0 resize-none py-3 px-2.5 text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/55 text-[15px] leading-7 outline-none disabled:opacity-50"
             rows={1}
             style={{ height: 'auto' }}
             onInput={(e) => {
@@ -260,12 +260,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             onClick={isLoading ? onStop : handleSendClick}
             disabled={!isLoading && (!text.trim() && pendingAttachments.length === 0)}
             className={cn(
-              "w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-all duration-300 m-0.5",
+              "w-12 h-12 shrink-0 rounded-2xl flex items-center justify-center transition-all duration-300 m-0.5 border",
               isLoading
-                ? "bg-red-500/20 text-red-500 hover:bg-red-500/30"
+                ? "bg-red-500/20 text-red-500 hover:bg-red-500/30 border-red-500/20"
                 : (!text.trim() && pendingAttachments.length === 0)
-                  ? "bg-[var(--app-text)]/[0.04] text-[var(--app-text-muted)]"
-                  : "bg-gradient-to-tr from-indigo-500 to-purple-500 text-white shadow-lg shadow-indigo-500/20"
+                  ? "bg-[var(--app-text)]/[0.04] text-[var(--app-text-muted)] border-transparent"
+                  : "border-[var(--app-border-strong)] bg-[linear-gradient(135deg,rgba(129,236,255,0.95),rgba(68,196,255,0.78))] text-[#041018] shadow-[0_20px_48px_-24px_rgba(68,196,255,0.7)]"
             )}
           >
             {isLoading ? <Square size={16} fill="currentColor" /> : <ChevronRight size={20} />}

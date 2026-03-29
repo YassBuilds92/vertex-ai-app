@@ -66,13 +66,35 @@ try {
     summary: 'Un rapport de controle pour le provider HTTP mocke.',
     author: 'Cowork',
     sections: [
-      { heading: 'Constat', body: 'Le document compile via un provider externe compatible YtoTech.' },
-      { heading: 'Verification', body: 'La compilation doit renvoyer un flux PDF binaire exploitable.' },
+      {
+        heading: 'Constat',
+        body: 'Le document compile via un provider externe compatible YtoTech.',
+        visualTheme: 'arbres',
+        mood: 'calme organique',
+        motif: 'canopee',
+        pageStyle: 'feature',
+      },
+      {
+        heading: 'Verification',
+        body: 'La compilation doit renvoyer un flux PDF binaire exploitable.',
+        visualTheme: 'guerre',
+        mood: 'gravite geopolitique',
+        motif: 'front',
+        pageStyle: 'hero',
+        pageBreakBefore: true,
+        flagHints: ['Ukraine', 'France'],
+      },
     ],
     sources: ['https://example.com/source'],
     dateLabel: '27 mars 2026',
     absoluteDateTimeLabel: 'vendredi 27 mars 2026 11:00',
   });
+
+  assert.ok(source.includes('\\usetikzlibrary{arrows.meta,calc,positioning}'));
+  assert.ok(source.includes('Section1Accent'));
+  assert.ok(source.includes('Ukraine'));
+  assert.ok(source.includes('\\clearpage'));
+  assert.equal(validateLatexSource(source).ok, true);
 
   const success = await compileLatexDocument({
     source,
@@ -122,6 +144,8 @@ Texte
   assert.ok(validation.unsupportedPackages.includes('foo'));
   assert.ok(validation.dangerousCommands.length >= 1);
   assert.ok(ALLOWED_LATEX_PACKAGES.includes('geometry'));
+  assert.ok(ALLOWED_LATEX_PACKAGES.includes('calc'));
+  assert.ok(ALLOWED_LATEX_PACKAGES.includes('fontawesome5'));
 } finally {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());

@@ -36,6 +36,9 @@ export function getMimeType(filePath: string): string {
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
     '.gif': 'image/gif',
+    '.wav': 'audio/wav',
+    '.mp3': 'audio/mpeg',
+    '.ogg': 'audio/ogg',
     '.csv': 'text/csv',
     '.json': 'application/json',
   };

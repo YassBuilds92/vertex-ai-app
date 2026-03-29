@@ -16,9 +16,6 @@ const {
   extractRequestedWordCount,
   resolvePdfTheme,
   resolvePdfEngine,
-  requestNeedsFormalDocument,
-  requestNeedsFictionalDetails,
-  requestNeedsPdfArtifact,
   getPdfQualityTargets,
   createActivePdfDraft,
   appendToActivePdfDraft,
@@ -30,45 +27,29 @@ const {
 
 const attestationPrompt = 'fais moi une attestation de stage fictive de bts 2eme annee';
 
-assert.equal(requestNeedsFormalDocument(attestationPrompt), true);
-assert.equal(requestNeedsFictionalDetails(attestationPrompt), true);
-assert.equal(requestNeedsPdfArtifact(attestationPrompt), true);
+assert.equal(getPdfQualityTargets(attestationPrompt), null);
+assert.equal(resolvePdfTheme(attestationPrompt, { formalDocument: true }), 'legal');
+assert.equal(resolvePdfTheme('fais un dossier news sur l actu du jour'), 'report');
+assert.equal(resolvePdfTheme('ignored', { explicitTheme: 'news' }), 'news');
+assert.equal(resolvePdfTheme('ignored', { explicitTheme: 'report' }), 'report');
 
-const targets = getPdfQualityTargets(attestationPrompt);
-assert.ok(targets, 'formal document prompt should get PDF quality targets');
-assert.equal(targets?.formalDocument, true);
-assert.equal(targets?.requireInventedDetails, true);
-assert.ok((targets?.minSections || 0) >= 3);
-assert.equal(resolvePdfEngine(attestationPrompt, { pdfQualityTargets: targets, theme: targets?.theme }), 'pdfkit');
-
-const reportPrompt = 'fais moi un pdf beau et propre sur l actu du jour';
-const reportTargets = getPdfQualityTargets(reportPrompt);
-assert.equal(resolvePdfEngine(reportPrompt, { pdfQualityTargets: reportTargets, theme: reportTargets?.theme }), 'latex');
-assert.ok((targets?.minWords || 0) >= 200);
+assert.equal(resolvePdfEngine(attestationPrompt, { pdfQualityTargets: null, theme: undefined }), 'pdfkit');
+assert.equal(resolvePdfEngine(attestationPrompt, { explicitEngine: 'latex', pdfQualityTargets: null, theme: 'news' }), 'latex');
+assert.equal(resolvePdfEngine(attestationPrompt, { explicitEngine: 'pdfkit', pdfQualityTargets: null, theme: 'legal' }), 'pdfkit');
 
 assert.equal(extractRequestedWordCount('fais un pdf de 9000 mots sur l actu'), 9000);
-const cappedTargets = getPdfQualityTargets('fais un pdf sublime de 9000 mots sur l actu du jour');
-assert.ok(cappedTargets, 'capped long-form prompt should get PDF quality targets');
-assert.equal(cappedTargets?.requestedWordCount, 9000);
-assert.equal(cappedTargets?.cappedWordCount, true);
-assert.equal(cappedTargets?.minWords, 3000);
-assert.equal(cappedTargets?.theme, 'news');
-
-assert.equal(resolvePdfTheme(attestationPrompt, { formalDocument: true }), 'legal');
-assert.equal(resolvePdfTheme('fais un dossier news sur l actu du jour'), 'news');
-assert.equal(resolvePdfTheme('fais un beau rapport de synthese produit'), 'report');
 
 const draft = createActivePdfDraft(
-  'fais un pdf sublime de 9000 mots sur l actu du jour',
+  'fais un pdf premium',
   {
     title: 'Panorama justice',
     summary: 'Synthese initiale.',
+    theme: 'news',
+    engine: 'latex',
     sections: [{ heading: 'Introduction', body: 'Un premier bloc de texte relativement court pour amorcer le brouillon.' }]
   },
-  cappedTargets
+  null
 );
-assert.equal(draft.targetWords, 3000);
-assert.equal(draft.cappedWords, true);
 assert.equal(draft.theme, 'news');
 assert.equal(draft.engine, 'latex');
 assert.equal(draft.compiler, 'xelatex');
@@ -80,7 +61,7 @@ const reviewedDraft = {
   approvedReviewSignature: 'review-ok-123'
 };
 const appendedDraft = appendToActivePdfDraft(
-  'fais un pdf sublime de 9000 mots sur l actu du jour',
+  'fais un pdf premium',
   reviewedDraft,
   {
     sections: [{ heading: 'Section 2', body: 'Deuxieme bloc de contenu suffisamment dense pour invalider la signature precedente et faire grossir le brouillon.' }]
@@ -98,10 +79,12 @@ const legalDraft = createActivePdfDraft(
   attestationPrompt,
   {
     title: 'Attestation de stage',
+    theme: 'legal',
     sections: [{ heading: 'Bloc 1', body: 'Un contenu administratif bref mais complet.' }]
   },
-  targets
+  null
 );
+assert.equal(legalDraft.theme, 'legal');
 assert.equal(legalDraft.engine, 'pdfkit');
 assert.equal(legalDraft.compiler, null);
 
@@ -117,11 +100,12 @@ const rawLatexDraft = createActivePdfDraft(
   'fais un beau dossier magazine latex',
   {
     title: 'Dossier magazine',
+    theme: 'news',
     engine: 'latex',
     compiler: 'xelatex',
     latexSource: rawLatexSource,
   },
-  getPdfQualityTargets('fais un beau dossier magazine latex')
+  null
 );
 const rawLatexStats = buildPdfDraftStats(rawLatexDraft);
 assert.equal(rawLatexDraft.engine, 'latex');
@@ -184,8 +168,8 @@ const newsRender = await renderPdfArtifact({
   ],
   sources: ['https://www.franceinfo.fr/', 'https://www.france24.com/fr/'],
   requestClock,
-  message: 'fais un pdf sublime de 9000 mots sur l actu du jour',
-  pdfQualityTargets: cappedTargets,
+  message: 'fais un pdf premium',
+  pdfQualityTargets: null,
   theme: 'news',
 });
 assert.equal(newsRender.blankBodyPageCount, 0);
@@ -205,7 +189,7 @@ const legalRender = await renderPdfArtifact({
   sources: [],
   requestClock,
   message: attestationPrompt,
-  pdfQualityTargets: targets,
+  pdfQualityTargets: null,
   theme: 'legal',
 });
 assert.equal(legalRender.blankBodyPageCount, 0);

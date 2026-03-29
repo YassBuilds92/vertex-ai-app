@@ -1,0 +1,185 @@
+{
+  "createdAt": "2026-03-29T06:06:08.167Z",
+  "baseUrl": "http://127.0.0.1:3000",
+  "model": "gemini-3.1-pro-preview",
+  "tests": [
+    {
+      "id": "1.1",
+      "category": "Recherche & Synthese",
+      "title": "Dossier d'investigation",
+      "prompts": [
+        "Fais-moi un dossier complet sur la crise de l'eau en France : etat des nappes phreatiques, restrictions en cours, projections 2030, comparaison avec l'Espagne et l'Italie. PDF avec graphiques si possible."
+      ],
+      "expectations": {
+        "expectsArtifact": true,
+        "minSearches": 8,
+        "minSources": 4,
+        "maxStalls": 1,
+        "minReleaseCount": 1
+      },
+      "turns": [
+        {
+          "prompt": "Fais-moi un dossier complet sur la crise de l'eau en France : etat des nappes phreatiques, restrictions en cours, projections 2030, comparaison avec l'Espagne et l'Italie. PDF avec graphiques si possible.",
+          "runState": "completed",
+          "runMeta": {
+            "iterations": 7,
+            "modelCalls": 7,
+            "toolCalls": 9,
+            "searchCount": 4,
+            "fetchCount": 3,
+            "sourcesOpened": 3,
+            "domainsOpened": 3,
+            "artifactState": "released",
+            "stalledTurns": 0,
+            "retryCount": 0,
+            "queueWaitMs": 0,
+            "mode": "autonomous",
+            "phase": "completed",
+            "taskComplete": true,
+            "inputTokens": 91161,
+            "outputTokens": 2802,
+            "thoughtTokens": 2969,
+            "toolUseTokens": 0,
+            "totalTokens": 96932,
+            "estimatedCostUsd": 0.251574,
+            "estimatedCostEur": 0.218021
+          },
+          "durationMs": 88519,
+          "warnings": [],
+          "toolCalls": [
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "web_fetch",
+            "create_pdf",
+            "create_pdf",
+            "release_file",
+            "release_file"
+          ],
+          "releasedUrlCount": 1,
+          "finalTextPreview": "Voici un dossier complet sur la situation hydrologique en France en ce mois de mars 2026, mis en perspective avec les projections climatiques et la situation de nos voisins européens. \n\nJ'ai synthétisé ces éléments dans un rapport PDF mis en page que tu peux télécharger ici :\n📄 **[Télécharger le Rapport : Crise de l'eau en France (Mars 2026)](https://storage.googleapis.com/videosss92/uploaded/rapport-crise-eau-france-2026.pdf?GoogleAccessId=google-ai-studio%40gen-lang-client-0405707007.iam.gserviceaccount.com&Expires=1775369239&Signature=yAGHy9Dki3Q2fSqgKApghC%2B1TIWow%2Fx3Xt0%2FWpEKXrdREpLHdxcCVuREF8YhDA%2Fv%2BVDvRl6V%2B1y%2BUEN0fSiewoZFEjNnmrHr7dYtq44ajGZVwfkq%2BAyUN2YbZqy04%2FfRnuhSZND0qWfJZiv8ZzLvIbq1tysnn5o6ScCQnwLYjRn7a0cVPogZi81LhMyuJAVHXlZIQKIKF14eNd2kCgAF4C9YXRPZN54th%2BLhXVYXNl%2BkbdQyUDTiGG1OfL50VTnYgR%2FtsQvKgMq4QQG2NysFKfC1ibBzojtWyKQYyLcwM%2BlBXFo8BIeQgiNn%2Bbu2APsko9OZvjv2WnRDqd8YqIeTVQ%3D%3D)**\n\nVoici les points clés du dossier :\n\n### 1. État des nappes phréatiques (Mars 2026) : Une embellie inespérée\nContrairement aux craintes de l'année précédente, la situation hydrologique de la France au printemps 2026 est particulièrement favorable. \n* Selon le dernier bulletin du **BRGM** (1er mars 2026), **84 % des niveaux des nappes phréatiques sont en hausse** et **67 % des points d'observation se situent au-dessus des normales** mensuelles. \n* Cette situation s'explique par des précipitations très excédentaires durant l'hiver 2025-2026. Le sud-ouest de l'Hexagone af"
+        }
+      ],
+      "final": {
+        "searchCount": 4,
+        "sourcesOpened": 3,
+        "stalledTurns": 0,
+        "artifactState": "released",
+        "wordCount": 545,
+        "failures": [
+          "searches 4 < 8",
+          "sources 3 < 4"
+        ],
+        "passed": false
+      }
+    },
+    {
+      "id": "5.3",
+      "category": "Boucle & iteration",
+      "title": "Chaine de taches",
+      "prompts": [
+        "1. Cherche les 5 startups francaises les plus financees en 2025 2. Pour chacune, trouve le fondateur et son parcours 3. Redige un article de 1500 mots style Les Echos 4. Mets en PDF avec mise en page magazine 5. Traduis en anglais dans un 2e PDF"
+      ],
+      "expectations": {
+        "expectsArtifact": true,
+        "minSearches": 6,
+        "minSources": 4,
+        "maxStalls": 1,
+        "minReleaseCount": 2
+      },
+      "turns": [
+        {
+          "prompt": "1. Cherche les 5 startups francaises les plus financees en 2025 2. Pour chacune, trouve le fondateur et son parcours 3. Redige un article de 1500 mots style Les Echos 4. Mets en PDF avec mise en page magazine 5. Traduis en anglais dans un 2e PDF",
+          "runState": "completed",
+          "runMeta": {
+            "iterations": 16,
+            "modelCalls": 16,
+            "toolCalls": 15,
+            "searchCount": 6,
+            "fetchCount": 1,
+            "sourcesOpened": 1,
+            "domainsOpened": 1,
+            "artifactState": "released",
+            "stalledTurns": 0,
+            "retryCount": 1,
+            "queueWaitMs": 0,
+            "mode": "autonomous",
+            "phase": "completed",
+            "taskComplete": true,
+            "inputTokens": 234625,
+            "outputTokens": 9540,
+            "thoughtTokens": 1894,
+            "toolUseTokens": 0,
+            "totalTokens": 246059,
+            "estimatedCostUsd": 0.606458,
+            "estimatedCostEur": 0.525572
+          },
+          "durationMs": 229937,
+          "warnings": [
+            "Saturation simultanee detectee. Nouvelle tentative dans 2.0 s. Quota dépassé (429). Trop de demandes simultanées ou limite quotidienne atteinte. Réessayez dans quelques minutes."
+          ],
+          "toolCalls": [
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_fetch",
+            "web_fetch",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "web_search",
+            "begin_pdf_draft",
+            "begin_pdf_draft",
+            "review_pdf_draft",
+            "review_pdf_draft",
+            "create_pdf",
+            "create_pdf",
+            "revise_pdf_draft",
+            "revise_pdf_draft",
+            "review_pdf_draft",
+            "review_pdf_draft",
+            "create_pdf",
+            "create_pdf",
+            "release_file",
+            "release_file",
+            "release_file",
+            "release_file"
+          ],
+          "releasedUrlCount": 2,
+          "finalTextPreview": "Voici le dossier complet sur les 5 plus grandes levées de fonds de la French Tech en 2025, rédigé dans un style économique et analytique (façon *Les Échos*), avec les profils détaillés des fondateurs. \n\nJ'ai généré deux éditions PDF avec une mise en page magazine premium (une en français, une traduite en anglais).\n\n### 📄 Vos éditions PDF (Mise en page Magazine)\n*   **Édition Française** : [Télécharger le PDF (FR)](https://storage.googleapis.com/videosss92/uploaded/french-tech-top-5-2025-pdf.pdf?GoogleAccessId=google-ai-studio%40gen-lang-client-0405707007.iam.gserviceaccount.com&Expires=1775369434&Signature=Ucr8rqgV%2FN9ofPUt%2BGsDHcF6Z0q136YzWJG2cVTiwJixdxbvrYMuqJUSvHvcEvfFYMwHpS4xFUdxRdh7BFNS2bFmnrPtDSUaAJFkr0NT%2B3AWaNdbd%2FR7jTpMRDuZ9PDRjQSoNKuwaBK6SgNLgjhmNPUzfFRLQKVK2D04v0W95NWbkS16nzeGqIvBKhAKnc%2F6u6IlUalJW%2BKWf8yB24U7H1xiZplz3GDd%2Bvri%2FeYMSaCMR1UChB4Q6EuGLjVea1gnGdB6YSHPQ4tvXC2JH4EWRxLFRsdN8PWMmi8wRPW%2Fz%2Fk26I0FRGEMUJx2EQ0g0wY3ov0nUFKq%2BhKq0p45M3cAnw%3D%3D)\n*   **Édition Anglaise** : [Télécharger le PDF (EN)](https://storage.googleapis.com/videosss92/uploaded/french-tech-top-5-2025-en-pdf.pdf?GoogleAccessId=google-ai-studio%40gen-lang-client-0405707007.iam.gserviceaccount.com&Expires=1775369438&Signature=biITSshIYoE150LrYqI10ZNWS5KrxaEQxV%2FtiO6w7o0r2vSp8W%2BpcRpeqvQYEwFlBkugS1hRNdQzqARLHgS9OxlTPjadWAA6zNp0TOLM%2B43ceLg%2Fec0sXPS4e0Na3SQZuAfCKlLUb7vkQ8kH9kgMAR3AZZl%2Bqt6VgFQUf4cAwKiqPQtZiN8MGia5wUJaNjNnJDFU2zianmG1kGXwmGdhtn8%2Bb6NBfbOwCtcaoLTcTat7XgUDdKNTcMCxz"
+        }
+      ],
+      "final": {
+        "searchCount": 6,
+        "sourcesOpened": 1,
+        "stalledTurns": 0,
+        "artifactState": "released",
+        "wordCount": 1809,
+        "failures": [
+          "sources 1 < 4"
+        ],
+        "passed": false
+      }
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 2,
+    "total": 2
+  }
+}

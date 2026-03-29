@@ -1,10 +1,11 @@
 import { type Express } from 'express';
 
 import { normalizeLatexProvider, resolveLatexProviderBaseUrl } from '../../server/pdf/latex.js';
+import { generateAgentBlueprintFromBrief } from '../lib/agents.js';
 import { normalizeConfiguredModelId } from '../lib/config.js';
 import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from '../lib/google-genai.js';
 import { log } from '../lib/logger.js';
-import { ChatRefineSchema, ChatSchema, ImageGenRequestSchema, UploadSchema, VideoGenSchema } from '../lib/schemas.js';
+import { AgentCreateSchema, ChatRefineSchema, ChatSchema, ImageGenRequestSchema, UploadSchema, VideoGenSchema } from '../lib/schemas.js';
 import { getServiceAccountEmail, uploadToGCS } from '../lib/storage.js';
 
 const REFINER_SYSTEM_PROMPT = `Optimise l'instruction systeme suivante pour un modele IA puissant. Sois concis.`;
@@ -116,6 +117,18 @@ export function registerStandardApiRoutes(app: Express) {
       res.status(501).json({ error: 'Non implemente', message: 'La generation video Veo necessite une configuration GCS specifique.' });
     } catch (error) {
       res.status(500).json({ error: 'Video failed', message: String(error) });
+    }
+  });
+
+  app.post('/api/agents/create', async (req, res) => {
+    try {
+      const { brief, source } = AgentCreateSchema.parse(req.body);
+      const blueprint = await generateAgentBlueprintFromBrief(brief, source || 'manual');
+      res.json({ blueprint });
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.error('Agent create error', cleanError);
+      res.status(500).json({ error: 'Agent create failed', message: "Echec de creation d'agent", details: cleanError });
     }
   });
 

@@ -191,6 +191,10 @@ service cloud.firestore {
 
         allow create: if isOwner(userId) && isValidCustomPrompt(request.resource.data);
       }
+
+      match /agents/{agentId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
     }
 
     // Default deny

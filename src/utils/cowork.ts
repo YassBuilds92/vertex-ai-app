@@ -1,4 +1,4 @@
-import { ActivityItem, Message, RunMeta, RunState } from '../types';
+import { AgentBlueprint, ActivityItem, Message, RunMeta, RunState } from '../types';
 
 const MAX_ACTIVITY_ITEMS = 80;
 const MAX_ACTIVITY_TEXT = 420;
@@ -58,6 +58,13 @@ export type CoworkStreamEvent =
       status?: 'success' | 'warning' | 'error';
       resultPreview?: string;
       meta?: Record<string, ActivityMetaValue>;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
+      type: 'agent_blueprint';
+      timestamp?: number;
+      iteration?: number;
+      blueprint?: AgentBlueprint;
       runMeta?: Partial<RunMeta>;
     }
   | {
@@ -267,6 +274,16 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
           resultPreview: event.resultPreview,
           meta: event.meta,
           status: event.status === 'error' ? 'error' : event.status === 'warning' ? 'warning' : 'success',
+        })
+      );
+
+    case 'agent_blueprint':
+      return pushActivity(
+        next,
+        createActivityItem(next, 'status', iteration, timestamp, {
+          title: event.blueprint?.name ? `Agent cree: ${event.blueprint.name}` : 'Agent cree',
+          message: event.blueprint?.tagline || "Le Hub Agents vient de recevoir un nouveau specialiste.",
+          status: 'success',
         })
       );
 

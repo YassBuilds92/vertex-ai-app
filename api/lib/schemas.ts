@@ -5,6 +5,11 @@ export const ChatRefineSchema = z.object({
   type: z.enum(['system', 'icon']).optional(),
 });
 
+export const AgentCreateSchema = z.object({
+  brief: z.string(),
+  source: z.enum(['manual', 'cowork']).optional(),
+});
+
 export const ImageGenSchema = z.object({
   prompt: z.string(),
   aspectRatio: z.string().optional(),

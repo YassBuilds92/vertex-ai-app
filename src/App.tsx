@@ -20,7 +20,8 @@ import { SidebarLeft } from './components/SidebarLeft';
 import { SidebarRight } from './components/SidebarRight';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion } from './types';
+import { AgentsHub } from './components/AgentsHub';
+import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -45,6 +46,14 @@ function cn(...inputs: ClassValue[]) {
 
 const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as accès à des outils pour accomplir des tâches complexes. Analyse, propose et exécute.";
 const createClientMessageId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const slugifyAgentLabel = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'agent-studio';
 
 export default function App() {
   const { 
@@ -65,9 +74,11 @@ export default function App() {
   }, [theme]);
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [agents, setAgents] = useState<StudioAgent[]>([]);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCreatingAgent, setIsCreatingAgent] = useState(false);
   const [isVertexConfigured, setIsVertexConfigured] = useState<boolean | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -86,6 +97,8 @@ export default function App() {
   const [titleInput, setTitleInput] = useState('');
   const [customTitle, setCustomTitle] = useState<string | null>(null);
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
+  const [showAgentsHub, setShowAgentsHub] = useState(false);
+  const [latestCreatedAgent, setLatestCreatedAgent] = useState<StudioAgent | null>(null);
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -107,6 +120,63 @@ export default function App() {
     userId: user?.uid || '', 
     systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || '' 
   };
+
+  const materializeAgentBlueprint = useCallback((blueprint: AgentBlueprint, overrides?: Partial<StudioAgent>): StudioAgent => {
+    const now = Date.now();
+    const baseSlug = slugifyAgentLabel(blueprint.slug || blueprint.name || 'agent-studio');
+    const id = blueprint.id || `${baseSlug}-${now.toString(36)}`;
+
+    return {
+      ...blueprint,
+      ...overrides,
+      id,
+      slug: baseSlug,
+      name: blueprint.name || overrides?.name || 'Agent specialise',
+      tagline: blueprint.tagline || overrides?.tagline || 'Agent pret a deleguer',
+      summary: blueprint.summary || overrides?.summary || 'Blueprint genere par Cowork.',
+      mission: blueprint.mission || overrides?.mission || blueprint.summary || 'Mission a preciser.',
+      whenToUse: blueprint.whenToUse || overrides?.whenToUse || 'A utiliser quand tu veux deleguer une mission recurrente.',
+      starterPrompt: blueprint.starterPrompt || overrides?.starterPrompt || `Prends en charge cette mission: ${blueprint.name || 'agent specialise'}.`,
+      systemInstruction: blueprint.systemInstruction || overrides?.systemInstruction || `Tu es ${blueprint.name || 'un agent specialise'}.`,
+      outputKind: blueprint.outputKind || overrides?.outputKind || 'research',
+      uiSchema: Array.isArray(blueprint.uiSchema) ? blueprint.uiSchema : [],
+      tools: Array.isArray(blueprint.tools) ? blueprint.tools : [],
+      capabilities: Array.isArray(blueprint.capabilities) ? blueprint.capabilities : [],
+      status: blueprint.status || overrides?.status || 'ready',
+      createdBy: overrides?.createdBy || blueprint.createdBy || 'manual',
+      sourcePrompt: overrides?.sourcePrompt ?? blueprint.sourcePrompt,
+      sourceSessionId: overrides?.sourceSessionId ?? blueprint.sourceSessionId,
+      createdAt: overrides?.createdAt || now,
+      updatedAt: now,
+    };
+  }, []);
+
+  const persistAgentBlueprint = useCallback(async (
+    blueprint: AgentBlueprint,
+    overrides?: Partial<StudioAgent> & { openHub?: boolean }
+  ) => {
+    if (!user) return null;
+
+    const { openHub, ...materialOverrides } = overrides || {};
+    const nextAgent = materializeAgentBlueprint(blueprint, materialOverrides);
+
+    setAgents(prev => {
+      const withoutCurrent = prev.filter(agent => agent.id !== nextAgent.id);
+      return [nextAgent, ...withoutCurrent].sort((left, right) => right.updatedAt - left.updatedAt);
+    });
+
+    await setDoc(
+      doc(db, 'users', user.uid, 'agents', nextAgent.id),
+      cleanForFirestore(nextAgent)
+    );
+
+    setLatestCreatedAgent(nextAgent);
+    if (openHub) {
+      setShowAgentsHub(true);
+    }
+
+    return nextAgent;
+  }, [materializeAgentBlueprint, user]);
 
   const displayedMessages = React.useMemo(() => {
     const merged = new Map<string, Message>();
@@ -196,6 +266,25 @@ export default function App() {
       setSessions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), messages: [] } as ChatSession)));
     });
   }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setAgents([]);
+      return;
+    }
+    const q = query(collection(db, 'users', user.uid, 'agents'), orderBy('updatedAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      setAgents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudioAgent)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/agents`);
+    });
+  }, [user]);
+
+  useEffect(() => {
+    if (activeMode !== 'cowork') {
+      setShowAgentsHub(false);
+    }
+  }, [activeMode]);
 
   // Auto-scroll logic to maintain focus on the latest message/streaming content
   useEffect(() => {
@@ -381,6 +470,42 @@ export default function App() {
       await setDoc(messageRef, legacyPayload);
     }
   }, []);
+
+  const handleCreateAgent = useCallback(async (brief: string) => {
+    if (!user || isCreatingAgent) return null;
+
+    const cleanedBrief = brief.trim();
+    if (!cleanedBrief) return null;
+
+    setIsCreatingAgent(true);
+    try {
+      const response = await fetch('/api/agents/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brief: cleanedBrief,
+          source: 'manual',
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.blueprint) {
+        throw new Error(data?.details || data?.message || "Impossible de creer l'agent.");
+      }
+
+      return await persistAgentBlueprint(data.blueprint as AgentBlueprint, {
+        createdBy: 'manual',
+        sourcePrompt: cleanedBrief,
+        sourceSessionId: activeSessionId && activeSessionId !== 'local-new' ? activeSessionId : undefined,
+        openHub: true,
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+      return null;
+    } finally {
+      setIsCreatingAgent(false);
+    }
+  }, [activeSessionId, isCreatingAgent, persistAgentBlueprint, user]);
 
   const releaseCoworkDraft = useCallback(async (options?: { clear?: boolean }) => {
     const draft = liveCoworkMessageRef.current;
@@ -867,6 +992,14 @@ export default function App() {
               throw new Error(data.error);
             }
 
+            if (data.type === 'agent_blueprint' && data.blueprint) {
+              await persistAgentBlueprint(data.blueprint, {
+                createdBy: 'cowork',
+                sourcePrompt: data.blueprint.sourcePrompt || finalPrompt,
+                sourceSessionId: currentSessionId,
+              });
+            }
+
             setCoworkDraft(prev => (prev ? applyCoworkEventToMessage(prev, data) : prev));
             scheduleCoworkPersist();
 
@@ -1320,11 +1453,54 @@ export default function App() {
                </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+               {activeMode === 'cowork' && user && (
+                 <button
+                   onClick={() => setShowAgentsHub(true)}
+                   className="inline-flex items-center gap-2 rounded-full border border-cyan-300/18 bg-cyan-300/[0.07] px-3 py-2 text-sm font-medium text-cyan-100 transition-colors hover:bg-cyan-300/[0.12]"
+                   title="Ouvrir le Hub Agents"
+                 >
+                   <Bot size={15} />
+                   <span className="hidden sm:inline">Hub Agents</span>
+                   {agents.length > 0 && (
+                     <span className="rounded-full bg-white/12 px-2 py-0.5 text-[11px] text-white/80">
+                       {agents.length}
+                     </span>
+                   )}
+                 </button>
+               )}
                <button onClick={() => setShowSearch(!showSearch)} className="p-2 hover:bg-[var(--app-text)]/5 rounded-lg text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"><Search size={20}/></button>
                <button onClick={() => handleExport('md')} className="p-2 hover:bg-[var(--app-text)]/5 rounded-lg text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"><Download size={20}/></button>
                <button onClick={() => setRightSidebarVisible(!isRightSidebarVisible)} className="p-2 hover:bg-[var(--app-text)]/5 rounded-lg text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"><SlidersHorizontal size={20}/></button>
             </div>
           </header>
+
+          {activeMode === 'cowork' && user && latestCreatedAgent && !showAgentsHub && (
+            <div className="border-b border-cyan-300/10 bg-cyan-300/[0.05] px-6 py-3">
+              <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-[0.2em] text-cyan-100/55">Agent cree</div>
+                  <div className="truncate text-sm text-cyan-50">
+                    {latestCreatedAgent.name} est pret dans le Hub Agents.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAgentsHub(true)}
+                    className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition-transform hover:translate-y-[-1px]"
+                  >
+                    Ouvrir
+                  </button>
+                  <button
+                    onClick={() => setLatestCreatedAgent(null)}
+                    className="rounded-full border border-white/10 px-3 py-2 text-sm text-white/60 transition-colors hover:text-white"
+                    title="Masquer"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {!user ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
@@ -1344,6 +1520,15 @@ export default function App() {
             </div>
           ) : (
             <>
+              <AgentsHub
+                isOpen={showAgentsHub}
+                agents={agents}
+                isCreating={isCreatingAgent}
+                latestCreatedAgent={latestCreatedAgent}
+                onClose={() => setShowAgentsHub(false)}
+                onCreateAgent={handleCreateAgent}
+              />
+
               <main ref={parentRef} className="relative flex-1 overflow-x-hidden overflow-y-auto">
                 {shouldVirtualizeMessages ? (
                   <div

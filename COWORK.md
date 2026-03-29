@@ -183,11 +183,14 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Correctif moteur PDF: `resolvePdfEngine()` choisit maintenant `latex` par defaut pour les vrais PDF non formels, et reserve `pdfkit` aux documents `legal` / formels ou a un choix explicite.
 - Correctif anti-cosmetique: `create_pdf` n'applique plus les veto editoriaux legacy (`document trop pauvre`, placeholders, minima mots/sections). La review/signature reste utile pour le cache et l'information, mais n'est plus un coupe-circuit backend.
 - Correctif draft observabilite: `begin_pdf_draft`, `append_to_draft` et `get_pdf_draft` renvoient aussi `theme`, `wordCount`, `sectionCount` et `sourceMode` en top-level pour eviter les journaux `0 mots / undefined`.
+- Hub Agents natif: Cowork peut maintenant creer un specialist persistant via l'outil `create_agent_blueprint`, streamer un evenement `agent_blueprint`, et pousser le resultat dans un vrai `Hub Agents` frontend (`users/{uid}/agents`) au lieu de parler de delegation sans livrer d'objet reutilisable.
 - Validation locale reussie: `npm run lint`, `npx tsx test-cowork-loop.ts`, `npx tsx test-pdf-heuristics.ts`.
 
 ## Prochaines Etapes V3
-1. Extraire la route `/api/cowork` dans un module dedie (`api/routes/cowork.ts` ou equivalent) sans casser la boucle modele-led ni dupliquer les helpers deja deplaces dans `api/lib/*`.
-2. Sortir progressivement les helpers Cowork en sous-modules coherents (prompting, recherche web, PDF, state machine, tool formatting) pour remplacer le god-file restant.
+1. Brancher le prochain niveau: qu'un agent du hub puisse etre relance depuis Cowork comme sous-mission reelle, pas seulement comme blueprint persiste.
+2. Transformer `uiSchema` en vraie generative UI executable (renderer de champs + auto-fill) pour que le hub devienne une surface de travail, pas seulement un registre.
+3. Extraire la route `/api/cowork` dans un module dedie (`api/routes/cowork.ts` ou equivalent) sans casser la boucle modele-led ni dupliquer les helpers deja deplaces dans `api/lib/*`.
+4. Sortir progressivement les helpers Cowork en sous-modules coherents (prompting, recherche web, PDF, state machine, tool formatting) pour remplacer le god-file restant.
 3. Rejouer en production le cas meta exact (`t'en penses quoi ?` + logs citant `VEN1` / `create_pdf` / `PDF`) pour verifier que Cowork repond en analyse simple, sans pipeline parasite.
 4. Valider visuellement la nouvelle carte Cowork sur un vrai run navigateur des que le transport Playwright remarche, pour confirmer l'absence de `% complet` / `blocages` et la presence des nouveaux chips descriptifs.
 5. Revalider en production les cas reels `creer moi un pdf test`, `fais-moi l'actu du jour puis fournis un PDF`, `fais moi un pdf tres long sur l'actu du jour`, puis naviguer entre plusieurs conversations Cowork pour verifier que la liberte de l'agent reste compatible avec la stabilite produit.

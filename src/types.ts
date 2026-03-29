@@ -87,6 +87,48 @@ export interface ActivityItem {
   meta?: Record<string, string | number | boolean | null | undefined>;
 }
 
+export type AgentOutputKind = 'pdf' | 'html' | 'podcast' | 'code' | 'research' | 'automation';
+
+export type AgentFieldType = 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'url';
+
+export interface AgentFieldSchema {
+  id: string;
+  label: string;
+  type: AgentFieldType;
+  placeholder?: string;
+  helpText?: string;
+  required?: boolean;
+  options?: string[];
+}
+
+export interface AgentBlueprint {
+  id?: string;
+  name: string;
+  slug: string;
+  tagline: string;
+  summary: string;
+  mission: string;
+  whenToUse: string;
+  outputKind: AgentOutputKind;
+  starterPrompt: string;
+  systemInstruction: string;
+  uiSchema: AgentFieldSchema[];
+  tools: string[];
+  capabilities: string[];
+  status?: 'ready' | 'draft';
+  createdBy?: 'manual' | 'cowork';
+  sourcePrompt?: string;
+  sourceSessionId?: string;
+}
+
+export interface StudioAgent extends AgentBlueprint {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  status: 'ready' | 'draft';
+  createdBy: 'manual' | 'cowork';
+}
+
 export interface SystemPromptVersion {
   version: number;
   prompt: string;

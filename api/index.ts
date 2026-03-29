@@ -37,6 +37,7 @@ import {
   PORT,
   USD_TO_EUR_RATE,
 } from './lib/config.js';
+import { generateAgentBlueprintFromBrief, sanitizeAgentBlueprint, type AgentBlueprint } from './lib/agents.js';
 import { createGoogleAI, parseApiError, retryWithBackoff } from './lib/google-genai.js';
 import { log } from './lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from './lib/path-utils.js';
@@ -533,6 +534,7 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
 - Node.js uniquement. Python n'est pas disponible.
 - N'expose jamais ton chain-of-thought brut.
 - Outils disponibles:
+  - 'create_agent_blueprint' : concoit un agent specialise reutilisable pour le Hub Agents.
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
   - 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft'
   - 'review_pdf_draft'
@@ -548,6 +550,7 @@ ${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraime
 6. Si une information recente reste insuffisamment sourcee, dis-le au lieu d'inventer.
 7. Si tu utilises 'review_pdf_draft' et qu'une signature t'est fournie, passe-la telle quelle dans 'create_pdf.reviewSignature'.
 8. Si tu dois faire plusieurs outils dans un meme tour, garde une mini-chaine coherente: lecture/recherche d'abord, mutation eventuelle en dernier.
+9. Si l'utilisateur veut un specialiste recurrent ou delegable, tu peux creer un agent pour le Hub puis l'annoncer clairement.
 
 ### REPERES TEMPORELS
 ${requestClock
@@ -2994,6 +2997,9 @@ type DirectSourceCategory =
 function getPublicToolNarrationTarget(toolName: string, args: any): string | null {
   let rawTarget: unknown = null;
   switch (toolName) {
+    case 'create_agent_blueprint':
+      rawTarget = args?.brief ?? args?.name ?? args?.title;
+      break;
     case 'web_search':
       rawTarget = args?.query ?? args?.q;
       break;
@@ -3039,6 +3045,13 @@ function buildPublicToolNarration(
   const target = getPublicToolNarrationTarget(toolName, args);
 
   switch (toolName) {
+    case 'create_agent_blueprint':
+      return {
+        title: 'Delegation',
+        message: target
+          ? `Je dessine maintenant un agent specialise pour '${target}'.`
+          : "Je prepare un agent specialise pour le Hub Agents."
+      };
     case 'web_search':
       return {
         title: 'Recherche',
@@ -4652,6 +4665,12 @@ app.post('/api/cowork', async (req, res) => {
 
     const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
     const formatToolMeta = (toolName: string, args: any) => {
+      if (toolName === 'create_agent_blueprint') {
+        return {
+          brief: clipText(args?.brief || '', 140),
+          outputKind: clipText(args?.outputKindHint || '', 24),
+        };
+      }
       if (toolName === 'music_catalog_lookup') {
         return {
           artist: clipText(args?.artistQuery || '', 80),
@@ -4728,6 +4747,16 @@ app.post('/api/cowork', async (req, res) => {
       return undefined;
     };
     const formatToolResultMeta = (toolName: string, args: any, output: any) => {
+      if (toolName === 'create_agent_blueprint') {
+        const blueprint = (output?.blueprint || output) as AgentBlueprint;
+        return {
+          name: clipText(blueprint?.name || '', 64),
+          slug: clipText(blueprint?.slug || '', 48),
+          outputKind: clipText(blueprint?.outputKind || '', 24),
+          fields: Array.isArray(blueprint?.uiSchema) ? blueprint.uiSchema.length : 0,
+          tools: Array.isArray(blueprint?.tools) ? blueprint.tools.length : 0,
+        };
+      }
       if (toolName === 'web_search') {
         return {
           query: clipText(output?.query || args?.query || '', 140),
@@ -4789,6 +4818,16 @@ app.post('/api/cowork', async (req, res) => {
       return formatToolMeta(toolName, args);
     };
     const formatToolResultPreview = (toolName: string, output: any) => {
+      if (toolName === 'create_agent_blueprint') {
+        const blueprint = output?.blueprint || output;
+        return [
+          blueprint?.name ? `Agent: ${blueprint.name}` : null,
+          blueprint?.outputKind ? `sortie ${blueprint.outputKind}` : null,
+          Array.isArray(blueprint?.uiSchema) ? `${blueprint.uiSchema.length} champ(s)` : null,
+          Array.isArray(blueprint?.tools) ? `${blueprint.tools.length} outil(s)` : null,
+          blueprint?.tagline ? clipText(blueprint.tagline, 90) : null,
+        ].filter(Boolean).join(' | ');
+      }
       if (toolName === 'music_catalog_lookup') {
         const coverage = output?.coverage;
         const sources = Array.isArray(output?.sources) ? output.sources.length : 0;
@@ -4969,6 +5008,39 @@ app.post('/api/cowork', async (req, res) => {
         })
       }
       ] : []),
+      {
+        name: "create_agent_blueprint",
+        description: "Concoit un agent specialise reutilisable pour le Hub Agents quand la meilleure reponse est de deleguer a un specialiste recurrent. Retourne un blueprint complet avec prompt systeme, prompt de depart, champs UI et outils conseilles.",
+        parameters: {
+          type: "object",
+          properties: {
+            brief: { type: "string", description: "Mission exacte du futur agent specialise." },
+            outputKindHint: { type: "string", description: "Type de livrable prefere si connu: pdf, html, podcast, code, research, automation." }
+          },
+          required: ["brief"]
+        },
+        execute: async ({
+          brief,
+          outputKindHint
+        }: {
+          brief: string;
+          outputKindHint?: string;
+        }) => {
+          const effectiveBrief = [brief, outputKindHint ? `Format prefere: ${outputKindHint}.` : null]
+            .filter(Boolean)
+            .join('\n');
+          const blueprint = sanitizeAgentBlueprint(
+            await generateAgentBlueprintFromBrief(effectiveBrief, 'cowork'),
+            effectiveBrief
+          );
+
+          return {
+            success: true,
+            message: `Agent '${blueprint.name}' pret pour le Hub Agents.`,
+            blueprint,
+          };
+        }
+      },
       {
         name: "music_catalog_lookup",
         description: "Raccourci specialise pour explorer un artiste musical: discographie, sorties, titres manquants, couverture catalogue, pages artiste et pistes de paroles. Utile des qu'une demande touche a un rappeur, un chanteur, une discographie ou un catalogue.",
@@ -7502,6 +7574,13 @@ app.post('/api/cowork', async (req, res) => {
                 meta: formatToolResultMeta(tool.name, call.args, output),
                 runMeta
               });
+              if (!isError && tool.name === 'create_agent_blueprint' && (output as any).blueprint) {
+                emitEvent('agent_blueprint', {
+                  iteration: iterations,
+                  blueprint: (output as any).blueprint,
+                  runMeta
+                });
+              }
               if (isError && transientIssue) {
                 const waitMs = Math.max(0, (sessionState.cooldowns[toolScope.familyKey]?.until || 0) - Date.now());
                 emitEvent('warning', {

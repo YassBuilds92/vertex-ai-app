@@ -361,3 +361,48 @@
   - `api/index.ts`
   - `test-cowork-battery.ts`
   - `test-cowork-loop.ts`
+
+## Mise a jour complementaire - 2026-03-29 (Vercel Hobby / limite de fonctions)
+- Nouveau besoin:
+  - la prod Vercel echouait avec `No more than 12 Serverless Functions can be added to a Deployment on the Hobby plan`
+  - l'utilisateur a demande une correction sans perte de performances ni de fonctionnalites
+- Cause racine confirmee:
+  - `vercel.json` rewrite deja tout `/api/(.*)` vers `/api`, donc l'architecture cible etait bien un seul point d'entree backend
+  - malgre ca, le dossier `api/` contenait encore `lib/*`, `middleware/*` et `routes/*`
+  - Vercel Hobby comptait ces fichiers `.ts` comme fonctions serveur supplementaires
+- Correctif applique:
+  - deplacement de tout l'interne hors de `api/` vers:
+    - `server/lib/*`
+    - `server/middleware/*`
+    - `server/routes/*`
+  - `api/index.ts` reste l'unique entree serverless routable
+  - imports recables dans `api/index.ts`, `server/routes/standard.ts`, `test-cowork-loop.ts`, `test-podcast-media.ts`
+  - suppression des dossiers vides `api/lib`, `api/middleware`, `api/pdf`, `api/routes`
+- Verification:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npx tsx test-pdf-heuristics.ts` : OK
+  - `npx tsx test-latex-provider.ts` : OK
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npx tsx test-image-gen.ts` : OK
+  - `npx vercel build --prod` : OK
+  - preuve cle: `.vercel/output/functions` ne contient plus qu'une seule fonction `api/index.func`
+- Fichiers touches:
+  - `api/index.ts`
+  - `server/lib/agents.ts`
+  - `server/lib/config.ts`
+  - `server/lib/google-genai.ts`
+  - `server/lib/logger.ts`
+  - `server/lib/media-generation.ts`
+  - `server/lib/path-utils.ts`
+  - `server/lib/schemas.ts`
+  - `server/lib/storage.ts`
+  - `server/middleware/api-errors.ts`
+  - `server/middleware/auth.ts`
+  - `server/middleware/request-hardening.ts`
+  - `server/routes/standard.ts`
+  - `test-cowork-loop.ts`
+  - `test-podcast-media.ts`
+- Intention exacte:
+  - aligner l'arborescence backend avec l'intention produit et la semantique Vercel: un backend Express monolithique expose via une seule function, avec le reste du code en modules internes non routables

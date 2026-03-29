@@ -156,3 +156,40 @@
 - Prevention:
   - toute aide backend qui change la methode doit etre explicite, visible et justifiable
   - preferer des parametres d'outil explicites a des deductions implicites a partir du prompt utilisateur
+
+## 2026-03-29 - Echec Vercel Hobby `No more than 12 Serverless Functions`
+- Statut: corrige localement, pret a redeployer
+- Symptome:
+  - le deploiement Vercel production echouait apres le build avec:
+    - `No more than 12 Serverless Functions can be added to a Deployment on the Hobby plan`
+  - perception immediate: "Vercel est casse" ou "il faut supprimer des branches"
+- Tentatives:
+  - verification du build frontend classique
+  - verification de `vercel.json`
+  - hypothese invalidee: supprimer des branches Vercel ne change rien a cette limite
+- Cause racine:
+  - `vercel.json` rewritait deja `/api/(.*)` vers `/api`, donc l'intention etait bien un backend unique
+  - mais l'arborescence `api/` contenait encore des fichiers internes `lib/*`, `middleware/*`, `routes/*`
+  - Vercel Hobby a compte ces fichiers comme des Serverless Functions additionnelles
+- Resolution:
+  - deplacer les fichiers internes vers:
+    - `server/lib/*`
+    - `server/middleware/*`
+    - `server/routes/*`
+  - garder uniquement `api/index.ts` dans `api/`
+  - recabler les imports et les tests vers `server/*`
+  - supprimer les dossiers vides residuels sous `api/`
+- Verification:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npx tsx test-pdf-heuristics.ts` : OK
+  - `npx tsx test-latex-provider.ts` : OK
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npx tsx test-image-gen.ts` : OK
+  - `npx vercel build --prod` : OK
+  - `.vercel/output/functions` ne contient plus qu'une seule fonction: `api/index.func`
+- Prevention:
+  - sur Vercel, considerer `api/` comme une zone d'entrypoints seulement
+  - ranger les helpers backend dans `server/`, pas dans `api/`
+  - en cas de doute, lancer `npx vercel build --prod` avant push pour voir le shape reel du deploy

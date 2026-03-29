@@ -216,3 +216,16 @@
     - `web_fetch` = lecture/verif directe
     - couverture multi-angle / multi-entites
     - verification business / juridique / finance / RH / marche
+
+## 2026-03-29 - `api/` doit rester un espace d'entree Vercel, pas un namespace backend complet
+- Statut: adopte
+- Contexte: le deploiement Vercel Hobby cassait avec une limite de nombre de functions, alors meme que le projet est concu comme un backend Express unique deja rewrite par `vercel.json`.
+- Decision: reserver `api/` aux seuls entrypoints serverless et deplacer tout module interne backend dans `server/`.
+- Pourquoi:
+  - aligne l'arborescence avec le modele de deploiement Vercel
+  - evite que des helpers `lib/`, `middleware/`, `routes/` soient comptes comme functions distinctes
+  - ne change ni les capacites ni la perf utile, car le runtime cible restait deja `api/index.ts`
+- Consequence:
+  - `api/index.ts` devient l'unique fichier backend routable
+  - `server/lib/*`, `server/middleware/*`, `server/routes/*` portent toute la logique interne
+  - la verification de reference est `npx vercel build --prod` + un seul output `api/index.func`

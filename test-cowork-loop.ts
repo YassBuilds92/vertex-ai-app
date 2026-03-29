@@ -4,7 +4,7 @@ process.env.VERCEL = '1';
 
 const { __coworkLoopInternals } = await import('./api/index.ts');
 const { __coworkPdfInternals } = await import('./api/index.ts');
-const { pickHubAgentRecord, sanitizeHubAgentRecord, summarizeHubAgentsForPrompt } = await import('./api/lib/agents.ts');
+const { pickHubAgentRecord, sanitizeHubAgentRecord, summarizeHubAgentsForPrompt } = await import('./server/lib/agents.ts');
 
 const {
   createEmptyCoworkSessionState,

@@ -36,7 +36,7 @@ import {
   normalizeConfiguredModelId,
   PORT,
   USD_TO_EUR_RATE,
-} from './lib/config.js';
+} from '../server/lib/config.js';
 import {
   generateAgentBlueprintFromBrief,
   pickHubAgentRecord,
@@ -46,7 +46,7 @@ import {
   summarizeHubAgentsForPrompt,
   type AgentBlueprint,
   type HubAgentRecord,
-} from './lib/agents.js';
+} from '../server/lib/agents.js';
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_LYRIA_MODEL,
@@ -56,16 +56,16 @@ import {
   generateImageBinary,
   generateLyriaBinary,
   generatePodcastEpisode,
-} from './lib/media-generation.js';
-import { createGoogleAI, parseApiError, retryWithBackoff } from './lib/google-genai.js';
-import { log } from './lib/logger.js';
-import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from './lib/path-utils.js';
-import { ChatSchema } from './lib/schemas.js';
-import { uploadToGCS } from './lib/storage.js';
-import { registerApiErrorHandlers } from './middleware/api-errors.js';
-import { registerSiteAuth } from './middleware/auth.js';
-import { registerRequestHardening } from './middleware/request-hardening.js';
-import { registerStandardApiRoutes } from './routes/standard.js';
+} from '../server/lib/media-generation.js';
+import { createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
+import { log } from '../server/lib/logger.js';
+import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from '../server/lib/path-utils.js';
+import { ChatSchema } from '../server/lib/schemas.js';
+import { uploadToGCS } from '../server/lib/storage.js';
+import { registerApiErrorHandlers } from '../server/middleware/api-errors.js';
+import { registerSiteAuth } from '../server/middleware/auth.js';
+import { registerRequestHardening } from '../server/middleware/request-hardening.js';
+import { registerStandardApiRoutes } from '../server/routes/standard.js';
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Constants & Setup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const app = express();

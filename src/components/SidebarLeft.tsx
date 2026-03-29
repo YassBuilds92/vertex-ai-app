@@ -16,6 +16,8 @@ import { db, auth, OperationType, handleFirestoreError } from '../firebase';
 import { useStore } from '../store/useStore';
 import { AppMode, ChatSession } from '../types';
 import { clearCoworkSessionSnapshots } from '../utils/cowork';
+import { clearSessionSnapshots } from '../utils/sessionSnapshots';
+import { removeLocalSessionShell } from '../utils/sessionShells';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -106,6 +108,8 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                   try {
                     await deleteDoc(doc(db, 'users', user.uid, 'sessions', session.id));
                     clearCoworkSessionSnapshots(user.uid, session.id);
+                    clearSessionSnapshots(user.uid, session.id);
+                    removeLocalSessionShell(user.uid, session.id);
                     if (activeSessionId === session.id) {
                       const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent');
                       if (nextSession) setActiveSessionId(nextSession.id);

@@ -21,6 +21,11 @@ export const DEFAULT_TTS_VOICE = 'Kore';
 export const DEFAULT_LYRIA_MODEL = 'lyria-002';
 export const DEFAULT_PODCAST_TTS_MODEL = 'gemini-2.5-pro-tts';
 export const DEFAULT_PODCAST_SCRIPT_MODEL = 'gemini-3.1-flash-lite-preview';
+const DEFAULT_PODCAST_DUO_VOICES = ['Charon', 'Aoede'] as const;
+const DEFAULT_PODCAST_DUO_STYLE_NOTES = [
+  'anchored, calm, deliberate, lower register, measured pauses, editorial authority',
+  'brighter, reactive, quicker pace, expressive lift, conversational energy',
+] as const;
 
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 const PCM_SAMPLE_RATE_HZ = 24_000;
@@ -84,6 +89,7 @@ export type GeminiTtsSpeakerSpec = {
   name: string;
   voice?: string;
   styleInstructions?: string;
+  ttsAlias?: string;
 };
 
 export type GeneratedBinaryArtifact = {
@@ -130,6 +136,17 @@ function sanitizeSpeakerName(value: unknown): string {
     .trim();
 }
 
+function sanitizeSpeakerAlias(value: unknown, fallbackIndex = 0): string {
+  const raw = typeof value === 'string' ? value : '';
+  const compact = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '')
+    .slice(0, 18);
+  const base = compact || `Speaker${fallbackIndex + 1}`;
+  return /^[A-Za-z]/.test(base) ? base : `Speaker${fallbackIndex + 1}${base}`.slice(0, 18);
+}
+
 function uniqueSpeakerNames(values: string[]): string[] {
   const seen = new Set<string>();
   const output: string[] = [];
@@ -142,9 +159,58 @@ function uniqueSpeakerNames(values: string[]): string[] {
   return output;
 }
 
+function uniqueSpeakerAliases(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.map((value, index) => {
+    let candidate = sanitizeSpeakerAlias(value, index);
+    if (!seen.has(candidate.toLowerCase())) {
+      seen.add(candidate.toLowerCase());
+      return candidate;
+    }
+
+    let suffix = 2;
+    let next = `${candidate}${suffix}`;
+    while (seen.has(next.toLowerCase())) {
+      suffix += 1;
+      next = `${candidate}${suffix}`;
+    }
+    seen.add(next.toLowerCase());
+    return next;
+  });
+}
+
+function pickContrastingSpeakerVoice(
+  takenVoices: string[],
+  fallbackVoices: readonly string[],
+  preferredVoice?: string,
+): string {
+  const normalizedTaken = new Set(takenVoices.map((voice) => String(voice || '').toLowerCase()).filter(Boolean));
+  const explicit = normalizeGeminiTtsVoiceName(preferredVoice, '');
+  if (explicit && !normalizedTaken.has(explicit.toLowerCase())) {
+    return explicit;
+  }
+
+  for (const candidate of fallbackVoices) {
+    const voice = normalizeGeminiTtsVoiceName(candidate, DEFAULT_TTS_VOICE);
+    if (!normalizedTaken.has(voice.toLowerCase())) {
+      return voice;
+    }
+  }
+
+  for (const candidate of [...DEFAULT_PODCAST_DUO_VOICES, ...DEFAULT_GEMINI_TTS_DUO_VOICES]) {
+    const voice = normalizeGeminiTtsVoiceName(candidate, DEFAULT_TTS_VOICE);
+    if (!normalizedTaken.has(voice.toLowerCase())) {
+      return voice;
+    }
+  }
+
+  return normalizeGeminiTtsVoiceName(DEFAULT_TTS_VOICE, DEFAULT_TTS_VOICE);
+}
+
 function normalizeGeminiTtsSpeakers(
   speakers: GeminiTtsSpeakerSpec[] | null | undefined,
   fallbackVoices: readonly string[] = DEFAULT_GEMINI_TTS_DUO_VOICES,
+  fallbackStyleNotes: readonly string[] = [],
 ): GeminiTtsSpeakerSpec[] {
   if (!Array.isArray(speakers)) return [];
 
@@ -155,14 +221,45 @@ function normalizeGeminiTtsSpeakers(
       return {
         name,
         voice: normalizeGeminiTtsVoiceName(speaker?.voice, fallbackVoices[index] || DEFAULT_GEMINI_TTS_DUO_VOICES[0]),
-        styleInstructions: clipText(speaker?.styleInstructions, 220),
+        styleInstructions: clipText(speaker?.styleInstructions || fallbackStyleNotes[index] || '', 220),
+        ttsAlias: sanitizeSpeakerAlias(speaker?.ttsAlias || name, index),
       } satisfies GeminiTtsSpeakerSpec;
     })
     .filter(Boolean) as GeminiTtsSpeakerSpec[];
 
-  return uniqueSpeakerNames(normalized.map((speaker) => speaker.name))
+  const deduped = uniqueSpeakerNames(normalized.map((speaker) => speaker.name))
     .map((name) => normalized.find((speaker) => speaker.name === name)!)
     .filter(Boolean);
+
+  const aliases = uniqueSpeakerAliases(deduped.map((speaker, index) => speaker.ttsAlias || speaker.name || `Speaker${index + 1}`));
+  const withAliases = deduped.map((speaker, index) => ({
+    ...speaker,
+    ttsAlias: aliases[index],
+  }));
+
+  if (withAliases.length === MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+    const firstVoice = normalizeGeminiTtsVoiceName(withAliases[0]?.voice, fallbackVoices[0] || DEFAULT_PODCAST_DUO_VOICES[0]);
+    const secondVoice = pickContrastingSpeakerVoice(
+      [firstVoice],
+      fallbackVoices,
+      withAliases[1]?.voice,
+    );
+
+    return [
+      {
+        ...withAliases[0],
+        voice: firstVoice,
+        styleInstructions: clipText(withAliases[0]?.styleInstructions || fallbackStyleNotes[0] || '', 220),
+      },
+      {
+        ...withAliases[1],
+        voice: secondVoice,
+        styleInstructions: clipText(withAliases[1]?.styleInstructions || fallbackStyleNotes[1] || '', 220),
+      },
+    ];
+  }
+
+  return withAliases;
 }
 
 function extractDialogSpeakerNames(script: string): string[] {
@@ -171,7 +268,11 @@ function extractDialogSpeakerNames(script: string): string[] {
 }
 
 function resolvePodcastSpeakers(options: PodcastGenerationOptions): GeminiTtsSpeakerSpec[] {
-  const explicitSpeakers = normalizeGeminiTtsSpeakers(options.speakers);
+  const explicitSpeakers = normalizeGeminiTtsSpeakers(
+    options.speakers,
+    DEFAULT_PODCAST_DUO_VOICES,
+    DEFAULT_PODCAST_DUO_STYLE_NOTES,
+  );
   if (explicitSpeakers.length > 0) {
     if (explicitSpeakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
       throw new Error(`Gemini TTS multi-speaker exige exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants configures.`);
@@ -190,7 +291,9 @@ function resolvePodcastSpeakers(options: PodcastGenerationOptions): GeminiTtsSpe
   }
   return detectedNames.map((name, index) => ({
     name,
-    voice: normalizeGeminiTtsVoiceName('', DEFAULT_GEMINI_TTS_DUO_VOICES[index] || DEFAULT_GEMINI_TTS_DUO_VOICES[0]),
+    voice: normalizeGeminiTtsVoiceName('', DEFAULT_PODCAST_DUO_VOICES[index] || DEFAULT_PODCAST_DUO_VOICES[0]),
+    styleInstructions: DEFAULT_PODCAST_DUO_STYLE_NOTES[index],
+    ttsAlias: sanitizeSpeakerAlias(name, index),
   }));
 }
 
@@ -201,13 +304,38 @@ function buildPodcastDeliveryNotes(options: PodcastGenerationOptions): string {
   ].filter(Boolean).join(' | ');
 }
 
+function buildNativeScriptInstruction(): string {
+  return 'Whenever a proper name, honorific, quote fragment, or foreign-language term belongs to another writing system, write it in its original script whenever that improves natural pronunciation.';
+}
+
 function buildSpeakerInstructionBlock(speakers: GeminiTtsSpeakerSpec[]): string[] {
   return speakers.map((speaker) => {
     const notes = clipText(speaker.styleInstructions, 180);
+    const aliasNote = speaker.ttsAlias && speaker.ttsAlias !== speaker.name
+      ? ` routing label ${speaker.ttsAlias}`
+      : '';
     return notes
-      ? `- ${speaker.name} -> voice ${speaker.voice}. Performance notes: ${notes}.`
-      : `- ${speaker.name} -> voice ${speaker.voice}.`;
+      ? `- ${speaker.name}${aliasNote} -> voice ${speaker.voice}. Performance notes: ${notes}.`
+      : `- ${speaker.name}${aliasNote} -> voice ${speaker.voice}.`;
   });
+}
+
+function buildSpeakerRoutingLines(speakers: GeminiTtsSpeakerSpec[]): string[] {
+  return speakers.map((speaker) => `- ${speaker.ttsAlias || speaker.name} = ${speaker.name}`);
+}
+
+function remapDialogueSpeakerLabelsForTts(script: string, speakers: GeminiTtsSpeakerSpec[]): string {
+  if (speakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+    return script;
+  }
+
+  let output = String(script || '');
+  for (const speaker of speakers) {
+    const displayName = speaker.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const alias = speaker.ttsAlias || speaker.name;
+    output = output.replace(new RegExp(`(^\\s*)${displayName}(\\s*:)`, 'gim'), `$1${alias}$2`);
+  }
+  return output;
 }
 
 function validateDialogueScriptAgainstSpeakers(script: string, speakers: GeminiTtsSpeakerSpec[]): void {
@@ -642,23 +770,31 @@ function buildPodcastNarrationPrompt(options: PodcastGenerationOptions): string 
   const deliveryNotes = buildPodcastDeliveryNotes(options)
     || 'warm, vivid, polished, confident podcast delivery';
   const approxDurationSeconds = Math.round(clampNumber(options.approxDurationSeconds, 15, 600, 70));
-  const speakers = normalizeGeminiTtsSpeakers(options.speakers);
+  const speakers = normalizeGeminiTtsSpeakers(
+    options.speakers,
+    DEFAULT_PODCAST_DUO_VOICES,
+    DEFAULT_PODCAST_DUO_STYLE_NOTES,
+  );
 
   if (speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS) {
     if (script) {
       validateDialogueScriptAgainstSpeakers(script, speakers);
+      const routedScript = remapDialogueSpeakerLabelsForTts(script, speakers);
       return [
         `Narrate the following two-speaker podcast dialogue in ${languageCode}.`,
         title ? `Episode title: ${title}.` : null,
         `Global style instructions: ${deliveryNotes}.`,
-        'Use exactly these two speaker labels and no others:',
-        ...speakers.map((speaker) => `- ${speaker.name}`),
+        buildNativeScriptInstruction(),
+        'Make the two speakers feel unmistakably different in cadence, energy, emotional contour, and rhetorical role.',
+        'Use exactly these two routing labels and no others:',
+        ...buildSpeakerRoutingLines(speakers),
         'Cast and performance notes:',
         ...buildSpeakerInstructionBlock(speakers),
+        'Treat each routing label before the colon as a voice-routing marker for the assigned speaker.',
         'Keep the exact wording and line order from the script.',
         'Do not add any narration before or after the script.',
         'Script:',
-        script,
+        routedScript,
       ].filter(Boolean).join('\n');
     }
 
@@ -672,11 +808,14 @@ function buildPodcastNarrationPrompt(options: PodcastGenerationOptions): string 
       `Write the spoken script yourself from the brief below, then perform it as a natural two-voice exchange.`,
       `Target length: around ${approxDurationSeconds} seconds of spoken audio.`,
       `Global style instructions: ${deliveryNotes}.`,
-      'Use exactly these two speaker labels and no others:',
-      ...speakers.map((speaker) => `- ${speaker.name}`),
+      buildNativeScriptInstruction(),
+      'Make the two speakers feel unmistakably different in cadence, energy, emotional contour, and rhetorical role.',
+      'Use exactly these two routing labels and no others:',
+      ...buildSpeakerRoutingLines(speakers),
       'Cast and performance notes:',
       ...buildSpeakerInstructionBlock(speakers),
       'Every spoken line must start with one of those labels followed by a colon.',
+      'Treat each routing label before the colon as a voice-routing marker for the assigned speaker.',
       'Keep it vivid, listenable, and built for real podcast/dialogue delivery, not for stage directions.',
       'Do not mention these instructions. Do not add markdown, bullet points, timestamps, sound effect labels, or narration outside the dialogue lines.',
       'Brief:',
@@ -689,6 +828,7 @@ function buildPodcastNarrationPrompt(options: PodcastGenerationOptions): string 
       `Narrate the following single-host podcast script in ${languageCode}.`,
       title ? `Episode title: ${title}.` : null,
       `Style instructions: ${deliveryNotes}.`,
+      buildNativeScriptInstruction(),
       "Speak naturally in one continuous take.",
       "Do not add extra commentary before or after the script.",
       "Script:",
@@ -708,6 +848,7 @@ function buildPodcastNarrationPrompt(options: PodcastGenerationOptions): string 
     "Use a strong hook, a clear middle, and a concise closing.",
     "Do not mention these instructions. Do not add bullet points, timestamps, scene directions, or sound effect labels.",
     `Style instructions: ${deliveryNotes}.`,
+    buildNativeScriptInstruction(),
     "Brief:",
     brief,
   ].filter(Boolean).join('\n');
@@ -720,7 +861,11 @@ function buildPodcastScriptPrompt(options: PodcastGenerationOptions): string {
   const deliveryNotes = buildPodcastDeliveryNotes(options)
     || 'warm, vivid, polished, confident podcast delivery';
   const approxDurationSeconds = Math.round(clampNumber(options.approxDurationSeconds, 15, 600, 70));
-  const speakers = normalizeGeminiTtsSpeakers(options.speakers);
+  const speakers = normalizeGeminiTtsSpeakers(
+    options.speakers,
+    DEFAULT_PODCAST_DUO_VOICES,
+    DEFAULT_PODCAST_DUO_STYLE_NOTES,
+  );
 
   if (!brief) {
     throw new Error("Le podcast a besoin d'un `brief` ou d'un `script`.");
@@ -732,11 +877,14 @@ function buildPodcastScriptPrompt(options: PodcastGenerationOptions): string {
       title ? `Episode title: ${title}.` : null,
       `Target spoken duration: about ${approxDurationSeconds} seconds.`,
       `Global style instructions: ${deliveryNotes}.`,
+      buildNativeScriptInstruction(),
+      'Make the two speakers clearly contrasted in pace, sentence shape, emotional temperature, and point of view.',
       'Use exactly these two speaker labels and no others:',
       ...speakers.map((speaker) => `- ${speaker.name}`),
       'Cast and performance notes:',
       ...buildSpeakerInstructionBlock(speakers),
       'Every spoken line must start with one of those labels followed by a colon.',
+      'Favor short and medium turns with real back-and-forth instead of long mirrored monologues.',
       'Paraphrase facts in fresh spoken wording. Do not quote headlines, article sentences, lyrics, or source copy verbatim.',
       'Keep the exchange natural and listenable: a hook, a clear middle, and a concise closing.',
       'Return only the dialogue script to narrate. No markdown, no bullet points, no scene directions, no title label, no narrator lines.',
@@ -750,6 +898,7 @@ function buildPodcastScriptPrompt(options: PodcastGenerationOptions): string {
     title ? `Episode title: ${title}.` : null,
     `Target spoken duration: about ${approxDurationSeconds} seconds.`,
     `Style instructions: ${deliveryNotes}.`,
+    buildNativeScriptInstruction(),
     "Paraphrase facts in fresh spoken wording. Do not quote headlines, article sentences, lyrics, or source copy verbatim.",
     "Keep the flow natural and spoken: a hook, a clear middle, and a concise closing.",
     "Return only the script to narrate. No markdown, no bullet points, no scene directions, no title label.",
@@ -1039,7 +1188,7 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
 
   const model = normalizeGeminiTtsModelId(String(options.model || DEFAULT_TTS_MODEL).trim() || DEFAULT_TTS_MODEL) || DEFAULT_TTS_MODEL;
   const voice = normalizeGeminiTtsVoiceName(String(options.voice || DEFAULT_TTS_VOICE).trim() || DEFAULT_TTS_VOICE, DEFAULT_TTS_VOICE);
-  const speakers = normalizeGeminiTtsSpeakers(options.speakers);
+  const speakers = normalizeGeminiTtsSpeakers(options.speakers, DEFAULT_GEMINI_TTS_DUO_VOICES);
   if (speakers.length > 0) {
     if (!modelSupportsGeminiTtsMultiSpeaker(model)) {
       throw new Error(`Le modele ${model} ne supporte pas le multi-speaker. Utilise gemini-2.5-pro-tts ou gemini-2.5-flash-tts.`);
@@ -1048,11 +1197,14 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
       throw new Error(`Gemini TTS multi-speaker exige exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants configures.`);
     }
   }
+  const routedPrompt = speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS
+    ? remapDialogueSpeakerLabelsForTts(prompt, speakers)
+    : prompt;
   const ai = createGoogleAI(model);
 
   const result = await retryWithBackoff(() => ai.models.generateContent({
     model,
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents: [{ role: 'user', parts: [{ text: routedPrompt }] }],
     config: {
       responseModalities: ['AUDIO'],
       speechConfig: {
@@ -1061,7 +1213,7 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
           ? {
               multiSpeakerVoiceConfig: {
                 speakerVoiceConfigs: speakers.map((speaker) => ({
-                  speaker: speaker.name,
+                  speaker: speaker.ttsAlias || speaker.name,
                   voiceConfig: {
                     prebuiltVoiceConfig: {
                       voiceName: speaker.voice || DEFAULT_TTS_VOICE,
@@ -1102,6 +1254,7 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
       voice: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? '' : voice,
       speakerMode: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? 'duo' : 'single',
       speakerNames: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? speakers.map((speaker) => speaker.name).join(' | ') : '',
+      speakerAliases: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? speakers.map((speaker) => speaker.ttsAlias || speaker.name).join(' | ') : '',
       speakerVoices: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? speakers.map((speaker) => speaker.voice || '').join(' | ') : '',
       languageCode: options.languageCode,
       sourceMimeType,
@@ -1214,7 +1367,7 @@ async function generateLyria3Binary(
   model: string,
   projectId: string
 ): Promise<GeneratedBinaryArtifact> {
-  const url = `${getAiplatformBaseUrl('global')}/v1beta1/projects/${projectId}/locations/global/interactions`;
+  const url = `https://aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/global/interactions`;
   const json = await postJson(url, {
     model,
     input: [{ type: 'text', text: prompt }],
@@ -1434,6 +1587,7 @@ export const __podcastMediaInternals = {
   normalizeGeminiTtsSpeakers,
   resolvePodcastSpeakers,
   validateDialogueScriptAgainstSpeakers,
+  remapDialogueSpeakerLabelsForTts,
   buildPodcastNarrationPrompt,
   buildPodcastScriptPrompt,
   buildPodcastMusicPrompt,

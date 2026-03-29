@@ -4,6 +4,43 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-29 (historique discussions local-first)
+- Besoin traite:
+  - l'utilisateur a signale qu'une nouvelle discussion apparaissait dans l'historique puis disparaissait aussitot
+  - le probleme touchait `cowork`, `chat & raisonnement` et les autres modes
+- Cause racine confirmee:
+  - `src/App.tsx` faisait un `setSessions(snapshot.docs.map(...))` sur le listener Firestore
+  - toute session creee localement et non encore confirmee par `users/{uid}/sessions/{sessionId}` etait donc ecrasee par la liste distante
+  - le symptome se produisait surtout quand l'ecriture du shell de session etait degradee ou plus lente que l'update locale
+- Correctifs appliques:
+  - nouveau helper `src/utils/sessionShells.ts`
+    - cache local des session shells
+    - marqueur `pendingRemote`
+    - fusion `mergeSessionsWithLocal()`
+  - `src/App.tsx`
+    - charge d'abord les shells locaux
+    - fusionne local + distant dans le listener `sessions`
+    - sauvegarde chaque shell local avant la tentative Firestore
+    - marque le shell comme confirme quand Firestore reussit
+  - `src/components/SidebarLeft.tsx`
+    - supprime aussi le shell local et les snapshots locaux lors d'une suppression de conversation
+  - nouveau test `test-session-shells.ts`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npx tsx test-session-shells.ts` : OK
+  - `npm run build` : OK
+- Limite restante:
+  - validation visuelle authentifiee non rejouee dans cette session a cause du blocage Firebase Auth local deja documente (`auth/unauthorized-domain`)
+  - le correctif couvre la stabilite de l'historique cote frontend, mais ne remplace pas une vraie resolution d'un refus Firestore cote cloud si celui-ci persiste
+- Fichiers touches:
+  - `src/App.tsx`
+  - `src/components/SidebarLeft.tsx`
+  - `src/utils/sessionShells.ts`
+  - `test-session-shells.ts`
+- Intention exacte:
+  - rendre l'historique robuste meme quand Firestore n'est pas immediatement coherent
+  - supprimer l'effet produit le plus anxiogene: voir sa conversation naitre puis disparaitre
+
 ## Mise a jour complementaire - 2026-03-29 (Gemini TTS duo + mix podcast)
 - Besoin traite:
   - l'utilisateur a signale que Cowork ne savait pas assez bien exploiter Gemini TTS pour:

@@ -67,6 +67,7 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - `release_file` : Uploade un fichier vers Google Cloud Storage et renvoie une URL signee de 7 jours.
 
 ## Etat d'Avancement
+- [x] Historique des discussions stabilise en local-first : les sessions `chat` / `cowork` / `image` / `video` / `audio` ne disparaissent plus de la sidebar si Firestore tarde a confirmer le shell `sessions/{sessionId}`. `src/utils/sessionShells.ts` garde les shells locaux `pendingRemote`, `src/App.tsx` fusionne cache local + snapshot distant, et `SidebarLeft` nettoie ce cache a la suppression.
 - [x] Decoupage serveur phase 2 : les middlewares transverses vivent maintenant dans `api/middleware/*` (`request-hardening`, `auth`, `api-errors`) et les routes standard (`/api/status`, `/api/refine`, `/api/generate-image`, `/api/generate-video`, `/api/metadata`, `/api/upload`, `/api/chat`) dans `api/routes/standard.ts`. `api/index.ts` reste le point d'entree Express et concentre davantage Cowork + l'orchestration globale.
 - [x] Cowork V3 public unifie : le mode public est maintenant `autonomous` partout. Les anciens modes produits (`creative_single_turn`, `research_loop`, `artifact_loop`) ne pilotent plus la boucle normale.
 - [x] Prompt systeme V3 : `buildCoworkSystemInstruction()` a ete compactee en prompt universel modele-led, sans quotas de recherche ni workflow impose, avec 4 micro-exemples et les seules regles dures runtime (`Node`, `/tmp/`, `create_pdf`, `release_file`, honnetete).

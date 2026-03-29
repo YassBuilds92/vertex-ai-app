@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-03-29 - Historique des discussions en local-first tant que Firestore n'a pas confirme
+- Statut: adopte
+- Contexte: les nouvelles discussions de `chat`, `cowork`, `image`, `video` et `audio` pouvaient apparaitre un instant dans la sidebar puis disparaitre si le document `users/{uid}/sessions/{sessionId}` n'etait pas encore confirme par Firestore.
+- Decision:
+  - conserver un cache local des session shells dans `src/utils/sessionShells.ts`
+  - marquer une session locale `pendingRemote` tant que Firestore n'a pas confirme son shell
+  - fusionner `remoteSessions` + cache local dans `src/App.tsx` au lieu d'ecraser `sessions`
+  - nettoyer le cache local a la suppression d'une session
+- Pourquoi:
+  - elimine l'effet produit "la conversation clignote puis disparait"
+  - garde l'historique stable meme si Firestore refuse ou tarde a confirmer le shell
+  - reste coherent avec l'approche local-first deja adoptee pour le Hub Agents
+- Consequence:
+  - nouvelle utilite `src/utils/sessionShells.ts`
+  - creation / edition / ouverture d'un workspace agent sauve d'abord le shell local
+  - le listener `users/{uid}/sessions` devient tolerant aux ecritures shell degradees
+
 ## 2026-03-29 - Gemini TTS duo natif a 2 voix max
 - Statut: adopte
 - Contexte: le pipeline podcast savait bien sortir un master final, mais il etait encore pense "single-host" alors que Gemini TTS supporte nativement le dialogue multi-speaker.

@@ -46,6 +46,11 @@ import {
   normalizeRecoveredMessage,
 } from './utils/sessionRecovery';
 import {
+  loadLocalSessionShells,
+  mergeSessionsWithLocal,
+  saveLocalSessionShell,
+} from './utils/sessionShells';
+import {
   loadLocalAgents,
   mergeAgentsWithLocal,
   saveLocalAgent,
@@ -397,12 +402,23 @@ export default function App() {
       return;
     }
 
+    const localSessions = loadLocalSessionShells(user.uid);
+    if (localSessions.length > 0) {
+      setSessions(localSessions);
+    }
+
     const q = query(collection(db, 'users', user.uid, 'sessions'), orderBy('updatedAt', 'desc'));
     return onSnapshot(q, (snapshot) => {
-      setSessions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), messages: [] } as ChatSession)));
+      const remoteSessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), messages: [] } as ChatSession));
+      setSessions(
+        snapshot.metadata.fromCache && remoteSessions.length === 0
+          ? loadLocalSessionShells(user.uid)
+          : mergeSessionsWithLocal(user.uid, remoteSessions)
+      );
       setHasLoadedRemoteSessions(true);
     }, (error) => {
       console.error('Session list sync failed:', error);
+      setSessions(loadLocalSessionShells(user.uid));
       setHasLoadedRemoteSessions(true);
     });
   }, [user]);
@@ -664,25 +680,34 @@ export default function App() {
   }, [activeSessionId, isCreatingAgent, persistAgentBlueprint, user]);
 
   const persistSessionShell = useCallback(async (session: ChatSession) => {
-    if (!user) return;
+    if (!user) return false;
 
     const { messages, ...sessionPayload } = session;
+    saveLocalSessionShell(user.uid, session, { pendingRemote: true });
+
     try {
       await setDoc(
         doc(db, 'users', user.uid, 'sessions', session.id),
         cleanForFirestore(sessionPayload)
       );
+      saveLocalSessionShell(user.uid, session, { pendingRemote: false });
+      return true;
     } catch (error) {
       console.warn('Session shell persistence degraded, keeping local state:', error);
+      return false;
     }
   }, [user]);
 
-  const upsertSessionLocal = useCallback((session: ChatSession) => {
+  const upsertSessionLocal = useCallback((session: ChatSession, options?: { pendingRemote?: boolean }) => {
     setSessions(prev => {
       const withoutCurrent = prev.filter(existing => existing.id !== session.id);
       return [session, ...withoutCurrent].sort((left, right) => right.updatedAt - left.updatedAt);
     });
-  }, []);
+
+    if (user) {
+      saveLocalSessionShell(user.uid, session, { pendingRemote: options?.pendingRemote });
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!user || !hasLoadedRemoteSessions) return;
@@ -814,8 +839,8 @@ export default function App() {
       sessionKind: 'standard',
     };
 
+    upsertSessionLocal(session, { pendingRemote: true });
     await persistSessionShell(session);
-    upsertSessionLocal(session);
     setActiveMode('cowork');
     setActiveSessionId(sessionId, { modeOverride: 'cowork' });
     setCustomTitle(null);
@@ -862,8 +887,8 @@ export default function App() {
       },
     };
 
+    upsertSessionLocal(session, { pendingRemote: true });
     await persistSessionShell(session);
-    upsertSessionLocal(session);
     setActiveMode('chat');
     setActiveSessionId(sessionId, { remember: false, modeOverride: 'chat' });
     setCustomTitle(null);
@@ -1133,8 +1158,10 @@ export default function App() {
       let currentSessionId = runtimeSessionOverride?.id || activeSessionId;
       if (user && (currentSessionId === 'local-new' || !currentSessionId)) {
         const newId = Date.now().toString();
-        const sessionPayload = {
+        const nextSession: ChatSession = {
+          id: newId,
           title: customTitle || textToSend.slice(0, 30) || 'Nouvelle conversation',
+          messages: [],
           updatedAt: Date.now(),
           mode: effectiveMode,
           userId: user.uid,
@@ -1142,16 +1169,8 @@ export default function App() {
           sessionKind: effectiveSession.sessionKind || 'standard',
           agentWorkspace: effectiveSession.agentWorkspace,
         };
-        try {
-          await setDoc(doc(db, 'users', user.uid, 'sessions', newId), cleanForFirestore(sessionPayload));
-        } catch (error) {
-          console.warn('Session creation degraded, continuing with local state:', error);
-        }
-        setSessions(prev => {
-          const nextSession: ChatSession = { id: newId, messages: [], ...sessionPayload };
-          const withoutCurrent = prev.filter(session => session.id !== newId);
-          return [nextSession, ...withoutCurrent];
-        });
+        upsertSessionLocal(nextSession, { pendingRemote: true });
+        await persistSessionShell(nextSession);
         setCustomTitle(null);
         currentSessionId = newId;
         setActiveSessionId(newId, {
@@ -1683,7 +1702,7 @@ export default function App() {
       },
     };
 
-    upsertSessionLocal(updatedSession);
+    upsertSessionLocal(updatedSession, { pendingRemote: true });
     await persistSessionShell(updatedSession);
 
     if (handleSendRuntimeRef.current) {

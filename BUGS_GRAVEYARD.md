@@ -1,5 +1,33 @@
 # BUGS GRAVEYARD
 
+## 2026-03-29 - Nouvelle discussion visible une seconde puis retiree de l'historique
+- Statut: resolu localement, a revalider en session authentifiee
+- Symptome:
+  - creation d'une nouvelle discussion en `chat`, `cowork`, `image`, `video` ou `audio`
+  - la session apparait dans la sidebar puis disparait presque immediatement
+  - la disparition arrive meme sans changer de mode
+- Stack trace / message:
+  - pas de crash frontal obligatoire
+  - logs possibles: `Session creation degraded, continuing with local state` ou `Session shell persistence degraded, keeping local state`
+- Tentatives:
+  - verification des regles Firestore deja deployees
+  - comparaison du flux `setSessions(...)` local avec le listener `onSnapshot(users/{uid}/sessions)`
+  - validation par test cible du merge local/distants
+- Cause racine:
+  - le frontend ajoutait bien la session localement
+  - mais le listener Firestore remplacait ensuite toute la liste par les seuls documents distants
+  - si le shell `sessions/{sessionId}` etait refuse, lent ou absent, la session locale etait donc ecrasee de l'historique
+- Resolution finale:
+  - ajout d'un cache local de shells `src/utils/sessionShells.ts`
+  - marquage `pendingRemote` tant que Firestore n'a pas confirme la session
+  - `src/App.tsx` fusionne maintenant `mergeSessionsWithLocal(user.uid, remoteSessions)` au lieu d'ecraser `sessions`
+  - `src/components/SidebarLeft.tsx` nettoie le cache local et les snapshots a la suppression
+  - ajout du test `test-session-shells.ts`
+- Preuve:
+  - `npm run lint` : OK
+  - `npx tsx test-session-shells.ts` : OK
+  - `npm run build` : OK
+
 ## 2026-03-29 - Conversations Firestore visibles sur un appareil seulement
 - Statut: resolu et redeploye
 - Symptome:

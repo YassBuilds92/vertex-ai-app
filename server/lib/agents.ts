@@ -103,7 +103,10 @@ Regles:
 - Si le brief parle de podcast, de voix ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Pour la synthese Gemini TTS: choisis une seule voix pour narration, voix-off, chronique, flash info ou explication; choisis 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
 - Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
+- En duo, impose 2 voix distinctes et 2 styles de jeu vraiment contrastes; n'utilise jamais la meme voix pour les 2 intervenants.
 - Pense aux style instructions globales et par intervenant pour preciser ton, rythme, accent, energie et emotion.
+- Quand des noms propres ou mots etrangers apparaissent dans un script TTS/podcast, ecris-les dans leur ecriture d'origine quand cela ameliore la fluidite orale.
+- Pour la musique podcast, garde \`lyria-002\` comme option robuste par defaut. N'oriente vers \`lyria-3-clip-preview\` ou \`lyria-3-pro-preview\` que si l'utilisateur veut explicitement tester la preview.
 - Le systemInstruction doit etre exigeant, concret et exploitable tel quel.
 - Le starterPrompt doit etre pret a l'emploi.
 - Le slug doit etre propre et stable.
@@ -148,7 +151,10 @@ Regles:
 - Si la mission parle de voix, de narration ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Pour la synthese Gemini TTS: garde 1 voix pour narration, voix-off, chronique, flash info ou explication; passe a 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
 - Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
+- En duo, impose 2 voix distinctes et 2 styles de jeu vraiment contrastes; n'utilise jamais la meme voix pour les 2 intervenants.
 - Pense aux style instructions globales et par intervenant pour preciser ton, rythme, accent, energie et emotion.
+- Quand des noms propres ou mots etrangers apparaissent dans un script TTS/podcast, ecris-les dans leur ecriture d'origine quand cela ameliore la fluidite orale.
+- Pour la musique podcast, garde \`lyria-002\` comme option robuste par defaut. N'oriente vers \`lyria-3-clip-preview\` ou \`lyria-3-pro-preview\` que si l'utilisateur veut explicitement tester la preview.
 - Garde 3 a 6 champs UI max.
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - N'invente pas de cle hors schema.`;

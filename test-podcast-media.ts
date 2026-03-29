@@ -14,7 +14,9 @@ const {
   extractDialogSpeakerNames,
   getWaveDurationSeconds,
   mixPodcastEpisodeWavFallback,
+  remapDialogueSpeakerLabelsForTts,
   resolvePodcastSpeakers,
+  normalizeGeminiTtsSpeakers,
   validateDialogueScriptAgainstSpeakers,
 } = __podcastMediaInternals;
 
@@ -80,6 +82,7 @@ function buildSineWaveWavBuffer({
   assert.ok(prompt.includes('55 seconds'));
   assert.ok(prompt.includes('arbres urbains'));
   assert.ok(prompt.includes('Style instructions: calme, intelligent, immersif'));
+  assert.ok(prompt.includes('original script'));
 }
 
 {
@@ -107,6 +110,7 @@ function buildSineWaveWavBuffer({
   assert.ok(prompt.includes('65 seconds'));
   assert.ok(prompt.includes('Do not quote headlines'));
   assert.ok(prompt.includes('Style instructions: calme, editorial, pose'));
+  assert.ok(prompt.includes('original script'));
 }
 
 {
@@ -130,6 +134,7 @@ function buildSineWaveWavBuffer({
   assert.ok(prompt.includes('Simohamed'));
   assert.ok(prompt.includes('Darija marocaine, timing comique tres vivant'));
   assert.ok(prompt.includes('Every spoken line must start'));
+  assert.ok(prompt.includes('routing labels'));
 }
 
 {
@@ -151,6 +156,7 @@ function buildSineWaveWavBuffer({
   assert.ok(prompt.includes('Yemma'));
   assert.ok(prompt.includes('Simohamed'));
   assert.ok(prompt.includes('Every spoken line must start'));
+  assert.ok(prompt.includes('clearly contrasted'));
 }
 
 {
@@ -175,12 +181,38 @@ function buildSineWaveWavBuffer({
   assert.equal(speakers.length, 2);
   assert.equal(speakers[0].name, 'Yemma');
   assert.equal(speakers[1].name, 'Simohamed');
+  assert.equal(speakers[0].ttsAlias, 'Yemma');
+  assert.equal(speakers[1].ttsAlias, 'Simohamed');
 }
 
 {
   assert.throws(() => resolvePodcastSpeakers({
     script: "Yemma: Koul.\nSimohamed: Mliit.\nWalid: Hsseb lia.",
   }));
+}
+
+{
+  const speakers = normalizeGeminiTtsSpeakers([
+    { name: 'Voix A', voice: 'Kore' },
+    { name: 'Voix B', voice: 'Kore' },
+  ]);
+
+  assert.equal(speakers.length, 2);
+  assert.notEqual(speakers[0].voice, speakers[1].voice);
+  assert.equal(speakers[0].ttsAlias, 'VoixA');
+  assert.equal(speakers[1].ttsAlias, 'VoixB');
+}
+
+{
+  const routed = remapDialogueSpeakerLabelsForTts(
+    "Voix A: Salut.\nVoix B: Bonjour.",
+    [
+      { name: 'Voix A', voice: 'Kore', ttsAlias: 'VoixA' },
+      { name: 'Voix B', voice: 'Puck', ttsAlias: 'VoixB' },
+    ],
+  );
+
+  assert.equal(routed, "VoixA: Salut.\nVoixB: Bonjour.");
 }
 
 {

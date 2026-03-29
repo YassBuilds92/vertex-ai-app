@@ -165,15 +165,15 @@ export default function App() {
       return [nextAgent, ...withoutCurrent].sort((left, right) => right.updatedAt - left.updatedAt);
     });
 
-    await setDoc(
-      doc(db, 'users', user.uid, 'agents', nextAgent.id),
-      cleanForFirestore(nextAgent)
-    );
-
     setLatestCreatedAgent(nextAgent);
     if (openHub) {
       setShowAgentsHub(true);
     }
+
+    await setDoc(
+      doc(db, 'users', user.uid, 'agents', nextAgent.id),
+      cleanForFirestore(nextAgent)
+    );
 
     return nextAgent;
   }, [materializeAgentBlueprint, user]);
@@ -936,6 +936,7 @@ export default function App() {
               timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris',
               nowIso: new Date().toISOString(),
             },
+            hubAgents: agents,
             sessionId: currentSessionId,
           }),
         });
@@ -993,11 +994,23 @@ export default function App() {
             }
 
             if (data.type === 'agent_blueprint' && data.blueprint) {
-              await persistAgentBlueprint(data.blueprint, {
-                createdBy: 'cowork',
-                sourcePrompt: data.blueprint.sourcePrompt || finalPrompt,
-                sourceSessionId: currentSessionId,
-              });
+              try {
+                await persistAgentBlueprint(data.blueprint, {
+                  createdBy: 'cowork',
+                  sourcePrompt: data.blueprint.sourcePrompt || finalPrompt,
+                  sourceSessionId: currentSessionId,
+                });
+              } catch (persistError) {
+                console.error('Agent blueprint persistence failed:', persistError);
+                setCoworkDraft(prev => {
+                  if (!prev) return prev;
+                  return applyCoworkEventToMessage(prev, {
+                    type: 'warning',
+                    title: 'Hub non synchronise',
+                    message: "L'agent a ete genere, mais sa sauvegarde Firestore a echoue. Le run Cowork continue.",
+                  });
+                });
+              }
             }
 
             setCoworkDraft(prev => (prev ? applyCoworkEventToMessage(prev, data) : prev));

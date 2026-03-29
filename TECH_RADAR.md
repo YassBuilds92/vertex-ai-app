@@ -1,0 +1,117 @@
+# TECH RADAR
+
+## Format
+- Date de verification
+- Technologie
+- Statut
+- Choix
+- Alternatives evaluees
+- Cout
+- Sources officielles
+
+## 2026-03-29 - @google/genai pour Vertex AI
+- Statut: retenu pour le projet
+- Choix: conserver `@google/genai` comme SDK principal pour Gemini sur Vertex AI.
+- Pourquoi: la documentation officielle Google recommande les nouvelles Google Gen AI libraries et montre la syntaxe actuelle `GoogleGenAI({ vertexai: true, project, location })` puis `ai.models.generateContent(...)`.
+- Alternatives evaluees:
+  - `@google-cloud/vertexai`
+    - Ecartee pour les nouveaux travaux: la doc de migration met l'accent sur le nouvel SDK et le precedent chemin est en phase de depreciation.
+  - appels REST artisanaux
+    - Ecartes: plus fragiles, plus verbeux, moins maintenables.
+- Cout: SDK gratuit, mais Vertex AI est un service payant a l'usage.
+- Sources officielles:
+  - [Google Gen AI SDK overview](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/sdks/overview)
+  - [Google Gen AI libraries](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/libraries)
+  - [Vertex AI SDK migration guide](https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk)
+
+## 2026-03-29 - Gemini 3.1 Pro Preview pour Cowork
+- Statut: retenu pour les taches complexes Cowork
+- Choix: garder `gemini-3.1-pro-preview` comme modele principal Cowork.
+- Pourquoi: la documentation Vertex liste toujours `gemini-3.1-pro-preview` comme version supportee et la doc Gemini 3 montre des exemples explicites avec ce model ID pour les cas a fort raisonnement.
+- Alternatives evaluees:
+  - `gemini-3-flash-preview`
+    - Conserve comme alternative plus rapide, mais pas choisi comme modele principal du mode autonome.
+  - `gemini-2.5-pro`
+    - Plus stable, mais moins aligne avec la direction produit actuelle basee sur Gemini 3.x.
+- Cout: payant a l'usage via Vertex AI.
+- Sources officielles:
+  - [Supported models](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/provisioned-throughput/supported-models)
+  - [Deployments and endpoints](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
+  - [Get started with Gemini 3](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/get-started-with-gemini-3)
+
+## 2026-03-29 - Gemini 3.1 Flash-Lite Preview pour taches de fond
+- Statut: retenu pour la generation de blueprints et taches rapides
+- Choix: utiliser `gemini-3.1-flash-lite-preview` pour les taches structurelles legeres comme la generation de blueprints d'agents.
+- Pourquoi: model ID encore supporte officiellement, plus adapte aux taches rapides et moins couteuses que le mode autonome complet.
+- Alternatives evaluees:
+  - `gemini-3-flash-preview`
+    - Plus puissant, mais pas necessaire pour un blueprint borne et structure.
+  - `gemini-2.5-flash-lite`
+    - Ecarte pour ce cas car la logique produit actuelle privilegie 3.1 quand disponible.
+- Cout: payant a l'usage via Vertex AI.
+- Sources officielles:
+  - [Supported models](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/provisioned-throughput/supported-models)
+  - [Deployments and endpoints](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
+
+## 2026-03-29 - Endpoint global par defaut pour Gemini 3.x
+- Statut: retenu
+- Choix: continuer a utiliser `global` comme endpoint par defaut pour les appels Gemini 3.x/3.1.
+- Pourquoi: les docs Gemini 3 quickstart utilisent explicitement `GOOGLE_CLOUD_LOCATION=global`, et la page locations liste les model IDs Gemini 3.x sur l'endpoint global.
+- Alternatives evaluees:
+  - region fixe `us-central1`
+    - Ecartee comme valeur par defaut pour Gemini 3.x: moins robuste pour la disponibilite generale du projet.
+- Cout: sans surcout de bibliotheque, cout Vertex AI normal.
+- Sources officielles:
+  - [Get started with Gemini 3](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/get-started-with-gemini-3)
+  - [Deployments and endpoints](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
+
+## 2026-03-29 - Gemini 2.5 Flash Image pour la generation image actuelle
+- Statut: retenu
+- Choix: conserver `gemini-2.5-flash-image` pour la generation image du projet.
+- Pourquoi: la doc officielle indique que `gemini-2.5-flash-image` est le model ID courant et precise que les variantes preview precedentes sont retirees.
+- Alternatives evaluees:
+  - anciens previews image Gemini
+    - Ecartes: retraites.
+  - Imagen
+    - Non retenu par defaut dans ce projet car la logique en place a deja migre vers le chemin Gemini image.
+- Cout: payant a l'usage via Vertex AI.
+- Sources officielles:
+  - [Gemini 2.5 Flash Image model page](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash-image)
+  - [Generate and edit images with Gemini](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/image-generation)
+
+## 2026-03-29 - Gemini TTS pour la future brique podcast
+- Statut: en veille active, non encore branche dans le code
+- Choix pressenti: utiliser les modeles Gemini TTS verifies officiellement (`gemini-2.5-pro-tts`, `gemini-2.5-flash-tts`) quand on branchera le pipeline podcast.
+- Pourquoi: la doc officielle Cloud TTS liste ces modeles et montre une integration compatible SDK GenAI.
+- Alternatives evaluees:
+  - `gemini-2.5-flash-lite-preview-tts`
+    - Existant dans la doc, mais moins evident comme choix par defaut pour une voix premium.
+  - solutions TTS tierces
+    - Non etudiees pour l'instant car la contrainte produit privilegie l'ecosysteme Google.
+- Cout: payant a l'usage via Cloud TTS / Vertex Media Studio selon le chemin final.
+- Sources officielles:
+  - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+  - [Convert text to speech in Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/speech/text-to-speech)
+
+## 2026-03-29 - Lyria pour la musique du futur mode podcast
+- Statut: en veille active, non encore branche dans le code
+- Choix pressenti: utiliser Lyria via Vertex AI pour la generation musicale du podcast.
+- Pourquoi: la doc officielle confirme Lyria sur Vertex AI avec endpoint `global` et model IDs explicites pour Lyria 3.
+- Alternatives evaluees:
+  - banques musicales ou services tiers
+    - Non etudies pour l'instant, car hors cible tant que le flux Google n'est pas branche.
+- Cout: payant a l'usage via Vertex AI.
+- Sources officielles:
+  - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
+
+## 2026-03-29 - Veo pour la video
+- Statut: retenu en principe, implementation backend encore partielle
+- Choix: rester aligne sur Veo cote produit pour la video.
+- Pourquoi: les docs officielles listent les modeles Veo 3.1 et leur usage text-to-video dans Vertex AI.
+- Alternatives evaluees:
+  - services video tiers
+    - Non etudies ici car l'ecosysteme produit reste Google.
+- Cout: payant a l'usage via Vertex AI.
+- Sources officielles:
+  - [Generate videos with Veo from text prompts](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-text)
+  - [Deployments and endpoints](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)

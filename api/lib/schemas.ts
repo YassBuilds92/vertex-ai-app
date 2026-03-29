@@ -10,6 +10,38 @@ export const AgentCreateSchema = z.object({
   source: z.enum(['manual', 'cowork']).optional(),
 });
 
+const AgentFieldSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  type: z.enum(['text', 'textarea', 'select', 'number', 'boolean', 'url']),
+  placeholder: z.string().optional(),
+  helpText: z.string().optional(),
+  required: z.boolean().optional(),
+  options: z.array(z.string()).optional(),
+});
+
+const HubAgentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  tagline: z.string(),
+  summary: z.string(),
+  mission: z.string(),
+  whenToUse: z.string(),
+  outputKind: z.enum(['pdf', 'html', 'podcast', 'code', 'research', 'automation']),
+  starterPrompt: z.string(),
+  systemInstruction: z.string(),
+  uiSchema: z.array(AgentFieldSchema),
+  tools: z.array(z.string()),
+  capabilities: z.array(z.string()),
+  status: z.enum(['ready', 'draft']).optional(),
+  createdBy: z.enum(['manual', 'cowork']).optional(),
+  sourcePrompt: z.string().optional(),
+  sourceSessionId: z.string().optional(),
+  createdAt: z.number().optional(),
+  updatedAt: z.number().optional(),
+});
+
 export const ImageGenSchema = z.object({
   prompt: z.string(),
   aspectRatio: z.string().optional(),
@@ -74,6 +106,7 @@ export const ChatSchema = z.object({
     timeZone: z.string().optional(),
     nowIso: z.string().optional().nullable(),
   }).optional(),
+  hubAgents: z.array(HubAgentSchema).optional(),
 });
 
 export const UploadSchema = z.object({

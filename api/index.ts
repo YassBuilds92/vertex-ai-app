@@ -37,7 +37,15 @@ import {
   PORT,
   USD_TO_EUR_RATE,
 } from './lib/config.js';
-import { generateAgentBlueprintFromBrief, sanitizeAgentBlueprint, type AgentBlueprint } from './lib/agents.js';
+import {
+  generateAgentBlueprintFromBrief,
+  pickHubAgentRecord,
+  sanitizeAgentBlueprint,
+  sanitizeHubAgentRecord,
+  summarizeHubAgentsForPrompt,
+  type AgentBlueprint,
+  type HubAgentRecord,
+} from './lib/agents.js';
 import { createGoogleAI, parseApiError, retryWithBackoff } from './lib/google-genai.js';
 import { log } from './lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from './lib/path-utils.js';
@@ -483,11 +491,14 @@ function resolveRequestClock(clientContext?: ClientContext): RequestClock {
 function buildCoworkSystemInstruction(
   userInstruction?: string,
   capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true },
-  runtime?: { originalMessage?: string; requestClock?: RequestClock },
+  runtime?: { originalMessage?: string; requestClock?: RequestClock; hubAgents?: HubAgentRecord[] },
   behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean }
 ): string {
   const originalMessage = runtime?.originalMessage || '';
   const requestClock = runtime?.requestClock;
+  const hubAgentsSummary = Array.isArray(runtime?.hubAgents) && runtime.hubAgents.length > 0
+    ? summarizeHubAgentsForPrompt(runtime.hubAgents, 8)
+    : '';
   const debugReasoning = Boolean(behavior?.debugReasoning);
   const isMetaDiscussion = originalMessage ? requestIsCoworkMetaDiscussion(originalMessage) : false;
   const needsArtifact = originalMessage && !isMetaDiscussion
@@ -535,6 +546,7 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
 - N'expose jamais ton chain-of-thought brut.
 - Outils disponibles:
   - 'create_agent_blueprint' : concoit un agent specialise reutilisable pour le Hub Agents.
+  - 'run_hub_agent' : relance un agent deja present dans le Hub Agents comme vraie sous-mission.
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
   - 'begin_pdf_draft', 'append_to_draft', 'get_pdf_draft'
   - 'review_pdf_draft'
@@ -551,6 +563,7 @@ ${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraime
 7. Si tu utilises 'review_pdf_draft' et qu'une signature t'est fournie, passe-la telle quelle dans 'create_pdf.reviewSignature'.
 8. Si tu dois faire plusieurs outils dans un meme tour, garde une mini-chaine coherente: lecture/recherche d'abord, mutation eventuelle en dernier.
 9. Si l'utilisateur veut un specialiste recurrent ou delegable, tu peux creer un agent pour le Hub puis l'annoncer clairement.
+10. Si un agent du Hub correspond deja a la mission, prefere 'run_hub_agent' a la creation d'un nouveau blueprint.
 
 ### REPERES TEMPORELS
 ${requestClock
@@ -558,6 +571,11 @@ ${requestClock
 - Quand l'utilisateur dit "aujourd'hui", "du jour", "today" ou "latest", cela signifie ${requestClock.dateLabel}.
 - Si une source parle d'une autre date, compare-la explicitement a ${requestClock.dateLabel}.`
   : "- Si la demande parle de 'today', 'aujourd'hui' ou 'latest', utilise la date courante exacte de l'environnement."}
+
+${hubAgentsSummary ? `### HUB AGENTS DISPONIBLES
+- Tu peux les relancer avec 'run_hub_agent' en utilisant leur id, slug ou nom.
+${hubAgentsSummary}
+` : ''}
 
 ### MICRO-EXEMPLES
 - Demande creative pure: pas d'outil, tu reflechis en interne puis tu livres directement un bon texte.
@@ -2973,6 +2991,13 @@ type CoworkSessionState = {
   lastActionSignature: string | null;
 };
 
+type LocalToolDefinition = {
+  name: string;
+  description: string;
+  parameters: Record<string, any>;
+  execute: (args: any) => Promise<any> | any;
+};
+
 type CompletionComputationOptions = {
   originalMessage: string;
   requestClock: RequestClock;
@@ -2999,6 +3024,9 @@ function getPublicToolNarrationTarget(toolName: string, args: any): string | nul
   switch (toolName) {
     case 'create_agent_blueprint':
       rawTarget = args?.brief ?? args?.name ?? args?.title;
+      break;
+    case 'run_hub_agent':
+      rawTarget = args?.agentId ?? args?.name ?? args?.mission;
       break;
     case 'web_search':
       rawTarget = args?.query ?? args?.q;
@@ -3051,6 +3079,13 @@ function buildPublicToolNarration(
         message: target
           ? `Je dessine maintenant un agent specialise pour '${target}'.`
           : "Je prepare un agent specialise pour le Hub Agents."
+      };
+    case 'run_hub_agent':
+      return {
+        title: 'Sous-mission',
+        message: target
+          ? `Je relance maintenant l'agent '${target}' comme specialiste.`
+          : "Je relance maintenant un specialiste du Hub Agents."
       };
     case 'web_search':
       return {
@@ -4617,8 +4652,15 @@ app.post('/api/cowork', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
   };
   try {
-    const { message, sessionId, history, config, clientContext } = ChatSchema.parse(req.body);
+    const { message, sessionId, history, config, clientContext, hubAgents } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
+    const availableHubAgents = Array.isArray(hubAgents)
+      ? hubAgents
+          .map(sanitizeHubAgentRecord)
+          .filter((agent): agent is HubAgentRecord => Boolean(agent))
+          .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+          .slice(0, 16)
+      : [];
     const executionMode = classifyCoworkExecutionMode(message, history);
 
     if (requestRequiresAbuseBlock(message)) {
@@ -4669,6 +4711,12 @@ app.post('/api/cowork', async (req, res) => {
         return {
           brief: clipText(args?.brief || '', 140),
           outputKind: clipText(args?.outputKindHint || '', 24),
+        };
+      }
+      if (toolName === 'run_hub_agent') {
+        return {
+          agent: clipText(args?.agentId || '', 80),
+          mission: clipText(args?.mission || '', 140),
         };
       }
       if (toolName === 'music_catalog_lookup') {
@@ -4757,6 +4805,16 @@ app.post('/api/cowork', async (req, res) => {
           tools: Array.isArray(blueprint?.tools) ? blueprint.tools.length : 0,
         };
       }
+      if (toolName === 'run_hub_agent') {
+        return {
+          agent: clipText(output?.agent?.name || args?.agentId || '', 80),
+          slug: clipText(output?.agent?.slug || '', 48),
+          outputKind: clipText(output?.agent?.outputKind || '', 24),
+          iterations: Number(output?.iterations || 0),
+          toolCalls: Number(output?.toolCalls || 0),
+          released: Boolean(output?.releasedFile?.url),
+        };
+      }
       if (toolName === 'web_search') {
         return {
           query: clipText(output?.query || args?.query || '', 140),
@@ -4826,6 +4884,16 @@ app.post('/api/cowork', async (req, res) => {
           Array.isArray(blueprint?.uiSchema) ? `${blueprint.uiSchema.length} champ(s)` : null,
           Array.isArray(blueprint?.tools) ? `${blueprint.tools.length} outil(s)` : null,
           blueprint?.tagline ? clipText(blueprint.tagline, 90) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'run_hub_agent') {
+        return [
+          output?.agent?.name ? `Sous-mission: ${output.agent.name}` : null,
+          output?.agent?.outputKind ? `sortie ${output.agent.outputKind}` : null,
+          Number(output?.iterations || 0) > 0 ? `${Number(output.iterations)} tour(s)` : null,
+          Number(output?.toolCalls || 0) > 0 ? `${Number(output.toolCalls)} outil(s)` : null,
+          output?.releasedFile?.url ? 'livrable publie' : null,
+          output?.message ? clipText(output.message, 120) : null,
         ].filter(Boolean).join(' | ');
       }
       if (toolName === 'music_catalog_lookup') {
@@ -4933,7 +5001,7 @@ app.post('/api/cowork', async (req, res) => {
 
     const pdfQualityTargets = getPdfQualityTargets(message);
 
-    const localTools = [
+    const localTools: LocalToolDefinition[] = [
       ...(COWORK_DEBUG_REASONING ? [{
         name: "publish_status",
         description: "Outil debug: annonce publiquement une mise a jour courte et utile sans exposer le chain-of-thought brut.",
@@ -5038,6 +5106,347 @@ app.post('/api/cowork', async (req, res) => {
             success: true,
             message: `Agent '${blueprint.name}' pret pour le Hub Agents.`,
             blueprint,
+          };
+        }
+      },
+      {
+        name: "run_hub_agent",
+        description: "Relance un agent deja present dans le Hub Agents comme vraie sous-mission. Utilise-le quand un specialiste existant correspond deja a la demande, au lieu de recreer un blueprint.",
+        parameters: {
+          type: "object",
+          properties: {
+            agentId: { type: "string", description: "ID, slug ou nom de l'agent du hub a relancer." },
+            mission: { type: "string", description: "Sous-mission concrete a confier a cet agent." }
+          },
+          required: ["agentId", "mission"]
+        },
+        execute: async ({
+          agentId,
+          mission
+        }: {
+          agentId: string;
+          mission: string;
+        }) => {
+          const agentSelector = clipText(agentId, 120);
+          const effectiveMission = clipText(mission, 1600);
+
+          if (!availableHubAgents.length) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Aucun agent n'est disponible dans le Hub pour cette conversation."
+            };
+          }
+
+          if (!agentSelector) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Precise l'agent du Hub a relancer via son id, son slug ou son nom."
+            };
+          }
+
+          const selectedAgent = pickHubAgentRecord(availableHubAgents, agentSelector);
+          if (!selectedAgent) {
+            return {
+              success: false,
+              recoverable: true,
+              error: `Aucun agent du Hub ne correspond a '${agentSelector}'.`,
+              availableAgents: availableHubAgents.slice(0, 8).map(agent => ({
+                id: agent.id,
+                slug: agent.slug,
+                name: agent.name,
+                outputKind: agent.outputKind,
+              }))
+            };
+          }
+
+          if (!effectiveMission) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "La sous-mission est vide. Fournis un objectif concret a traiter."
+            };
+          }
+
+          const delegatedToolNames = new Set(
+            (Array.isArray(selectedAgent.tools) ? selectedAgent.tools : [])
+              .filter(Boolean)
+              .filter(name => !['create_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
+          );
+          const delegatedTools = localTools.filter(tool => delegatedToolNames.has(tool.name));
+          const delegatedToolDeclarations = delegatedTools.length > 0
+            ? [{
+                functionDeclarations: delegatedTools.map(tool => ({
+                  name: tool.name,
+                  description: tool.description,
+                  parameters: tool.parameters
+                }))
+              }]
+            : undefined;
+          const delegatedSystemInstruction = [
+            selectedAgent.systemInstruction.trim(),
+            "### CONTEXTE D'EXECUTION",
+            `- Tu operes comme sous-mission de Cowork avec l'agent '${selectedAgent.name}'.`,
+            "- Tu peux utiliser uniquement les outils exposes a cet agent.",
+            "- Si tu livres un artefact, publie-le puis rends le lien final.",
+            "- N'invente jamais une verification, un fichier ou une publication.",
+            requestClock
+              ? `- Date de reference: ${requestClock.absoluteDateTimeLabel} (${requestClock.timeZone}).`
+              : null,
+          ].filter(Boolean).join('\n');
+          const delegatedPrompt = [
+            `Agent du hub: ${selectedAgent.name} (${selectedAgent.outputKind})`,
+            `Mission du blueprint: ${selectedAgent.mission}`,
+            `Quand l'utiliser: ${selectedAgent.whenToUse}`,
+            selectedAgent.starterPrompt ? `Starter prompt: ${selectedAgent.starterPrompt}` : null,
+            selectedAgent.uiSchema.length > 0
+              ? `Champs UI disponibles: ${selectedAgent.uiSchema.map(field => `${field.label}${field.required ? '*' : ''}`).join(', ')}`
+              : null,
+            `Sous-mission immediate: ${effectiveMission}`,
+            "Si certains champs UI sont implicites dans la mission, deduis-les et avance sans demander de formulaire."
+          ].filter(Boolean).join('\n');
+
+          let delegatedContents = [{ role: 'user' as const, parts: [{ text: delegatedPrompt }] }];
+          let delegatedIterations = 0;
+          let delegatedToolCalls = 0;
+          let delegatedFinalText = '';
+          let delegatedCreatedArtifactPath: string | null = null;
+          let delegatedReleasedFile: { url: string; path?: string } | null = null;
+          let delegatedLastError: string | null = null;
+          const delegatedModelId = modelId;
+          const delegatedMaxIterations = 8;
+
+          emitEvent('status', {
+            iteration: iterations,
+            title: 'Sous-mission',
+            message: `Cowork relance maintenant '${selectedAgent.name}' comme specialiste.`,
+            runState: 'running',
+            runMeta
+          });
+
+          while (delegatedIterations < delegatedMaxIterations) {
+            delegatedIterations += 1;
+            const delegatedGenConfig: any = {
+              temperature: Math.min(Math.max(config.temperature || 0.2, 0.05), 0.45),
+              topP: config.topP || 1.0,
+              topK: config.topK || 1,
+              maxOutputTokens: Math.min(config.maxOutputTokens || 24576, 24576),
+              thinkingLevel: config.thinkingLevel || 'high',
+              maxThoughtTokens: Math.min(config.maxThoughtTokens || 2048, 2048),
+              systemInstruction: delegatedSystemInstruction,
+              ...(delegatedToolDeclarations ? { tools: delegatedToolDeclarations } : {})
+            };
+
+            const delegatedResponse = await retryWithBackoff(() => ai.models.generateContent({
+              model: delegatedModelId,
+              contents: delegatedContents,
+              config: delegatedGenConfig
+            }), {
+              maxRetries: 2,
+              exactDelaysMs: [2000, 4000],
+              jitter: false,
+              onRetry: async ({ delayMs, kind, message: retryMessage }) => {
+                runMeta.retryCount += 1;
+                emitEvent('warning', {
+                  iteration: iterations,
+                  title: 'Sous-mission en attente',
+                  message:
+                    kind === 'concurrency'
+                      ? `L'agent ${selectedAgent.name} attend une nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
+                      : kind === 'server'
+                        ? `Le modele est temporairement indisponible pour ${selectedAgent.name}. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`
+                        : `Quota ou limite temporaire pour ${selectedAgent.name}. Nouvelle tentative dans ${formatWaitDuration(delayMs)}. ${retryMessage}`,
+                  runMeta
+                });
+              }
+            });
+
+            accumulateUsageTotals(runMeta, delegatedModelId, delegatedResponse);
+
+            const delegatedTurn = (delegatedResponse as any)?.candidates?.[0]?.content;
+            const delegatedParts: any[] = delegatedTurn?.parts
+              ? [...delegatedTurn.parts]
+              : delegatedResponse.text
+                ? [{ text: delegatedResponse.text }]
+                : [];
+            const delegatedFunctionCalls = delegatedParts
+              .filter(part => part.functionCall)
+              .map(part => part.functionCall);
+            let delegatedTurnText = '';
+
+            for (const part of delegatedParts) {
+              if (part.thought) continue;
+              if (part.text && delegatedFunctionCalls.length === 0) {
+                delegatedTurnText += part.text;
+              }
+            }
+
+            delegatedContents.push({
+              role: delegatedTurn?.role || 'model',
+              parts: delegatedParts
+            });
+
+            if (delegatedFunctionCalls.length === 0) {
+              const cleanedTurnText = delegatedTurnText.trim();
+              if (cleanedTurnText) {
+                delegatedFinalText = cleanedTurnText;
+                break;
+              }
+
+              delegatedLastError = "La sous-mission n'a rien livre de visible sur ce tour.";
+              delegatedContents.push({
+                role: 'user',
+                parts: [{ text: "Ta reponse est vide. Livre maintenant un resultat concret ou une limite honnete." }]
+              });
+              continue;
+            }
+
+            if (delegatedFunctionCalls.length > 3) {
+              delegatedLastError = "La sous-mission a tente trop d'outils dans un meme tour.";
+              delegatedContents.push({
+                role: 'user',
+                parts: [{ text: "Limite de sous-mission: au plus 3 outils par tour. Reprends avec une chaine plus courte." }]
+              });
+              continue;
+            }
+
+            const delegatedToolResults: any[] = [];
+            for (const delegatedCall of delegatedFunctionCalls) {
+              const delegatedTool = delegatedTools.find(tool => tool.name === delegatedCall.name);
+              if (!delegatedTool) {
+                const unauthorizedError = `L'outil '${delegatedCall.name}' n'est pas autorise pour l'agent '${selectedAgent.name}'.`;
+                delegatedLastError = unauthorizedError;
+                delegatedToolResults.push({
+                  functionResponse: {
+                    ...(delegatedCall.id ? { id: delegatedCall.id } : {}),
+                    name: delegatedCall.name,
+                    response: { success: false, error: unauthorizedError }
+                  }
+                });
+                continue;
+              }
+
+              runMeta.toolCalls += 1;
+              delegatedToolCalls += 1;
+
+              try {
+                const delegatedOutput = await delegatedTool.execute(delegatedCall.args);
+                const delegatedError = (delegatedOutput as any)?.error || (delegatedOutput as any)?.success === false;
+
+                if (delegatedError) {
+                  delegatedLastError = String((delegatedOutput as any)?.error || (delegatedOutput as any)?.message || `Echec ${delegatedTool.name}`);
+                } else {
+                  if (delegatedTool.name === 'web_search') {
+                    successfulResearchMeta.webSearches += 1;
+                  }
+                  if (delegatedTool.name === 'web_fetch') {
+                    successfulResearchMeta.webFetches += 1;
+                    addValidatedSource({
+                      url: String((delegatedOutput as any).url || (delegatedCall.args as any)?.url || ''),
+                      domain: String((delegatedOutput as any).domain || ''),
+                      kind: 'web_fetch'
+                    });
+                    addFacts(String((delegatedOutput as any).title || ''), String((delegatedOutput as any).excerpt || ''));
+                  }
+                  if (delegatedTool.name === 'music_catalog_lookup') {
+                    successfulResearchMeta.musicCatalogCoverage = (delegatedOutput as any).coverage || null;
+                    successfulResearchMeta.musicCatalogCompleted = !(delegatedOutput as any).partial;
+                    for (const source of Array.isArray((delegatedOutput as any).sources) ? (delegatedOutput as any).sources : []) {
+                      addValidatedSource({
+                        url: String(source?.url || ''),
+                        domain: String(source?.domain || ''),
+                        kind: 'music_catalog_lookup'
+                      });
+                    }
+                    addFacts(String((delegatedOutput as any).message || ''));
+                  }
+                  if (delegatedTool.name === 'create_pdf' && typeof (delegatedOutput as any).path === 'string') {
+                    delegatedCreatedArtifactPath = (delegatedOutput as any).path;
+                    latestCreatedArtifactPath = delegatedCreatedArtifactPath;
+                  } else if (delegatedTool.name === 'write_file' && typeof (delegatedCall.args as any)?.path === 'string') {
+                    delegatedCreatedArtifactPath = (delegatedCall.args as any).path;
+                    latestCreatedArtifactPath = delegatedCreatedArtifactPath;
+                  }
+                  if (delegatedTool.name === 'release_file' && typeof (delegatedOutput as any).url === 'string') {
+                    delegatedReleasedFile = {
+                      url: (delegatedOutput as any).url,
+                      path: typeof (delegatedCall.args as any)?.path === 'string' ? (delegatedCall.args as any).path : undefined
+                    };
+                    latestReleasedFile = delegatedReleasedFile;
+                  }
+                }
+
+                refreshSessionState();
+                delegatedToolResults.push({
+                  functionResponse: {
+                    ...(delegatedCall.id ? { id: delegatedCall.id } : {}),
+                    name: delegatedTool.name,
+                    response: delegatedOutput
+                  }
+                });
+              } catch (error) {
+                delegatedLastError = parseApiError(error);
+                delegatedToolResults.push({
+                  functionResponse: {
+                    ...(delegatedCall.id ? { id: delegatedCall.id } : {}),
+                    name: delegatedTool.name,
+                    response: {
+                      success: false,
+                      error: delegatedLastError
+                    }
+                  }
+                });
+              }
+            }
+
+            delegatedContents.push(...delegatedToolResults);
+          }
+
+          const deliveredText = delegatedFinalText.trim()
+            || (delegatedReleasedFile?.url ? `Livrable publie: ${delegatedReleasedFile.url}` : '');
+          const delegatedSuccess = Boolean(deliveredText || delegatedReleasedFile?.url);
+
+          if (delegatedSuccess) {
+            emitEvent('status', {
+              iteration: iterations,
+              title: 'Sous-mission terminee',
+              message: delegatedReleasedFile?.url
+                ? `L'agent '${selectedAgent.name}' a publie un livrable reutilisable.`
+                : `L'agent '${selectedAgent.name}' a livre un resultat exploitable.`,
+              runState: 'running',
+              runMeta
+            });
+          } else {
+            emitEvent('warning', {
+              iteration: iterations,
+              title: 'Sous-mission incomplete',
+              message: delegatedLastError
+                ? `L'agent '${selectedAgent.name}' n'a pas livre de resultat exploitable: ${clipText(delegatedLastError, 220)}`
+                : `L'agent '${selectedAgent.name}' n'a pas livre de resultat exploitable.`,
+              runMeta
+            });
+          }
+
+          return {
+            success: delegatedSuccess,
+            agent: {
+              id: selectedAgent.id,
+              slug: selectedAgent.slug,
+              name: selectedAgent.name,
+              outputKind: selectedAgent.outputKind,
+            },
+            mission: effectiveMission,
+            finalText: deliveredText || undefined,
+            releasedFile: delegatedReleasedFile || undefined,
+            createdArtifactPath: delegatedCreatedArtifactPath || undefined,
+            iterations: delegatedIterations,
+            toolCalls: delegatedToolCalls,
+            allowedTools: delegatedTools.map(tool => tool.name),
+            message: delegatedSuccess
+              ? `Sous-mission '${selectedAgent.name}' executee.`
+              : `Sous-mission '${selectedAgent.name}' sans livraison exploitable.`,
+            ...(delegatedLastError ? { warning: clipText(delegatedLastError, 220) } : {}),
           };
         }
       },
@@ -6759,7 +7168,8 @@ app.post('/api/cowork', async (req, res) => {
             executeScript: executeScriptEnabled
           }, {
             originalMessage: message,
-            requestClock
+            requestClock,
+            hubAgents: availableHubAgents,
           }, {
             executionMode,
             debugReasoning: COWORK_DEBUG_REASONING
@@ -6975,6 +7385,18 @@ app.post('/api/cowork', async (req, res) => {
     };
 
     const getToolFailureScope = (toolName: string, args: any) => {
+      if (toolName === 'run_hub_agent') {
+        const agentId = String(args?.agentId || '').trim();
+        const mission = String(args?.mission || '').trim();
+        const normalizedAgent = normalizeCoworkText(agentId).replace(/\s+/g, ' ').trim() || 'agent';
+        const normalizedMission = normalizeCoworkText(mission).replace(/\s+/g, ' ').trim() || 'mission';
+        return {
+          exactKey: `${toolName}:agent:${normalizedAgent}:mission:${normalizedMission}`,
+          familyKey: `${toolName}:agent:${normalizedAgent}`,
+          label: agentId || '(agent vide)'
+        };
+      }
+
       if (toolName === 'web_search') {
         const query = String(args?.query || '').trim();
         const normalizedQuery = normalizeCoworkText(query).replace(/\s+/g, ' ').trim() || 'vide';
@@ -7186,6 +7608,7 @@ app.post('/api/cowork', async (req, res) => {
           'review_pdf_draft'
         ]);
         const mutatingToolNames = new Set([
+          'run_hub_agent',
           'write_file',
           'begin_pdf_draft',
           'append_to_draft',

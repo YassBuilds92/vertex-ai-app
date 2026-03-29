@@ -174,7 +174,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                       </div>
                       <div className="flex items-center justify-between gap-4">
                         <p className="max-w-xl text-sm leading-6 text-white/45">
-                          Le blueprint genere le prompt systeme, les outils preferes et une premiere UI structuree pour la suite.
+                          Le blueprint genere le prompt systeme, les outils preferes, une premiere UI structuree, puis Cowork peut desormais le relancer comme vraie sous-mission.
                         </p>
                         <button
                           onClick={submit}
@@ -319,7 +319,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                         Essence Cowork
                       </div>
                       <p className="mt-3 text-sm leading-7 text-white/68">
-                        Cowork peut continuer a traiter la demande lui-meme, ou pousser ce specialiste quand la mission merite une delegation recurrente.
+                        Cowork peut continuer a traiter la demande lui-meme, ou relancer ce specialiste comme sous-mission reelle quand la mission merite une delegation recurrente.
                       </p>
                     </div>
                   </div>

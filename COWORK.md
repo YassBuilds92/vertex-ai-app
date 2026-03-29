@@ -184,10 +184,11 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Correctif anti-cosmetique: `create_pdf` n'applique plus les veto editoriaux legacy (`document trop pauvre`, placeholders, minima mots/sections). La review/signature reste utile pour le cache et l'information, mais n'est plus un coupe-circuit backend.
 - Correctif draft observabilite: `begin_pdf_draft`, `append_to_draft` et `get_pdf_draft` renvoient aussi `theme`, `wordCount`, `sectionCount` et `sourceMode` en top-level pour eviter les journaux `0 mots / undefined`.
 - Hub Agents natif: Cowork peut maintenant creer un specialist persistant via l'outil `create_agent_blueprint`, streamer un evenement `agent_blueprint`, et pousser le resultat dans un vrai `Hub Agents` frontend (`users/{uid}/agents`) au lieu de parler de delegation sans livrer d'objet reutilisable.
+- Niveau 2 delegation reelle: `/api/cowork` recoit maintenant le catalogue `hubAgents`, l'injecte dans le system prompt, puis peut relancer un specialiste existant via `run_hub_agent` comme vraie sous-mission avec son `systemInstruction` et ses outils autorises, au lieu de recreer un blueprint a chaque fois.
 - Validation locale reussie: `npm run lint`, `npx tsx test-cowork-loop.ts`, `npx tsx test-pdf-heuristics.ts`.
 
 ## Prochaines Etapes V3
-1. Brancher le prochain niveau: qu'un agent du hub puisse etre relance depuis Cowork comme sous-mission reelle, pas seulement comme blueprint persiste.
+1. Rejouer en vrai run produit le cas de relance d'un agent existant du hub pour verifier que le modele choisit bien `run_hub_agent` quand le specialiste existe deja.
 2. Transformer `uiSchema` en vraie generative UI executable (renderer de champs + auto-fill) pour que le hub devienne une surface de travail, pas seulement un registre.
 3. Extraire la route `/api/cowork` dans un module dedie (`api/routes/cowork.ts` ou equivalent) sans casser la boucle modele-led ni dupliquer les helpers deja deplaces dans `api/lib/*`.
 4. Sortir progressivement les helpers Cowork en sous-modules coherents (prompting, recherche web, PDF, state machine, tool formatting) pour remplacer le god-file restant.

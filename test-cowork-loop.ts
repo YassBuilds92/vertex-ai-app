@@ -4,6 +4,7 @@ process.env.VERCEL = '1';
 
 const { __coworkLoopInternals } = await import('./api/index.ts');
 const { __coworkPdfInternals } = await import('./api/index.ts');
+const { pickHubAgentRecord, sanitizeHubAgentRecord, summarizeHubAgentsForPrompt } = await import('./api/lib/agents.ts');
 
 const {
   createEmptyCoworkSessionState,
@@ -54,6 +55,57 @@ const baseResearch = {
   musicCatalogCompleted: false,
   musicCatalogCoverage: null,
 };
+
+{
+  const hubAgents = [
+    sanitizeHubAgentRecord({
+      id: 'news-premium-01',
+      slug: 'news-premium',
+      name: 'News Premium',
+      tagline: 'Revue de presse premium',
+      summary: "Fabrique un PDF premium sur l'actu chaude.",
+      mission: "Produire une revue de presse premium sur l'actualite chaude.",
+      whenToUse: "Quand il faut un PDF d'actu premium et source.",
+      outputKind: 'pdf',
+      starterPrompt: "Prends en charge une revue de presse premium.",
+      systemInstruction: "Tu es News Premium.",
+      uiSchema: [],
+      tools: ['web_search', 'web_fetch', 'begin_pdf_draft', 'append_to_draft', 'create_pdf', 'release_file'],
+      capabilities: ['Veille rapide', 'PDF magazine'],
+      status: 'ready',
+      createdBy: 'cowork',
+      updatedAt: 10,
+    }),
+    sanitizeHubAgentRecord({
+      id: 'podcast-brief-02',
+      slug: 'podcast-brief',
+      name: 'Podcast Brief',
+      tagline: 'Script audio rapide',
+      summary: 'Prepare un script podcast bref.',
+      mission: 'Ecrire un script podcast bref et propre.',
+      whenToUse: 'Quand il faut un angle podcast.',
+      outputKind: 'podcast',
+      starterPrompt: 'Prends en charge un script podcast.',
+      systemInstruction: 'Tu es Podcast Brief.',
+      uiSchema: [],
+      tools: ['web_search'],
+      capabilities: ['Script audio'],
+      status: 'ready',
+      createdBy: 'manual',
+      updatedAt: 5,
+    }),
+  ].filter(Boolean);
+
+  const pickedBySlug = pickHubAgentRecord(hubAgents, 'news-premium');
+  assert.equal(pickedBySlug?.id, 'news-premium-01');
+
+  const pickedByName = pickHubAgentRecord(hubAgents, 'podcast brief');
+  assert.equal(pickedByName?.id, 'podcast-brief-02');
+
+  const promptSummary = summarizeHubAgentsForPrompt(hubAgents, 2);
+  assert.ok(promptSummary.includes('news-premium-01'));
+  assert.ok(promptSummary.includes('Podcast Brief'));
+}
 
 {
   const state = createEmptyCoworkSessionState();

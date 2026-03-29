@@ -34,6 +34,14 @@ export type AgentBlueprint = {
   sourceSessionId?: string;
 };
 
+export type HubAgentRecord = AgentBlueprint & {
+  id: string;
+  status: 'ready' | 'draft';
+  createdBy: 'manual' | 'cowork';
+  createdAt?: number;
+  updatedAt?: number;
+};
+
 const AGENT_ARCHITECT_MODEL = 'gemini-3.1-flash-lite-preview';
 
 const TOOL_LIBRARY = [
@@ -108,6 +116,15 @@ function clipText(value: unknown, max = 280): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+function normalizeAgentLookup(value: unknown): string {
+  return slugify(typeof value === 'string' ? value : '');
+}
+
+function sanitizeTimestamp(value: unknown): number | undefined {
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : undefined;
 }
 
 function uniqueStrings(values: unknown, max = 8): string[] {
@@ -337,6 +354,72 @@ export function sanitizeAgentBlueprint(raw: unknown, brief = ''): AgentBlueprint
     sourcePrompt: clipText(input.sourcePrompt || brief, 500) || undefined,
     sourceSessionId: clipText(input.sourceSessionId, 80) || undefined,
   };
+}
+
+export function sanitizeHubAgentRecord(raw: unknown): HubAgentRecord | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const input = raw as Record<string, unknown>;
+  const blueprint = sanitizeAgentBlueprint(
+    input,
+    clipText(input.sourcePrompt || input.mission || input.summary, 500)
+  );
+  const id = clipText(input.id, 96) || `${blueprint.slug}-hub`;
+
+  return {
+    ...blueprint,
+    id,
+    status: input.status === 'draft' ? 'draft' : 'ready',
+    createdBy: input.createdBy === 'manual' ? 'manual' : 'cowork',
+    createdAt: sanitizeTimestamp(input.createdAt),
+    updatedAt: sanitizeTimestamp(input.updatedAt),
+  };
+}
+
+export function pickHubAgentRecord(agents: HubAgentRecord[], selector: string): HubAgentRecord | null {
+  const cleanedSelector = clipText(selector, 160);
+  if (!cleanedSelector) return null;
+
+  const availableAgents = [...agents]
+    .filter(agent => agent.status !== 'draft')
+    .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  const normalizedSelector = normalizeAgentLookup(cleanedSelector);
+
+  const exactMatch = availableAgents.find(agent =>
+    [agent.id, agent.slug, agent.name].some(value => normalizeAgentLookup(value) === normalizedSelector)
+  );
+  if (exactMatch) return exactMatch;
+
+  const partialMatch = availableAgents.find(agent =>
+    [agent.id, agent.slug, agent.name, agent.tagline, agent.summary, agent.mission]
+      .filter(Boolean)
+      .some(value => {
+        const normalizedValue = normalizeAgentLookup(value);
+        return Boolean(normalizedValue) && (
+          normalizedValue.includes(normalizedSelector)
+          || normalizedSelector.includes(normalizedValue)
+        );
+      })
+  );
+
+  return partialMatch || null;
+}
+
+export function summarizeHubAgentsForPrompt(agents: HubAgentRecord[], max = 8): string {
+  const visibleAgents = [...agents]
+    .filter(agent => agent.status !== 'draft')
+    .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+    .slice(0, Math.max(1, max));
+
+  return visibleAgents
+    .map((agent) => {
+      const promise = clipText(agent.whenToUse || agent.tagline || agent.summary, 120);
+      const capabilityLine = agent.capabilities.length > 0
+        ? ` | cap: ${agent.capabilities.slice(0, 3).join(', ')}`
+        : '';
+      return `- id=${agent.id} | slug=${agent.slug} | ${agent.name} | ${agent.outputKind} | ${promise}${capabilityLine}`;
+    })
+    .join('\n');
 }
 
 export async function generateAgentBlueprintFromBrief(brief: string, source: 'manual' | 'cowork' = 'manual'): Promise<AgentBlueprint> {

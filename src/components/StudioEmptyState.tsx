@@ -8,7 +8,6 @@ import {
   Image as ImageIcon,
   MessageSquare,
   Sparkles,
-  Wand2,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { AppMode } from '../types';
@@ -19,72 +18,106 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const modeCopy: Record<AppMode, {
+type EmptyStateContent = {
   eyebrow: string;
   title: string;
   body: string;
   bullets: string[];
   suggestions: string[];
+  ambientWords: string[];
+  primaryLabel: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
-}> = {
+};
+
+const modeCopy: Record<AppMode, EmptyStateContent> = {
   chat: {
     eyebrow: 'Conversation augmentee',
-    title: 'Une scene de travail claire, profonde et immediate pour raisonner sans friction.',
-    body: "Pose une question, colle un brief, joins des fichiers, puis laisse la conversation devenir un vrai espace de travail au lieu d'une simple boite noire.",
-    bullets: ['Conversations longues et lisibles', 'Copie pensée pour le fond', 'Rendu markdown et médias plus élégants'],
-    suggestions: [
-      "Explique-moi clairement la différence entre Plus et Business.",
-      "Aide-moi à structurer un projet de A à Z.",
-      "Résume-moi un sujet complexe avec exemples concrets.",
+    title: 'Une entree claire pour penser, ecrire et envoyer sans friction.',
+    body: "Pose une question, glisse un fichier ou colle un brief. Le fond garde juste un souffle lumineux, puis laisse la conversation prendre toute la place.",
+    bullets: [
+      'Texte, fichiers et markdown dans une meme scene',
+      'Fond lumineux discret adapte au theme',
+      'Lecture rapide du mobile au grand ecran',
     ],
+    suggestions: [
+      'Comparer Plus et Business',
+      'Structurer un projet de A a Z',
+      'Resumer un sujet complexe',
+    ],
+    ambientWords: ['clarte', 'signal', 'focus', 'memoire', 'raisonnement', 'studio'],
+    primaryLabel: 'Essayer une premiere idee',
     icon: MessageSquare,
   },
   cowork: {
     eyebrow: 'Agent studio',
-    title: "Cowork devient un vrai atelier d'exécution, de création d'agents et de livraison haut de gamme.",
-    body: "Recherche, PDF premium, podcast, génération média, spécialistes réutilisables: tout part d'un même centre de commande, visible et itérable.",
-    bullets: ['Hub Agents natif', 'PDF, podcast et outils média', 'Boucles agentiques lisibles'],
-    suggestions: [
-      "Crée un agent qui fait un PDF premium sur l'actu du soir.",
-      "Fais une veille puis transforme-la en mini-site HTML.",
-      "Prépare un podcast avec voix Gemini et fond Lyria.",
+    title: 'Un atelier plus net pour lancer une mission, deleguer, puis livrer sans bruit parasite.',
+    body: 'Recherche, PDF premium, podcast, media et specialistes reutilisables: tout demarre depuis une scene simple, lisible et directement actionnable.',
+    bullets: [
+      'Hub Agents visible sans surcharger la home',
+      'Recherche, artefacts et outils dans un seul flux',
+      'Premiere action claire des l ouverture',
     ],
+    suggestions: [
+      'Creer un agent PDF premium',
+      'Transformer une veille en mini-site',
+      'Preparer un podcast Gemini et Lyria',
+    ],
+    ambientWords: ['atelier', 'agent', 'mission', 'cadence', 'delegation', 'livraison'],
+    primaryLabel: 'Lancer une premiere mission',
     icon: BrainCircuit,
   },
   image: {
     eyebrow: 'Image direction',
-    title: "Un atelier visuel plus net, pour générer, comparer et diriger l'image sans interface molle.",
-    body: "Le mode image doit donner envie de composer: ratios, variantes, prompts, et sorties premium, sans noyer l'utilisateur dans un panneau générique.",
-    bullets: ['Ratios rapides', 'Choix de modèle plus lisible', 'Mise en valeur des rendus'],
-    suggestions: [
-      "Imagine une affiche éditoriale futuriste pour Studio Pro.",
-      "Crée un concept art de forêt ancienne hyper détaillé.",
-      "Génère une couverture magazine sport au style premium.",
+    title: 'Une entree plus calme pour composer une image avant meme la premiere generation.',
+    body: "Ratios, variantes et direction visuelle restent accessibles, mais la scene respire davantage pour laisser l intention et les rendus dominer.",
+    bullets: [
+      'Ratios et variantes plus lisibles',
+      'Surface plus nette pour diriger l image',
+      'Moins de bruit avant la premiere sortie',
     ],
+    suggestions: [
+      'Concevoir une affiche editoriale',
+      'Generer une foret ancienne detaillee',
+      'Creer une couverture sport premium',
+    ],
+    ambientWords: ['vision', 'cadre', 'matiere', 'lumiere', 'image', 'direction'],
+    primaryLabel: 'Lancer une premiere direction',
     icon: ImageIcon,
   },
   video: {
     eyebrow: 'Video lab',
-    title: 'Un cockpit vidéo plus éditorial pour diriger les formats, la durée et la scène en un coup d’œil.',
-    body: "Au lieu d'un écran vide, le mode vidéo devient une surface de préproduction: promesse, format, cadence et rendu attendu sont visibles dès l'entrée.",
-    bullets: ['Portrait et paysage visibles', 'Choix rapides de durée', 'Surface pensée pour le storyboard'],
-    suggestions: [
-      "Crée une vidéo portrait de lancement produit en 6 secondes.",
-      "Prépare un plan cinématique de stade avant match.",
-      "Imagine une scène nature contemplative en 16:9.",
+    title: 'Une pre-scene plus legere pour cadrer format, duree et intention en un regard.',
+    body: "Le mode video pose un vrai point de depart editorial, avec juste assez d information pour choisir vite sans transformer l accueil en panneau technique.",
+    bullets: [
+      'Portrait et paysage lisibles tout de suite',
+      'Formats et durees choisis plus vite',
+      'Surface plus propre pour le storyboard',
     ],
+    suggestions: [
+      'Storyboard produit portrait 6s',
+      'Plan de stade cinematographique',
+      'Scene nature 16:9',
+    ],
+    ambientWords: ['cadre', 'mouvement', 'tempo', 'scene', 'storyboard', 'lumiere'],
+    primaryLabel: 'Lancer une premiere scene',
     icon: Film,
   },
   audio: {
     eyebrow: 'Voice & sound',
-    title: 'Un mode audio qui ressemble à un vrai studio de narration, pas à un simple champ TTS.',
-    body: "Voix Gemini, langue, style et intentions doivent être lisibles instantanément pour donner l'impression d'un poste de narration professionnel.",
-    bullets: ['Voix et locale visibles', 'Préparation de narration plus claire', 'Base idéale pour les futurs podcasts'],
-    suggestions: [
-      "Lis un intro podcast calme en français.",
-      "Fais une voix off premium pour une vidéo produit.",
-      "Prépare un texte parlé avec rythme radio du soir.",
+    title: 'Un point de depart audio plus pose pour choisir une voix, un ton et un rythme sans lourdeur.',
+    body: 'Voix Gemini, langue et intentions restent visibles des l entree, avec une scene plus calme qui ressemble a un vrai studio de narration.',
+    bullets: [
+      'Voix et langue lisibles immediatement',
+      'Preparation de narration plus claire',
+      'Base propre pour les futurs podcasts',
     ],
+    suggestions: [
+      'Intro podcast calme',
+      'Voix off produit premium',
+      'Texte parle style radio',
+    ],
+    ambientWords: ['voix', 'grain', 'cadence', 'narration', 'studio', 'souffle'],
+    primaryLabel: 'Lancer une premiere voix',
     icon: FileAudio,
   },
 };
@@ -106,52 +139,94 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
 }) => {
   const content = modeCopy[mode];
   const Icon = content.icon;
+  const ambientTracks = [
+    content.ambientWords,
+    [...content.ambientWords.slice(2), ...content.ambientWords.slice(0, 2)],
+    [...content.ambientWords].reverse(),
+  ];
+
+  const surfaceLabel = mode === 'cowork'
+    ? 'mode agent'
+    : mode === 'chat'
+      ? 'chat & raisonnement'
+      : mode === 'image'
+        ? 'generation image'
+        : mode === 'video'
+          ? 'generation video'
+          : 'text-to-speech';
 
   return (
-    <section className="mx-auto w-full max-w-6xl px-4 pb-10 pt-8 sm:px-6 lg:px-10 lg:pt-12">
+    <section className="mx-auto flex min-h-full w-full max-w-6xl items-center px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8">
       <motion.div
         initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
-        className="studio-panel-strong relative overflow-hidden rounded-[2.4rem]"
+        transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+        className="studio-empty-state studio-panel-strong relative min-h-[28rem] w-full overflow-hidden rounded-[2.45rem] p-5 sm:min-h-[31rem] sm:p-7 lg:min-h-[34rem] lg:p-9"
       >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(129,236,255,0.11),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(255,191,134,0.1),transparent_22%)]" />
+        <div className="studio-empty-state__mesh" aria-hidden="true" />
+        <div
+          className="pointer-events-none absolute -left-16 top-8 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(129,236,255,0.2),transparent_68%)] blur-3xl"
+          aria-hidden="true"
+        />
+        <div
+          className="pointer-events-none absolute bottom-0 right-0 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(255,191,134,0.15),transparent_72%)] blur-3xl"
+          aria-hidden="true"
+        />
 
-        <div className="grid gap-8 px-5 py-6 sm:px-8 sm:py-8 lg:grid-cols-[1.08fr_0.92fr] lg:px-10 lg:py-10">
-          <div className="relative z-10">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] text-white/72">
+        <div className="studio-empty-state__words" aria-hidden="true">
+          {ambientTracks.map((track, trackIndex) => (
+            <div
+              key={`${mode}-ambient-${trackIndex}`}
+              className={cn(
+                'studio-empty-state__word-track',
+                trackIndex === 1 && 'is-mid',
+                trackIndex === 2 && 'is-bottom'
+              )}
+            >
+              {[...track, ...track].map((word, wordIndex) => (
+                <span
+                  key={`${word}-${trackIndex}-${wordIndex}`}
+                  className={cn(
+                    'studio-empty-state__word',
+                    wordIndex % 3 === 1 && 'is-strong'
+                  )}
+                  style={{ ['--word-opacity' as any]: 0.16 + ((wordIndex + trackIndex) % 4) * 0.07 }}
+                >
+                  {word}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div className="relative z-10 flex h-full flex-col justify-between">
+          <div className="max-w-[42rem]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--app-border)] bg-[var(--app-surface-hover)] px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] text-[var(--app-text)]/72">
               <Sparkles size={12} className="text-[var(--app-accent)]" />
               {content.eyebrow}
             </div>
 
-            <div className="mt-5 max-w-3xl">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.06] text-[var(--app-accent)] shadow-[0_20px_40px_-24px_rgba(68,196,255,0.5)]">
-                  <Icon size={20} />
-                </div>
-                <div className="studio-section-label">Studio Pro · {mode === 'cowork' ? 'mode agent' : mode}</div>
+            <div className="mt-6 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-[1.15rem] border border-[var(--app-border)] bg-[var(--app-surface-hover)] text-[var(--app-accent)] shadow-[0_24px_44px_-26px_rgba(68,196,255,0.45)]">
+                <Icon size={19} />
               </div>
-
-              <h2 className="max-w-3xl text-3xl font-semibold leading-[1.02] tracking-[-0.04em] text-white sm:text-4xl lg:text-[3.6rem]">
-                {content.title}
-              </h2>
-              <p className="mt-5 max-w-2xl text-[15px] leading-7 text-white/66 sm:text-[16px]">
-                {content.body}
-              </p>
+              <div className="min-w-0">
+                <div className="studio-section-label">Studio Pro</div>
+                <div className="mt-1 text-sm font-medium text-[var(--app-text)]/72">{surfaceLabel}</div>
+              </div>
             </div>
 
-            <div className="mt-7 flex flex-wrap gap-2.5">
-              {content.bullets.map((bullet) => (
-                <span key={bullet} className="studio-chip text-[12px]">
-                  <Wand2 size={12} className="text-[var(--app-accent)]" />
-                  {bullet}
-                </span>
-              ))}
-            </div>
+            <h2 className="mt-7 max-w-[10.4ch] text-[2.25rem] font-semibold leading-[0.98] tracking-[-0.05em] text-[var(--app-text)] sm:max-w-[11.4ch] sm:text-[3.15rem] lg:max-w-[11.8ch] lg:text-[4.4rem]">
+              {content.title}
+            </h2>
+
+            <p className="mt-5 max-w-2xl text-[15px] leading-7 text-[var(--app-text)]/64 sm:text-base">
+              {content.body}
+            </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
               {!isAuthenticated ? (
-                <button onClick={onPrimaryAction} className="studio-button-primary">
+                <button onClick={onPrimaryAction} className="studio-button-primary studio-glow">
                   <Bot size={16} />
                   Se connecter avec Google
                   <ArrowRight size={16} />
@@ -160,14 +235,14 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
                 <>
                   <button
                     onClick={() => onQuickPrompt(content.suggestions[0])}
-                    className="studio-button-primary"
+                    className="studio-button-primary studio-glow"
                   >
                     <Sparkles size={16} />
-                    Lancer une première mission
+                    {content.primaryLabel}
                     <ArrowRight size={16} />
                   </button>
                   {mode === 'cowork' && onOpenAgentsHub && (
-                    <button onClick={onOpenAgentsHub} className="studio-button-secondary">
+                    <button onClick={onOpenAgentsHub} className="studio-button-secondary studio-glow">
                       <BrainCircuit size={16} />
                       Ouvrir le Hub Agents
                     </button>
@@ -176,14 +251,14 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
               )}
             </div>
 
-            <div className="mt-8 space-y-3">
+            <div className="mt-9 space-y-3">
               <div className="studio-section-label">Impulsions rapides</div>
               <div className="flex flex-wrap gap-2.5">
                 {content.suggestions.map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => onQuickPrompt(suggestion)}
-                    className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 text-left text-[13px] text-white/78 transition-all hover:-translate-y-[1px] hover:border-[var(--app-border-strong)] hover:bg-white/[0.07]"
+                    className="studio-glow rounded-full border border-[var(--app-border)] bg-[var(--app-surface-hover)] px-4 py-2.5 text-left text-[13px] text-[var(--app-text)]/76 transition-all hover:-translate-y-[1px] hover:border-[var(--app-border-strong)] hover:bg-[var(--app-surface)]"
                   >
                     {suggestion}
                   </button>
@@ -192,71 +267,22 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
             </div>
           </div>
 
-          <div className="relative z-10">
-            <div className="grid gap-4">
-              <motion.div
-                animate={{ y: [0, -6, 0] }}
-                transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-                className="studio-panel rounded-[2rem] p-5"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="studio-section-label">Vue directrice</div>
-                    <div className="mt-2 text-2xl font-semibold tracking-tight text-white">AWWARDS-grade shell</div>
+          <div className="relative z-10 mt-10 border-t border-[var(--app-border)] pt-5">
+            <div className="grid gap-4 sm:grid-cols-3 sm:gap-5">
+              {content.bullets.map((bullet, index) => (
+                <div key={bullet} className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--app-text-muted)]/78">
+                    0{index + 1}
                   </div>
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] text-[var(--app-accent)]">
-                    <Icon size={18} />
-                  </div>
+                  <p className="mt-2 max-w-[16rem] text-sm leading-6 text-[var(--app-text)]/74">
+                    {bullet}
+                  </p>
                 </div>
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[1.5rem] border border-white/8 bg-black/20 p-4">
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Centre</div>
-                    <div className="mt-2 text-sm font-medium text-white/82">Poster state riche, lisible et actionnable</div>
-                  </div>
-                  <div className="rounded-[1.5rem] border border-white/8 bg-black/20 p-4">
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Cadre</div>
-                    <div className="mt-2 text-sm font-medium text-white/82">Rail, scène, inspector dans une seule DA</div>
-                  </div>
-                </div>
-              </motion.div>
-
-              <div className="grid gap-4 sm:grid-cols-[0.95fr_1.05fr]">
-                <motion.div
-                  animate={{ y: [0, 5, 0] }}
-                  transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut', delay: 0.5 }}
-                  className="studio-panel rounded-[1.8rem] p-5"
-                >
-                  <div className="studio-section-label">Energie produit</div>
-                  <div className="mt-3 space-y-3">
-                    <div className="rounded-[1.3rem] border border-white/8 bg-white/[0.04] p-3 text-sm text-white/72">
-                      Commandes visibles
-                    </div>
-                    <div className="rounded-[1.3rem] border border-white/8 bg-white/[0.04] p-3 text-sm text-white/72">
-                      Empty states utiles
-                    </div>
-                    <div className="rounded-[1.3rem] border border-white/8 bg-white/[0.04] p-3 text-sm text-white/72">
-                      Responsive maîtrisé
-                    </div>
-                  </div>
-                </motion.div>
-
-                <motion.div
-                  animate={{ y: [0, -4, 0] }}
-                  transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 0.25 }}
-                  className="studio-panel rounded-[1.8rem] p-5"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="studio-section-label">Signal visuel</div>
-                    <div className="h-2.5 w-2.5 rounded-full bg-[var(--app-accent)] shadow-[0_0_18px_rgba(129,236,255,0.8)]" />
-                  </div>
-                  <div className="mt-4 rounded-[1.5rem] border border-white/8 bg-[linear-gradient(135deg,rgba(129,236,255,0.1),rgba(255,255,255,0.02)_45%,rgba(255,191,134,0.08))] p-4">
-                    <div className="text-xl font-semibold tracking-tight text-white">Scène prête pour la production</div>
-                    <p className="mt-3 text-sm leading-6 text-white/66">
-                      Une base propre pour le chat, Cowork, le hub agents, les médias et les futurs flux premium.
-                    </p>
-                  </div>
-                </motion.div>
-              </div>
+              ))}
+            </div>
+            <div className="mt-5 flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[var(--app-text-muted)]/76">
+              <span className="inline-block h-2 w-2 rounded-full bg-[var(--app-accent)] shadow-[0_0_16px_color-mix(in_srgb,var(--app-accent)_55%,transparent_45%)]" />
+              Fond adapte au theme clair, sombre et oled
             </div>
           </div>
         </div>

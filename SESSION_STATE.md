@@ -4,6 +4,42 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-29 (home chat epuree + glow typographique theme-aware)
+- Besoin traite:
+  - l'utilisateur trouvait l'image/hero de l'accueil chat trop chargee, pas assez belle et pas assez lisible
+  - il voulait une home plus premium, plus calme, tres responsive, avec un petit effet d'ecritures lumineuses adapte au mode clair/sombre
+  - contrainte forte: rester discret et privilegier les perfs, sans animations lourdes ni mini-dashboard parasite
+- Cause racine confirmee:
+  - `src/components/StudioEmptyState.tsx` etait construit comme une surface de demonstration avec plusieurs cartes secondaires animees
+  - la home racontait trop de choses a la fois pour un simple ecran avant envoi de message
+  - le signal visuel dependait trop de blocs UI et pas assez d'une composition calme avec une seule idee forte
+- Correctifs appliques:
+  - `src/components/StudioEmptyState.tsx`
+    - refonte complete en poster state unique au lieu d'un mini-dashboard
+    - headline resserree, CTA clarifie, suggestions raccourcies et plus sobres
+    - rails d'information reduits a 3 points utiles
+    - direction visuelle harmonisee pour tous les modes
+  - `src/index.css`
+    - ajout d'un systeme d'ecritures d'ambiance (`studio-empty-state__word*`) avec glow pilote par variables CSS
+    - palettes distinctes pour sombre, light et oled via variables theme-aware
+    - animation ultra legere sur l'opacite uniquement, avec `prefers-reduced-motion` respecte
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures reelles locales:
+    - desktop sombre valide
+    - mobile sombre valide
+    - mobile light valide
+  - validation navigateur:
+    - `npx playwright screenshot --browser chromium ...` utilise pour verifier la home finale sur viewport desktop et mobile
+- Fichiers touches:
+  - `src/components/StudioEmptyState.tsx`
+  - `src/index.css`
+- Intention exacte:
+  - faire disparaitre l'effet "trop de trucs sur l'image"
+  - garder une home chat haut de gamme mais non intrusive
+  - remplacer les animations de cartes par un fond typographique lumineux, lent et peu couteux
+
 ## Mise a jour complementaire - 2026-03-29 (podcast duo plus expressif + Lyria 3 rebranchee)
 - Besoin traite:
   - l'utilisateur a signale que les podcasts duo donnaient deux intervenants nommes mais une impression de meme voix / rendu monotone

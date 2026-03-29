@@ -1,5 +1,21 @@
 # DECISIONS
 
+## 2026-03-29 - Empty state chat en poster unique avec glow typographique CSS
+- Statut: adopte
+- Contexte: la home du chat etait esthetiquement riche mais trop demonstrative pour un simple ecran avant l'envoi d'un message. L'utilisateur voulait quelque chose de plus beau, plus discret et plus responsive.
+- Decision:
+  - remplacer la composition multi-cartes de `StudioEmptyState` par un seul poster state
+  - faire porter le signal visuel par un fond typographique lumineux tres discret au lieu de plusieurs panneaux secondaires
+  - garder les animations uniquement sur des proprietes peu couteuses (`opacity`) et respecter `prefers-reduced-motion`
+- Pourquoi:
+  - recentre l'accueil sur le premier geste produit: commencer a discuter
+  - reduit fortement la sensation de surcharge visuelle
+  - permet une DA plus forte sans payer le prix d'animations JS permanentes
+- Consequence:
+  - `src/components/StudioEmptyState.tsx` a ete recompose comme une hero scene unique
+  - `src/index.css` expose maintenant un systeme de glow theme-aware pour dark, light et oled
+  - les quick prompts et micro-infos restent presents, mais dans une hierarchie beaucoup plus calme
+
 ## 2026-03-29 - Duo podcast avec voix forcees distinctes et labels TTS internes
 - Statut: adopte
 - Contexte: un script duo pouvait bien contenir 2 intervenants, mais le rendu restait trop monotone ou pouvait retomber sur 2 voix insuffisamment differenciees si le modele choisissait mal les voix/performance notes.

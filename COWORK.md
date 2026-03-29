@@ -94,6 +94,32 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
   - Lyria 3 est maintenant testable en vrai, mais reste une preview
   - le duo podcast est mieux aligne avec la promesse "2 intervenants vraiment audibles comme 2 personnes"
 
+## Mise a jour 2026-03-29 - Pieces jointes partagees correctement entre chat et Cowork
+- Retour produit:
+  - l'utilisateur a signale qu'une image ou un PDF pouvais etre montre dans l'interface, puis rester invisible pour la reponse du modele
+  - les liens YouTube colles dans le chat donnaient un resultat confus et peu exploitable
+  - la correction devait couvrir aussi Cowork, pas seulement le chat standard
+- Changement applique:
+  - `shared/chat-parts.ts`
+    - nouveau contrat partage pour les parts `text / inlineData / attachment`
+  - `src/utils/chat-parts.ts`
+    - serialisation propre des messages frontend en parts backend
+  - `server/lib/chat-parts.ts`
+    - resolution des pieces jointes courantes et de l'historique
+    - fallback `base64 -> URL signee`
+    - conversion YouTube en contexte texte `titre + URL`
+  - `server/routes/standard.ts` et `api/index.ts`
+    - `/api/chat` et `/api/cowork` utilisent maintenant le meme resoluteur `buildModelContentsFromRequest()`
+- Validation:
+  - smoke `/api/chat` avec image de test : OK (`IMAGE TEST OK`)
+  - smoke `/api/chat` avec PDF de test : OK (`BONJOUR PDF TEST`)
+  - smoke `/api/chat` avec YouTube : OK (titre de video remonte)
+  - smoke `/api/cowork` avec PDF de test : OK
+- Impact produit:
+  - Cowork peut enfin "voir" une piece jointe envoyee dans le tour courant
+  - l'historique de conversation ne perd plus ses PDF/images des que la `base64` disparait apres upload
+  - le meme pipeline sert le chat standard, Cowork et les workspaces qui reutilisent la boucle backend
+
 ## Etat d'Avancement
 - [x] Historique des discussions stabilise en local-first : les sessions `chat` / `cowork` / `image` / `video` / `audio` ne disparaissent plus de la sidebar si Firestore tarde a confirmer le shell `sessions/{sessionId}`. `src/utils/sessionShells.ts` garde les shells locaux `pendingRemote`, `src/App.tsx` fusionne cache local + snapshot distant, et `SidebarLeft` nettoie ce cache a la suppression.
 - [x] Decoupage serveur phase 2 : les middlewares transverses vivent maintenant dans `api/middleware/*` (`request-hardening`, `auth`, `api-errors`) et les routes standard (`/api/status`, `/api/refine`, `/api/generate-image`, `/api/generate-video`, `/api/metadata`, `/api/upload`, `/api/chat`) dans `api/routes/standard.ts`. `api/index.ts` reste le point d'entree Express et concentre davantage Cowork + l'orchestration globale.

@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-03-29 - Pipeline de pieces jointes partage entre frontend, chat standard et Cowork
+- Statut: adopte
+- Contexte: les images, PDF et liens YouTube pouvaient apparaitre dans l'interface mais ne pas etre exploites par le modele. Le message courant perdait ses `attachments` au moment de construire `contents`, et l'historique perdait ses pieces jointes une fois la `base64` retiree apres upload.
+- Decision:
+  - introduire un contrat partage `shared/chat-parts.ts` pour les parts frontend -> backend
+  - serialiser l'historique via `buildApiHistoryFromMessages()` cote frontend
+  - reconstruire les vraies parts multimodales via `buildModelContentsFromRequest()` cote backend pour `/api/chat` et `/api/cowork`
+  - traiter YouTube comme un contexte texte (`titre + URL`) au lieu d'un faux `fileData` video
+- Pourquoi:
+  - corrige a la fois le message courant et l'historique recharge
+  - evite de dependre de `base64` persistante en Firestore
+  - garde un seul chemin de verite pour les modes texte et agentiques
+- Consequence:
+  - nouvelles briques `shared/chat-parts.ts`, `src/utils/chat-parts.ts` et `server/lib/chat-parts.ts`
+  - `/api/chat` et `/api/cowork` utilisent maintenant le meme resoluteur de pieces jointes
+  - les URL signees image/PDF peuvent etre rehydratees cote serveur si la base64 n'est plus disponible
+
 ## 2026-03-29 - Empty state chat en poster unique avec glow typographique CSS
 - Statut: adopte
 - Contexte: la home du chat etait esthetiquement riche mais trop demonstrative pour un simple ecran avant l'envoi d'un message. L'utilisateur voulait quelque chose de plus beau, plus discret et plus responsive.

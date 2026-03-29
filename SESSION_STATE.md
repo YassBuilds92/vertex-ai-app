@@ -4,6 +4,64 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-29 (pieces jointes chat/cowork enfin exploitees)
+- Besoin traite:
+  - l'utilisateur voulait pouvoir envoyer des images, PDF et liens YouTube sans que le modele dise ensuite qu'il ne voit rien
+  - il signalait aussi un rendu "bizarre" quand un lien etait colle dans le chat
+  - le probleme devait etre corrige pour `chat & raisonnement` mais aussi pour `cowork` et les workspaces qui reutilisent le meme pipeline
+- Cause racine confirmee:
+  - `src/App.tsx` persistait bien les pieces jointes, mais `/api/chat` et `/api/cowork` reconstruisaient le tour courant a partir du texte seul et ignoraient `attachments`
+  - l'historique etait encore plus fragile: une fois la `base64` retiree apres upload, le frontend reconstituait des `inlineData` vides, donc les anciennes images/PDF devenaient invisibles pour Gemini
+  - les liens YouTube etaient convertis en faux `fileData video/mp4`, ce qui ne correspondait pas au vrai besoin produit
+- Correctifs appliques:
+  - nouveau contrat partage:
+    - `shared/chat-parts.ts`
+    - `src/utils/chat-parts.ts`
+    - `server/lib/chat-parts.ts`
+  - `src/App.tsx`
+    - separation entre pieces jointes "riches" pour la requete courante et pieces jointes "light" pour la persistence
+    - serialisation uniforme de l'historique via `buildApiHistoryFromMessages()`
+    - envoi explicite des pieces jointes courantes au backend pour `chat` et `cowork`
+  - `server/lib/schemas.ts`
+    - schema `attachments` et `parts.attachment` durci
+  - `server/routes/standard.ts`
+    - `/api/chat` reconstruit maintenant les vraies parts multimodales via `buildModelContentsFromRequest()`
+    - `/api/metadata` utilise d'abord l'oEmbed YouTube pour recuperer un titre propre
+  - `api/index.ts`
+    - `/api/cowork` reutilise le meme resoluteur de pieces jointes que le chat standard
+  - `src/components/AttachmentGallery.tsx`
+    - nouveau rendu visuel des images, PDF, audio, video et YouTube dans les messages
+  - `src/components/MessageItem.tsx`
+    - les messages utilisateur n'affichent plus seulement des chips opaques; ils montrent de vraies cartes de piece jointe
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - smoke backend reels:
+    - `/api/chat` + image de test => `IMAGE TEST OK`
+    - `/api/chat` + PDF de test => le modele retrouve `BONJOUR PDF TEST`
+    - `/api/chat` + YouTube => le titre `Rick Astley - Never Gonna...` remonte
+    - `/api/cowork` + PDF de test => la phrase `BONJOUR PDF TEST` est bien lue
+  - validation Playwright:
+    - le shell charge correctement apres build
+    - la validation du flow chat authentifie reste partielle en local a cause de `auth/unauthorized-domain` sur Firebase Auth
+- Fichiers touches:
+  - `src/App.tsx`
+  - `src/components/AttachmentGallery.tsx`
+  - `src/components/MessageItem.tsx`
+  - `src/utils/chat-parts.ts`
+  - `server/lib/chat-parts.ts`
+  - `server/lib/schemas.ts`
+  - `server/routes/standard.ts`
+  - `shared/chat-parts.ts`
+  - `api/index.ts`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `BUGS_GRAVEYARD.md`
+- Intention exacte:
+  - faire en sorte qu'une piece jointe soit reellement lue par le modele, pas seulement affichee dans l'UI
+  - rendre l'historique des pieces jointes robuste apres upload / rehydratation
+  - assainir le rendu des liens/documents pour qu'il soit lisible et premium
+
 ## Mise a jour complementaire - 2026-03-29 (home chat epuree + glow typographique theme-aware)
 - Besoin traite:
   - l'utilisateur trouvait l'image/hero de l'accueil chat trop chargee, pas assez belle et pas assez lisible

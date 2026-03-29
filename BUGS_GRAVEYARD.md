@@ -1,5 +1,31 @@
 # BUGS GRAVEYARD
 
+## 2026-03-29 - Pieces jointes chat/cowork affichees mais invisibles pour le modele
+- Symptome:
+  - l'utilisateur uploadait une image ou un PDF, puis le modele repondait qu'il ne voyait rien
+  - un lien YouTube colle etait transforme en element bizarre, sans lecture utile par le modele
+  - le bug etait present en `chat & raisonnement` et en `cowork`
+- Cause racine:
+  - `src/App.tsx` envoyait bien la piece jointe courante dans le champ `attachments`, mais `/api/chat` et `/api/cowork` l'ignoraient completement en reconstruisant `contents` a partir du texte seul
+  - pour l'historique, les anciennes pieces jointes etaient converties en `inlineData` vide des que `base64` avait ete retiree apres upload/storage
+  - les liens YouTube etaient pushes comme faux `fileData video/mp4`, ce qui ne correspondait pas a un vrai fichier lisible par Gemini
+- Tentatives ratees / constats:
+  - corriger uniquement le rendu frontend ne changeait rien a la vision du modele
+  - garder la logique `inlineData` cote frontend ne suffisait pas, car l'historique recharge ne possedait plus la `base64`
+- Resolution finale:
+  - ajout d'un contrat partage `shared/chat-parts.ts`
+  - serialisation frontend via `src/utils/chat-parts.ts`
+  - resolution backend via `server/lib/chat-parts.ts` pour:
+    - injecter les pieces jointes courantes dans le tour utilisateur
+    - rehydrater images/PDF depuis `base64` ou URL signee
+    - convertir YouTube en contexte texte `Titre + URL`
+  - branchement sur `server/routes/standard.ts` (`/api/chat`) et `api/index.ts` (`/api/cowork`)
+- Preuve de resolution:
+  - smoke `/api/chat` avec image de test -> reponse: `IMAGE TEST OK`
+  - smoke `/api/chat` avec PDF de test -> la phrase `BONJOUR PDF TEST` est retrouvee
+  - smoke `/api/chat` avec YouTube -> le titre `Rick Astley - Never Gonna...` est remonte
+  - smoke `/api/cowork` avec PDF -> la phrase `BONJOUR PDF TEST` est lue correctement
+
 ## 2026-03-29 - Podcast duo trop monotone + Lyria 3 preview exposee mais casse
 - Statut: corrige localement et verifie en smoke tests reels
 - Symptome:

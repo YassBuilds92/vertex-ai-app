@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-03-29 - Le chat n'affiche plus que les 15 derniers messages, sans tronquer la session
+- Statut: adopte
+- Contexte: les longues conversations rendaient le shell moins fluide et donnaient une impression de messages qui se chevauchent. Le besoin utilisateur etait de garder toute la memoire et toute la conversation, mais de n'afficher visuellement que la fin recente.
+- Decision:
+  - conserver l'historique complet dans l'etat frontend et dans Firestore
+  - calculer une fenetre visible de `15` messages maximum dans `src/App.tsx`
+  - afficher un bandeau explicite indiquant que les anciens messages sont masques visuellement mais toujours conserves
+  - passer les index absolus aux actions `modifier` / `renvoyer` pour ne pas casser les handlers
+- Pourquoi:
+  - soulage le rendu sans toucher a la memoire ni a la persistance
+  - respecte la demande produit "ne supprime pas ma conv"
+  - evite une regression discrète sur les actions de message
+- Consequence:
+  - `src/App.tsx` derive maintenant `visibleMessages`, `hiddenMessagesCount` et `visibleMessageOffset`
+  - seules les 15 dernieres bulles sont rendues dans le centre
+  - les messages plus anciens restent disponibles pour l'historique, les exports et le contexte modele
+
 ## 2026-03-29 - Pipeline de pieces jointes partage entre frontend, chat standard et Cowork
 - Statut: adopte
 - Contexte: les images, PDF et liens YouTube pouvaient apparaitre dans l'interface mais ne pas etre exploites par le modele. Le message courant perdait ses `attachments` au moment de construire `contents`, et l'historique perdait ses pieces jointes une fois la `base64` retiree apres upload.

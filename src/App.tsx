@@ -66,6 +66,7 @@ function cn(...inputs: ClassValue[]) {
 
 const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as accès à des outils pour accomplir des tâches complexes. Analyse, propose et exécute.";
 const createClientMessageId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const MESSAGE_VISIBILITY_LIMIT = 15;
 const slugifyAgentLabel = (value: string) =>
   value
     .toLowerCase()
@@ -292,6 +293,12 @@ export default function App() {
 
     return Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt);
   }, [activeSessionId, currentMessages, optimisticMessages, liveCoworkMessage]);
+  const hiddenMessagesCount = Math.max(0, displayedMessages.length - MESSAGE_VISIBILITY_LIMIT);
+  const visibleMessageOffset = hiddenMessagesCount;
+  const visibleMessages = React.useMemo(
+    () => (hiddenMessagesCount > 0 ? displayedMessages.slice(-MESSAGE_VISIBILITY_LIMIT) : displayedMessages),
+    [displayedMessages, hiddenMessagesCount]
+  );
 
   const shouldShowEmptyState = !activeAgentWorkspace && displayedMessages.length === 0 && !isLoading && !refiningStatus;
   const shouldRenderMessageEndSpacer = displayedMessages.length > 0 || isLoading || Boolean(refiningStatus);
@@ -1038,12 +1045,12 @@ export default function App() {
   // Virtualizer for performance
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
-    count: displayedMessages.length,
+    count: visibleMessages.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 180,
     overscan: 5,
   });
-  const shouldVirtualizeMessages = activeMode !== 'cowork' && !activeAgentWorkspace && !isLoading && displayedMessages.length > 80;
+  const shouldVirtualizeMessages = activeMode !== 'cowork' && !activeAgentWorkspace && !isLoading && visibleMessages.length > 80;
 
   useEffect(() => {
     if (!shouldVirtualizeMessages) return;
@@ -1053,7 +1060,7 @@ export default function App() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [shouldVirtualizeMessages, rowVirtualizer, displayedMessages.length, streamingContent, streamingThoughts, isLoading, expandedThoughts]);
+  }, [shouldVirtualizeMessages, rowVirtualizer, visibleMessages.length, streamingContent, streamingThoughts, isLoading, expandedThoughts]);
 
   // --- ATTACHMENTS HELPERS ---
   const uploadAttachment = async (attachment: Attachment, userId: string, sessionId: string): Promise<string> => {
@@ -1846,8 +1853,8 @@ export default function App() {
     <div key={msg.id || index} className="py-4">
       <MessageItem
         msg={msg}
-        idx={index}
-        isLast={index === displayedMessages.length - 1}
+        idx={visibleMessageOffset + index}
+        isLast={index === visibleMessages.length - 1}
         isLoading={isLoading}
         isExpanded={!!expandedThoughts[msg.id]}
         onToggleThoughts={() => setExpandedThoughts(p => ({ ...p, [msg.id]: !p[msg.id] }))}
@@ -2118,6 +2125,24 @@ export default function App() {
                     )}
                   />
                 )}
+                {hiddenMessagesCount > 0 && (
+                  <div className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 lg:px-10">
+                    <div className="flex items-start gap-3 rounded-[1.6rem] border border-[var(--app-border)] bg-white/[0.03] px-4 py-3 text-sm text-[var(--app-text-muted)]">
+                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent-soft)] text-[var(--app-accent)]">
+                        <History size={15} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--app-text)]">
+                          Affichage allégé
+                        </div>
+                        <p className="mt-1 leading-relaxed">
+                          Seuls les {MESSAGE_VISIBILITY_LIMIT} derniers messages sont affichés pour garder la conversation fluide.
+                          {' '}Les {hiddenMessagesCount} messages plus anciens restent conservés dans la discussion et dans la mémoire.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {shouldVirtualizeMessages ? (
                   <div
                     style={{
@@ -2128,7 +2153,8 @@ export default function App() {
                     className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-10"
                   >
                     {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-                      const msg = displayedMessages[virtualItem.index];
+                      const msg = visibleMessages[virtualItem.index];
+                      const absoluteIndex = visibleMessageOffset + virtualItem.index;
                       if (!msg) return null;
                       return (
                         <div
@@ -2146,8 +2172,8 @@ export default function App() {
                         >
                           <MessageItem
                             msg={msg}
-                            idx={virtualItem.index}
-                            isLast={virtualItem.index === displayedMessages.length - 1}
+                            idx={absoluteIndex}
+                            isLast={virtualItem.index === visibleMessages.length - 1}
                             isLoading={isLoading}
                             isExpanded={!!expandedThoughts[msg.id]}
                             onToggleThoughts={() => setExpandedThoughts(p => ({ ...p, [msg.id]: !p[msg.id] }))}
@@ -2161,7 +2187,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-10">
-                    {displayedMessages.map((msg, index) => renderMessageRow(msg, index))}
+                    {visibleMessages.map((msg, index) => renderMessageRow(msg, index))}
                   </div>
                 )}
                  {/* Refining Status */}

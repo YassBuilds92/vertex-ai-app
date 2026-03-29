@@ -4,6 +4,39 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-29 (chat long rendu sur 15 messages visibles max)
+- Besoin traite:
+  - l'utilisateur signalait qu'une conversation tres longue faisait lagger le shell et donnait un rendu ou les messages semblaient se superposer
+  - il voulait voir seulement les 15 derniers messages, sans supprimer la conversation ni la memoire
+- Cause racine confirmee:
+  - `src/App.tsx` rendait toute la liste fusionnee `displayedMessages`, donc chaque long thread continuait a charger/rendre tout l'historique visible
+  - un simple `slice(-15)` aurait casse `modifier` / `renvoyer`, car `MessageItem` envoie un index utilise ensuite par `handleEdit` et `handleRetry` sur l'historique complet
+- Correctifs appliques:
+  - `src/App.tsx`
+    - ajout de `MESSAGE_VISIBILITY_LIMIT = 15`
+    - conservation de `displayedMessages` comme historique complet fusionne
+    - ajout de `visibleMessages`, `hiddenMessagesCount` et `visibleMessageOffset`
+    - rendu limite aux 15 derniers messages dans les chemins virtualises et non virtualises
+    - passage des index absolus aux `MessageItem` pour garder les actions coherentes
+    - ajout d'un bandeau "Affichage allege" pour rassurer que les anciens messages restent bien conserves
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation visuelle locale:
+    - capture desktop du shell buildé: OK
+    - capture mobile Chromium du shell buildé: OK pour le chargement
+  - limite restante:
+    - la validation visuelle exacte du cas "thread authentifie avec >15 messages" n'a pas ete rejouee ici car la session de test automatisee n'embarque pas le compte utilisateur et donc pas l'historique Firestore reel
+- Fichiers touches:
+  - `src/App.tsx`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - garder tout l'historique produit intact
+  - alleger radicalement la surface visible du chat
+  - eviter toute regression sur les actions de message existantes
+
 ## Mise a jour complementaire - 2026-03-29 (pieces jointes chat/cowork enfin exploitees)
 - Besoin traite:
   - l'utilisateur voulait pouvoir envoyer des images, PDF et liens YouTube sans que le modele dise ensuite qu'il ne voit rien

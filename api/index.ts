@@ -62,6 +62,7 @@ import {
   MAX_GEMINI_TTS_MULTI_SPEAKERS,
 } from '../shared/gemini-tts.js';
 import { buildThinkingConfig, createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
+import { buildModelContentsFromRequest } from '../server/lib/chat-parts.js';
 import { log } from '../server/lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from '../server/lib/path-utils.js';
 import { ChatSchema } from '../server/lib/schemas.js';
@@ -5147,7 +5148,7 @@ app.post('/api/cowork', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
   };
   try {
-    const { message, sessionId, history, config, clientContext, hubAgents, agentRuntime } = ChatSchema.parse(req.body);
+    const { message, sessionId, history, attachments, config, clientContext, hubAgents, agentRuntime } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
     const availableHubAgents = Array.isArray(hubAgents)
       ? hubAgents
@@ -8554,12 +8555,16 @@ app.post('/api/cowork', async (req, res) => {
     }
     if (tools) genConfig.tools = tools;
 
+    let contents = await buildModelContentsFromRequest({
+      history,
+      message,
+      attachments,
+    });
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     headersSent = true;
-
-    let contents = [...history, { role: 'user' as const, parts: [{ text: message }] }];
     let iterations = 0;
     const FAILSAFE_MAX_ITERATIONS = 50;
     let finalVisibleText = '';

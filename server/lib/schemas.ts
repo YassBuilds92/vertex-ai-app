@@ -46,6 +46,28 @@ const AgentRuntimeSchema = HubAgentSchema.extend({
   formValues: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
 });
 
+const AttachmentPayloadSchema = z.object({
+  type: z.enum(['image', 'video', 'audio', 'document', 'youtube']),
+  url: z.string().optional(),
+  mimeType: z.string().optional(),
+  name: z.string().optional(),
+  base64: z.string().optional(),
+  thumbnail: z.string().optional(),
+});
+
+const ChatPartSchema = z.object({
+  text: z.string().optional(),
+  inlineData: z.object({
+    mimeType: z.string(),
+    data: z.string(),
+  }).optional(),
+  fileData: z.object({
+    mimeType: z.string(),
+    fileUri: z.string(),
+  }).optional(),
+  attachment: AttachmentPayloadSchema.optional(),
+});
+
 export const ImageGenSchema = z.object({
   prompt: z.string(),
   aspectRatio: z.string().optional(),
@@ -90,17 +112,7 @@ export const ChatSchema = z.object({
   sessionId: z.string().optional(),
   history: z.array(z.object({
     role: z.enum(['user', 'model']),
-    parts: z.array(z.object({
-      text: z.string().optional(),
-      inlineData: z.object({
-        mimeType: z.string(),
-        data: z.string(),
-      }).optional(),
-      fileData: z.object({
-        mimeType: z.string(),
-        fileUri: z.string(),
-      }).optional(),
-    })),
+    parts: z.array(ChatPartSchema),
   })),
   config: z.object({
     model: z.string(),
@@ -121,7 +133,7 @@ export const ChatSchema = z.object({
     responseMimeType: z.enum(['text/plain', 'application/json']).optional(),
     stopSequences: z.array(z.string()).optional(),
   }),
-  attachments: z.array(z.any()).optional(),
+  attachments: z.array(AttachmentPayloadSchema).optional(),
   refinedSystemInstruction: z.string().nullable().optional(),
   clientContext: z.object({
     locale: z.string().optional(),

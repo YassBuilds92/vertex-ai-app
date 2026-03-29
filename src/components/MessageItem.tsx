@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { AttachmentGallery } from './AttachmentGallery';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -451,18 +452,11 @@ export const MessageItem = React.memo(({
           {msg.role === 'user' ? (
             <div className="flex min-w-0 flex-col gap-2.5">
               {msg.attachments && (msg.attachments?.length ?? 0) > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-1">
-                  {msg.attachments.map(att => (
-                    <div key={att.id} className="inline-flex items-center gap-1.5 bg-white/[0.06] px-2.5 py-1.5 rounded-full border border-[var(--app-border)] text-[11px] text-zinc-300">
-                      {att.type === 'image' && <ImageIcon size={12} />}
-                      {att.type === 'video' && <Video size={12} />}
-                      {att.type === 'audio' && <Music size={12} />}
-                      {att.type === 'document' && <FileText size={12} />}
-                      {att.type === 'youtube' && <Youtube size={12} className="text-red-400" />}
-                      <span className="max-w-[120px] truncate">{att.name}</span>
-                    </div>
-                  ))}
-                </div>
+                <AttachmentGallery
+                  attachments={msg.attachments}
+                  setSelectedImage={setSelectedImage}
+                  variant="compact"
+                />
               )}
 
               {isEditing ? (
@@ -602,6 +596,13 @@ export const MessageItem = React.memo(({
               
               {/* Section Médias (Images et Vidéos) */}
               {msg.role === 'model' && msg.attachments && msg.attachments.length > 0 && (
+                <AttachmentGallery
+                  attachments={msg.attachments}
+                  setSelectedImage={setSelectedImage}
+                  variant="full"
+                />
+              )}
+              {false && msg.role === 'model' && msg.attachments && msg.attachments.length > 0 && (
                 <div className="flex flex-wrap gap-4 mt-2">
                   {msg.attachments.map((att, i) => (
                     <motion.div 

@@ -24,6 +24,7 @@ import {
   VideoGenSchema,
 } from '../lib/schemas.js';
 import { getServiceAccountEmail, uploadToGCS } from '../lib/storage.js';
+import { buildModelContentsFromRequest } from '../lib/chat-parts.js';
 
 const REFINER_SYSTEM_PROMPT = `Optimise l'instruction systeme suivante pour un modele IA puissant. Sois concis.`;
 const ICON_PROMPT_SYSTEM_PROMPT = `Genere un prompt d'image pour un logo minimaliste representant ce role IA.`;
@@ -210,12 +211,29 @@ export function registerStandardApiRoutes(app: Express) {
       const url = req.query.url as string;
       if (!url) return res.status(400).json({ error: 'URL manquante' });
 
-      const response = await fetch(url);
-      const html = await response.text();
-      const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-      let title = titleMatch ? titleMatch[1] : 'Video YouTube';
+      let title = 'Video YouTube';
 
-      title = title.replace(/ - YouTube$/i, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+      if (/^(https?:\/\/)?((www|m)\.)?(youtube\.com|youtu\.be)\//i.test(url)) {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+        const oembedResponse = await fetch(oembedUrl, {
+          headers: { Accept: 'application/json' },
+        });
+
+        if (oembedResponse.ok) {
+          const payload = await oembedResponse.json().catch(() => null);
+          if (payload && typeof payload.title === 'string' && payload.title.trim()) {
+            title = payload.title.trim();
+          }
+        }
+      }
+
+      if (title === 'Video YouTube') {
+        const response = await fetch(url);
+        const html = await response.text();
+        const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+        title = titleMatch ? titleMatch[1] : 'Video YouTube';
+        title = title.replace(/ - YouTube$/i, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+      }
 
       res.json({ title });
     } catch (error) {
@@ -242,22 +260,16 @@ export function registerStandardApiRoutes(app: Express) {
   app.post('/api/chat', async (req, res) => {
     let headersSent = false;
     try {
-      const { message, history, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
+      const { message, history, attachments, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
 
       const modelId = normalizeConfiguredModelId(config.model, 'gemini-3.1-pro-preview');
       const ai = createGoogleAI(modelId);
       const systemPromptText = refinedSystemInstruction || config.systemInstruction || '';
-
-      const contents = [...history, { role: 'user' as const, parts: [{ text: message }] }].map((messageItem: any) => ({
-        role: messageItem.role,
-        parts: (messageItem.parts || []).map((partItem: any) => {
-          const part: any = {};
-          if (partItem.text) part.text = partItem.text;
-          if (partItem.inlineData) part.inlineData = partItem.inlineData;
-          if (partItem.fileData) part.fileData = partItem.fileData;
-          return part;
-        })
-      }));
+      const contents = await buildModelContentsFromRequest({
+        history,
+        message,
+        attachments,
+      });
 
       const tools: any[] = [];
       if (config.googleSearch) tools.push({ googleSearch: {} });

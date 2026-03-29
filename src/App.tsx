@@ -55,6 +55,10 @@ import {
   mergeAgentsWithLocal,
   saveLocalAgent,
 } from './utils/agentSnapshots';
+import {
+  buildApiAttachmentPayloads,
+  buildApiHistoryFromMessages,
+} from './utils/chat-parts';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -1183,11 +1187,13 @@ export default function App() {
       if (!user || !currentSessionId) return;
       await touchSession(currentSessionId);
 
-      // Clean attachments for Firestore
+      // Keep a rich payload for the current request, but persist lightweight attachments only.
+      const requestAttachments: Attachment[] = [];
       const cleanAttachments: Attachment[] = [];
       for (const att of pendingAttachments) {
         const { file, ...rest } = att;
         const uploadUrl = await uploadAttachment(att, user.uid, currentSessionId);
+        requestAttachments.push({ ...rest, url: uploadUrl });
         cleanAttachments.push({ ...rest, url: uploadUrl, base64: undefined }); 
       }
 
@@ -1348,20 +1354,10 @@ export default function App() {
         }
 
         const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
-        const historyForApi = apiHistory.map(m => ({
-          role: m.role,
-          parts:
-            m.attachments && m.attachments.length > 0
-              ? [
-                  { text: m.content || ' ' },
-                  ...m.attachments.map(a =>
-                    a.type === 'youtube'
-                      ? { fileData: { fileUri: a.url, mimeType: 'video/mp4' } }
-                      : { inlineData: { mimeType: a.mimeType || 'image/jpeg', data: a.base64?.split(',')[1] || a.base64 || '' } }
-                  ),
-                ]
-              : [{ text: m.content || ' ' }],
-        }));
+        const historyForApi = buildApiHistoryFromMessages(apiHistory);
+        const currentRequestAttachments = overrideMessages
+          ? (overrideMessages[overrideMessages.length - 1]?.attachments || [])
+          : requestAttachments;
         const coworkSystemInstruction = effectiveConfig?.systemInstruction?.trim();
         const sanitizedCoworkSystemInstruction =
           coworkSystemInstruction && coworkSystemInstruction !== LEGACY_COWORK_SYSTEM_INSTRUCTION
@@ -1381,7 +1377,7 @@ export default function App() {
           body: JSON.stringify({
             message: finalPrompt,
             history: historyForApi,
-            attachments: cleanAttachments,
+            attachments: buildApiAttachmentPayloads(currentRequestAttachments),
             config: {
               model: effectiveConfig?.model || configs.chat.model,
               temperature: effectiveConfig?.temperature ?? 0.1,
@@ -1543,6 +1539,7 @@ export default function App() {
       }
 
       let finalMessage = finalPrompt;
+      let finalRequestAttachments = requestAttachments;
       let finalAttachments = cleanAttachments;
       let finalRefinedInstruction = refinedInstruction;
 
@@ -1561,17 +1558,13 @@ export default function App() {
       } else {
         const lastMsg = overrideMessages[overrideMessages.length - 1];
         finalMessage = lastMsg.content;
+        finalRequestAttachments = lastMsg.attachments || [];
         finalAttachments = lastMsg.attachments || [];
         finalRefinedInstruction = lastMsg.refinedInstruction || refinedInstruction;
       }
 
       const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
-      const historyForApi = apiHistory.map(m => ({
-        role: m.role,
-        parts: m.attachments && m.attachments.length > 0 
-          ? [{ text: m.content || " " }, ...m.attachments.map(a => (a.type === 'youtube' ? { fileData: { fileUri: a.url, mimeType: "video/mp4" } } : { inlineData: { mimeType: a.mimeType || "image/jpeg", data: a.base64?.split(',')[1] || a.base64 || "" } }))]
-          : [{ text: m.content || " " }]
-      }));
+      const historyForApi = buildApiHistoryFromMessages(apiHistory);
 
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -1580,7 +1573,7 @@ export default function App() {
         body: JSON.stringify({
           message: finalMessage,
           history: historyForApi,
-          attachments: finalAttachments,
+          attachments: buildApiAttachmentPayloads(finalRequestAttachments),
           config: {
             model: effectiveMode === 'chat' ? (effectiveConfig?.model || configs.chat.model) : configs.chat.model,
             temperature: effectiveConfig?.temperature ?? 0.7,

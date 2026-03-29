@@ -70,6 +70,23 @@ service cloud.firestore {
       return !('runState' in data) || (data.runState is string && data.runState in ['running', 'completed', 'failed', 'aborted']);
     }
 
+    function isValidSessionKind(data) {
+      return !('sessionKind' in data) || (data.sessionKind is string && data.sessionKind in ['standard', 'agent']);
+    }
+
+    function isValidAgentWorkspace(data) {
+      return !('agentWorkspace' in data) || (
+        data.agentWorkspace is map &&
+        data.agentWorkspace.keys().hasOnly(['agent', 'formValues', 'lastLaunchPrompt']) &&
+        (!('agent' in data.agentWorkspace) || data.agentWorkspace.agent is map) &&
+        (!('formValues' in data.agentWorkspace) || data.agentWorkspace.formValues is map) &&
+        (!('lastLaunchPrompt' in data.agentWorkspace) || (
+          data.agentWorkspace.lastLaunchPrompt is string &&
+          data.agentWorkspace.lastLaunchPrompt.size() <= 20000
+        ))
+      );
+    }
+
     function isValidCoworkRunMeta(data) {
       return !('runMeta' in data) || (
         data.runMeta is map &&
@@ -77,18 +94,16 @@ service cloud.firestore {
           'iterations',
           'modelCalls',
           'toolCalls',
-          'webSearches',
-          'webFetches',
-          'validatedSearches',
-          'degradedSearches',
-          'blockedQueryFamilies',
-          'validatedSources',
-          'blockerCount',
+          'searchCount',
+          'fetchCount',
+          'sourcesOpened',
+          'domainsOpened',
+          'artifactState',
+          'stalledTurns',
           'retryCount',
           'queueWaitMs',
+          'mode',
           'phase',
-          'completionScore',
-          'modelCompletionScore',
           'taskComplete',
           'inputTokens',
           'outputTokens',
@@ -101,18 +116,19 @@ service cloud.firestore {
         (!('iterations' in data.runMeta) || data.runMeta.iterations is number) &&
         (!('modelCalls' in data.runMeta) || data.runMeta.modelCalls is number) &&
         (!('toolCalls' in data.runMeta) || data.runMeta.toolCalls is number) &&
-        (!('webSearches' in data.runMeta) || data.runMeta.webSearches is number) &&
-        (!('webFetches' in data.runMeta) || data.runMeta.webFetches is number) &&
-        (!('validatedSearches' in data.runMeta) || data.runMeta.validatedSearches is number) &&
-        (!('degradedSearches' in data.runMeta) || data.runMeta.degradedSearches is number) &&
-        (!('blockedQueryFamilies' in data.runMeta) || data.runMeta.blockedQueryFamilies is number) &&
-        (!('validatedSources' in data.runMeta) || data.runMeta.validatedSources is number) &&
-        (!('blockerCount' in data.runMeta) || data.runMeta.blockerCount is number) &&
+        (!('searchCount' in data.runMeta) || data.runMeta.searchCount is number) &&
+        (!('fetchCount' in data.runMeta) || data.runMeta.fetchCount is number) &&
+        (!('sourcesOpened' in data.runMeta) || data.runMeta.sourcesOpened is number) &&
+        (!('domainsOpened' in data.runMeta) || data.runMeta.domainsOpened is number) &&
+        (!('artifactState' in data.runMeta) || (
+          data.runMeta.artifactState is string &&
+          data.runMeta.artifactState in ['none', 'drafting', 'created', 'released']
+        )) &&
+        (!('stalledTurns' in data.runMeta) || data.runMeta.stalledTurns is number) &&
         (!('retryCount' in data.runMeta) || data.runMeta.retryCount is number) &&
         (!('queueWaitMs' in data.runMeta) || data.runMeta.queueWaitMs is number) &&
+        (!('mode' in data.runMeta) || (data.runMeta.mode is string && data.runMeta.mode in ['autonomous'])) &&
         (!('phase' in data.runMeta) || data.runMeta.phase is string) &&
-        (!('completionScore' in data.runMeta) || data.runMeta.completionScore is number) &&
-        (!('modelCompletionScore' in data.runMeta) || data.runMeta.modelCompletionScore is number) &&
         (!('taskComplete' in data.runMeta) || data.runMeta.taskComplete is bool) &&
         (!('inputTokens' in data.runMeta) || data.runMeta.inputTokens is number) &&
         (!('outputTokens' in data.runMeta) || data.runMeta.outputTokens is number) &&
@@ -134,13 +150,24 @@ service cloud.firestore {
 
     function isValidSession(data) {
       return hasRequiredFields(['title', 'mode', 'updatedAt', 'userId']) &&
-             hasOnlyAllowedFields(['title', 'mode', 'updatedAt', 'userId', 'systemInstruction', 'systemPromptHistory']) &&
+             hasOnlyAllowedFields([
+               'title',
+               'mode',
+               'updatedAt',
+               'userId',
+               'systemInstruction',
+               'systemPromptHistory',
+               'sessionKind',
+               'agentWorkspace'
+             ]) &&
              data.title is string && data.title.size() <= 200 &&
              data.mode is string && data.mode.size() <= 50 &&
              data.updatedAt is number &&
              data.userId == request.auth.uid &&
              (!('systemInstruction' in data) || (data.systemInstruction is string && data.systemInstruction.size() <= 20000)) &&
-             (!('systemPromptHistory' in data) || (data.systemPromptHistory is list));
+             (!('systemPromptHistory' in data) || (data.systemPromptHistory is list)) &&
+             isValidSessionKind(data) &&
+             isValidAgentWorkspace(data);
     }
 
     function isValidMessage(data) {

@@ -1,5 +1,18 @@
 # DECISIONS
 
+## 2026-03-29 - Reparer les sessions Firestore orphelines depuis l'historique de messages
+- Statut: adopte
+- Contexte: des conversations existaient bien dans `users/{uid}/sessions/{sessionId}/messages`, mais pas dans `users/{uid}/sessions/{sessionId}` a cause d'un schema de regles trop strict. Resultat produit: aucune conversation visible sur les autres appareils.
+- Decision: conserver Firestore comme source de verite, corriger les regles, puis reconstruire automatiquement les session shells manquants depuis une requete `collectionGroup('messages')` cote client.
+- Pourquoi:
+  - repare les conversations deja cassees sans migration admin separee
+  - ne rajoute aucune dependance ni backend de maintenance
+  - fonctionne aussi quand le parent de la sous-collection `messages` n'existe plus
+- Alternatives ecartees:
+  - script manuel admin ponctuel: trop fragile et non embarque dans le produit
+  - reset total des conversations: inacceptable pour l'utilisateur
+  - fallback local-only: ne resout pas la synchro multi-appareils
+
 ## 2026-03-29 - Hub Agents integre a Cowork
 - Statut: adopte
 - Contexte: l'utilisateur veut que Cowork soit l'essence du produit, capable soit d'executer lui-meme, soit de creer un specialiste delegable et reutilisable.

@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
-import { initializeFirestore, doc, collection, onSnapshot, query, orderBy, setDoc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, getDocFromServer, Firestore } from 'firebase/firestore';
+import { initializeFirestore, doc, collection, collectionGroup, onSnapshot, query, where, orderBy, setDoc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, getDocFromServer, Firestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Helper to remove undefined properties for Firestore
@@ -110,8 +110,10 @@ export {
   onAuthStateChanged, 
   doc, 
   collection, 
+  collectionGroup,
   onSnapshot, 
   query, 
+  where,
   orderBy, 
   setDoc, 
   addDoc, 

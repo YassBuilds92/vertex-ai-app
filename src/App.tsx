@@ -10,7 +10,7 @@ import {
 
 import {
   auth, db, googleProvider, signInWithPopup, onAuthStateChanged,
-  doc, collection, onSnapshot, query, orderBy, setDoc, updateDoc, deleteDoc, getDoc,
+  doc, collection, collectionGroup, onSnapshot, query, where, orderBy, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
   OperationType, handleFirestoreError, User as FirebaseUser, cleanForFirestore
 } from './firebase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -41,6 +41,10 @@ import {
   hydrateSessionMessages,
   saveSessionSnapshot,
 } from './utils/sessionSnapshots';
+import {
+  buildRecoveredSessionShell,
+  normalizeRecoveredMessage,
+} from './utils/sessionRecovery';
 import {
   loadLocalAgents,
   mergeAgentsWithLocal,
@@ -158,6 +162,7 @@ export default function App() {
   const [latestCreatedAgent, setLatestCreatedAgent] = useState<StudioAgent | null>(null);
   const [agentsWarning, setAgentsWarning] = useState<string | null>(null);
   const [isRunningHubAgent, setIsRunningHubAgent] = useState(false);
+  const [hasLoadedRemoteSessions, setHasLoadedRemoteSessions] = useState(false);
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -170,6 +175,7 @@ export default function App() {
   const coworkStorageWarningShownRef = useRef(false);
   const sendInFlightRef = useRef(false);
   const handleSendRuntimeRef = useRef<((text: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession) => Promise<void>) | null>(null);
+  const sessionRepairAttemptedRef = useRef<Record<string, boolean>>({});
 
   const activeSession = sessions.find(s => s.id === activeSessionId) || { 
     id: 'local-new', 
@@ -384,10 +390,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) { setSessions([]); return; }
+    if (!user) {
+      setSessions([]);
+      setHasLoadedRemoteSessions(false);
+      sessionRepairAttemptedRef.current = {};
+      return;
+    }
+
     const q = query(collection(db, 'users', user.uid, 'sessions'), orderBy('updatedAt', 'desc'));
     return onSnapshot(q, (snapshot) => {
       setSessions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), messages: [] } as ChatSession)));
+      setHasLoadedRemoteSessions(true);
+    }, (error) => {
+      console.error('Session list sync failed:', error);
+      setHasLoadedRemoteSessions(true);
     });
   }, [user]);
 
@@ -667,6 +683,84 @@ export default function App() {
       return [session, ...withoutCurrent].sort((left, right) => right.updatedAt - left.updatedAt);
     });
   }, []);
+
+  useEffect(() => {
+    if (!user || !hasLoadedRemoteSessions) return;
+    if (sessionRepairAttemptedRef.current[user.uid]) return;
+
+    sessionRepairAttemptedRef.current[user.uid] = true;
+    let cancelled = false;
+
+    const repairMissingSessionShells = async () => {
+      try {
+        const knownSessionIds = new Set(sessions.map((session) => session.id));
+        const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
+        const snapshot = await getDocs(
+          query(collectionGroup(db, 'messages'), where('userId', '==', user.uid))
+        );
+
+        const orphanMessages = new Map<string, Message[]>();
+
+        for (const docSnapshot of snapshot.docs) {
+          const rawData = docSnapshot.data() as Record<string, unknown>;
+          const sessionId =
+            typeof rawData.sessionId === 'string' && rawData.sessionId.trim().length > 0
+              ? rawData.sessionId
+              : docSnapshot.ref.parent.parent?.id;
+
+          if (!sessionId || knownSessionIds.has(sessionId)) continue;
+
+          const normalizedMessage = normalizeRecoveredMessage(
+            { id: docSnapshot.id, ...(rawData as Partial<Message>) },
+            docSnapshot.id
+          );
+          if (!normalizedMessage) continue;
+
+          const sessionMessages = orphanMessages.get(sessionId) || [];
+          sessionMessages.push(normalizedMessage);
+          orphanMessages.set(sessionId, sessionMessages);
+        }
+
+        if (orphanMessages.size === 0) return;
+
+        const recoveredSessions = Array.from(orphanMessages.entries())
+          .map(([sessionId, messages]) => buildRecoveredSessionShell(sessionId, user.uid, messages, agentsById))
+          .filter((session): session is ChatSession => Boolean(session));
+
+        if (recoveredSessions.length === 0) return;
+
+        await Promise.all(recoveredSessions.map(async (session) => {
+          const { messages, ...sessionPayload } = session;
+          await setDoc(
+            doc(db, 'users', user.uid, 'sessions', session.id),
+            cleanForFirestore(sessionPayload),
+            { merge: true }
+          );
+        }));
+
+        if (cancelled) return;
+
+        setSessions((prev) => {
+          const merged = new Map(prev.map((session) => [session.id, session]));
+          for (const session of recoveredSessions) {
+            const current = merged.get(session.id);
+            merged.set(session.id, current ? { ...current, ...session, messages: current.messages } : session);
+          }
+          return Array.from(merged.values()).sort((left, right) => right.updatedAt - left.updatedAt);
+        });
+
+        console.info(`Recovered ${recoveredSessions.length} Firestore session shell(s) from message history.`);
+      } catch (error) {
+        console.warn('Session shell repair skipped after Firestore error:', error);
+      }
+    };
+
+    void repairMissingSessionShells();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agents, hasLoadedRemoteSessions, sessions, user]);
 
   const updateAgentWorkspaceValues = useCallback(async (nextValues: AgentFormValues) => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeAgentWorkspace) return;

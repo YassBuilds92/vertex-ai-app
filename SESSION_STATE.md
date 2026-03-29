@@ -4,6 +4,29 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-29 (synchro multi-appareils Firestore)
+- Besoin traite:
+  - les conversations n'etaient pas visibles entre appareils malgre une impression de persistance locale correcte
+- Cause racine confirmee:
+  - `firestore.rules` refusait les session shells car le frontend ecrit `sessionKind` et parfois `agentWorkspace`
+  - `runMeta` Cowork cote regles etait obsolete, ce qui maintenait certains messages riches en mode degrade `legacy`
+  - des sous-collections `messages` pouvaient donc exister sans document parent `sessions/{sessionId}`
+- Correctifs appliques:
+  - `firestore.rules` accepte maintenant le vrai schema des sessions et le vrai schema `runMeta`
+  - `src/firebase.ts` exporte `collectionGroup` et `where` pour la reparation
+  - nouveau helper `src/utils/sessionRecovery.ts`
+  - `src/App.tsx` lance une reparation one-shot des session shells manquants a partir de `collectionGroup('messages')`
+- Deploiements effectues:
+  - `npm run deploy-rules` : OK sur `gen-lang-client-0229561140`
+  - `vercel deploy --prod --yes` : OK
+  - alias prod confirme: `https://vertex-ai-app-pearl.vercel.app`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - verification HTTP prod: `STATUS 200`
+- Limite restante:
+  - la validation visuelle authentifiee automatisee reste bloquee localement par `auth/unauthorized-domain` sur `127.0.0.1`; le correctif synchro est bien en prod, mais pas rejoue en login automatise dans cette session
+
 ## Accompli dans cette session
 - Un `Hub Agents` natif a ete branche dans Cowork au lieu de rester une idee separee.
 - Le backend Cowork sait maintenant concevoir un agent specialise via l'outil `create_agent_blueprint`.

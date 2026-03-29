@@ -1,5 +1,36 @@
 # BUGS GRAVEYARD
 
+## 2026-03-29 - Conversations Firestore visibles sur un appareil seulement
+- Statut: resolu et redeploye
+- Symptome:
+  - une conversation pouvait sembler normale sur l'appareil courant
+  - elle n'apparaissait pas dans la liste sur les autres appareils connectes au meme compte
+  - les runs Cowork gardaient parfois un mode de persistance degrade `legacy`
+- Stack trace / message:
+  - logs frontend attendus: `Session creation degraded, continuing with local state`
+  - refus Firestore probables sur `users/{uid}/sessions/{sessionId}`
+  - warning Cowork possible: `Cowork Firestore rules are outdated. Falling back to legacy message persistence without activity metadata.`
+- Tentatives:
+  - verification du chemin de persistance frontend dans `src/App.tsx`
+  - comparaison du schema ecrit par le client avec `firestore.rules`
+  - verification du contrat `runMeta` reel cote client / backend
+- Cause racine:
+  - `isValidSession()` refusait `sessionKind` et `agentWorkspace`, alors que le frontend les ecrit dans tous les session shells
+  - `isValidCoworkRunMeta()` decrivait un ancien schema (`webSearches`, `webFetches`, etc.) et forcait les messages riches Cowork a retomber en ecriture `legacy`
+  - consequence vicieuse: les messages pouvaient exister dans la sous-collection `messages` alors que le document parent `sessions/{sessionId}` etait absent, rendant la conversation introuvable sur un autre appareil
+- Resolution finale:
+  - mise a jour de `firestore.rules` pour accepter le vrai schema `sessions` et le vrai schema `runMeta`
+  - ajout de `src/utils/sessionRecovery.ts`
+  - ajout dans `src/App.tsx` d'une reparation one-shot via `collectionGroup('messages')` pour recreer les session shells manquants
+  - deploiement Firebase des regles via `npm run deploy-rules`
+  - redeploiement prod frontend via `vercel deploy --prod --yes`
+- Preuve:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `firebase deploy --only firestore:rules` : OK sur `gen-lang-client-0229561140`
+  - URL prod re-aliassee: `https://vertex-ai-app-pearl.vercel.app`
+  - verification HTTP simple: `STATUS 200`
+
 ## 2026-03-29 - Lyria 2 semblait repondre sans audio
 - Symptomes:
   - le smoke test Lyria retournait `Lyria 2 n'a renvoye aucun clip audio exploitable.`

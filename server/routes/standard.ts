@@ -110,9 +110,23 @@ export function registerStandardApiRoutes(app: Express) {
 
   app.post('/api/generate-audio', async (req, res) => {
     try {
-      const { prompt, model, ttsVoice, ttsLanguageCode, temperature } = AudioGenRequestSchema.parse(req.body);
-      const artifact = await generateGeminiTtsBinary({
+      const {
         prompt,
+        model,
+        ttsVoice,
+        ttsLanguageCode,
+        ttsStyleInstructions,
+        temperature,
+      } = AudioGenRequestSchema.parse(req.body);
+      const directedPrompt = ttsStyleInstructions
+        ? [
+            `Style instructions: ${ttsStyleInstructions}.`,
+            'Text:',
+            prompt,
+          ].join('\n')
+        : prompt;
+      const artifact = await generateGeminiTtsBinary({
+        prompt: directedPrompt,
         model: model || DEFAULT_TTS_MODEL,
         voice: ttsVoice,
         languageCode: ttsLanguageCode,

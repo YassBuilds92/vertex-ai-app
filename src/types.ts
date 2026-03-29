@@ -182,6 +182,7 @@ export interface ModelConfig {
   maxThoughtTokens?: number;
   ttsVoice?: string;
   ttsLanguageCode?: string;
+  ttsStyleInstructions?: string;
   videoResolution?: '720p' | '1080p';
   videoAspectRatio?: '16:9' | '9:16';
   autoSystemInstruction?: boolean;

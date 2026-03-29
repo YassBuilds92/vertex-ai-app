@@ -11,8 +11,11 @@ const {
   buildPodcastMusicPrompt,
   buildFallbackPodcastMusicPrompt,
   cleanGeneratedPodcastScript,
+  extractDialogSpeakerNames,
   getWaveDurationSeconds,
   mixPodcastEpisodeWavFallback,
+  resolvePodcastSpeakers,
+  validateDialogueScriptAgainstSpeakers,
 } = __podcastMediaInternals;
 
 function buildSineWaveWavBuffer({
@@ -76,6 +79,7 @@ function buildSineWaveWavBuffer({
   assert.ok(prompt.includes('Les arbres en ville'));
   assert.ok(prompt.includes('55 seconds'));
   assert.ok(prompt.includes('arbres urbains'));
+  assert.ok(prompt.includes('Style instructions: calme, intelligent, immersif'));
 }
 
 {
@@ -102,6 +106,51 @@ function buildSineWaveWavBuffer({
   assert.ok(prompt.includes('Flash actu'));
   assert.ok(prompt.includes('65 seconds'));
   assert.ok(prompt.includes('Do not quote headlines'));
+  assert.ok(prompt.includes('Style instructions: calme, editorial, pose'));
+}
+
+{
+  const speakers = [
+    { name: 'Yemma', voice: 'Kore', styleInstructions: 'calm but authoritarian, warm and relentless' },
+    { name: 'Simohamed', voice: 'Puck', styleInstructions: 'breathless, comic panic, overwhelmed' },
+  ];
+
+  const prompt = buildPodcastNarrationPrompt({
+    brief: "Sketch comique autour d'un couscous beaucoup trop copieux.",
+    title: 'La Bataille de la Kssriya',
+    languageCode: 'fr-FR',
+    styleInstructions: 'Darija marocaine, timing comique tres vivant.',
+    speakers,
+    approxDurationSeconds: 80,
+  });
+
+  assert.ok(prompt.includes('two-speaker podcast dialogue'));
+  assert.ok(prompt.includes('La Bataille de la Kssriya'));
+  assert.ok(prompt.includes('Yemma'));
+  assert.ok(prompt.includes('Simohamed'));
+  assert.ok(prompt.includes('Darija marocaine, timing comique tres vivant'));
+  assert.ok(prompt.includes('Every spoken line must start'));
+}
+
+{
+  const speakers = [
+    { name: 'Yemma', voice: 'Kore', styleInstructions: 'warm and relentless' },
+    { name: 'Simohamed', voice: 'Puck', styleInstructions: 'comic panic' },
+  ];
+
+  const prompt = buildPodcastScriptPrompt({
+    brief: "Sketch comique autour d'un couscous beaucoup trop copieux.",
+    title: 'La Bataille de la Kssriya',
+    languageCode: 'fr-FR',
+    hostStyle: 'editorial radio-theatre',
+    speakers,
+    approxDurationSeconds: 80,
+  });
+
+  assert.ok(prompt.includes('Write an original two-speaker podcast dialogue'));
+  assert.ok(prompt.includes('Yemma'));
+  assert.ok(prompt.includes('Simohamed'));
+  assert.ok(prompt.includes('Every spoken line must start'));
 }
 
 {
@@ -109,6 +158,47 @@ function buildSineWaveWavBuffer({
   assert.ok(!cleaned.includes('```'));
   assert.ok(!cleaned.toLowerCase().includes('titre:'));
   assert.ok(cleaned.includes('Salut a tous.'));
+}
+
+{
+  assert.deepEqual(
+    extractDialogSpeakerNames("Yemma: Koul.\nSimohamed: Mliit.\nYemma: Mazal."),
+    ['Yemma', 'Simohamed'],
+  );
+}
+
+{
+  const speakers = resolvePodcastSpeakers({
+    script: "Yemma: Koul.\nSimohamed: Mliit.\nYemma: Mazal.",
+  });
+
+  assert.equal(speakers.length, 2);
+  assert.equal(speakers[0].name, 'Yemma');
+  assert.equal(speakers[1].name, 'Simohamed');
+}
+
+{
+  assert.throws(() => resolvePodcastSpeakers({
+    script: "Yemma: Koul.\nSimohamed: Mliit.\nWalid: Hsseb lia.",
+  }));
+}
+
+{
+  validateDialogueScriptAgainstSpeakers(
+    "Yemma: Koul.\nSimohamed: Mliit.",
+    [
+      { name: 'Yemma', voice: 'Kore' },
+      { name: 'Simohamed', voice: 'Puck' },
+    ],
+  );
+
+  assert.throws(() => validateDialogueScriptAgainstSpeakers(
+    "Maman: Koul.\nSimohamed: Mliit.",
+    [
+      { name: 'Yemma', voice: 'Kore' },
+      { name: 'Simohamed', voice: 'Puck' },
+    ],
+  ));
 }
 
 {

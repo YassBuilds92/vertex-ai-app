@@ -1,5 +1,38 @@
 # DECISIONS
 
+## 2026-03-29 - Gemini TTS duo natif a 2 voix max
+- Statut: adopte
+- Contexte: le pipeline podcast savait bien sortir un master final, mais il etait encore pense "single-host" alors que Gemini TTS supporte nativement le dialogue multi-speaker.
+- Decision:
+  - supporter officiellement 2 intervenants Gemini TTS dans `create_podcast_episode` et `generate_tts_audio`
+  - rester honnete sur la limite: exactement 2 speakers max en multi-speaker, pas plus
+  - guider le modele sur le choix mono vs duo via prompt systeme et descriptions d'outils
+- Pourquoi:
+  - colle mieux aux besoins reels: sketchs, interviews, duos, disputes, podcasts conversationnels
+  - evite de simuler 2 personnes avec une seule voix quand le modele supporte mieux
+  - conserve un contrat simple et fiable
+- Consequence:
+  - ajout d'un catalogue officiel des 30 voix Gemini
+  - style instructions globales + par intervenant
+  - messages d'erreur recuperables quand le modele essaye plus de 2 intervenants ou choisit Flash Lite pour un duo
+
+## 2026-03-29 - Mix podcast plus present et normalise
+- Statut: adopte
+- Contexte: le fond musical des podcasts etait juge trop bas, ce qui donnait un rendu propre mais trop timide.
+- Decision:
+  - remonter le niveau de bed par defaut
+  - rendre le ducking moins agressif
+  - ajouter une normalisation loudness de fin de chaine sur le chemin `ffmpeg`
+  - garder un fallback local quand `ffmpeg` n'est pas disponible
+- Pourquoi:
+  - meilleur ressenti "vrai podcast"
+  - meilleur equilibre entre inteligibilite de la voix et presence musicale
+  - alignement plus fort avec les references Apple/Auphonic
+- Consequence:
+  - nouvelle courbe de mix dans `server/lib/media-generation.ts`
+  - cible de master autour de `-16` avec true peak borne
+  - fallback WAV conserve mais avec un bed plus audible qu'avant
+
 ## 2026-03-29 - Reparer les sessions Firestore orphelines depuis l'historique de messages
 - Statut: adopte
 - Contexte: des conversations existaient bien dans `users/{uid}/sessions/{sessionId}/messages`, mais pas dans `users/{uid}/sessions/{sessionId}` a cause d'un schema de regles trop strict. Resultat produit: aucune conversation visible sur les autres appareils.

@@ -4,6 +4,80 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-29 (Gemini TTS duo + mix podcast)
+- Besoin traite:
+  - l'utilisateur a signale que Cowork ne savait pas assez bien exploiter Gemini TTS pour:
+    - plusieurs intervenants
+    - style instructions globales et par role
+    - choix mono vs duo
+    - catalogue complet des voix
+  - retour produit annexe: le fond musical des podcasts etait trop bas
+- Verification externe faite avant correctif:
+  - doc officielle Google confirmee:
+    - `gemini-2.5-pro-tts` et `gemini-2.5-flash-tts` = single + multi-speaker
+    - `gemini-2.5-flash-lite-preview-tts` = single-speaker uniquement
+    - multi-speaker = exactement 2 speakers max
+    - style control via prompts / natural-language instructions
+    - 30 voix officielles confirmees
+  - references mix/mastering verifiees:
+    - Apple Podcasts: cible autour de `-16 LKFS`, true peak <= `-1 dBFS`
+    - Auphonic: loudness normalization en fin de chaine
+    - Adobe: reduction du rumble sous `80 Hz`, clarte voix et auto-ducking
+- Correctifs appliques:
+  - nouveau module partage `shared/gemini-tts.ts`
+    - catalogue des 30 voix Gemini
+    - aides de normalisation des model IDs
+    - capacites mono/duo par modele
+  - `server/lib/media-generation.ts`
+    - support `speakers` dans `generateGeminiTtsBinary()`
+    - support duo natif dans `generatePodcastEpisode()`
+    - prompts podcast single-speaker vs two-speaker reecrits
+    - validation stricte des labels `Nom:` et des 2 speakers exacts
+    - mix podcast remonte et moins agressif sur le ducking
+    - ajout d'une normalisation loudness sur le chemin `ffmpeg`
+  - `api/index.ts`
+    - descriptions d'outils Cowork enrichies avec:
+      - quand choisir 1 voix vs 2
+      - limite a 2 intervenants
+      - modele Flash Lite mono seulement
+      - liste officielle des voix
+    - `generate_tts_audio` accepte maintenant `styleInstructions` et `speakers`
+    - `create_podcast_episode` accepte maintenant `styleInstructions` et `speakers`
+    - retour recoverable si le modele demande un multi-speaker invalide
+  - `server/lib/agents.ts`
+    - prompt architecte agent mis a jour pour savoir quand choisir mono/duo et comment utiliser les style instructions
+  - UI standard audio:
+    - `src/components/SidebarRight.tsx` affiche maintenant les 30 voix officielles dans un select
+    - note visible sur le support ou non du duo selon le modele choisi
+    - nouveau champ `Style instructions`
+    - `/api/generate-audio` prend maintenant ce champ en compte
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npx tsx test-podcast-media.ts` : OK
+  - `npm run build` : OK
+- Fichiers touches:
+  - `shared/gemini-tts.ts`
+  - `server/lib/media-generation.ts`
+  - `api/index.ts`
+  - `server/lib/agents.ts`
+  - `server/lib/schemas.ts`
+  - `server/routes/standard.ts`
+  - `src/App.tsx`
+  - `src/components/SidebarRight.tsx`
+  - `src/store/useStore.ts`
+  - `src/types.ts`
+  - `test-podcast-media.ts`
+  - `TECH_RADAR.md`
+  - `DECISIONS.md`
+- Limites restantes:
+  - le multi-speaker reste borne a 2 voix exactes par Gemini TTS
+  - le mode audio standard expose les style instructions, mais pas encore une UI complete de script builder multi-speaker type AI Studio
+  - la normalisation loudness "podcast parfaite" est plus robuste sur le chemin `ffmpeg`; le fallback WAV reste plus artisanal
+- Intention exacte:
+  - faire monter Cowork d'un cran sur l'audio en lui donnant la vraie grammaire Gemini TTS actuelle
+  - eviter les faux monologues quand un vrai duo est possible
+  - rendre les podcasts plus vivants musicalement sans perdre l'intelligibilite
+
 ## Mise a jour complementaire - 2026-03-29 (synchro multi-appareils Firestore)
 - Besoin traite:
   - les conversations n'etaient pas visibles entre appareils malgre une impression de persistance locale correcte

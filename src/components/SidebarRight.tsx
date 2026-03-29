@@ -20,6 +20,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+import {
+  findGeminiTtsVoice,
+  GEMINI_TTS_VOICES,
+  modelSupportsGeminiTtsMultiSpeaker,
+} from '../../shared/gemini-tts.js';
 import { db, auth } from '../firebase';
 import { useStore } from '../store/useStore';
 import { ChatSession } from '../types';
@@ -98,6 +103,10 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
 
   const isTextMode = activeMode === 'chat' || activeMode === 'cowork';
   const selectedModelLabel = modelNameMap[config?.model || ''] || config?.model || 'Modele';
+  const selectedAudioVoice = activeMode === 'audio' ? findGeminiTtsVoice(config?.ttsVoice || 'Kore') : null;
+  const audioSupportsMultiSpeaker = activeMode === 'audio'
+    ? modelSupportsGeminiTtsMultiSpeaker(config?.model || '')
+    : false;
   const thinkingLevels = useMemo(() => {
     const levels = [
       { id: 'minimal', label: 'Eco' },
@@ -441,12 +450,22 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
               <div className="space-y-4">
                 <div className="space-y-2">
                   <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Voix Gemini</span>
-                  <input
+                  <select
                     value={config.ttsVoice || 'Kore'}
                     onChange={(event) => setConfig({ ttsVoice: event.target.value })}
-                    placeholder="Kore"
                     className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-2.5 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
-                  />
+                  >
+                    {GEMINI_TTS_VOICES.map((voice) => (
+                      <option key={voice.name} value={voice.name} className="bg-[#111]">
+                        {voice.name} - {voice.style}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2 text-[11px] text-[var(--app-text-muted)]">
+                    {selectedAudioVoice
+                      ? `${selectedAudioVoice.name} - ${selectedAudioVoice.style} - ${selectedAudioVoice.gender === 'female' ? 'voix feminine' : 'voix masculine'}`
+                      : 'Catalogue officiel Gemini TTS charge.'}
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -457,6 +476,22 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     placeholder="fr-FR"
                     className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-2.5 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Style instructions</span>
+                  <textarea
+                    value={config.ttsStyleInstructions || ''}
+                    onChange={(event) => setConfig({ ttsStyleInstructions: event.target.value })}
+                    placeholder="Ex: parle comme un animateur radio chaleureux, rythme pose, sourire dans la voix."
+                    className="w-full min-h-24 resize-none rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
+                  />
+                </div>
+
+                <div className="rounded-[1.15rem] border border-white/5 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                  {audioSupportsMultiSpeaker
+                    ? 'Le modele audio choisi supporte le multi-speaker Gemini TTS a 2 intervenants.'
+                    : 'Le modele audio choisi reste single-speaker. Pour un duo, bascule sur Gemini Flash TTS ou Gemini Pro TTS.'}
                 </div>
               </div>
             </div>

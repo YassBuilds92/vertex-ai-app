@@ -65,6 +65,7 @@ export const AudioGenRequestSchema = z.object({
   model: z.string().optional(),
   ttsVoice: z.string().optional(),
   ttsLanguageCode: z.string().optional(),
+  ttsStyleInstructions: z.string().optional(),
   temperature: z.number().optional(),
 });
 

@@ -513,3 +513,56 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Validation:
   - smoke test reel podcast actu charge en noms propres: OK
   - smoke test reel sans `ffmpeg` dans le `PATH`: OK, fallback `wav-fallback`
+
+## Mise a jour 2026-03-29 - Gemini TTS duo, styles et voix officielles
+- Retour produit:
+  - Cowork savait bien produire un podcast, mais il etait encore mentalement bloque sur un rendu "single-host"
+  - il ne savait pas assez bien qu'il pouvait:
+    - faire un vrai duo Gemini TTS
+    - diriger le jeu via des style instructions globales et par intervenant
+    - choisir intelligemment entre 1 voix et 2 voix
+    - s'appuyer sur le catalogue officiel des 30 voix
+  - le fond musical des podcasts etait percu comme trop bas
+- Correctifs appliques:
+  - `shared/gemini-tts.ts`
+    - nouveau registre partage des 30 voix Gemini TTS
+    - normalisation des model IDs TTS
+    - capacites multi-speaker par modele
+  - `server/lib/media-generation.ts`
+    - `generateGeminiTtsBinary()` supporte maintenant `speakers`
+    - `generatePodcastEpisode()` supporte le duo natif a 2 intervenants
+    - prompts podcast reecrits:
+      - single-speaker pour narration/voix-off/chronique
+      - two-speaker pour sketch/interview/duo/conversation
+    - styles globaux + styles par intervenant preservés dans les prompts
+    - validation stricte des labels `Nom:` pour eviter les faux duos
+    - mix podcast renforce:
+      - bed plus audible
+      - ducking moins violent
+      - loudness normalization sur le chemin `ffmpeg`
+  - `api/index.ts`
+    - prompt systeme Cowork outille enrichi avec:
+      - quand choisir 1 voix
+      - quand choisir 2 intervenants
+      - limite officielle a 2 speakers
+      - rappel que Flash Lite reste mono
+      - catalogue officiel des voix
+    - `generate_tts_audio` et `create_podcast_episode` acceptent maintenant `styleInstructions` et `speakers`
+    - erreurs recoverable explicites si le modele essaye un multi-speaker invalide
+  - `server/lib/agents.ts`
+    - l'architecte d'agents sait maintenant orienter les agents podcast/audio vers mono vs duo et style instructions
+  - UI audio standard:
+    - select des 30 voix officielles
+    - note visible sur le support duo selon le modele choisi
+    - champ `Style instructions`
+- Etat produit:
+  - Cowork sait maintenant faire un vrai sketch a 2 voix sans bricoler un faux mode discussion
+  - la limite produit est claire et honnete: 2 speakers max en Gemini TTS natif
+  - les podcasts gardent un master final unique, mais avec une personnalite vocale mieux dirigee
+- Validation:
+  - `npm run lint` OK
+  - `npx tsx test-podcast-media.ts` OK
+  - `npm run build` OK
+- Limites restantes:
+  - pas encore de script builder visuel multi-speaker complet dans l'UI standard type AI Studio
+  - le fallback sans `ffmpeg` reste moins fin que le chemin masterise complet

@@ -1280,6 +1280,7 @@ export default function App() {
             model: effectiveConfig?.model || configs.audio.model,
             ttsVoice: effectiveConfig?.ttsVoice,
             ttsLanguageCode: effectiveConfig?.ttsLanguageCode,
+            ttsStyleInstructions: effectiveConfig?.ttsStyleInstructions,
             temperature: effectiveConfig?.temperature,
           }),
         });

@@ -101,6 +101,9 @@ Regles:
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - Les capabilities sont des promesses produit courtes, pas du jargon.
 - Si le brief parle de podcast, de voix ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
+- Pour la synthese Gemini TTS: choisis une seule voix pour narration, voix-off, chronique, flash info ou explication; choisis 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
+- Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
+- Pense aux style instructions globales et par intervenant pour preciser ton, rythme, accent, energie et emotion.
 - Le systemInstruction doit etre exigeant, concret et exploitable tel quel.
 - Le starterPrompt doit etre pret a l'emploi.
 - Le slug doit etre propre et stable.
@@ -143,6 +146,9 @@ Regles:
 - Si l'utilisateur demande une evolution d'interface, mets a jour \`uiSchema\`.
 - Si l'utilisateur demande une evolution de comportement, mets a jour \`systemInstruction\`, \`capabilities\` et \`tools\` si besoin.
 - Si la mission parle de voix, de narration ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
+- Pour la synthese Gemini TTS: garde 1 voix pour narration, voix-off, chronique, flash info ou explication; passe a 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
+- Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
+- Pense aux style instructions globales et par intervenant pour preciser ton, rythme, accent, energie et emotion.
 - Garde 3 a 6 champs UI max.
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - N'invente pas de cle hors schema.`;

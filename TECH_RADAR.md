@@ -9,6 +9,53 @@
 - Cout
 - Sources officielles
 
+## 2026-03-29 - Gemini TTS multi-speaker + style instructions
+- Statut: retenu et branche dans le code
+- Choix: conserver Gemini TTS sur Vertex AI, mais expliciter officiellement dans le produit:
+  - `gemini-2.5-pro-tts` et `gemini-2.5-flash-tts` pour le single-speaker ET le multi-speaker
+  - `gemini-2.5-flash-lite-preview-tts` uniquement pour le single-speaker
+  - style instructions globales + style instructions par intervenant pour mieux piloter la performance
+- Pourquoi:
+  - la doc officielle Cloud TTS confirme le support single/multi-speaker sur Flash et Pro, et single only sur Flash Lite
+  - la doc Gemini API confirme la syntaxe `multiSpeakerVoiceConfig` et la limite "up to 2"
+  - le SDK local `@google/genai@1.46.0` expose bien `multiSpeakerVoiceConfig` / `SpeakerVoiceConfig`
+- Alternatives evaluees:
+  - garder un pipeline "single-host" seulement
+    - Ecarte: trop limite pour sketches, interviews, duos et podcasts conversationnels
+  - basculer sur Cloud TTS REST au lieu du SDK Vertex actuel
+    - Ecarte pour l'instant: plus verbeux et pas necessaire pour ajouter le multi-speaker dans le backend existant
+- Cout:
+  - payant a l'usage via Vertex AI / Gemini TTS
+  - aucune dependance npm supplementaire
+- Sources officielles:
+  - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+  - [Text-to-speech generation (Gemini API)](https://ai.google.dev/gemini-api/docs/speech-generation)
+  - [Cloud TTS release notes](https://docs.cloud.google.com/text-to-speech/docs/release-notes)
+
+## 2026-03-29 - Mastering podcast cible Apple/Auphonic
+- Statut: retenu comme reference de mix par defaut
+- Choix:
+  - viser un master podcast autour de `-16 LKFS/LUFS`
+  - limiter le true peak autour de `-1 dBFS`
+  - appliquer le loudness normalization en toute fin de chaine
+  - garder un ducking musique/voix plus audible qu'avant, au lieu d'un bed trop enfoui
+- Pourquoi:
+  - Apple Podcasts recommande un loudness autour de `-16 dB LKFS` avec un true peak <= `-1 dB FS`
+  - Auphonic rappelle que la normalisation loudness doit etre la derniere etape de la chaine
+  - Adobe documente les briques de base utilisees dans le mix voix/musique: reduction du rumble <80 Hz, compression/clarity sur la voix et auto-ducking de la musique sous le dialogue
+- Alternatives evaluees:
+  - conserver l'ancien mix maison plus agressif sur le ducking
+    - Ecarte: bed musical juge trop bas par retour utilisateur
+  - ne viser qu'un peak limiter sans normalisation loudness
+    - Ecarte: moins cohérent pour une ecoute podcast cross-plateforme
+- Cout:
+  - pas de nouvelle dependance
+  - `ffmpeg` reste gratuit quand il est disponible
+- Sources officielles:
+  - [Apple Podcasts audio requirements](https://podcasters.apple.com/support/893-audio-requirements)
+  - [Auphonic multitrack algorithms](https://us1.auphonic.com/help/algorithms/multitrack.html)
+  - [Adobe Audition Essential Sound panel](https://helpx.adobe.com/si/audition/using/essential-sound-panel.html)
+
 ## 2026-03-29 - @google/genai pour Vertex AI
 - Statut: retenu pour le projet
 - Choix: conserver `@google/genai` comme SDK principal pour Gemini sur Vertex AI.

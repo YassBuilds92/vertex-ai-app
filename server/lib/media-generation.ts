@@ -5,6 +5,13 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { GoogleAuth } from 'google-auth-library';
 
+import {
+  DEFAULT_GEMINI_TTS_DUO_VOICES,
+  MAX_GEMINI_TTS_MULTI_SPEAKERS,
+  modelSupportsGeminiTtsMultiSpeaker,
+  normalizeGeminiTtsModelId,
+  normalizeGeminiTtsVoiceName,
+} from '../../shared/gemini-tts.js';
 import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './google-genai.js';
 import { getGcpCredentials } from './storage.js';
 
@@ -38,6 +45,7 @@ export type GeminiTtsOptions = {
   voice?: string;
   languageCode?: string;
   temperature?: number;
+  speakers?: GeminiTtsSpeakerSpec[];
 };
 
 export type LyriaGenerationOptions = {
@@ -54,9 +62,11 @@ export type PodcastGenerationOptions = {
   script?: string;
   title?: string;
   hostStyle?: string;
+  styleInstructions?: string;
   voice?: string;
   languageCode?: string;
   ttsModel?: string;
+  speakers?: GeminiTtsSpeakerSpec[];
   musicModel?: string;
   musicPrompt?: string;
   negativeMusicPrompt?: string;
@@ -68,6 +78,12 @@ export type PodcastGenerationOptions = {
   musicVolume?: number;
   outputExtension?: 'mp3' | 'wav';
   approxDurationSeconds?: number;
+};
+
+export type GeminiTtsSpeakerSpec = {
+  name: string;
+  voice?: string;
+  styleInstructions?: string;
 };
 
 export type GeneratedBinaryArtifact = {
@@ -104,6 +120,107 @@ function clipText(value: unknown, max = 240): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+function sanitizeSpeakerName(value: unknown): string {
+  return clipText(value, 40)
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*:+\s*$/g, '')
+    .trim();
+}
+
+function uniqueSpeakerNames(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value.toLowerCase();
+    if (!value || seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(value);
+  }
+  return output;
+}
+
+function normalizeGeminiTtsSpeakers(
+  speakers: GeminiTtsSpeakerSpec[] | null | undefined,
+  fallbackVoices: readonly string[] = DEFAULT_GEMINI_TTS_DUO_VOICES,
+): GeminiTtsSpeakerSpec[] {
+  if (!Array.isArray(speakers)) return [];
+
+  const normalized = speakers
+    .map((speaker, index) => {
+      const name = sanitizeSpeakerName(speaker?.name);
+      if (!name) return null;
+      return {
+        name,
+        voice: normalizeGeminiTtsVoiceName(speaker?.voice, fallbackVoices[index] || DEFAULT_GEMINI_TTS_DUO_VOICES[0]),
+        styleInstructions: clipText(speaker?.styleInstructions, 220),
+      } satisfies GeminiTtsSpeakerSpec;
+    })
+    .filter(Boolean) as GeminiTtsSpeakerSpec[];
+
+  return uniqueSpeakerNames(normalized.map((speaker) => speaker.name))
+    .map((name) => normalized.find((speaker) => speaker.name === name)!)
+    .filter(Boolean);
+}
+
+function extractDialogSpeakerNames(script: string): string[] {
+  const matches = [...String(script || '').matchAll(/^\s*([^:\n]{1,40})\s*:/gm)];
+  return uniqueSpeakerNames(matches.map((match) => sanitizeSpeakerName(match[1])));
+}
+
+function resolvePodcastSpeakers(options: PodcastGenerationOptions): GeminiTtsSpeakerSpec[] {
+  const explicitSpeakers = normalizeGeminiTtsSpeakers(options.speakers);
+  if (explicitSpeakers.length > 0) {
+    if (explicitSpeakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+      throw new Error(`Gemini TTS multi-speaker exige exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants configures.`);
+    }
+    return explicitSpeakers;
+  }
+
+  const script = clipText(options.script, 12000);
+  if (!script) return [];
+  const detectedNames = extractDialogSpeakerNames(script);
+  if (detectedNames.length > MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+    throw new Error(`Le script contient ${detectedNames.length} intervenants. Gemini TTS multi-speaker supporte exactement 2 voix, pas plus.`);
+  }
+  if (detectedNames.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+    return [];
+  }
+  return detectedNames.map((name, index) => ({
+    name,
+    voice: normalizeGeminiTtsVoiceName('', DEFAULT_GEMINI_TTS_DUO_VOICES[index] || DEFAULT_GEMINI_TTS_DUO_VOICES[0]),
+  }));
+}
+
+function buildPodcastDeliveryNotes(options: PodcastGenerationOptions): string {
+  return [
+    clipText(options.hostStyle, 220),
+    clipText(options.styleInstructions, 320),
+  ].filter(Boolean).join(' | ');
+}
+
+function buildSpeakerInstructionBlock(speakers: GeminiTtsSpeakerSpec[]): string[] {
+  return speakers.map((speaker) => {
+    const notes = clipText(speaker.styleInstructions, 180);
+    return notes
+      ? `- ${speaker.name} -> voice ${speaker.voice}. Performance notes: ${notes}.`
+      : `- ${speaker.name} -> voice ${speaker.voice}.`;
+  });
+}
+
+function validateDialogueScriptAgainstSpeakers(script: string, speakers: GeminiTtsSpeakerSpec[]): void {
+  if (speakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) return;
+  const labels = extractDialogSpeakerNames(script);
+  if (labels.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+    throw new Error(`Le script duo doit utiliser exactement deux labels "Nom:". Recu: ${labels.length || 0}.`);
+  }
+  const expected = speakers.map((speaker) => speaker.name.toLowerCase()).sort();
+  const actual = labels.map((label) => label.toLowerCase()).sort();
+  if (expected.join('|') !== actual.join('|')) {
+    throw new Error(`Le script duo doit utiliser exactement les labels ${speakers.map((speaker) => `"${speaker.name}"`).join(' et ')}.`);
+  }
 }
 
 function decodeBinaryData(data: unknown): Buffer {
@@ -438,7 +555,7 @@ function mixPodcastEpisodeWavFallback(options: {
 
   const introSeconds = clampNumber(options.introSeconds, 0, 12, 1.2);
   const outroSeconds = clampNumber(options.outroSeconds, 0, 12, 1.6);
-  const musicVolume = clampNumber(options.musicVolume, 0.02, 0.6, 0.12);
+  const musicVolume = clampNumber(options.musicVolume, 0.02, 0.6, 0.18);
 
   const introFrames = Math.round(introSeconds * voiceParsed.sampleRate);
   const outroFrames = Math.round(outroSeconds * voiceParsed.sampleRate);
@@ -452,7 +569,7 @@ function mixPodcastEpisodeWavFallback(options: {
     Math.round(0.18 * musicParsed.sampleRate),
     Math.floor(musicParsed.frameCount / 5),
   ));
-  const minMusicGain = Math.max(0.018, musicVolume * 0.18);
+  const minMusicGain = Math.max(0.028, musicVolume * 0.26);
 
   const attackCoefficient = Math.exp(-1 / (voiceParsed.sampleRate * 0.008));
   const releaseCoefficient = Math.exp(-1 / (voiceParsed.sampleRate * 0.22));
@@ -487,7 +604,7 @@ function mixPodcastEpisodeWavFallback(options: {
       : releaseCoefficient;
     voiceEnvelope = envelopeTarget + (envelopeCoefficient * (voiceEnvelope - envelopeTarget));
 
-    let musicGain = Math.max(minMusicGain, musicVolume * (1 - (0.78 * voiceEnvelope)));
+    let musicGain = Math.max(minMusicGain, musicVolume * (1 - (0.62 * voiceEnvelope)));
     if (frame < fadeInFrames) {
       musicGain *= frame / fadeInFrames;
     }
@@ -522,15 +639,56 @@ function buildPodcastNarrationPrompt(options: PodcastGenerationOptions): string 
   const brief = clipText(options.brief, 4000);
   const script = clipText(options.script, 8000);
   const languageCode = clipText(options.languageCode || 'fr-FR', 32) || 'fr-FR';
-  const hostStyle = clipText(options.hostStyle, 280)
-    || 'warm, vivid, polished, confident podcast host';
+  const deliveryNotes = buildPodcastDeliveryNotes(options)
+    || 'warm, vivid, polished, confident podcast delivery';
   const approxDurationSeconds = Math.round(clampNumber(options.approxDurationSeconds, 15, 600, 70));
+  const speakers = normalizeGeminiTtsSpeakers(options.speakers);
+
+  if (speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+    if (script) {
+      validateDialogueScriptAgainstSpeakers(script, speakers);
+      return [
+        `Narrate the following two-speaker podcast dialogue in ${languageCode}.`,
+        title ? `Episode title: ${title}.` : null,
+        `Global style instructions: ${deliveryNotes}.`,
+        'Use exactly these two speaker labels and no others:',
+        ...speakers.map((speaker) => `- ${speaker.name}`),
+        'Cast and performance notes:',
+        ...buildSpeakerInstructionBlock(speakers),
+        'Keep the exact wording and line order from the script.',
+        'Do not add any narration before or after the script.',
+        'Script:',
+        script,
+      ].filter(Boolean).join('\n');
+    }
+
+    if (!brief) {
+      throw new Error("Le podcast a besoin d'un `brief` ou d'un `script`.");
+    }
+
+    return [
+      `Create and speak a polished two-speaker podcast dialogue in ${languageCode}.`,
+      title ? `Episode title: ${title}.` : null,
+      `Write the spoken script yourself from the brief below, then perform it as a natural two-voice exchange.`,
+      `Target length: around ${approxDurationSeconds} seconds of spoken audio.`,
+      `Global style instructions: ${deliveryNotes}.`,
+      'Use exactly these two speaker labels and no others:',
+      ...speakers.map((speaker) => `- ${speaker.name}`),
+      'Cast and performance notes:',
+      ...buildSpeakerInstructionBlock(speakers),
+      'Every spoken line must start with one of those labels followed by a colon.',
+      'Keep it vivid, listenable, and built for real podcast/dialogue delivery, not for stage directions.',
+      'Do not mention these instructions. Do not add markdown, bullet points, timestamps, sound effect labels, or narration outside the dialogue lines.',
+      'Brief:',
+      brief,
+    ].filter(Boolean).join('\n');
+  }
 
   if (script) {
     return [
       `Narrate the following single-host podcast script in ${languageCode}.`,
       title ? `Episode title: ${title}.` : null,
-      `Delivery style: ${hostStyle}.`,
+      `Style instructions: ${deliveryNotes}.`,
       "Speak naturally in one continuous take.",
       "Do not add extra commentary before or after the script.",
       "Script:",
@@ -549,7 +707,7 @@ function buildPodcastNarrationPrompt(options: PodcastGenerationOptions): string 
     `Target length: around ${approxDurationSeconds} seconds of spoken audio.`,
     "Use a strong hook, a clear middle, and a concise closing.",
     "Do not mention these instructions. Do not add bullet points, timestamps, scene directions, or sound effect labels.",
-    `Delivery style: ${hostStyle}.`,
+    `Style instructions: ${deliveryNotes}.`,
     "Brief:",
     brief,
   ].filter(Boolean).join('\n');
@@ -559,19 +717,39 @@ function buildPodcastScriptPrompt(options: PodcastGenerationOptions): string {
   const title = clipText(options.title, 180);
   const brief = clipText(options.brief, 4000);
   const languageCode = clipText(options.languageCode || 'fr-FR', 32) || 'fr-FR';
-  const hostStyle = clipText(options.hostStyle, 280)
-    || 'warm, vivid, polished, confident podcast host';
+  const deliveryNotes = buildPodcastDeliveryNotes(options)
+    || 'warm, vivid, polished, confident podcast delivery';
   const approxDurationSeconds = Math.round(clampNumber(options.approxDurationSeconds, 15, 600, 70));
+  const speakers = normalizeGeminiTtsSpeakers(options.speakers);
 
   if (!brief) {
     throw new Error("Le podcast a besoin d'un `brief` ou d'un `script`.");
+  }
+
+  if (speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+    return [
+      `Write an original two-speaker podcast dialogue in ${languageCode}.`,
+      title ? `Episode title: ${title}.` : null,
+      `Target spoken duration: about ${approxDurationSeconds} seconds.`,
+      `Global style instructions: ${deliveryNotes}.`,
+      'Use exactly these two speaker labels and no others:',
+      ...speakers.map((speaker) => `- ${speaker.name}`),
+      'Cast and performance notes:',
+      ...buildSpeakerInstructionBlock(speakers),
+      'Every spoken line must start with one of those labels followed by a colon.',
+      'Paraphrase facts in fresh spoken wording. Do not quote headlines, article sentences, lyrics, or source copy verbatim.',
+      'Keep the exchange natural and listenable: a hook, a clear middle, and a concise closing.',
+      'Return only the dialogue script to narrate. No markdown, no bullet points, no scene directions, no title label, no narrator lines.',
+      'Brief:',
+      brief,
+    ].filter(Boolean).join('\n');
   }
 
   return [
     `Write an original single-host podcast script in ${languageCode}.`,
     title ? `Episode title: ${title}.` : null,
     `Target spoken duration: about ${approxDurationSeconds} seconds.`,
-    `Delivery style: ${hostStyle}.`,
+    `Style instructions: ${deliveryNotes}.`,
     "Paraphrase facts in fresh spoken wording. Do not quote headlines, article sentences, lyrics, or source copy verbatim.",
     "Keep the flow natural and spoken: a hook, a clear middle, and a concise closing.",
     "Return only the script to narrate. No markdown, no bullet points, no scene directions, no title label.",
@@ -606,7 +784,7 @@ function buildPodcastMusicPrompt(options: PodcastGenerationOptions): string {
   const explicitPrompt = clipText(options.musicPrompt, 2000);
   if (explicitPrompt) return explicitPrompt;
 
-  const hostStyle = clipText(options.hostStyle, 140);
+  const hostStyle = clipText(buildPodcastDeliveryNotes(options), 140);
   const moodFrame = inferPodcastMusicMood(options);
 
   return [
@@ -621,7 +799,7 @@ function buildPodcastMusicPrompt(options: PodcastGenerationOptions): string {
 }
 
 function buildFallbackPodcastMusicPrompt(options: PodcastGenerationOptions): string {
-  const hostStyle = clipText(options.hostStyle, 140);
+  const hostStyle = clipText(buildPodcastDeliveryNotes(options), 140);
   return [
     "Original instrumental podcast background bed.",
     "Abstract, modern, subtle, supportive, loop-friendly, seamless and elegant.",
@@ -687,16 +865,16 @@ async function mixPodcastEpisodeAudio(options: {
 }): Promise<{ buffer: Buffer; durationSeconds: number; mimeType: string; fileExtension: 'mp3' | 'wav'; mixStrategy: 'ffmpeg' | 'wav-fallback' }> {
   const introSeconds = clampNumber(options.introSeconds, 0, 12, 1.2);
   const outroSeconds = clampNumber(options.outroSeconds, 0, 12, 1.6);
-  const musicVolume = clampNumber(options.musicVolume, 0.02, 0.6, 0.12);
+  const musicVolume = clampNumber(options.musicVolume, 0.02, 0.6, 0.18);
   const totalDurationSeconds = Number((options.voiceDurationSeconds + introSeconds + outroSeconds).toFixed(3));
   const fadeOutDuration = Math.min(Math.max(outroSeconds, 0.6), 3);
   const fadeOutStart = Math.max(0, totalDurationSeconds - fadeOutDuration);
   const delayMs = Math.round(introSeconds * 1000);
   const filterGraph = [
-    `[0:a]atrim=0:${totalDurationSeconds.toFixed(3)},aresample=48000,highpass=f=40,lowpass=f=12000,volume=${musicVolume.toFixed(3)},afade=t=in:st=0:d=0.35,afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${fadeOutDuration.toFixed(3)}[bedraw]`,
-    `[1:a]adelay=${delayMs}:all=true,aresample=48000,highpass=f=80,lowpass=f=15000,acompressor=threshold=0.09:ratio=3:attack=15:release=180:makeup=2.0,volume=1.06[voice]`,
-    '[bedraw][voice]sidechaincompress=threshold=0.018:ratio=10:attack=12:release=320:makeup=1[bedduck]',
-    "[bedduck][voice]amix=inputs=2:weights='1 1':duration=first:dropout_transition=0,alimiter=limit=0.93[aout]",
+    `[0:a]atrim=0:${totalDurationSeconds.toFixed(3)},aresample=48000,highpass=f=45,lowpass=f=13500,volume=${musicVolume.toFixed(3)},acompressor=threshold=0.18:ratio=1.8:attack=30:release=260:makeup=1.2,afade=t=in:st=0:d=0.4,afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${fadeOutDuration.toFixed(3)}[bedraw]`,
+    `[1:a]adelay=${delayMs}:all=true,aresample=48000,highpass=f=75,lowpass=f=16000,equalizer=f=250:t=q:w=1.1:g=-1.5,equalizer=f=3200:t=q:w=1.1:g=2.2,acompressor=threshold=0.085:ratio=2.6:attack=10:release=140:makeup=1.8,volume=1.03[voice]`,
+    '[bedraw][voice]sidechaincompress=threshold=0.028:ratio=6:attack=18:release=360:makeup=1[bedduck]',
+    "[bedduck][voice]amix=inputs=2:weights='1 1':duration=first:dropout_transition=0,loudnorm=I=-16:TP=-1.2:LRA=7,alimiter=limit=0.89[aout]",
   ].join(';');
 
   const ffmpegArgs = [
@@ -859,8 +1037,17 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
     throw new Error("Le texte TTS est vide.");
   }
 
-  const model = String(options.model || DEFAULT_TTS_MODEL).trim() || DEFAULT_TTS_MODEL;
-  const voice = String(options.voice || DEFAULT_TTS_VOICE).trim() || DEFAULT_TTS_VOICE;
+  const model = normalizeGeminiTtsModelId(String(options.model || DEFAULT_TTS_MODEL).trim() || DEFAULT_TTS_MODEL) || DEFAULT_TTS_MODEL;
+  const voice = normalizeGeminiTtsVoiceName(String(options.voice || DEFAULT_TTS_VOICE).trim() || DEFAULT_TTS_VOICE, DEFAULT_TTS_VOICE);
+  const speakers = normalizeGeminiTtsSpeakers(options.speakers);
+  if (speakers.length > 0) {
+    if (!modelSupportsGeminiTtsMultiSpeaker(model)) {
+      throw new Error(`Le modele ${model} ne supporte pas le multi-speaker. Utilise gemini-2.5-pro-tts ou gemini-2.5-flash-tts.`);
+    }
+    if (speakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+      throw new Error(`Gemini TTS multi-speaker exige exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants configures.`);
+    }
+  }
   const ai = createGoogleAI(model);
 
   const result = await retryWithBackoff(() => ai.models.generateContent({
@@ -870,11 +1057,26 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
       responseModalities: ['AUDIO'],
       speechConfig: {
         ...(options.languageCode ? { languageCode: options.languageCode } : {}),
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: voice,
-          },
-        },
+        ...(speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS
+          ? {
+              multiSpeakerVoiceConfig: {
+                speakerVoiceConfigs: speakers.map((speaker) => ({
+                  speaker: speaker.name,
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      voiceName: speaker.voice || DEFAULT_TTS_VOICE,
+                    },
+                  },
+                })),
+              },
+            }
+          : {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: voice,
+                },
+              },
+            }),
       },
       ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
     },
@@ -897,7 +1099,10 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
     fileExtension: 'wav',
     model,
     metadata: {
-      voice,
+      voice: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? '' : voice,
+      speakerMode: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? 'duo' : 'single',
+      speakerNames: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? speakers.map((speaker) => speaker.name).join(' | ') : '',
+      speakerVoices: speakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS ? speakers.map((speaker) => speaker.voice || '').join(' | ') : '',
       languageCode: options.languageCode,
       sourceMimeType,
       sampleRateHz: PCM_SAMPLE_RATE_HZ,
@@ -1054,14 +1259,29 @@ export async function generateLyriaBinary(options: LyriaGenerationOptions): Prom
 }
 
 export async function generatePodcastEpisode(options: PodcastGenerationOptions): Promise<GeneratedPodcastEpisode> {
+  const ttsModel = normalizeGeminiTtsModelId(String(options.ttsModel || DEFAULT_PODCAST_TTS_MODEL).trim() || DEFAULT_PODCAST_TTS_MODEL)
+    || DEFAULT_PODCAST_TTS_MODEL;
+  const resolvedSpeakers = resolvePodcastSpeakers(options);
+  if (resolvedSpeakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS && !modelSupportsGeminiTtsMultiSpeaker(ttsModel)) {
+    throw new Error(`Le modele ${ttsModel} ne supporte pas le multi-speaker. Pour deux intervenants, utilise gemini-2.5-pro-tts ou gemini-2.5-flash-tts.`);
+  }
+
   const narrationScript = options.script
     ? cleanGeneratedPodcastScript(String(options.script))
-    : await generatePodcastNarrationScript(options);
+    : await generatePodcastNarrationScript({
+        ...options,
+        speakers: resolvedSpeakers,
+      });
+
+  if (resolvedSpeakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+    validateDialogueScriptAgainstSpeakers(narrationScript, resolvedSpeakers);
+  }
+
   const narrationPrompt = buildPodcastNarrationPrompt({
     ...options,
     script: narrationScript,
+    speakers: resolvedSpeakers,
   });
-  const ttsModel = String(options.ttsModel || DEFAULT_PODCAST_TTS_MODEL).trim() || DEFAULT_PODCAST_TTS_MODEL;
   const musicModel = String(options.musicModel || DEFAULT_LYRIA_MODEL).trim() || DEFAULT_LYRIA_MODEL;
   const outputExtension = options.outputExtension === 'wav' ? 'wav' : 'mp3';
   const warnings: string[] = [];
@@ -1071,6 +1291,7 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
     model: ttsModel,
     voice: options.voice,
     languageCode: options.languageCode,
+    speakers: resolvedSpeakers,
   });
   let musicPrompt = buildPodcastMusicPrompt(options);
   let musicArtifact: GeneratedBinaryArtifact | null = null;
@@ -1149,7 +1370,7 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
         voiceDurationSeconds,
         introSeconds: clampNumber(options.introSeconds, 0, 12, 1.2),
         outroSeconds: clampNumber(options.outroSeconds, 0, 12, 1.6),
-        musicVolume: clampNumber(options.musicVolume, 0.02, 0.6, 0.12),
+        musicVolume: clampNumber(options.musicVolume, 0.02, 0.6, 0.18),
         outputExtension,
       });
 
@@ -1209,6 +1430,10 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
 }
 
 export const __podcastMediaInternals = {
+  extractDialogSpeakerNames,
+  normalizeGeminiTtsSpeakers,
+  resolvePodcastSpeakers,
+  validateDialogueScriptAgainstSpeakers,
   buildPodcastNarrationPrompt,
   buildPodcastScriptPrompt,
   buildPodcastMusicPrompt,

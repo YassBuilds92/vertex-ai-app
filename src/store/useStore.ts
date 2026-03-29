@@ -71,6 +71,7 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     systemInstruction: '',
     ttsVoice: 'Kore',
     ttsLanguageCode: 'fr-FR',
+    ttsStyleInstructions: '',
   },
   cowork: {
     model: 'gemini-3.1-pro-preview',

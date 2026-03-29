@@ -57,6 +57,10 @@ import {
   generateLyriaBinary,
   generatePodcastEpisode,
 } from '../server/lib/media-generation.js';
+import {
+  getGeminiTtsVoiceCatalogSummary,
+  MAX_GEMINI_TTS_MULTI_SPEAKERS,
+} from '../shared/gemini-tts.js';
 import { buildThinkingConfig, createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
 import { log } from '../server/lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from '../server/lib/path-utils.js';
@@ -70,6 +74,7 @@ import { registerStandardApiRoutes } from '../server/routes/standard.js';
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Constants & Setup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const app = express();
 export default app; // For Vercel
+const GEMINI_TTS_VOICE_CATALOG_HINT = getGeminiTtsVoiceCatalogSummary();
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Rate Limiting Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const apiLimiter = rateLimit({
@@ -586,13 +591,18 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
   - 'run_hub_agent' : relance un agent deja present dans le Hub Agents comme vraie sous-mission.
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
   - 'generate_image_asset' : genere une image locale dans '/tmp/'.
-  - 'generate_tts_audio' : synthese Gemini TTS vers un fichier audio local. A reserver surtout aux cas ou l'utilisateur veut la voix seule.
+  - 'generate_tts_audio' : synthese Gemini TTS vers un fichier audio local. Gere la voix seule, les style instructions, et aussi un duo a 2 intervenants si tu fournis exactement 2 speakers.
   - 'generate_music_audio' : generation musicale Lyria vers un fichier audio local. A reserver surtout aux cas ou l'utilisateur veut la musique seule.
-  - 'create_podcast_episode' : fabrique un episode podcast audio complet, mixe la voix et la musique, puis livre un seul master final pret a publier.
+  - 'create_podcast_episode' : fabrique un episode podcast audio complet, mixe la voix et la musique, puis livre un seul master final pret a publier. Gere le single-speaker et le duo a 2 intervenants avec styles globaux et styles par intervenant.
   - 'begin_pdf_draft', 'append_to_draft', 'revise_pdf_draft', 'get_pdf_draft'
   - 'review_pdf_draft'
   - 'create_pdf'
   - 'release_file'
+  - Pour Gemini TTS: prefere 1 seule voix pour narration, flash info, voix-off, explication, monologue ou chronique solo.
+  - Pour Gemini TTS: prefere 2 intervenants pour sketch, interview, duo de presentation, dispute, Q/R vivante ou conversation ecrite avec 2 roles explicites.
+  - Le multi-speaker Gemini TTS supporte exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants, pas plus. Si le besoin depasse 2 voix, fusionne en 2 roles max ou repasse en narrateur unique.
+  - Les modeles multi-speaker utiles sont 'gemini-2.5-pro-tts' et 'gemini-2.5-flash-tts'. 'gemini-2.5-flash-lite-preview-tts' reste single-speaker seulement.
+  - Voix Gemini officielles disponibles: ${GEMINI_TTS_VOICE_CATALOG_HINT}.
   - Pour les PDF premium en LaTeX, tu peux faire une vraie direction artistique par section/page via les champs de section: 'visualTheme', 'mood', 'motif', 'flagHints', 'pageStyle', 'pageBreakBefore', sans avoir a ecrire tout le .tex toi-meme.
 ${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraiment necessaires.\n" : ""}${capabilities.webSearch ? "  - 'web_search' : reperage de pistes, de sources et d'angles; cherche souvent plusieurs fois quand le sujet est large ou sensible.\n  - 'web_fetch' : lecture directe d'une URL precise; sur un travail factualise ambitieux, c'est lui qui transforme une piste en source vraiment lue.\n  - 'music_catalog_lookup' : raccourci specialise pour discographie, titres, catalogue, paroles et couverture artiste.\n" : ""}${debugReasoning ? "  - 'publish_status' et 'report_progress' existent seulement en debug. Ils sont facultatifs et ne conditionnent pas ta capacite a agir.\n" : ""}
 ### REGLES DURES
@@ -6282,13 +6292,27 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "generate_tts_audio",
-        description: "Synthese un audio via Gemini TTS, l'ecrit dans '/tmp/' au format WAV et renvoie le chemin du fichier. Utile pour une voix-off, un jingle parle, une narration ou une capsule audio quand l'utilisateur veut la voix seule. Pour un podcast pret a publier avec musique + mix final, prefere 'create_podcast_episode'.",
+        description: "Synthese un audio via Gemini TTS, l'ecrit dans '/tmp/' au format WAV et renvoie le chemin du fichier. Gere les style instructions et peut aussi faire un vrai duo a 2 intervenants si tu fournis exactement 2 `speakers` et un texte avec labels `Nom:` correspondants. Utile pour une voix-off, un jingle parle, une narration, une capsule audio ou un mini-dialogue quand l'utilisateur veut la voix seule. Pour un podcast pret a publier avec musique + mix final, prefere `create_podcast_episode`.",
         parameters: {
           type: "object",
           properties: {
-            text: { type: "string", description: "Texte exact a dire." },
-            model: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-flash-tts ou gemini-2.5-pro-tts." },
-            voice: { type: "string", description: "Nom de voix prebuilt Gemini, ex: Kore." },
+            text: { type: "string", description: "Texte exact a dire. En duo, chaque ligne doit utiliser un label `Nom:` qui correspond aux speakers." },
+            model: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-flash-tts ou gemini-2.5-pro-tts. Pour 2 intervenants, n'utilise pas gemini-2.5-flash-lite-preview-tts." },
+            voice: { type: "string", description: "Nom de voix prebuilt Gemini pour le mode single-speaker, ex: Kore." },
+            styleInstructions: { type: "string", description: "Consignes de jeu globales: ton, rythme, accent, energie, emotion, etc." },
+            speakers: {
+              type: "array",
+              description: "Configuration exacte des 2 intervenants Gemini TTS. Maximum 2. Si tu fournis ce champ, utilise exactement 2 objets et des labels de script identiques.",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string", description: "Nom du speaker tel qu'il apparait dans le texte, ex: Yemma." },
+                  voice: { type: "string", description: "Voix Gemini de cet intervenant, ex: Kore, Puck, Charon." },
+                  styleInstructions: { type: "string", description: "Consignes de jeu propres a cet intervenant." }
+                },
+                required: ["name"]
+              }
+            },
             languageCode: { type: "string", description: "Locale optionnelle, ex: fr-FR." },
             filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/." }
           },
@@ -6298,19 +6322,37 @@ app.post('/api/cowork', async (req, res) => {
           text,
           model,
           voice,
+          styleInstructions,
+          speakers,
           languageCode,
           filename
         }: {
           text: string;
           model?: string;
           voice?: string;
+          styleInstructions?: string;
+          speakers?: Array<{ name: string; voice?: string; styleInstructions?: string }>;
           languageCode?: string;
           filename?: string;
         }) => {
+          const hasDuo = Array.isArray(speakers) && speakers.length > 0;
+          const directedPrompt = hasDuo
+            ? [
+                styleInstructions ? `Global style instructions: ${styleInstructions}.` : null,
+                "Narrate the following two-speaker script exactly as written.",
+                "Use exactly the provided speaker labels and do not add extra narration.",
+                "Script:",
+                text,
+              ].filter(Boolean).join('\n')
+            : [
+                styleInstructions ? `Style instructions: ${styleInstructions}.` : null,
+                text,
+              ].filter(Boolean).join('\n\n');
           const artifact = await generateGeminiTtsBinary({
-            prompt: text,
+            prompt: directedPrompt,
             model,
             voice,
+            speakers,
             languageCode
           });
           const outputPath = buildGeneratedArtifactPath('cowork-tts', artifact.fileExtension, filename);
@@ -6321,6 +6363,9 @@ app.post('/api/cowork', async (req, res) => {
             mimeType: artifact.mimeType,
             model: artifact.model,
             voice: artifact.metadata?.voice,
+            speakerMode: artifact.metadata?.speakerMode,
+            speakerNames: artifact.metadata?.speakerNames,
+            speakerVoices: artifact.metadata?.speakerVoices,
             languageCode: artifact.metadata?.languageCode,
             fileSizeBytes: artifact.buffer.length,
             message: `Audio TTS cree avec succes a ${outputPath}. Utilise maintenant 'release_file' pour obtenir un lien.`
@@ -6383,17 +6428,31 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_podcast_episode",
-        description: "Fabrique un episode podcast audio complet dans '/tmp/': un script original est prepare, narre via Gemini 2.5 Pro TTS par defaut, puis melange a un fond sonore Lyria quand il est disponible. Le resultat reste un seul master final pret a publier, avec fallback voix seule si le bed ou le mix local sont indisponibles. Si tu fournis `script`, il sera narre tel quel.",
+        description: "Fabrique un episode podcast audio complet dans '/tmp/': un script original est prepare, narre via Gemini 2.5 Pro TTS par defaut, puis melange a un fond sonore Lyria quand il est disponible. Le resultat reste un seul master final pret a publier, avec fallback voix seule si le bed ou le mix local sont indisponibles. Gere le single-speaker et le duo a 2 intervenants. Choisis 1 voix pour narration, chronique, flash info, explication ou voix-off. Choisis 2 intervenants pour sketch, interview, duo de presentation, dispute ou conversation. Plus de 2 intervenants n'est pas supporte par Gemini TTS multi-speaker. Si tu fournis `script`, il sera narre tel quel.",
         parameters: {
           type: "object",
           properties: {
             brief: { type: "string", description: "Brief haut niveau du podcast si tu veux que Gemini 2.5 Pro TTS cree aussi le texte parle." },
-            script: { type: "string", description: "Script exact a narrer si tu veux garder le controle total sur le texte." },
+            script: { type: "string", description: "Script exact a narrer si tu veux garder le controle total sur le texte. En duo, utilise des lignes `Nom:` conformes aux `speakers`." },
             title: { type: "string", description: "Titre de l'episode ou angle editorial." },
             hostStyle: { type: "string", description: "Style de l'animateur ou ton editorial souhaite." },
-            voice: { type: "string", description: "Voix Gemini TTS, ex: Kore." },
+            styleInstructions: { type: "string", description: "Consignes globales de jeu: ton, rythme, accent, energie, humeur, etc." },
+            voice: { type: "string", description: "Voix Gemini TTS pour le mode single-speaker, ex: Kore." },
+            speakers: {
+              type: "array",
+              description: "Configuration exacte des 2 intervenants Gemini TTS. Maximum 2, et le multi-speaker exige exactement 2 objets. Chaque nom doit matcher le script/les labels.",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string", description: "Nom de l'intervenant tel qu'il apparait dans le script, ex: Simohamed." },
+                  voice: { type: "string", description: "Voix Gemini pour cet intervenant, ex: Kore, Puck, Charon." },
+                  styleInstructions: { type: "string", description: "Consignes de jeu propres a cet intervenant." }
+                },
+                required: ["name"]
+              }
+            },
             languageCode: { type: "string", description: "Locale de narration, ex: fr-FR." },
-            ttsModel: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-pro-tts." },
+            ttsModel: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-pro-tts. Pour 2 intervenants, utilise gemini-2.5-pro-tts ou gemini-2.5-flash-tts; gemini-2.5-flash-lite-preview-tts reste mono." },
             musicPrompt: { type: "string", description: "Prompt musical explicite pour Lyria. Recommande en anglais pour maximiser la qualite." },
             musicModel: { type: "string", description: "Modele Lyria explicite, ex: lyria-002, lyria-3-clip-preview, lyria-3-pro-preview." },
             negativeMusicPrompt: { type: "string", description: "Prompt negatif Lyria optionnel." },
@@ -6402,7 +6461,7 @@ app.post('/api/cowork', async (req, res) => {
             musicLocation: { type: "string", description: "Region Vertex explicite pour Lyria 2 si besoin." },
             introSeconds: { type: "number", description: "Intro musicale avant la voix. Defaut: environ 1.2s." },
             outroSeconds: { type: "number", description: "Outro musicale apres la voix. Defaut: environ 1.6s." },
-            musicVolume: { type: "number", description: "Volume relatif du fond musical entre 0.02 et 0.6." },
+            musicVolume: { type: "number", description: "Volume relatif du fond musical entre 0.02 et 0.6. Defaut renforce pour un vrai bed audible sous la voix." },
             approxDurationSeconds: { type: "number", description: "Cible indicative de duree si le texte doit etre cree a partir du brief." },
             outputExtension: { type: "string", enum: ["mp3", "wav"], description: "Format prefere pour le master final. MP3 par defaut si le moteur de mix/encodage local le permet." },
             filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/ pour le mix final." }
@@ -6413,7 +6472,9 @@ app.post('/api/cowork', async (req, res) => {
           script,
           title,
           hostStyle,
+          styleInstructions,
           voice,
+          speakers,
           languageCode,
           ttsModel,
           musicPrompt,
@@ -6433,7 +6494,9 @@ app.post('/api/cowork', async (req, res) => {
           script?: string;
           title?: string;
           hostStyle?: string;
+          styleInstructions?: string;
           voice?: string;
+          speakers?: Array<{ name: string; voice?: string; styleInstructions?: string }>;
           languageCode?: string;
           ttsModel?: string;
           musicPrompt?: string;
@@ -6456,13 +6519,22 @@ app.post('/api/cowork', async (req, res) => {
               error: "Fournis au moins un `brief` ou un `script` pour creer le podcast."
             };
           }
+          if (Array.isArray(speakers) && speakers.length > 0 && speakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+            return {
+              success: false,
+              recoverable: true,
+              error: `Le mode podcast multi-speaker Gemini exige exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants. Utilise soit 1 narrateur, soit 2 speakers exacts.`
+            };
+          }
 
           const episode = await generatePodcastEpisode({
             brief,
             script,
             title,
             hostStyle,
+            styleInstructions,
             voice,
+            speakers,
             languageCode,
             ttsModel,
             musicPrompt,
@@ -6487,6 +6559,9 @@ app.post('/api/cowork', async (req, res) => {
             ttsModel: ttsModel || DEFAULT_PODCAST_TTS_MODEL,
             musicModel: musicModel || DEFAULT_LYRIA_MODEL,
             voice: episode.voiceArtifact.metadata?.voice,
+            speakerMode: episode.voiceArtifact.metadata?.speakerMode,
+            speakerNames: episode.voiceArtifact.metadata?.speakerNames,
+            speakerVoices: episode.voiceArtifact.metadata?.speakerVoices,
             languageCode: episode.voiceArtifact.metadata?.languageCode,
             durationSeconds: Number(episode.finalDurationSeconds.toFixed(3)),
             mixStrategy: episode.mixStrategy,

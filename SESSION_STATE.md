@@ -4,6 +4,43 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-31 (Cowork garde enfin la memoire textuelle du dernier livrable pour les follow-ups)
+- Besoin traite:
+  - l'utilisateur signalait qu'apres une generation reussie suivie d'un mauvais lien final, un simple "ton lien est mauvais" faisait souvent repartir Cowork presque comme au premier message
+  - il fallait distinguer la vraie persistance UI de la memoire reellement reinjectee au modele au tour suivant
+- Cause racine confirmee:
+  - `src/utils/cowork.ts` et `src/App.tsx` persistaient bien `activity`, `runMeta` et `attachments`, donc l'UI gardait une trace riche du run
+  - mais `src/utils/chat-parts.ts` reconstruisait l'historique API avec `content + attachments` seulement; aucune memoire textuelle du `release_file`, du `runState`, de `artifactState` ou des derniers `tool_result` n'etait renvoyee au modele
+  - quand une piece jointe etait rehydratee en `inlineData`, l'URL signee exacte pouvait meme disparaitre du contexte textuel disponible pour le modele
+  - `api/index.ts` relancait chaque nouveau `/api/cowork` avec un etat runtime frais; sans memoire structuree dans `history`, le modele n'avait pas assez d'ancrage pour corriger simplement le lien precedent
+- Correctifs appliques:
+  - `src/utils/chat-parts.ts`
+    - ajout d'un mode `includeCoworkMemory`
+    - ajout d'une synthese textuelle compacte pour les messages modele Cowork: `runState`, `phase`, `artifactState`, dernieres etapes utiles, URLs et metas des livrables deja presents
+  - `src/App.tsx`
+    - activation de `includeCoworkMemory: true` uniquement pour le chemin `/api/cowork` (et donc les workspaces agent)
+  - `api/index.ts`
+    - consigne systeme Cowork enrichie: si l'utilisateur signale un lien mauvais/expire/mal rendu, commencer par relire la memoire de conversation et reutiliser l'artefact deja cree/publie avant toute regeneration
+  - `test-cowork-loop.ts`
+    - ajout d'une regression qui verifie que `buildApiHistoryFromMessages(..., { includeCoworkMemory: true })` conserve bien l'URL publiee et le contexte `release_file`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+- Fichiers touches:
+  - `src/utils/chat-parts.ts`
+  - `src/App.tsx`
+  - `api/index.ts`
+  - `test-cowork-loop.ts`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `SESSION_STATE.md`
+  - `COWORK.md`
+- Intention exacte:
+  - faire la difference entre "le produit garde une trace" et "le modele recoit vraiment la memoire utile"
+  - permettre a Cowork de corriger un mauvais lien ou de reutiliser un livrable deja publie sans rejouer inutilement toute la mission
+  - rester modele-led tout en rendant la memoire inter-tours concretement exploitable
+
 ## Mise a jour complementaire - 2026-03-31 (livrables Cowork medias previewables dans la page)
 - Besoin traite:
   - l'utilisateur voulait que Cowork livre ses produits generes directement dans la conversation

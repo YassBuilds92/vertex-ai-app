@@ -6,6 +6,8 @@ const { __coworkLoopInternals } = await import('./api/index.ts');
 const { __coworkPdfInternals } = await import('./api/index.ts');
 const { retryWithBackoff } = await import('./server/lib/google-genai.ts');
 const { pickHubAgentRecord, sanitizeHubAgentRecord, summarizeHubAgentsForPrompt } = await import('./server/lib/agents.ts');
+const { buildApiHistoryFromMessages } = await import('./src/utils/chat-parts.ts');
+type Message = import('./src/types.ts').Message;
 
 const {
   createEmptyCoworkSessionState,
@@ -103,6 +105,71 @@ const baseResearch = {
   const promptSummary = summarizeHubAgentsForPrompt(hubAgents, 2);
   assert.ok(promptSummary.includes('news-premium-01'));
   assert.ok(promptSummary.includes('Podcast Brief'));
+}
+
+{
+  const publishedMessage: Message = {
+    id: 'cowork-model-release',
+    role: 'model',
+    content: "Le lien precedent est pret, mais le rendu final etait mauvais.",
+    createdAt: Date.now(),
+    runState: 'completed',
+    runMeta: {
+      iterations: 3,
+      modelCalls: 3,
+      toolCalls: 2,
+      searchCount: 1,
+      fetchCount: 1,
+      sourcesOpened: 1,
+      domainsOpened: 1,
+      artifactState: 'released',
+      stalledTurns: 0,
+      retryCount: 0,
+      queueWaitMs: 0,
+      mode: 'autonomous',
+      phase: 'delivery',
+      taskComplete: true,
+      inputTokens: 100,
+      outputTokens: 100,
+      thoughtTokens: 0,
+      toolUseTokens: 0,
+      totalTokens: 200,
+      estimatedCostUsd: 0.001,
+      estimatedCostEur: 0.0009,
+    },
+    attachments: [
+      {
+        id: 'att-release',
+        type: 'audio',
+        url: 'https://storage.googleapis.com/example/audio-opening.mp3?sig=abc',
+        mimeType: 'audio/mpeg',
+        name: 'opening.mp3',
+      },
+    ],
+    activity: [
+      {
+        id: 'act-release',
+        kind: 'tool_result',
+        timestamp: Date.now(),
+        iteration: 3,
+        toolName: 'release_file',
+        status: 'success',
+        resultPreview: 'URL signee generee pour le MP3.',
+      },
+    ],
+  };
+
+  const defaultHistory = buildApiHistoryFromMessages([publishedMessage]);
+  assert.equal(defaultHistory[0]?.parts.length, 2);
+  assert.equal(defaultHistory[0]?.parts[0]?.text, publishedMessage.content);
+  assert.equal(defaultHistory[0]?.parts[1]?.attachment?.url, publishedMessage.attachments?.[0]?.url);
+
+  const coworkHistory = buildApiHistoryFromMessages([publishedMessage], { includeCoworkMemory: true });
+  const memoryPart = coworkHistory[0]?.parts.find((part: any) => typeof part.text === 'string' && part.text.includes('[Memoire Cowork persistante]'));
+
+  assert.ok(memoryPart?.text?.includes('Etat artefact: released'));
+  assert.ok(memoryPart?.text?.includes('URL: https://storage.googleapis.com/example/audio-opening.mp3?sig=abc'));
+  assert.ok(memoryPart?.text?.includes('outil=release_file'));
 }
 
 {

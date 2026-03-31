@@ -1410,7 +1410,9 @@ export default function App() {
         }
 
         const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
-        const historyForApi = buildApiHistoryFromMessages(apiHistory);
+        const historyForApi = buildApiHistoryFromMessages(apiHistory, {
+          includeCoworkMemory: true,
+        });
         const currentRequestAttachments = overrideMessages
           ? (overrideMessages[overrideMessages.length - 1]?.attachments || [])
           : requestAttachments;

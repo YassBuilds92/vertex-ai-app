@@ -8,6 +8,29 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Toute modification qui s'ecarte de cette direction ne doit PAS etre retenue par defaut. Si un changement reduit l'autonomie, la visibilite, la reflexivite ou la capacite de decision de l'agent, il est considere comme hors philosophie produit sauf validation explicite de Yassine.
 - Le but n'est pas de "simuler" une boucle agentique avec un backend qui pense a la place du modele. Le but est de laisser l'IA piloter reellement son travail dans un cadre de securite clair.
 
+## Mise a jour 2026-03-31 - Memoire inter-tours des livrables deja publies
+- Probleme produit traite:
+  - Cowork gardait bien une trace riche du run dans l'UI, mais un follow-up simple comme "ton lien est mauvais" pouvait quand meme relancer toute la mission
+- Cause racine:
+  - la persistance frontend/Firestore sauvegardait `activity`, `runMeta` et `attachments`
+  - mais le prochain appel `/api/cowork` ne renvoyait au modele que `content + attachments`
+  - l'URL exacte d'un `release_file` pouvait donc ne plus exister en texte lisible pour le modele au tour suivant, surtout si la piece jointe etait rehydratee en `inlineData`
+- Contrat retenu:
+  - garder Cowork modele-led
+  - ne pas coder un workflow special "correction de lien"
+  - reinjecter a la place une memoire textuelle compacte du dernier run utile: etat, etapes recentes, URLs des livrables deja publies
+- Implementation cle:
+  - `src/utils/chat-parts.ts` expose maintenant un mode `includeCoworkMemory`
+  - `src/App.tsx` active ce mode uniquement pour le chemin `/api/cowork` / workspaces agent
+  - le prompt systeme Cowork rappelle maintenant de reutiliser d'abord l'artefact deja cree/publie quand l'utilisateur signale un lien mauvais, expire ou mal rendu
+- Effet produit vise:
+  - un follow-up correctif doit d'abord reparer ou reutiliser le livrable deja sorti
+  - la regeneration complete doit redevenir l'exception, pas le reflexe
+- Validation:
+  - `npm run lint` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+
 ## Mise a jour 2026-03-31 - Livrables medias directement dans la conversation
 - Cowork peut maintenant faire remonter un livrable publie comme une vraie piece jointe de message au lieu d'un simple lien texte.
 - Effet produit vise:

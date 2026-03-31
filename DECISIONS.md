@@ -1,5 +1,21 @@
 # DECISIONS
 
+## 2026-03-31 - La memoire des runs Cowork doit etre explicitement reinjectee au modele sur les tours suivants
+- Statut: adopte
+- Contexte: Cowork persistait bien ses messages riches (`activity`, `runMeta`, `attachments`) pour l'UI et Firestore, mais au tour suivant le modele ne recevait plus que `content` + `attachments`. Sur une remarque comme "le lien est mauvais", il n'avait donc pas une memoire operationnelle fiable du `release_file` precedent et pouvait reexecuter toute la mission.
+- Decision:
+  - enrichir la serialisation d'historique cote frontend avec un mode `includeCoworkMemory`
+  - injecter dans l'historique Cowork/agent une memoire textuelle compacte contenant l'etat du run, les derniers resultats utiles et les URLs des livrables deja publies
+  - ajouter une consigne systeme Cowork demandant de reutiliser d'abord l'artefact deja cree/publie quand l'utilisateur signale un lien mauvais ou expire
+- Pourquoi:
+  - la persistance produit ne sert pas a l'agent si elle n'est pas relayee dans le prompt du tour suivant
+  - les attachments inline peuvent cacher l'URL exacte au modele; il faut donc aussi une forme textuelle concise
+  - cette approche reste modele-led: on n'impose pas un workflow, on restaure juste la memoire utile du run precedent
+- Consequence:
+  - `src/utils/chat-parts.ts` construit maintenant une memoire Cowork textuelle optionnelle
+  - `src/App.tsx` active cette memoire seulement pour `/api/cowork`
+  - un follow-up de correction de lien a beaucoup plus de chances de reutiliser le bon livrable au lieu de repartir de zero
+
 ## 2026-03-31 - Un livrable Cowork publie devient une vraie piece jointe de message
 - Statut: adopte
 - Contexte: Cowork savait deja creer et publier des fichiers, mais l'utilisateur ne recevait souvent qu'un lien texte dans la reponse finale. Cela cassait la promesse produit de "livrer" un media directement dans la page, surtout pour `mp3`, `mp4` et autres formats previewables.

@@ -4,6 +4,39 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-31 (chat qui ne force plus la descente pendant une reponse)
+- Besoin traite:
+  - l'utilisateur signalait que quand le modele repondait a un message, l'ecran etait automatiquement force vers le bas
+  - il ne voulait plus perdre sa position de lecture en remontant la conversation pendant le stream
+- Cause racine confirmee:
+  - `src/App.tsx` avait un `useEffect` qui appelait `messagesEndRef.current?.scrollIntoView(...)` a chaque variation de `streamingContent`, `streamingThoughts`, `displayedMessages.length` ou `isLoading`
+  - ce comportement etait inconditionnel, donc meme si l'utilisateur remontait dans l'historique, le prochain chunk le ramenait immediatement en bas
+- Correctifs appliques:
+  - `src/App.tsx`
+    - ajout de `AUTO_SCROLL_BOTTOM_THRESHOLD = 96`
+    - ajout du helper `isScrolledNearBottom()`
+    - remplacement de `scrollRef` par `parentRef` comme source de verite du scroll principal
+    - ajout de `shouldAutoScrollRef` pour memoriser si le chat doit encore suivre le bas
+    - ecoute du scroll utilisateur pour desactiver le suivi quand il quitte le bas
+    - recentrage volontaire uniquement au changement de session
+    - au moment de `handleSend`, conservation du suivi seulement si l'utilisateur etait deja proche du bas ou sur une conversation vide
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npm run start` local : OK, serveur demarre sur le port `3000`
+  - limite de validation:
+    - la verification navigateur interactive a ete tentee mais le MCP Playwright local est bloque par une permission Windows lors de la creation de `C:\\Windows\\System32\\.playwright-mcp`
+    - je n'ai donc pas de preuve visuelle automatisee du comportement final dans cette session, meme si le correctif compile et que la logique de scroll est maintenant conditionnelle
+- Fichiers touches:
+  - `src/App.tsx`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - laisser l'utilisateur lire librement l'historique pendant qu'une reponse arrive
+  - conserver un comportement de chat fluide quand on reste deja en bas
+  - eviter les descentes forcees sans casser l'ouverture normale des conversations
+
 ## Mise a jour complementaire - 2026-03-29 (chat long rendu sur 15 messages visibles max)
 - Besoin traite:
   - l'utilisateur signalait qu'une conversation tres longue faisait lagger le shell et donnait un rendu ou les messages semblaient se superposer

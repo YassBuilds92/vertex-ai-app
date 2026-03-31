@@ -67,6 +67,7 @@ function cn(...inputs: ClassValue[]) {
 const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as accès à des outils pour accomplir des tâches complexes. Analyse, propose et exécute.";
 const createClientMessageId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const MESSAGE_VISIBILITY_LIMIT = 15;
+const AUTO_SCROLL_BOTTOM_THRESHOLD = 96;
 const slugifyAgentLabel = (value: string) =>
   value
     .toLowerCase()
@@ -111,6 +112,9 @@ const buildAgentLaunchPrompt = (agent: StudioAgent, values: AgentFormValues) => 
     `Type de sortie attendu: ${agent.outputKind}.`,
   ].filter(Boolean).join('\n\n');
 };
+
+const isScrolledNearBottom = (element: HTMLElement, threshold = AUTO_SCROLL_BOTTOM_THRESHOLD) =>
+  element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
 
 export default function App() {
   const { 
@@ -176,8 +180,9 @@ export default function App() {
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const liveCoworkMessageRef = useRef<Message | null>(null);
   const coworkFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coworkFlushTargetRef = useRef<{ userId: string; sessionId: string } | null>(null);
@@ -470,15 +475,44 @@ export default function App() {
     }
   }, [activeMode]);
 
-  // Auto-scroll logic to maintain focus on the latest message/streaming content
   useEffect(() => {
-    if (isLoading || displayedMessages.length > 0) {
-      const scrollTimer = setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      }, 100);
-      return () => clearTimeout(scrollTimer);
-    }
-  }, [displayedMessages.length, streamingContent, streamingThoughts, isLoading]);
+    const container = parentRef.current;
+    if (!container) return;
+
+    const syncAutoScrollState = () => {
+      shouldAutoScrollRef.current = isScrolledNearBottom(container);
+    };
+
+    syncAutoScrollState();
+    container.addEventListener('scroll', syncAutoScrollState, { passive: true });
+    return () => container.removeEventListener('scroll', syncAutoScrollState);
+  }, [activeSessionId, shouldShowEmptyState]);
+
+  useEffect(() => {
+    shouldAutoScrollRef.current = true;
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (shouldShowEmptyState || !shouldRenderMessageEndSpacer || !shouldAutoScrollRef.current) return;
+
+    const scrollFrame = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: isLoading || streamingContent || streamingThoughts ? 'auto' : 'smooth',
+        block: 'end',
+      });
+    });
+
+    return () => window.cancelAnimationFrame(scrollFrame);
+  }, [
+    activeSessionId,
+    displayedMessages.length,
+    streamingContent,
+    streamingThoughts,
+    isLoading,
+    refiningStatus,
+    shouldRenderMessageEndSpacer,
+    shouldShowEmptyState,
+  ]);
 
   useEffect(() => {
     if (!user) {
@@ -1043,7 +1077,6 @@ export default function App() {
   };
 
   // Virtualizer for performance
-  const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
     count: visibleMessages.length,
     getScrollElement: () => parentRef.current,
@@ -1140,6 +1173,9 @@ export default function App() {
 
   const handleSend = async (textToSend: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession) => {
     if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading || sendInFlightRef.current) return;
+
+    const scrollContainer = parentRef.current;
+    shouldAutoScrollRef.current = !scrollContainer || isScrolledNearBottom(scrollContainer) || displayedMessages.length === 0;
     
     // Clear old response state immediately to prevent "phantom" previous responses
     setStreamingContent('');

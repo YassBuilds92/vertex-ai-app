@@ -1,5 +1,21 @@
 # DECISIONS
 
+## 2026-03-31 - Le chat ne suit plus la reponse si l'utilisateur a remonte la conversation
+- Statut: adopte
+- Contexte: pendant la generation d'une reponse, l'ecran etait force vers le bas a chaque nouveau chunk. Cela empechait de relire des messages precedents pendant que le modele continuait a ecrire.
+- Decision:
+  - remplacer l'auto-scroll inconditionnel par un suivi conditionnel base sur la position reelle du conteneur
+  - considerer que le chat peut continuer a suivre le bas seulement si l'utilisateur est deja proche du bas
+  - reinitialiser ce comportement a l'ouverture d'une autre session pour garder un atterrissage naturel sur les derniers messages d'un thread
+- Pourquoi:
+  - respecte l'intention de lecture de l'utilisateur au lieu de prioriser agressivement le flux entrant
+  - garde le confort d'un chat "sticky" quand on est deja en bas
+  - evite les sauts visuels repetes pendant le streaming
+- Consequence:
+  - `src/App.tsx` suit maintenant `shouldAutoScrollRef` via la position de `parentRef`
+  - `scrollIntoView` n'est plus declenche pendant le stream si l'utilisateur a quitte le bas de la conversation
+  - le changement de session garde un recentrage volontaire sur la fin du thread
+
 ## 2026-03-29 - Le chat n'affiche plus que les 15 derniers messages, sans tronquer la session
 - Statut: adopte
 - Contexte: les longues conversations rendaient le shell moins fluide et donnaient une impression de messages qui se chevauchent. Le besoin utilisateur etait de garder toute la memoire et toute la conversation, mais de n'afficher visuellement que la fin recente.

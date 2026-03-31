@@ -167,6 +167,7 @@ export default function App() {
   const [streamingThoughtsExpanded, setStreamingThoughtsExpanded] = useState<boolean>(true);
   const [refiningStatus, setRefiningStatus] = useState<string | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
+  const [recentlyCompletedMessageId, setRecentlyCompletedMessageId] = useState<string | null>(null);
   const [liveCoworkMessage, setLiveCoworkMessage] = useState<Message | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
@@ -474,6 +475,10 @@ export default function App() {
       setShowAgentsHub(false);
     }
   }, [activeMode]);
+
+  useEffect(() => {
+    setRecentlyCompletedMessageId(null);
+  }, [activeSessionId]);
 
   useEffect(() => {
     const container = parentRef.current;
@@ -1176,6 +1181,7 @@ export default function App() {
 
     const scrollContainer = parentRef.current;
     shouldAutoScrollRef.current = !scrollContainer || isScrolledNearBottom(scrollContainer) || displayedMessages.length === 0;
+    setRecentlyCompletedMessageId(null);
     
     // Clear old response state immediately to prevent "phantom" previous responses
     setStreamingContent('');
@@ -1671,7 +1677,10 @@ export default function App() {
         }
       }
 
-      if (thoughts) setExpandedThoughts(prev => ({ ...prev, [modelMsgId]: true }));
+      setStreamingThoughtsExpanded(false);
+      if (thoughts) {
+        setExpandedThoughts(prev => ({ ...prev, [modelMsgId]: false }));
+      }
 
       const modelMessage: Message = {
         id: modelMsgId,
@@ -1680,6 +1689,8 @@ export default function App() {
         thoughts,
         createdAt: Date.now(),
       };
+      setRecentlyCompletedMessageId(modelMsgId);
+      setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
       const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
       if (!persistedModel) {
         setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
@@ -1893,6 +1904,7 @@ export default function App() {
         isLast={index === visibleMessages.length - 1}
         isLoading={isLoading}
         isExpanded={!!expandedThoughts[msg.id]}
+        disableEntranceAnimation={msg.id === recentlyCompletedMessageId}
         onToggleThoughts={() => setExpandedThoughts(p => ({ ...p, [msg.id]: !p[msg.id] }))}
         setSelectedImage={setSelectedImage}
         onEdit={handleEdit}
@@ -2212,6 +2224,7 @@ export default function App() {
                             isLast={virtualItem.index === visibleMessages.length - 1}
                             isLoading={isLoading}
                             isExpanded={!!expandedThoughts[msg.id]}
+                            disableEntranceAnimation={msg.id === recentlyCompletedMessageId}
                             onToggleThoughts={() => setExpandedThoughts(p => ({ ...p, [msg.id]: !p[msg.id] }))}
                             setSelectedImage={setSelectedImage}
                             onEdit={handleEdit}

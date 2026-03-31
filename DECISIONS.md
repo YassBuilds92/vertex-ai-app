@@ -1,5 +1,21 @@
 # DECISIONS
 
+## 2026-03-31 - La fin d'une reponse chat reste stable et replie le thinking par defaut
+- Statut: adopte
+- Contexte: apres correction de l'auto-scroll, la fin d'une reponse chat gardait encore un petit sursaut visuel, et le volet reasoning restait ouvert alors que l'utilisateur voulait qu'il se ferme automatiquement sans disparaitre.
+- Decision:
+  - injecter le message final dans l'UI optimistic des la fin du stream, sans attendre le retour Firestore
+  - desactiver l'animation d'entree uniquement pour ce message de transition
+  - fermer automatiquement le volet thinking a la livraison, tout en laissant son toggle visible
+- Pourquoi:
+  - supprime la rupture visuelle entre le bloc de streaming et la bulle finale
+  - garde les autres animations du chat intactes
+  - respecte la demande produit "le thinking reste accessible mais replie"
+- Consequence:
+  - `src/App.tsx` suit maintenant `recentlyCompletedMessageId` pour lisser la sortie du stream
+  - `src/components/MessageItem.tsx` accepte `disableEntranceAnimation`
+  - les thoughts d'un message final ne s'ouvrent plus automatiquement apres livraison
+
 ## 2026-03-31 - Le chat ne suit plus la reponse si l'utilisateur a remonte la conversation
 - Statut: adopte
 - Contexte: pendant la generation d'une reponse, l'ecran etait force vers le bas a chaque nouveau chunk. Cela empechait de relire des messages precedents pendant que le modele continuait a ecrire.

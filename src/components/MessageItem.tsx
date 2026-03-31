@@ -369,9 +369,10 @@ const CopyCodeButton = ({ code }: { code: string }) => {
 };
 
 export const MessageItem = React.memo(({ 
-  msg, idx, isLast, isLoading, isExpanded, onToggleThoughts, setSelectedImage, onEdit, onRetry
+  msg, idx, isLast, isLoading, isExpanded, disableEntranceAnimation = false, onToggleThoughts, setSelectedImage, onEdit, onRetry
 }: {
   msg: Message, idx: number, isLast: boolean, isLoading: boolean, isExpanded: boolean,
+  disableEntranceAnimation?: boolean,
   onToggleThoughts: (idx: number) => void,
   setSelectedImage: (url: string) => void,
   onEdit: (idx: number, newText: string) => void,
@@ -402,7 +403,7 @@ export const MessageItem = React.memo(({
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 16, filter: 'blur(6px)' }}
+      initial={disableEntranceAnimation ? false : { opacity: 0, y: 16, filter: 'blur(6px)' }}
       animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
       transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
       className={cn(

@@ -4,6 +4,40 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-31 (fin de reponse plus stable + thinking replie)
+- Besoin traite:
+  - l'utilisateur signalait un petit "sursaut" visuel quand le message IA se terminait
+  - il voulait aussi que le volet thinking se ferme automatiquement a la livraison, sans disparaitre du message final
+- Cause racine confirmee:
+  - le chat standard rendait un bloc `streaming` separe, puis basculait ensuite vers le vrai `modelMessage`
+  - a la fin du stream, le bloc temporaire pouvait disparaitre avant que Firestore ne rehydrate le message final, et ce message final rejouait en plus l'animation d'entree de `MessageItem`
+  - `src/App.tsx` ouvrait explicitement les thoughts du message final avec `[modelMsgId]: true`
+- Correctifs appliques:
+  - `src/App.tsx`
+    - ajout de `recentlyCompletedMessageId`
+    - insertion immediate du `modelMessage` final dans `optimisticMessages` des la fin du stream
+    - fermeture automatique de `streamingThoughtsExpanded`
+    - etat des thoughts du message final initialise a `false`
+    - passage d'un flag `disableEntranceAnimation` au rendu des messages normaux et virtualises
+  - `src/components/MessageItem.tsx`
+    - ajout de la prop `disableEntranceAnimation`
+    - neutralisation de l'animation `initial` Motion pour le seul message qui sort du stream
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - limite de validation:
+    - la verification navigateur automatisee reste bloquee localement par la permission Playwright MCP sur `C:\\Windows\\System32\\.playwright-mcp`
+    - pas de capture visuelle automatique dans cette session
+- Fichiers touches:
+  - `src/App.tsx`
+  - `src/components/MessageItem.tsx`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - faire en sorte que la fin de reponse paraisse continue, sans rupture ni rebond
+  - garder le thinking consultable, mais replie proprement par defaut une fois la reponse livree
+
 ## Mise a jour complementaire - 2026-03-31 (chat qui ne force plus la descente pendant une reponse)
 - Besoin traite:
   - l'utilisateur signalait que quand le modele repondait a un message, l'ecran etait automatiquement force vers le bas

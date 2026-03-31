@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-03-31 - Une seule creation contextuelle dans la sidebar, et davantage de place pour l'historique
+- Statut: adopte
+- Contexte: la sidebar gauche gaspillait trop de hauteur sur les modes, et chaque mode embarquait un `+` redondant. L'utilisateur voulait que l'historique prenne plus de place et qu'il n'y ait plus qu'un seul bouton de creation adapte au mode courant.
+- Decision:
+  - retirer tous les boutons `+` dans les lignes de mode
+  - ajouter un seul CTA contextuel `onNewChat` sous la liste des modes
+  - compacter la zone haute (header, spacing, rows de modes) pour redonner de la hauteur a l'historique
+  - elargir legerement la sidebar pour limiter les retours a la ligne inutiles
+- Pourquoi:
+  - clarifie l'action de creation au lieu de la dupliquer cinq fois
+  - rend l'historique plus visible et plus utile, surtout sur vue etroite
+  - donne une sidebar plus calme et plus lisible
+- Consequence:
+  - `src/components/SidebarLeft.tsx` utilise maintenant `modeActionCopy` et `activeModeMeta`
+  - la creation d'une nouvelle discussion se fait depuis un seul bouton adapte au mode actif
+  - les rows de modes sont plus denses et la liste d'historique recupere davantage d'espace vertical
+
 ## 2026-03-31 - La fin d'une reponse chat reste stable et replie le thinking par defaut
 - Statut: adopte
 - Contexte: apres correction de l'auto-scroll, la fin d'une reponse chat gardait encore un petit sursaut visuel, et le volet reasoning restait ouvert alors que l'utilisateur voulait qu'il se ferme automatiquement sans disparaitre.

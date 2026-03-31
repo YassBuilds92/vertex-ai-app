@@ -4,6 +4,38 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-31 (sidebar gauche plus utile, historique elargi)
+- Besoin traite:
+  - l'utilisateur trouvait la zone historique trop petite dans la sidebar gauche
+  - il voulait aussi supprimer les `+` dupliques sur chaque mode et n'en garder qu'un seul, adapte au mode actif
+- Cause racine confirmee:
+  - `src/components/SidebarLeft.tsx` consacrait trop de hauteur au haut de colonne: header large, espacement genereux, rows de mode assez hautes, et duplication d'un bouton `+` dans chaque mode
+  - sur petit viewport, les labels des modes wrapaient plus vite et accentuaient encore la hauteur prise avant l'historique
+- Correctifs appliques:
+  - `src/components/SidebarLeft.tsx`
+    - ajout de `modeActionCopy`
+    - ajout de `activeModeMeta` / `ActiveModeIcon`
+    - suppression des boutons `+` dans chaque ligne de mode
+    - ajout d'un seul bouton contextuel `onNewChat` sous les modes
+    - densification de la liste des modes (padding, gap, icones, spacing)
+    - sidebar legerement elargie (`304px`) pour limiter les retours a la ligne parasites
+    - header de l'historique simplifie avec compteur au lieu d'un second bouton `+`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - verification visuelle locale:
+    - capture Windows du rendu live via Edge: `C:\\Users\\Yassine\\AppData\\Local\\Temp\\codex-shot-2026-03-31_02-38-35.png`
+    - constat: un seul bouton `+` visible, rows de modes plus compactes, historique remonte plus haut
+- Fichiers touches:
+  - `src/components/SidebarLeft.tsx`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - faire de l'historique la vraie masse utile de la colonne
+  - clarifier l'action "nouvelle discussion" en un seul point d'entree contextuel
+  - rendre la sidebar plus dense et moins repetitive
+
 ## Mise a jour complementaire - 2026-03-31 (fin de reponse plus stable + thinking replie)
 - Besoin traite:
   - l'utilisateur signalait un petit "sursaut" visuel quand le message IA se terminait

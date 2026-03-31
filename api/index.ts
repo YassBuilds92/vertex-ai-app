@@ -54,6 +54,7 @@ import {
   DEFAULT_TTS_MODEL,
   generateGeminiTtsBinary,
   generateImageBinary,
+  isLyriaPolicyBlockedError,
   generateLyriaBinary,
   generatePodcastEpisode,
 } from '../server/lib/media-generation.js';
@@ -606,6 +607,7 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
   - En duo TTS/podcast, choisis toujours 2 voix distinctes et 2 styles de jeu contrastes. Ne garde jamais la meme voix pour les 2 intervenants.
   - Quand un script contient des noms propres ou mots etrangers relevant d'une autre ecriture, garde cette ecriture d'origine si cela fluidifie la prononciation.
   - Pour la musique podcast, 'lyria-002' reste le defaut robuste. 'lyria-3-clip-preview' et 'lyria-3-pro-preview' sont des options preview a utiliser seulement si le besoin le justifie.
+  - Si Lyria bloque un prompt, simplifie-le immediatement en brief musical neutre: genre, humeur, tempo, instruments, structure, langue. Evite l'imitation d'artiste et les formulations sensibles inutiles au rendu sonore.
   - Voix Gemini officielles disponibles: ${GEMINI_TTS_VOICE_CATALOG_HINT}.
   - Pour les PDF premium en LaTeX, tu peux faire une vraie direction artistique par section/page via les champs de section: 'visualTheme', 'mood', 'motif', 'flagHints', 'pageStyle', 'pageBreakBefore', sans avoir a ecrire tout le .tex toi-meme.
 ${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraiment necessaires.\n" : ""}${capabilities.webSearch ? "  - 'web_search' : reperage de pistes, de sources et d'angles; cherche souvent plusieurs fois quand le sujet est large ou sensible.\n  - 'web_fetch' : lecture directe d'une URL precise; sur un travail factualise ambitieux, c'est lui qui transforme une piste en source vraiment lue.\n  - 'music_catalog_lookup' : raccourci specialise pour discographie, titres, catalogue, paroles et couverture artiste.\n" : ""}${debugReasoning ? "  - 'publish_status' et 'report_progress' existent seulement en debug. Ils sont facultatifs et ne conditionnent pas ta capacite a agir.\n" : ""}
@@ -912,6 +914,8 @@ export const __coworkLoopInternals = {
   getCoworkPublicPhase,
   normalizeCoworkPhase,
   classifyCoworkExecutionMode,
+  getCoworkToolFailureScope,
+  isTransientCoworkToolIssue,
   requestIsCoworkMetaDiscussion,
   requestRequiresAbuseBlock,
   assessReadablePageRelevance,
@@ -923,6 +927,123 @@ function normalizeCoworkText(value?: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function getCoworkToolFailureScope(toolName: string, args: any) {
+  if (toolName === 'run_hub_agent') {
+    const agentId = String(args?.agentId || '').trim();
+    const mission = String(args?.mission || '').trim();
+    const normalizedAgent = normalizeCoworkText(agentId).replace(/\s+/g, ' ').trim() || 'agent';
+    const normalizedMission = normalizeCoworkText(mission).replace(/\s+/g, ' ').trim() || 'mission';
+    return {
+      exactKey: `${toolName}:agent:${normalizedAgent}:mission:${normalizedMission}`,
+      familyKey: `${toolName}:agent:${normalizedAgent}`,
+      label: agentId || '(agent vide)'
+    };
+  }
+
+  if (toolName === 'web_search') {
+    const query = String(args?.query || '').trim();
+    const normalizedQuery = normalizeCoworkText(query).replace(/\s+/g, ' ').trim() || 'vide';
+    const family = extractSearchAnchorTokens(query).slice(0, 3).join(' ') || normalizedQuery;
+    return {
+      exactKey: `${toolName}:query:${normalizedQuery}`,
+      familyKey: `${toolName}:family:${family}`,
+      label: query || '(requete vide)'
+    };
+  }
+
+  if (toolName === 'web_fetch') {
+    const url = String(args?.url || '').trim();
+    const parsed = safeParseUrl(url);
+    const normalizedUrl = parsed ? parsed.toString().split('#')[0] : normalizeCoworkText(url);
+    const hostname = parsed ? stripWww(parsed.hostname) : normalizeCoworkText(url);
+    return {
+      exactKey: `${toolName}:url:${normalizedUrl || 'vide'}`,
+      familyKey: `${toolName}:host:${hostname || 'vide'}`,
+      label: url || '(url vide)'
+    };
+  }
+
+  if (toolName === 'generate_music_audio') {
+    const prompt = String(args?.prompt || '').trim();
+    const model = normalizeCoworkText(String(args?.model || DEFAULT_LYRIA_MODEL)).replace(/\s+/g, ' ').trim() || 'default';
+    const normalizedPrompt = normalizeCoworkText(prompt).replace(/\s+/g, ' ').trim() || 'vide';
+    const family = extractSearchAnchorTokens(prompt).slice(0, 5).join(' ') || normalizedPrompt.slice(0, 96) || 'vide';
+    return {
+      exactKey: `${toolName}:model:${model}:prompt:${normalizedPrompt}`,
+      familyKey: `${toolName}:model:${model}:family:${family}`,
+      label: clipText(prompt || toolName, 120) || toolName
+    };
+  }
+
+  if (toolName === 'generate_tts_audio' || toolName === 'generate_image_asset' || toolName === 'create_podcast_episode') {
+    const rawIntent = toolName === 'generate_tts_audio'
+      ? String(args?.text || args?.prompt || '').trim()
+      : toolName === 'create_podcast_episode'
+        ? String(args?.title || args?.brief || args?.script || '').trim()
+        : String(args?.prompt || '').trim();
+    const modelValue = toolName === 'generate_tts_audio'
+      ? String(args?.model || DEFAULT_TTS_MODEL)
+      : toolName === 'create_podcast_episode'
+        ? String(args?.musicModel || args?.ttsModel || DEFAULT_PODCAST_TTS_MODEL)
+        : String(args?.model || DEFAULT_IMAGE_MODEL);
+    const model = normalizeCoworkText(modelValue).replace(/\s+/g, ' ').trim() || 'default';
+    const normalizedIntent = normalizeCoworkText(rawIntent).replace(/\s+/g, ' ').trim() || 'vide';
+    const family = extractSearchAnchorTokens(rawIntent).slice(0, 5).join(' ') || normalizedIntent.slice(0, 96) || 'vide';
+    return {
+      exactKey: `${toolName}:model:${model}:intent:${normalizedIntent}`,
+      familyKey: `${toolName}:model:${model}:family:${family}`,
+      label: clipText(rawIntent || toolName, 120) || toolName
+    };
+  }
+
+  return {
+    exactKey: `${toolName}:global`,
+    familyKey: `${toolName}:global`,
+    label: toolName
+  };
+}
+
+function isTransientCoworkToolIssue(toolName: string, errorLike: unknown): boolean {
+  const normalized = normalizeCoworkText(parseApiError(errorLike));
+  if (!normalized) return false;
+
+  const genericTransient =
+    normalized.includes('500')
+    || normalized.includes('502')
+    || normalized.includes('503')
+    || normalized.includes('internal server error')
+    || normalized.includes('server error')
+    || normalized.includes('temporarily unavailable')
+    || normalized.includes('unavailable')
+    || normalized.includes('deadline exceeded')
+    || normalized.includes('timeout')
+    || normalized.includes('timed out');
+
+  if (toolName === 'web_search' || toolName === 'web_fetch') {
+    return genericTransient
+      || normalized.includes('429')
+      || normalized.includes('resource exhausted')
+      || normalized.includes('too many requests')
+      || normalized.includes('rate limit')
+      || normalized.includes('forbidden')
+      || normalized.includes('403')
+      || normalized.includes('simultan')
+      || normalized.includes('concurrent')
+      || normalized.includes('parallel')
+      || normalized.includes('too many simultaneous');
+  }
+
+  if (toolName === 'generate_music_audio' || toolName === 'generate_image_asset' || toolName === 'generate_tts_audio' || toolName === 'create_podcast_episode') {
+    return genericTransient
+      || normalized.includes('429')
+      || normalized.includes('resource exhausted')
+      || normalized.includes('too many requests')
+      || normalized.includes('rate limit');
+  }
+
+  return false;
 }
 
 function getCoworkIntentWindow(message: string, maxChars = 320): string {
@@ -6381,7 +6502,7 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "generate_music_audio",
-        description: "Genere une boucle ou un clip musical via Lyria, l'ecrit dans '/tmp/' et renvoie le chemin du fichier. `lyria-002` reste le choix le plus robuste pour un bed podcast. `lyria-3-clip-preview` et `lyria-3-pro-preview` existent en preview pour des essais plus ambitieux, mais ne doivent pas remplacer le defaut robuste sans raison. Utile pour une ambiance, un bed musical ou une texture sonore quand l'utilisateur veut la musique seule. Pour un podcast pret a publier avec voix + musique + mix final, prefere 'create_podcast_episode'.",
+        description: "Genere une boucle ou un clip musical via Lyria, l'ecrit dans '/tmp/' et renvoie le chemin du fichier. `lyria-002` reste le choix le plus robuste pour un bed podcast. `lyria-3-clip-preview` et `lyria-3-pro-preview` existent en preview pour des essais plus ambitieux, mais ne doivent pas remplacer le defaut robuste sans raison. Utile pour une ambiance, un bed musical ou une texture sonore quand l'utilisateur veut la musique seule. Pour un podcast pret a publier avec voix + musique + mix final, prefere 'create_podcast_episode'. Si un filtre Lyria bloque un prompt, reformule-le de facon plus neutre et musicale (genre, humeur, tempo, instruments, structure) en evitant les formulations sensibles ou d'imitation.",
         parameters: {
           type: "object",
           properties: {
@@ -6412,14 +6533,28 @@ app.post('/api/cowork', async (req, res) => {
           location?: string;
           filename?: string;
         }) => {
-          const artifact = await generateLyriaBinary({
-            prompt,
-            model,
-            negativePrompt,
-            seed,
-            sampleCount,
-            location
-          });
+          let artifact: Awaited<ReturnType<typeof generateLyriaBinary>>;
+          try {
+            artifact = await generateLyriaBinary({
+              prompt,
+              model,
+              negativePrompt,
+              seed,
+              sampleCount,
+              location
+            });
+          } catch (error) {
+            if (isLyriaPolicyBlockedError(error)) {
+              return {
+                success: false,
+                recoverable: true,
+                policyBlocked: true,
+                error: "Le prompt Lyria a ete bloque par le filtre de securite.",
+                message: "Reformule en brief plus neutre: style, humeur, BPM, instruments, structure, langue. Evite les formulations sensibles, les details trop personnels et toute imitation d'artiste."
+              };
+            }
+            throw error;
+          }
           const outputPath = buildGeneratedArtifactPath('cowork-music', artifact.fileExtension, filename);
           fs.writeFileSync(outputPath, artifact.buffer);
           return {
@@ -8784,48 +8919,7 @@ app.post('/api/cowork', async (req, res) => {
       sessionState.searchesFailed = [...sessionState.searchesFailed, failure].slice(-16);
     };
 
-    const getToolFailureScope = (toolName: string, args: any) => {
-      if (toolName === 'run_hub_agent') {
-        const agentId = String(args?.agentId || '').trim();
-        const mission = String(args?.mission || '').trim();
-        const normalizedAgent = normalizeCoworkText(agentId).replace(/\s+/g, ' ').trim() || 'agent';
-        const normalizedMission = normalizeCoworkText(mission).replace(/\s+/g, ' ').trim() || 'mission';
-        return {
-          exactKey: `${toolName}:agent:${normalizedAgent}:mission:${normalizedMission}`,
-          familyKey: `${toolName}:agent:${normalizedAgent}`,
-          label: agentId || '(agent vide)'
-        };
-      }
-
-      if (toolName === 'web_search') {
-        const query = String(args?.query || '').trim();
-        const normalizedQuery = normalizeCoworkText(query).replace(/\s+/g, ' ').trim() || 'vide';
-        const family = extractSearchAnchorTokens(query).slice(0, 3).join(' ') || normalizedQuery;
-        return {
-          exactKey: `${toolName}:query:${normalizedQuery}`,
-          familyKey: `${toolName}:family:${family}`,
-          label: query || '(requete vide)'
-        };
-      }
-
-      if (toolName === 'web_fetch') {
-        const url = String(args?.url || '').trim();
-        const parsed = safeParseUrl(url);
-        const normalizedUrl = parsed ? parsed.toString().split('#')[0] : normalizeCoworkText(url);
-        const hostname = parsed ? stripWww(parsed.hostname) : normalizeCoworkText(url);
-        return {
-          exactKey: `${toolName}:url:${normalizedUrl || 'vide'}`,
-          familyKey: `${toolName}:host:${hostname || 'vide'}`,
-          label: url || '(url vide)'
-        };
-      }
-
-      return {
-        exactKey: `${toolName}:global`,
-        familyKey: `${toolName}:global`,
-        label: toolName
-      };
-    };
+    const getToolFailureScope = (toolName: string, args: any) => getCoworkToolFailureScope(toolName, args);
 
     const getToolFailureCount = (scope: { exactKey: string; familyKey: string }) => {
       return Math.max(
@@ -8863,11 +8957,7 @@ app.post('/api/cowork', async (req, res) => {
       delete sessionState.consecutiveDegradedSearches[scope.familyKey];
     };
 
-    const isTransientToolIssue = (toolName: string, errorLike: unknown) => {
-      if (toolName !== 'web_search' && toolName !== 'web_fetch') return false;
-      const normalized = normalizeCoworkText(parseApiError(errorLike));
-      return /\b(403|429|quota|simultan|concurrent|temporar|indisponible|unavailable|deadline exceeded|too many requests|saturation)\b/.test(normalized);
-    };
+    const isTransientToolIssue = (toolName: string, errorLike: unknown) => isTransientCoworkToolIssue(toolName, errorLike);
 
     const getActiveCooldown = (scopeKey: string): ToolCooldownState | null => {
       const cooldown = sessionState.cooldowns[scopeKey];

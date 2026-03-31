@@ -4,6 +4,48 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-31 (Lyria 3 / erreurs Cowork mieux classees)
+- Besoin traite:
+  - l'utilisateur signalait que certaines requetes musique Cowork "n'y arrivaient pas" sans raison claire
+  - un run Lyria 3 pouvait enchainer un blocage policy puis un `Internal server error`, avant que l'anti-boucle coupe tout
+- Cause racine confirmee:
+  - `api/index.ts` traitait encore `generate_music_audio` comme un scope global dans `getToolFailureScope`
+  - `server/lib/google-genai.ts` ne classait pas `Internal server error` / `500` comme incident serveur retryable
+  - `api/index.ts` ne considerait transitoires que `web_search` / `web_fetch`, donc un hoquet Lyria comptait a tort comme echec definitif
+  - le tool `generate_music_audio` renvoyait un throw brut sur policy block, sans guidance de reformulation
+- Correctifs appliques:
+  - `api/index.ts`
+    - ajout de `getCoworkToolFailureScope()` exporte pour les scopes d'echec plus fins
+    - scope media par `model + prompt/intent family` pour `generate_music_audio` et autres tools media proches
+    - ajout de `isTransientCoworkToolIssue()` exporte
+    - `generate_music_audio` retourne maintenant un echec `recoverable:true` avec guidance si Lyria bloque le prompt par policy
+    - consigne systeme Cowork enrichie pour simplifier les prompts Lyria bloques
+  - `server/lib/google-genai.ts`
+    - `retryWithBackoff()` reconnait maintenant `500`, `502`, `internal server error`, `timeout` comme erreurs serveur retryables
+  - `server/lib/media-generation.ts`
+    - ajout de `isLyriaPolicyBlockedError()`
+  - tests:
+    - `test-cowork-loop.ts` couvre maintenant aussi le scope musique, la classification transitoire et le retry `Internal server error`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npx tsx test-podcast-media.ts` : OK
+  - verification doc officielle Google:
+    - Lyria 3 Vertex AI est bien documente au `2026-03-31` avec `lyria-3-pro-preview` / `lyria-3-clip-preview`
+    - endpoint REST officiel confirme: `POST https://aiplatform.googleapis.com/v1beta1/projects/PROJECT_ID/locations/global/interactions`
+- Fichiers touches:
+  - `api/index.ts`
+  - `server/lib/google-genai.ts`
+  - `server/lib/media-generation.ts`
+  - `test-cowork-loop.ts`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - faire la difference entre un prompt musical mal formule et un incident infra temporaire
+  - empecher l'anti-boucle de bloquer toute la musique sur deux echecs heterogenes
+  - rendre les echecs Lyria 3 plus honnetes, plus explicables, et plus reformulables
+
 ## Mise a jour complementaire - 2026-03-31 (historique prioritaire, plus migre en barre haute)
 - Besoin traite:
   - l'utilisateur trouvait encore l'historique trop resserre apres la premiere simplification

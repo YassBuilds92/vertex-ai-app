@@ -128,6 +128,18 @@ function clipText(value: unknown, max = 240): string {
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
+function normalizeGenerationError(error: unknown): string {
+  return `${String(error || '')} ${parseApiError(error as any)}`.toLowerCase();
+}
+
+export function isLyriaPolicyBlockedError(error: unknown): boolean {
+  const normalized = normalizeGenerationError(error);
+  return normalized.includes('generative ai prohibited use policy')
+    || normalized.includes('prohibited use policy')
+    || normalized.includes('prompt contains sensitive words')
+    || normalized.includes('sensitive words that violate');
+}
+
 function sanitizeSpeakerName(value: unknown): string {
   return clipText(value, 40)
     .replace(/[\r\n]+/g, ' ')

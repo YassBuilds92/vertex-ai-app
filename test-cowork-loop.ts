@@ -4,6 +4,7 @@ process.env.VERCEL = '1';
 
 const { __coworkLoopInternals } = await import('./api/index.ts');
 const { __coworkPdfInternals } = await import('./api/index.ts');
+const { retryWithBackoff } = await import('./server/lib/google-genai.ts');
 const { pickHubAgentRecord, sanitizeHubAgentRecord, summarizeHubAgentsForPrompt } = await import('./server/lib/agents.ts');
 
 const {
@@ -20,6 +21,8 @@ const {
   buildCoworkProgressFingerprint,
   registerCoworkProgressState,
   classifyCoworkExecutionMode,
+  getCoworkToolFailureScope,
+  isTransientCoworkToolIssue,
   markVisibleDeliveryAttempt,
   requestIsCoworkMetaDiscussion,
   requestRequiresAbuseBlock,
@@ -207,6 +210,66 @@ const baseResearch = {
 
   assert.notEqual(baseFingerprint, progressedFingerprint);
   assert.equal(registerCoworkProgressState(state, progressedFingerprint, 'web_fetch'), 0);
+}
+
+{
+  const nurseryScope = getCoworkToolFailureScope('generate_music_audio', {
+    model: 'lyria-3-pro-preview',
+    prompt: 'Playful nursery folk song about little fish for Ilyess with xylophone and guitar.',
+  });
+  const technoScope = getCoworkToolFailureScope('generate_music_audio', {
+    model: 'lyria-3-pro-preview',
+    prompt: 'Dark industrial techno with metallic percussion and distorted synth bass.',
+  });
+
+  assert.notEqual(nurseryScope.exactKey, technoScope.exactKey);
+  assert.notEqual(nurseryScope.familyKey, technoScope.familyKey);
+  assert.ok(nurseryScope.label.includes('Playful nursery folk song'));
+}
+
+{
+  assert.equal(isTransientCoworkToolIssue('generate_music_audio', new Error('Internal server error')), true);
+  assert.equal(
+    isTransientCoworkToolIssue(
+      'generate_music_audio',
+      new Error("The prompt contains sensitive words that violate Google's Generative AI Prohibited Use policy."),
+    ),
+    false,
+  );
+}
+
+{
+  let attempts = 0;
+  const result = await retryWithBackoff(async () => {
+    attempts += 1;
+    if (attempts < 3) {
+      throw new Error('Internal server error');
+    }
+    return 'ok';
+  }, {
+    maxRetries: 3,
+    exactDelaysMs: [0, 0, 0],
+    jitter: false,
+  });
+
+  assert.equal(result, 'ok');
+  assert.equal(attempts, 3);
+}
+
+{
+  let attempts = 0;
+  await assert.rejects(
+    retryWithBackoff(async () => {
+      attempts += 1;
+      throw new Error("The prompt contains sensitive words that violate Google's Generative AI Prohibited Use policy.");
+    }, {
+      maxRetries: 3,
+      exactDelaysMs: [0, 0, 0],
+      jitter: false,
+    }),
+  );
+
+  assert.equal(attempts, 1);
 }
 
 {

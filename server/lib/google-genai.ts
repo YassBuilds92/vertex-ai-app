@@ -63,10 +63,16 @@ function classifyRetryableError(error: any): { retryable: boolean; kind: RetryKi
     || normalized.includes('parallel')
     || normalized.includes('too many simultaneous');
   const isServerLike =
-    normalized.includes('503')
+    normalized.includes('500')
+    || normalized.includes('502')
+    || normalized.includes('503')
+    || normalized.includes('internal server error')
+    || normalized.includes('server error')
     || normalized.includes('unavailable')
     || normalized.includes('temporarily')
-    || normalized.includes('deadline exceeded');
+    || normalized.includes('deadline exceeded')
+    || normalized.includes('timeout')
+    || normalized.includes('timed out');
 
   if (!(isQuotaLike || isConcurrencyLike || isServerLike)) {
     return { retryable: false, kind: 'server', message: cleanMessage };

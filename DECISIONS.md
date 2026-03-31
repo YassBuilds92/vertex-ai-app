@@ -1,5 +1,21 @@
 # DECISIONS
 
+## 2026-03-31 - Les echecs media Cowork deviennent scopes et types, pas un bloc global opaque
+- Statut: adopte
+- Contexte: des runs Cowork sur Lyria 3 pouvaient enchainer un blocage policy de prompt puis un `Internal server error`, mais la boucle traitait encore `generate_music_audio` comme un scope global et additionnait ces deux echecs comme s'ils avaient la meme nature.
+- Decision:
+  - sortir un helper partage `getCoworkToolFailureScope()` et donner aux tools media un scope base sur le brief et le modele plutot qu'un scope global
+  - reconnaitre les incidents transitoires media via `isTransientCoworkToolIssue()` (`500/502/503`, timeout, quotas)
+  - transformer les policy blocks Lyria en retour `recoverable:true` avec guidance de reformulation, au lieu d'un throw brut
+- Pourquoi:
+  - un prompt bloque par safety et un backend Google indisponible ne doivent pas nourrir la meme logique anti-boucle
+  - un essai musique rate ne doit pas empoisonner tout le reste du run Cowork
+  - l'agent reste libre, mais le backend verifie les echecs avec une granularite plus juste
+- Consequence:
+  - `generate_music_audio` n'est plus bloque "globalement" apres deux echecs heterogenes
+  - un `Internal server error` Lyria peut etre retrie/cooldown comme incident transitoire
+  - la boucle peut guider une reformulation propre quand le prompt tombe sur le filtre policy
+
 ## 2026-03-31 - Le bouton de nouvelle discussion sort de la sidebar et monte dans la barre haute
 - Statut: adopte
 - Contexte: meme apres la simplification precedente, la sidebar restait trop contrainte verticalement. Le vrai probleme n'etait pas seulement le nombre de `+`, mais le fait qu'un gros CTA occupait encore une ligne complete au-dessus de l'historique.

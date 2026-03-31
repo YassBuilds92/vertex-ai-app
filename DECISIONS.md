@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-03-31 - Un livrable Cowork publie devient une vraie piece jointe de message
+- Statut: adopte
+- Contexte: Cowork savait deja creer et publier des fichiers, mais l'utilisateur ne recevait souvent qu'un lien texte dans la reponse finale. Cela cassait la promesse produit de "livrer" un media directement dans la page, surtout pour `mp3`, `mp4` et autres formats previewables.
+- Decision:
+  - enrichir `release_file` avec un payload riche (`path`, `fileName`, `mimeType`, `attachmentType`, `fileSizeBytes`)
+  - emettre un evenement SSE explicite `released_file` apres une publication reussie
+  - hydrater cet evenement dans `src/utils/cowork.ts` comme `msg.attachments` persistantes plutot que de tenter de parser le texte final
+  - centraliser l'inference du type de livrable dans `shared/released-artifacts.ts` pour garder la meme logique entre backend et frontend
+- Pourquoi:
+  - l'UI media existe deja, donc la vraie lacune etait le contrat de livraison, pas le player lui-meme
+  - parser les liens markdown finaux serait fragile, ambigu et trop dependant de la formulation du modele
+  - un evenement dedie garde Cowork modele-led: le modele choisit toujours quand publier, tandis que l'orchestrateur expose honnetement le resultat publie
+- Consequence:
+  - un `mp3`, `wav`, `mp4` ou PDF publie par Cowork peut apparaitre immediatement dans la conversation comme livrable exploitable
+  - l'historique Cowork rehydrate mieux les livraisons, y compris apres snapshot/local storage/Firestore
+  - les cartes audio/video peuvent maintenant offrir preview + ouverture + telechargement de facon coherente
+
 ## 2026-03-31 - Les echecs media Cowork deviennent scopes et types, pas un bloc global opaque
 - Statut: adopte
 - Contexte: des runs Cowork sur Lyria 3 pouvaient enchainer un blocage policy de prompt puis un `Internal server error`, mais la boucle traitait encore `generate_music_audio` comme un scope global et additionnait ces deux echecs comme s'ils avaient la meme nature.

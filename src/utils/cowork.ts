@@ -1,4 +1,4 @@
-import { AgentBlueprint, ActivityItem, Message, RunMeta, RunState } from '../types';
+import { AgentBlueprint, ActivityItem, Attachment, Message, RunMeta, RunState } from '../types';
 
 const MAX_ACTIVITY_ITEMS = 80;
 const MAX_ACTIVITY_TEXT = 420;
@@ -65,6 +65,15 @@ export type CoworkStreamEvent =
       timestamp?: number;
       iteration?: number;
       blueprint?: AgentBlueprint;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
+      type: 'released_file';
+      timestamp?: number;
+      iteration?: number;
+      title?: string;
+      message?: string;
+      attachment?: Attachment;
       runMeta?: Partial<RunMeta>;
     }
   | {
@@ -146,6 +155,34 @@ function sanitizeMeta(meta?: Record<string, ActivityMetaValue>) {
 
 function nextActivityId(messageId: string, length: number) {
   return `${messageId}-act-${length + 1}`;
+}
+
+function sanitizeAttachment(attachment: Attachment): Attachment {
+  return {
+    id: attachment.id || `${attachment.type}-${attachment.url}`,
+    type: attachment.type,
+    url: attachment.url,
+    mimeType: attachment.mimeType,
+    name: attachment.name,
+    thumbnail: attachment.thumbnail,
+    base64: attachment.base64,
+  };
+}
+
+function mergeAttachments(
+  current?: Attachment[],
+  incoming?: Attachment[],
+): Attachment[] | undefined {
+  const merged = new Map<string, Attachment>();
+
+  for (const attachment of [...(current || []), ...(incoming || [])]) {
+    if (!attachment?.url) continue;
+    const sanitized = sanitizeAttachment(attachment);
+    const key = `${sanitized.type}:${sanitized.url}:${sanitized.name || ''}`;
+    merged.set(key, sanitized);
+  }
+
+  return merged.size > 0 ? Array.from(merged.values()) : undefined;
 }
 
 function pushActivity(message: Message, item: ActivityItem): Message {
@@ -287,6 +324,40 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
         })
       );
 
+    case 'released_file': {
+      const nextAttachments = mergeAttachments(
+        next.attachments,
+        event.attachment ? [event.attachment] : undefined,
+      );
+      const withAttachment = {
+        ...next,
+        attachments: nextAttachments,
+      };
+
+      if (!event.title && !event.message && !event.attachment) {
+        return withAttachment;
+      }
+
+      return pushActivity(
+        withAttachment,
+        createActivityItem(withAttachment, 'status', iteration, timestamp, {
+          title: event.title || 'Livrable publie',
+          message:
+            event.message
+            || (event.attachment?.name
+              ? `${event.attachment.name} est disponible en preview dans la conversation.`
+              : "Le livrable publie est disponible dans la conversation."),
+          meta: event.attachment
+            ? {
+                type: event.attachment.type,
+                mimeType: event.attachment.mimeType,
+              }
+            : undefined,
+          status: 'success',
+        })
+      );
+    }
+
     case 'warning':
       next.runState = next.runState === 'failed' ? 'failed' : next.runState;
       return pushActivity(
@@ -340,6 +411,7 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
 export function sanitizeCoworkMessageForStorage(message: Message): Message {
   return {
     ...message,
+    attachments: mergeAttachments(message.attachments),
     thoughts: clipText(message.thoughts, MAX_THOUGHT_CHARS),
     runMeta: mergeRunMeta(createEmptyRunMeta(), message.runMeta),
     activity: (message.activity || [])
@@ -411,7 +483,7 @@ function mergeCoworkMessage(current: Message, snapshot: Message): Message {
     ...current,
     content: pickLongerText(current.content, snapshot.content) || '',
     thoughts: pickLongerText(current.thoughts, snapshot.thoughts),
-    attachments: (current.attachments?.length ?? 0) > 0 ? current.attachments : snapshot.attachments,
+    attachments: mergeAttachments(current.attachments, snapshot.attachments),
     images: (current.images?.length ?? 0) > 0 ? current.images : snapshot.images,
     thoughtImages: (current.thoughtImages?.length ?? 0) > 0 ? current.thoughtImages : snapshot.thoughtImages,
     audio: current.audio || snapshot.audio,

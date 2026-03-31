@@ -28,6 +28,10 @@ function getAttachmentMeta(attachment: Attachment) {
   return attachment.type;
 }
 
+function getDownloadName(attachment: Attachment, fallback: string) {
+  return attachment.name || fallback;
+}
+
 export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
   attachments,
   setSelectedImage,
@@ -111,13 +115,24 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
                   <div className="truncate text-sm font-medium text-[var(--app-text)]">{attachment.name || 'Video jointe'}</div>
                   <div className="text-[11px] text-[var(--app-text-muted)]">{getAttachmentMeta(attachment)}</div>
                 </div>
+              </div>
+              <div className="flex flex-wrap gap-2 px-3 pb-3">
                 <a
                   href={attachment.url}
-                  download={attachment.name || 'video'}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-[var(--app-text)]"
-                  title="Telecharger"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
                 >
-                  <Download size={16} />
+                  <ExternalLink size={14} />
+                  Ouvrir
+                </a>
+                <a
+                  href={attachment.url}
+                  download={getDownloadName(attachment, 'video.mp4')}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
+                >
+                  <Download size={14} />
+                  Telecharger
                 </a>
               </div>
             </motion.div>
@@ -131,12 +146,12 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               className={cn(
-                'rounded-[1.35rem] border border-white/10 bg-[var(--app-surface)]/50 p-4 shadow-xl',
+                'overflow-hidden rounded-[1.35rem] border border-fuchsia-400/14 bg-[radial-gradient(circle_at_top,rgba(244,114,182,0.14),rgba(14,14,18,0.88))] p-4 shadow-xl',
                 cardWidthClass,
               )}
             >
               <div className="mb-3 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-pink-500/10 text-pink-300">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-pink-500/12 text-pink-200 shadow-[0_12px_30px_rgba(236,72,153,0.18)]">
                   <Mic size={18} />
                 </div>
                 <div className="min-w-0">
@@ -144,7 +159,37 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
                   <div className="text-[11px] text-[var(--app-text-muted)]">{getAttachmentMeta(attachment)}</div>
                 </div>
               </div>
-              <audio controls src={attachment.url} className="w-full" />
+              <div className="mb-4 rounded-[1.15rem] border border-white/8 bg-black/20 p-3">
+                <div className="mb-3 flex h-10 items-end gap-1.5 overflow-hidden">
+                  {Array.from({ length: 18 }).map((_, barIndex) => (
+                    <span
+                      key={`${key}-bar-${barIndex}`}
+                      className="flex-1 rounded-full bg-gradient-to-t from-pink-500/22 via-fuchsia-300/45 to-white/75"
+                      style={{ height: `${28 + ((barIndex * 9) % 34)}%` }}
+                    />
+                  ))}
+                </div>
+                <audio controls src={attachment.url} className="w-full" />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={attachment.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
+                >
+                  <ExternalLink size={14} />
+                  Ouvrir
+                </a>
+                <a
+                  href={attachment.url}
+                  download={getDownloadName(attachment, 'audio.mp3')}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
+                >
+                  <Download size={14} />
+                  Telecharger
+                </a>
+              </div>
             </motion.div>
           );
         }
@@ -211,7 +256,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
               </a>
               <a
                 href={attachment.url}
-                download={attachment.name || 'document'}
+                download={getDownloadName(attachment, 'document')}
                 className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
               >
                 <Download size={14} />

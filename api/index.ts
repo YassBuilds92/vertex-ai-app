@@ -62,6 +62,11 @@ import {
   getGeminiTtsVoiceCatalogSummary,
   MAX_GEMINI_TTS_MULTI_SPEAKERS,
 } from '../shared/gemini-tts.js';
+import {
+  getReleasedArtifactName,
+  inferReleasedArtifactAttachmentType,
+  type ReleasedArtifactAttachmentType,
+} from '../shared/released-artifacts.js';
 import { buildThinkingConfig, createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
 import { buildModelContentsFromRequest } from '../server/lib/chat-parts.js';
 import { log } from '../server/lib/logger.js';
@@ -781,6 +786,87 @@ function buildCoworkFallbackMessage(releasedFile: { url: string; path?: string }
   if (!releasedFile?.url) return null;
   const fileName = releasedFile.path ? path.basename(releasedFile.path) : 'le-fichier';
   return `Voici votre fichier : [Telecharger ${fileName}](${releasedFile.url})`;
+}
+
+function buildReleasedAttachmentPayload(input: {
+  url?: unknown;
+  path?: unknown;
+  fileName?: unknown;
+  mimeType?: unknown;
+  fileSizeBytes?: unknown;
+  attachmentType?: unknown;
+}) {
+  const url = typeof input.url === 'string' ? input.url.trim() : '';
+  if (!url) return null;
+
+  const filePath = typeof input.path === 'string' ? input.path.trim() : '';
+  const fileNameValue = typeof input.fileName === 'string' ? input.fileName.trim() : '';
+  const mimeTypeValue = typeof input.mimeType === 'string' ? input.mimeType.trim() : '';
+  const inferredMimeType = mimeTypeValue || (filePath ? getMimeType(filePath) : '');
+  const inferredType = (
+    typeof input.attachmentType === 'string' && input.attachmentType.trim()
+      ? input.attachmentType.trim()
+      : inferReleasedArtifactAttachmentType({
+          mimeType: inferredMimeType,
+          fileName: fileNameValue,
+          path: filePath,
+          url,
+        })
+  ) as ReleasedArtifactAttachmentType;
+  const name = getReleasedArtifactName({
+    fileName: fileNameValue,
+    path: filePath,
+    url,
+  });
+
+  return {
+    id: `artifact-${createHash('sha1').update(`${filePath}|${url}`).digest('hex').slice(0, 12)}`,
+    type: inferredType,
+    url,
+    mimeType: inferredMimeType || undefined,
+    name,
+    fileSizeBytes: Number(input.fileSizeBytes || 0) || undefined,
+  };
+}
+
+function buildReleasedEventMessage(attachment: {
+  type: ReleasedArtifactAttachmentType;
+  name?: string;
+}) {
+  const label = attachment.name || 'Le livrable';
+  if (attachment.type === 'audio' || attachment.type === 'video') {
+    return `${label} est maintenant disponible en preview dans la conversation, avec ouverture dans un nouvel onglet et telechargement.`;
+  }
+  if (attachment.type === 'image') {
+    return `${label} est maintenant disponible dans la conversation, avec ouverture plein format et telechargement.`;
+  }
+  return `${label} est maintenant disponible a l'ouverture et au telechargement.`;
+}
+
+function extractReleasedAttachmentFromToolResult(toolName: string, args: any, output: any) {
+  if (toolName === 'release_file') {
+    return buildReleasedAttachmentPayload({
+      url: output?.url,
+      path: output?.path || args?.path,
+      fileName: output?.fileName,
+      mimeType: output?.mimeType,
+      fileSizeBytes: output?.fileSizeBytes,
+      attachmentType: output?.attachmentType,
+    });
+  }
+
+  if (toolName === 'run_hub_agent' && output?.releasedFile?.url) {
+    return buildReleasedAttachmentPayload({
+      url: output?.releasedFile?.url,
+      path: output?.releasedFile?.path || output?.createdArtifactPath,
+      fileName: output?.releasedFile?.fileName,
+      mimeType: output?.releasedFile?.mimeType,
+      fileSizeBytes: output?.releasedFile?.fileSizeBytes,
+      attachmentType: output?.releasedFile?.attachmentType,
+    });
+  }
+
+  return null;
 }
 
 function hasArtifactInFlightState(options: {
@@ -5607,6 +5693,16 @@ app.post('/api/cowork', async (req, res) => {
           alreadyCreated: Boolean(output?.alreadyCreated),
         };
       }
+      if (toolName === 'release_file') {
+        return {
+          path: clipText(output?.path || args?.path || '', 120),
+          fileName: clipText(output?.fileName || '', 80),
+          mimeType: clipText(output?.mimeType || '', 32),
+          attachmentType: clipText(output?.attachmentType || '', 16),
+          url: clipText(output?.url || '', 160),
+          fileSizeBytes: Number(output?.fileSizeBytes || 0),
+        };
+      }
       return formatToolMeta(toolName, args);
     };
     const formatToolResultPreview = (toolName: string, output: any) => {
@@ -5687,6 +5783,14 @@ app.post('/api/cowork', async (req, res) => {
           output?.warning ? clipText(output.warning, 120) : null,
           output?.path ? clipText(output.path, 120) : null,
           output?.message ? clipText(output.message, 140) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'release_file') {
+        return [
+          output?.fileName ? `publie ${output.fileName}` : null,
+          output?.attachmentType ? `type ${output.attachmentType}` : null,
+          output?.mimeType ? output.mimeType : null,
+          output?.url ? clipText(output.url, 120) : null,
         ].filter(Boolean).join(' | ');
       }
       if (toolName === 'web_search') {
@@ -7599,9 +7703,23 @@ app.post('/api/cowork', async (req, res) => {
           const buffer = fs.readFileSync(absolutePath);
           const fileName = path.basename(filePath);
           const mimeType = getMimeType(filePath);
+          const attachmentType = inferReleasedArtifactAttachmentType({
+            mimeType,
+            fileName,
+            path: filePath,
+          });
           log.info(`Releasing file: ${filePath} (${mimeType})`);
           const url = await uploadToGCS(buffer, fileName, mimeType);
-          return { success: true, url, message: `Fichier ${filePath} uploadÃƒÂ© avec succÃƒÂ¨s. Voici le lien de tÃƒÂ©lÃƒÂ©chargement.` };
+          return {
+            success: true,
+            url,
+            path: filePath,
+            fileName,
+            mimeType,
+            attachmentType,
+            fileSizeBytes: buffer.byteLength,
+            message: `Fichier ${filePath} uploadÃƒÂ© avec succÃƒÂ¨s. Voici le lien de tÃƒÂ©lÃƒÂ©chargement.`,
+          };
         }
       },
       {
@@ -9344,10 +9462,21 @@ app.post('/api/cowork', async (req, res) => {
                 }
               }
 
-              if (!isError && tool.name === 'release_file' && typeof (output as any).url === 'string') {
+              const releasedAttachment = !isError
+                ? extractReleasedAttachmentFromToolResult(tool.name, call.args, output)
+                : null;
+
+              if (!isError && releasedAttachment) {
                 latestReleasedFile = {
-                  url: (output as any).url,
-                  path: typeof (call.args as any)?.path === 'string' ? (call.args as any).path : undefined
+                  url: releasedAttachment.url,
+                  path:
+                    typeof (output as any)?.path === 'string'
+                      ? (output as any).path
+                      : typeof (output as any)?.releasedFile?.path === 'string'
+                        ? (output as any).releasedFile.path
+                        : typeof (call.args as any)?.path === 'string'
+                          ? (call.args as any).path
+                          : undefined
                 };
               }
               if (!isError) {
@@ -9465,6 +9594,15 @@ app.post('/api/cowork', async (req, res) => {
                 meta: formatToolResultMeta(tool.name, call.args, output),
                 runMeta
               });
+              if (releasedAttachment) {
+                emitEvent('released_file', {
+                  iteration: iterations,
+                  title: 'Livraison',
+                  message: buildReleasedEventMessage(releasedAttachment),
+                  attachment: releasedAttachment,
+                  runMeta
+                });
+              }
               if (!isError && ['create_agent_blueprint', 'update_agent_blueprint'].includes(tool.name) && (output as any).blueprint) {
                 emitEvent('agent_blueprint', {
                   iteration: iterations,

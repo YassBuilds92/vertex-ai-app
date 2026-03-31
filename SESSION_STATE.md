@@ -4,6 +4,57 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-31 (livrables Cowork medias previewables dans la page)
+- Besoin traite:
+  - l'utilisateur voulait que Cowork livre ses produits generes directement dans la conversation
+  - il fallait une vraie preview in-page pour les formats media (`mp3`, `mp4`, etc.), avec ouverture dans un nouvel onglet et telechargement
+- Cause racine confirmee:
+  - `api/index.ts` n'emetait aucun evenement SSE riche quand `release_file` publiait un fichier; le message final restait surtout un lien texte
+  - `release_file` renvoyait seulement `url` + `message`, sans `mimeType`, `fileName` ni type de media exploitable cote frontend
+  - `src/utils/cowork.ts` ne savait pas transformer une publication de fichier en `attachments` persistantes sur le message Cowork
+  - `src/components/AttachmentGallery.tsx` affichait deja la preview, mais l'audio n'avait ni bouton `Ouvrir` ni `Telecharger`, et la video n'avait pas d'ouverture en nouvel onglet
+  - `server/lib/path-utils.ts` ne reconnaissait pas encore plusieurs mimes de livraison reellement utiles (`.mp4`, `.webm`, `.mov`, `.m4a`, etc.)
+- Correctifs appliques:
+  - `shared/released-artifacts.ts`
+    - nouveau helper partage pour inferer le type de livrable publie (`image`, `video`, `audio`, `document`)
+    - derive aussi un nom propre de fichier a partir du `fileName`, du `path` ou de l'URL
+  - `api/index.ts`
+    - `release_file` renvoie maintenant `path`, `fileName`, `mimeType`, `attachmentType` et `fileSizeBytes`
+    - ajout d'un payload partage de livrable publie + emission d'un nouvel evenement SSE `released_file`
+    - `run_hub_agent` peut maintenant aussi remonter un livrable publie dans le meme mecanisme d'affichage
+    - `tool_result` pour `release_file` affiche des metas plus utiles
+  - `src/utils/cowork.ts`
+    - ajout du type d'evenement `released_file`
+    - hydratation du fichier publie dans `msg.attachments`
+    - fusion/deduplication des attachments pour la persistence snapshot + rehydratation Firestore
+  - `src/components/AttachmentGallery.tsx`
+    - carte audio enrichie avec preview plus lisible et actions `Ouvrir` / `Telecharger`
+    - carte video enrichie avec `Ouvrir` / `Telecharger`
+    - harmonisation du nom de telechargement pour les documents
+  - `server/lib/path-utils.ts`
+    - ajout des mimes manquants pour les livraisons media frequentes
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation visuelle partielle:
+    - un harness temporaire de preview a ete genere localement a partir du vrai composant `AttachmentGallery`
+    - la capture navigateur automatisee via Playwright MCP reste bloquee par la permission Windows sur `C:\\Windows\\System32\\.playwright-mcp`
+    - la capture OS de fenetre a ete tentee, mais Windows a systematiquement reactive un autre onglet Edge deja ouvert; pas de preuve visuelle fiable conservee pour cette session
+- Fichiers touches:
+  - `api/index.ts`
+  - `server/lib/path-utils.ts`
+  - `src/components/AttachmentGallery.tsx`
+  - `src/utils/cowork.ts`
+  - `shared/released-artifacts.ts`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `COWORK.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - faire d'un `release_file` un vrai livrable visible et exploitable dans la conversation
+  - conserver la logique modele-led de Cowork, sans auto-publication magique
+  - rendre la livraison media plus premium et plus claire pour l'utilisateur final
+
 ## Mise a jour complementaire - 2026-03-31 (Lyria 3 / erreurs Cowork mieux classees)
 - Besoin traite:
   - l'utilisateur signalait que certaines requetes musique Cowork "n'y arrivaient pas" sans raison claire

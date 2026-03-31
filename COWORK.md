@@ -8,6 +8,23 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Toute modification qui s'ecarte de cette direction ne doit PAS etre retenue par defaut. Si un changement reduit l'autonomie, la visibilite, la reflexivite ou la capacite de decision de l'agent, il est considere comme hors philosophie produit sauf validation explicite de Yassine.
 - Le but n'est pas de "simuler" une boucle agentique avec un backend qui pense a la place du modele. Le but est de laisser l'IA piloter reellement son travail dans un cadre de securite clair.
 
+## Mise a jour 2026-03-31 - Livrables medias directement dans la conversation
+- Cowork peut maintenant faire remonter un livrable publie comme une vraie piece jointe de message au lieu d'un simple lien texte.
+- Effet produit vise:
+  - un audio (`mp3`, `wav`, etc.) peut etre previsualise dans la page, puis ouvert dans un nouvel onglet ou telecharge
+  - une video (`mp4`, `webm`, `mov`) peut etre lue dans la page, ouverte dans un nouvel onglet ou telechargee
+  - les documents gardent leur acces `Ouvrir` / `Telecharger`
+- Contrat retenu:
+  - le modele reste libre de creer un artefact puis d'appeler `release_file` quand il le juge pertinent
+  - l'orchestrateur n'auto-publie rien a sa place
+  - une fois `release_file` reussi, le backend emet un evenement `released_file` typé qui alimente directement l'UI Cowork
+- Implementation cle:
+  - `release_file` renvoie maintenant aussi `fileName`, `mimeType`, `attachmentType` et `fileSizeBytes`
+  - `src/utils/cowork.ts` hydrate cet evenement comme `attachments` persistantes du message
+  - `AttachmentGallery` expose maintenant pour audio/video une preview in-page plus `Ouvrir` + `Telecharger`
+- Limite observee dans cette session:
+  - le rendu navigateur automatise via Playwright MCP reste bloque localement par une permission Windows hors workspace; la preuve visuelle fiable du shell complet reste donc a rejouer des que cette permission est assainie
+
 ## Philosophie Produit
 - Cowork doit fonctionner comme une IA placee dans un **bac a sable riche en outils**: web, fichiers, recherche, lecture, ecriture, execution, artefacts, verification, et tout autre outil utile a la tache.
 - L'IA doit avoir conscience de **tous** les outils disponibles, de leur role, de leurs limites, et de la bonne facon de les utiliser.

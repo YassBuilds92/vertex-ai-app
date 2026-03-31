@@ -4,6 +4,41 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-03-31 (historique prioritaire, plus migre en barre haute)
+- Besoin traite:
+  - l'utilisateur trouvait encore l'historique trop resserre apres la premiere simplification
+  - il ne voulait plus voir une "case" dediee pour le nouveau `+` dans la sidebar
+  - il preferait un `+` discret, carre/rectangle, place soit en haut de l'ecran soit dans la barre haute
+- Cause racine confirmee:
+  - meme sans les `+` dupliques par mode, la grosse ligne CTA restait une bande verticale complete au-dessus de l'historique
+  - la colonne gauche gardait encore trop de hauteur reservee au branding, aux modes et aux panneaux bas
+- Correctifs appliques:
+  - `src/App.tsx`
+    - ajout de `activeModeCreateLabel`
+    - ajout d'un bouton `+` carre contextuel dans la barre haute, a cote du menu
+  - `src/components/SidebarLeft.tsx`
+    - suppression totale de la ligne CTA "nouveau"
+    - compaction supplementaire du branding
+    - compaction des rows de modes (padding, icones, spacing)
+    - reduction des paddings du panneau compte et du footer Vertex
+    - conservation de la colonne presque uniquement pour modes + historique
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - tentative de validation visuelle locale:
+    - capture Windows active-window relancee
+    - limite: Edge a expose un autre onglet comme fenetre active, donc pas de preuve visuelle fiable du bon onglet pour cette ultime variante
+- Fichiers touches:
+  - `src/App.tsx`
+  - `src/components/SidebarLeft.tsx`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - donner un maximum de place verticale a l'historique
+  - garder la creation de discussion visible mais beaucoup plus discrete
+  - eviter toute surcharge en supprimant la grosse carte CTA de la colonne gauche
+
 ## Mise a jour complementaire - 2026-03-31 (sidebar gauche plus utile, historique elargi)
 - Besoin traite:
   - l'utilisateur trouvait la zone historique trop petite dans la sidebar gauche

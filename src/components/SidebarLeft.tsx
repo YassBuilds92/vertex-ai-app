@@ -7,7 +7,6 @@ import {
   LogOut,
   MessageSquare,
   Mic,
-  Plus,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -31,14 +30,6 @@ const modeConfig = {
   image: { icon: ImageIcon, label: "Génération d'Images" },
   video: { icon: Film, label: 'Génération Vidéo' },
   audio: { icon: Mic, label: 'Text-to-Speech' },
-} as const;
-
-const modeActionCopy = {
-  chat: 'Nouveau chat',
-  cowork: 'Nouvelle mission',
-  image: 'Nouvelle image',
-  video: 'Nouvelle video',
-  audio: 'Nouvelle voix',
 } as const;
 
 interface SidebarLeftProps {
@@ -67,9 +58,6 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
   const standardModeSessions = sessions
     .filter((session) => session.mode === activeMode && session.sessionKind !== 'agent')
     .sort((a, b) => b.updatedAt - a.updatedAt);
-
-  const activeModeMeta = modeConfig[activeMode];
-  const ActiveModeIcon = activeModeMeta.icon;
 
   const agentSessions = activeMode === 'chat'
     ? sessions
@@ -153,11 +141,11 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(129,236,255,0.08),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_18%)]" />
 
-      <div className="relative shrink-0 p-4 pb-0">
-        <div className="mb-5 flex items-center justify-between">
+      <div className="relative shrink-0 px-4 pt-3.5">
+        <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--app-border-strong)] bg-[linear-gradient(135deg,rgba(129,236,255,0.16),rgba(68,196,255,0.24))] shadow-[0_20px_50px_-28px_rgba(68,196,255,0.5)]">
-              <Sparkles size={16} className="text-white" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-[1.15rem] border border-[var(--app-border-strong)] bg-[linear-gradient(135deg,rgba(129,236,255,0.16),rgba(68,196,255,0.24))] shadow-[0_20px_50px_-28px_rgba(68,196,255,0.5)]">
+              <Sparkles size={15} className="text-white" />
             </div>
             <div>
               <h1 className="text-[15px] font-bold tracking-tight text-[var(--app-text)]">Studio Pro</h1>
@@ -175,8 +163,8 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         </div>
       </div>
 
-      <div className="relative shrink-0 px-4">
-        <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">Modes</div>
+      <div className="relative shrink-0 px-4 pb-1">
+        <div className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">Modes</div>
         <div className="space-y-0.5">
           {(Object.entries(modeConfig) as [AppMode, (typeof modeConfig)[AppMode]][]).map(([mode, conf]) => {
             const Icon = conf.icon;
@@ -187,7 +175,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                 key={mode}
                 onClick={() => onModeChange(mode)}
                 className={cn(
-                  'studio-glow flex w-full cursor-pointer items-center gap-3 rounded-[1.2rem] border px-3 py-2.5 text-[13px] font-medium transition-all duration-200',
+                  'studio-glow flex w-full cursor-pointer items-center gap-2.5 rounded-[1.15rem] border px-2.5 py-2 text-[12.5px] font-medium transition-all duration-200',
                   isActive
                     ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-text)] shadow-[0_22px_40px_-30px_rgba(68,196,255,0.45)]'
                     : 'border-transparent text-[var(--app-text-muted)] hover:bg-white/[0.04] hover:text-[var(--app-text)]'
@@ -196,11 +184,11 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                 <div className="flex items-center gap-3">
                   <div
                     className={cn(
-                      'flex h-8 w-8 items-center justify-center rounded-xl transition-all',
+                      'flex h-[1.875rem] w-[1.875rem] items-center justify-center rounded-[0.95rem] transition-all',
                       isActive ? 'border border-white/12 bg-white/[0.1]' : 'bg-white/[0.04]'
                     )}
                   >
-                    <Icon size={15} className={isActive ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]'} />
+                    <Icon size={14} className={isActive ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]'} />
                   </div>
                   <span className="leading-snug">{conf.label}</span>
                 </div>
@@ -210,28 +198,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         </div>
       </div>
 
-      <div className="relative shrink-0 px-4 pt-3">
-        <button
-          onClick={onNewChat}
-          className="flex w-full items-center gap-3 rounded-[1.25rem] border border-[var(--app-border-strong)] bg-[linear-gradient(180deg,rgba(129,236,255,0.12),rgba(68,196,255,0.06))] px-3 py-2.5 text-left transition-all duration-200 hover:bg-[linear-gradient(180deg,rgba(129,236,255,0.16),rgba(68,196,255,0.08))] hover:shadow-[0_18px_36px_-28px_rgba(68,196,255,0.55)]"
-          title={modeActionCopy[activeMode]}
-        >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.08] text-[var(--app-accent)]">
-            <Plus size={15} />
-          </div>
-          <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-[var(--app-text)]">
-              {modeActionCopy[activeMode]}
-            </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--app-text-muted)]">
-              <ActiveModeIcon size={12} />
-              <span className="truncate">{activeModeMeta.label}</span>
-            </div>
-          </div>
-        </button>
-      </div>
-
-      <div className="relative mt-3 flex-1 min-h-0 overflow-y-auto px-3 pb-3">
+      <div className="relative mt-2 flex-1 min-h-0 overflow-y-auto px-3 pb-2">
         <div className="mb-2 flex items-center justify-between px-2">
           <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">Historique</div>
           <div className="rounded-full border border-[var(--app-border)] bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-[var(--app-text-muted)]">
@@ -265,7 +232,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
       </div>
 
       {user && (
-        <div className="relative border-t border-[var(--app-border)] bg-white/[0.02] p-4">
+        <div className="relative border-t border-[var(--app-border)] bg-white/[0.02] px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 overflow-hidden">
               <img src={user.photoURL || ''} alt={user.displayName || ''} className="h-8 w-8 shrink-0 rounded-full ring-1 ring-[var(--app-border)]" />
@@ -285,7 +252,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         </div>
       )}
 
-      <div className="relative flex items-center justify-between border-t border-[var(--app-border)] p-4 text-[11px] text-[var(--app-text-muted)]">
+      <div className="relative flex items-center justify-between border-t border-[var(--app-border)] px-4 py-3 text-[11px] text-[var(--app-text-muted)]">
         <div className="flex items-center gap-2">
           <Database size={13} />
           <span className="font-medium">Vertex AI</span>

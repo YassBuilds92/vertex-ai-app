@@ -316,6 +316,13 @@ export default function App() {
     video: 'Generation Video',
     audio: 'Text-to-Speech',
   }[activeMode];
+  const activeModeCreateLabel = {
+    chat: 'Nouveau chat',
+    cowork: 'Nouvelle mission',
+    image: 'Nouvelle image',
+    video: 'Nouvelle video',
+    audio: 'Nouvelle voix',
+  }[activeMode];
 
   const activeSurfaceLabel = isAgentSession
     ? 'Workspace Agent'
@@ -1991,6 +1998,15 @@ export default function App() {
           <header className="relative z-40 flex h-[74px] items-center justify-between border-b border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.78)] px-4 backdrop-blur-xl sm:px-6">
             <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
                <button onClick={() => setLeftSidebarVisible(!isLeftSidebarVisible)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Menu size={18}/></button>
+               {user && (
+                 <button
+                   onClick={handleNewChat}
+                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(129,236,255,0.1),rgba(68,196,255,0.04))] text-[var(--app-accent)] transition-all hover:border-[var(--app-border-strong)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-text)]"
+                   title={activeModeCreateLabel}
+                 >
+                   <Plus size={18} />
+                 </button>
+               )}
                
                <div className="group/title flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                  {!user ? (

@@ -1,5 +1,21 @@
 # DECISIONS
 
+## 2026-03-31 - Le bouton de nouvelle discussion sort de la sidebar et monte dans la barre haute
+- Statut: adopte
+- Contexte: meme apres la simplification precedente, la sidebar restait trop contrainte verticalement. Le vrai probleme n'etait pas seulement le nombre de `+`, mais le fait qu'un gros CTA occupait encore une ligne complete au-dessus de l'historique.
+- Decision:
+  - retirer totalement le CTA "nouvelle discussion" de la sidebar
+  - placer un seul bouton `+` carre et discret dans la barre haute, pres du bouton menu
+  - compacter encore la sidebar (brand block, modes, panneau compte, footer) pour rendre le maximum de hauteur a l'historique
+- Pourquoi:
+  - degage franchement la colonne historique au lieu de simplement changer la forme du CTA
+  - garde une action de creation visible sans surcharger la sidebar
+  - produit une hierarchie plus claire: navigation a gauche, action globale en haut, historique prioritaire dans la colonne
+- Consequence:
+  - `src/App.tsx` porte maintenant le bouton `+` contextuel via `activeModeCreateLabel`
+  - `src/components/SidebarLeft.tsx` n'a plus de ligne CTA dediee
+  - la sidebar est plus dense verticalement et l'historique commence plus haut
+
 ## 2026-03-31 - Une seule creation contextuelle dans la sidebar, et davantage de place pour l'historique
 - Statut: adopte
 - Contexte: la sidebar gauche gaspillait trop de hauteur sur les modes, et chaque mode embarquait un `+` redondant. L'utilisateur voulait que l'historique prenne plus de place et qu'il n'y ait plus qu'un seul bouton de creation adapte au mode courant.

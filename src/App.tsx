@@ -327,6 +327,7 @@ export default function App() {
   const activeSurfaceLabel = isAgentSession
     ? 'App Cowork'
     : activeModeLabel;
+  const isCoworkAppsView = Boolean(user && activeMode === 'cowork' && showAgentsHub);
 
   const getPreferredSessionsForMode = useCallback((mode: AppMode) => (
     sessions.filter((session) => session.mode === mode && !(mode === 'chat' && session.sessionKind === 'agent'))
@@ -482,6 +483,12 @@ export default function App() {
       setShowAgentsHub(false);
     }
   }, [activeMode]);
+
+  useEffect(() => {
+    if (!showAgentsHub) return;
+    setLeftSidebarVisible(false);
+    setRightSidebarVisible(false);
+  }, [setLeftSidebarVisible, setRightSidebarVisible, showAgentsHub]);
 
   useEffect(() => {
     setRecentlyCompletedMessageId(null);
@@ -923,7 +930,11 @@ export default function App() {
     }
   }, [configs.cowork.systemInstruction, isLoading, persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
 
-  const openAgentWorkspace = useCallback(async (agent: StudioAgent, values: AgentFormValues) => {
+  const openAgentWorkspace = useCallback(async (
+    agent: StudioAgent,
+    values: AgentFormValues,
+    options?: { autoRun?: boolean }
+  ) => {
     if (!user) return;
 
     const normalizedValues = buildAgentRuntimeFormValues(agent, values);
@@ -952,7 +963,7 @@ export default function App() {
     setCustomTitle(null);
     setShowAgentsHub(false);
 
-    if (handleSendRuntimeRef.current) {
+    if (options?.autoRun !== false && handleSendRuntimeRef.current) {
       await handleSendRuntimeRef.current(launchPrompt, undefined, session);
     }
   }, [persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
@@ -1776,7 +1787,7 @@ export default function App() {
     setIsRunningHubAgent(true);
 
     try {
-      await openAgentWorkspace(agent, values);
+      await openAgentWorkspace(agent, values, { autoRun: false });
     } finally {
       setIsRunningHubAgent(false);
     }
@@ -1922,6 +1933,29 @@ export default function App() {
     </div>
   );
 
+
+  if (isCoworkAppsView) {
+    return (
+      <div
+        className={cn(
+          "studio-shell flex h-[100dvh] w-full overflow-hidden transition-all duration-500 font-sans",
+          "bg-[var(--app-bg)] text-[var(--app-text)]"
+        )}
+      >
+        <AgentsHub
+          isOpen={showAgentsHub}
+          agents={agents}
+          isCreating={isCreatingAgent}
+          isRunningAgent={isRunningHubAgent || isLoading}
+          latestCreatedAgent={latestCreatedAgent}
+          warningMessage={agentsWarning}
+          onClose={() => setShowAgentsHub(false)}
+          onCreateAgent={handleCreateAgent}
+          onRunAgent={handleRunAgentFromHub}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={cn(

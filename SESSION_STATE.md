@@ -59,6 +59,55 @@
   - garder le runtime agentique existant, mais lui donner une peau produit beaucoup plus juste
   - laisser comme prochaine vraie etape la validation sur des apps reelles persistees, pas seulement sur fixtures locales
 
+## Mise a jour complementaire - 2026-04-01 (`Cowork Apps` sort completement du shell)
+- Besoin traite:
+  - l'utilisateur trouvait encore le hub "degueulasse" et surtout trop serre
+  - il voulait une sensation de vraie autre app: sidebars retirees, surface sublime, apps rendues comme icones + noms, et une seule barre de chatbox pour en creer une nouvelle
+- Cause racine confirmee:
+  - `AgentsHub` restait monte comme un overlay a l'interieur du shell standard
+  - l'ancienne composition gardait encore trop de panneaux, de textes et de structures proches d'un dashboard
+  - l'ouverture d'une app depuis le hub partait directement en auto-run, ce qui faisait du hub un poste de configuration/lancement trop lourd
+- Correctifs appliques:
+  - `src/App.tsx`
+    - ajout d'un vrai mode de rendu plein ecran `isCoworkAppsView`
+    - sidebars et shell principal non rendus quand `showAgentsHub` est actif
+    - fermeture automatique des sidebars si on entre dans `Cowork Apps`
+    - `openAgentWorkspace()` accepte maintenant `autoRun:false`
+  - `src/components/AgentsHub.tsx`
+    - refonte quasi totale en lobby minimaliste
+    - hero/scene plein ecran
+    - app selectionnee mise en avant
+    - liste d'apps sous forme d'icones + noms
+    - une seule chatbox de creation en bas
+    - corrections responsive mobiles sur:
+      - largeur de headline
+      - grille d'icones
+      - bloc de creation
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-lobby-desktop.png`
+    - mobile final: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-lobby-mobile-tall-v4.png`
+  - constat cle:
+    - le hub ressemble maintenant a une vue a part
+    - la mobile view ne coupe plus ni la headline ni les icones
+    - la creation est recentree sur une seule chatbox basse
+- Fichiers touches:
+  - `src/App.tsx`
+  - `src/components/AgentsHub.tsx`
+  - `NOW.md`
+  - `SYSTEM_MAP.md`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `COWORK.md`
+  - `QA_RECIPES.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - transformer le hub en experience d'entree ultra simple et desiree
+  - faire du hub un selecteur/createur d'apps, pas un outil de configuration dense
+  - repousser le vrai travail de lancement dans le studio de l'app ouverte
+
 ## Mise a jour complementaire - 2026-03-31 (Cowork garde enfin la memoire textuelle du dernier livrable pour les follow-ups)
 - Besoin traite:
   - l'utilisateur signalait qu'apres une generation reussie suivie d'un mauvais lien final, un simple "ton lien est mauvais" faisait souvent repartir Cowork presque comme au premier message

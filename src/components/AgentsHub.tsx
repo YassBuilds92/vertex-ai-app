@@ -2,20 +2,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
   LayoutTemplate,
   Loader2,
-  Play,
   Sparkles,
   Wand2,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AgentFieldSchema, StudioAgent } from '../types';
+import { StudioAgent } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import {
-  AgentAppPreview,
   createInitialFieldValues,
   getAgentAppMeta,
   getAgentPalette,
@@ -25,25 +22,6 @@ import {
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
-const suggestions = [
-  "Cree une app Cowork qui transforme l'actu du jour en PDF premium source.",
-  "Cree une app Cowork qui transforme une veille en mini-site avec vraie direction artistique.",
-  "Cree une app Cowork podcast qui ecrit, mixe et livre un master final avec cover.",
-];
-
-const formatRelativeDate = (timestamp: number) => {
-  try {
-    return new Intl.DateTimeFormat('fr-FR', {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(timestamp));
-  } catch {
-    return '';
-  }
-};
 
 interface AgentsHubProps {
   isOpen: boolean;
@@ -70,8 +48,6 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
 }) => {
   const [brief, setBrief] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [formValues, setFormValues] = useState<Record<string, string | boolean>>({});
-  const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (latestCreatedAgent?.id) {
@@ -90,25 +66,9 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
     [agents, selectedId]
   );
 
-  const featuredAgents = useMemo(
-    () => agents.filter((agent) => agent.createdBy === 'cowork').slice(0, 3),
-    [agents]
-  );
-
-  const coworkCount = useMemo(
-    () => agents.filter((agent) => agent.createdBy === 'cowork').length,
-    [agents]
-  );
-
-  const renderableFields = useMemo(
-    () => getRenderableFields(selectedAgent),
-    [selectedAgent]
-  );
-
-  useEffect(() => {
-    setFormValues(createInitialFieldValues(renderableFields));
-    setValidationMessage(null);
-  }, [renderableFields, selectedAgent?.id]);
+  const selectedMeta = selectedAgent ? getAgentAppMeta(selectedAgent) : null;
+  const selectedPalette = selectedAgent ? getAgentPalette(selectedAgent) : null;
+  const SelectedIcon = selectedMeta?.icon || LayoutTemplate;
 
   const submit = async () => {
     const cleaned = brief.trim();
@@ -117,491 +77,275 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
     setBrief('');
   };
 
-  const updateFieldValue = (fieldId: string, value: string | boolean) => {
-    setFormValues((prev) => ({ ...prev, [fieldId]: value }));
-  };
-
-  const runSelectedAgent = async () => {
+  const handleLaunch = async () => {
     if (!selectedAgent || isRunningAgent) return;
-
-    const missingField = renderableFields.find((field) => {
-      if (!field.required) return false;
-      if (field.type === 'boolean') return false;
-      const value = formValues[field.id];
-      return typeof value !== 'string' || value.trim().length === 0;
-    });
-
-    if (missingField) {
-      setValidationMessage(`Renseigne "${missingField.label}" avant d'ouvrir cette app.`);
-      return;
-    }
-
-    setValidationMessage(null);
-    await onRunAgent(selectedAgent, formValues);
-  };
-
-  const selectedMeta = selectedAgent ? getAgentAppMeta(selectedAgent) : null;
-  const selectedPalette = selectedAgent ? getAgentPalette(selectedAgent) : null;
-
-  const renderField = (field: AgentFieldSchema) => {
-    const baseInputClassName =
-      'w-full rounded-[1.2rem] border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/30 focus:border-cyan-300/35 focus:bg-white/[0.055]';
-
-    const currentValue = formValues[field.id];
-
-    if (field.type === 'textarea') {
-      return (
-        <textarea
-          value={typeof currentValue === 'string' ? currentValue : ''}
-          onChange={(event) => updateFieldValue(field.id, event.target.value)}
-          placeholder={field.placeholder}
-          rows={5}
-          className={cn(baseInputClassName, 'min-h-[140px] resize-y')}
-        />
-      );
-    }
-
-    if (field.type === 'select') {
-      return (
-        <select
-          value={typeof currentValue === 'string' ? currentValue : ''}
-          onChange={(event) => updateFieldValue(field.id, event.target.value)}
-          className={baseInputClassName}
-        >
-          <option value="" className="bg-slate-950 text-white/60">
-            Choisir une option
-          </option>
-          {(field.options || []).map((option) => (
-            <option key={option} value={option} className="bg-slate-950 text-white">
-              {option}
-            </option>
-          ))}
-        </select>
-      );
-    }
-
-    if (field.type === 'boolean') {
-      const checked = Boolean(currentValue);
-      return (
-        <button
-          type="button"
-          onClick={() => updateFieldValue(field.id, !checked)}
-          className={cn(
-            'flex w-full items-center justify-between rounded-[1.2rem] border px-4 py-3 text-left transition-all',
-            checked
-              ? 'border-cyan-300/30 bg-cyan-300/[0.08] text-white'
-              : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/[0.045]'
-          )}
-        >
-          <span className="text-sm">{field.label}</span>
-          <span
-            className={cn(
-              'inline-flex h-6 w-11 items-center rounded-full border px-1 transition-all',
-              checked ? 'border-cyan-200/30 bg-cyan-200/20' : 'border-white/10 bg-black/20'
-            )}
-          >
-            <span
-              className={cn(
-                'h-4 w-4 rounded-full transition-transform',
-                checked ? 'translate-x-5 bg-cyan-200' : 'translate-x-0 bg-white/55'
-              )}
-            />
-          </span>
-        </button>
-      );
-    }
-
-    return (
-      <input
-        type={field.type === 'number' ? 'number' : field.type === 'url' ? 'url' : 'text'}
-        value={typeof currentValue === 'string' ? currentValue : ''}
-        onChange={(event) => updateFieldValue(field.id, event.target.value)}
-        placeholder={field.placeholder}
-        className={baseInputClassName}
-      />
-    );
+    const initialValues = createInitialFieldValues(getRenderableFields(selectedAgent));
+    await onRunAgent(selectedAgent, initialValues);
   };
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 10 }}
-          transition={{ duration: 0.28 }}
-          className="absolute inset-0 z-50 overflow-y-auto bg-[var(--app-bg)]/96 backdrop-blur-3xl"
+        <motion.section
+          initial={{ opacity: 0, scale: 0.985 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 1.01 }}
+          transition={{ duration: 0.28, ease: 'easeOut' }}
+          className="relative flex min-h-[100dvh] w-full flex-1 overflow-hidden bg-[#05070b] text-white"
         >
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(110,231,255,0.14),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(245,158,11,0.12),_transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_26%)]" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(99,210,255,0.14),transparent_34%),radial-gradient(circle_at_85%_18%,rgba(255,206,107,0.12),transparent_22%),radial-gradient(circle_at_20%_80%,rgba(115,139,255,0.1),transparent_28%)]" />
+            <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent)]" />
+            <div className="absolute left-1/2 top-[22%] h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.03),transparent_66%)] blur-3xl" />
+          </div>
 
-          <div className="relative flex min-h-full flex-col">
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/6 bg-[var(--app-bg)]/72 px-6 py-5 backdrop-blur-2xl">
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <header className="flex items-center justify-between px-5 py-5 sm:px-8">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
-                  <LayoutTemplate size={18} className="text-cyan-300" />
+                <div className="flex h-11 w-11 items-center justify-center rounded-[1.35rem] border border-white/10 bg-white/[0.04]">
+                  <LayoutTemplate size={18} className="text-cyan-200" />
                 </div>
                 <div>
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">Cowork Apps</div>
-                  <div className="text-xl font-semibold tracking-tight text-white">Un app store interne pour les apps que Cowork construit lui-meme</div>
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/36">Cowork Apps</div>
+                  <div className="text-sm font-medium text-white/86">Lobby creatif des apps Cowork</div>
                 </div>
               </div>
 
-              <button
-                onClick={onClose}
-                className="rounded-2xl border border-white/8 bg-white/[0.03] p-3 text-white/60 transition-colors hover:text-white"
-                title="Fermer le store"
-              >
-                <X size={18} />
-              </button>
-            </div>
+              <div className="flex items-center gap-2">
+                {warningMessage && (
+                  <div className="hidden items-center gap-2 rounded-full border border-amber-300/16 bg-amber-300/[0.08] px-3 py-2 text-xs text-amber-50/88 md:inline-flex">
+                    <AlertTriangle size={14} className="text-amber-200" />
+                    Store local
+                  </div>
+                )}
+                <button
+                  onClick={onClose}
+                  className="flex h-11 w-11 items-center justify-center rounded-[1.35rem] border border-white/10 bg-white/[0.03] text-white/58 transition-colors hover:text-white"
+                  title="Fermer Cowork Apps"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </header>
 
-            <div className="grid flex-1 grid-cols-1 gap-6 px-6 pb-6 pt-6 xl:grid-cols-[1.08fr_0.92fr]">
-              <div className="space-y-6">
-                <section className="overflow-hidden rounded-[2.4rem] border border-white/8 bg-[linear-gradient(145deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
-                  <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.1fr_0.9fr]">
-                    <div className="max-w-3xl">
-                      <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/8 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-cyan-200/80">
-                        <Sparkles size={12} />
-                        App store Cowork
-                      </div>
-                      <h2 className="max-w-2xl text-balance text-4xl font-semibold leading-[0.95] tracking-[-0.05em] text-white sm:text-5xl">
-                        Des apps construites par Cowork, chacune avec sa propre logique et sa propre scene.
-                      </h2>
-                      <p className="mt-4 max-w-2xl text-[15px] leading-7 text-white/62">
-                        Ici on ne stocke pas juste des prompts. Cowork fabrique des mini-produits utilisables: leur promesse, leur interface, leur type de sortie et leur poste de lancement.
-                      </p>
+            <main className="flex min-h-0 flex-1 flex-col px-5 pb-5 sm:px-8 sm:pb-7">
+              <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col">
+                <div className="flex flex-1 flex-col items-center justify-center gap-10 py-4 sm:gap-12 sm:py-6">
+                  <div className="mx-auto max-w-4xl text-center">
+                    <div className="text-[11px] uppercase tracking-[0.32em] text-white/30">Une autre app dans l'app</div>
+                    <h1 className="mx-auto mt-4 max-w-[8.5ch] text-balance text-[clamp(2.35rem,8.8vw,5.2rem)] font-semibold leading-[0.9] tracking-[-0.07em] text-white sm:max-w-3xl">
+                      Entre dans une app Cowork, ou decris celle que tu veux faire naitre.
+                    </h1>
+                    <p className="mx-auto mt-5 max-w-[34rem] text-sm leading-7 text-white/48 sm:text-[15px]">
+                      Ici le shell disparait. Il reste juste les apps, leurs noms, et une barre de creation pour en fabriquer une nouvelle.
+                    </p>
+                  </div>
 
-                      <div className="mt-6 flex flex-wrap items-center gap-2.5">
-                        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/74">
-                          <span className="text-xl font-semibold tracking-tight text-white">{agents.length}</span>
-                          app{agents.length > 1 ? 's' : ''}
-                        </span>
-                        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/74">
-                          <span className="text-xl font-semibold tracking-tight text-white">{coworkCount}</span>
-                          creee{coworkCount > 1 ? 's' : ''} par Cowork
-                        </span>
-                        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/74">
-                          <span className="text-xl font-semibold tracking-tight text-white">6</span>
-                          familles d'experience
-                        </span>
-                      </div>
+                  {selectedAgent ? (
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={selectedAgent.id}
+                        initial={{ opacity: 0, y: 18 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.22, ease: 'easeOut' }}
+                        className="flex flex-col items-center text-center"
+                      >
+                        <div
+                          className="relative flex h-28 w-28 items-center justify-center rounded-[2rem] border"
+                          style={{
+                            borderColor: selectedPalette?.rim,
+                            background: selectedPalette?.frame.background,
+                            boxShadow: selectedPalette?.frame.boxShadow,
+                          }}
+                        >
+                          <div
+                            className="absolute inset-[10px] rounded-[1.5rem] border"
+                            style={{
+                              borderColor: selectedPalette?.rim,
+                              background: selectedPalette?.accentSoft,
+                            }}
+                          />
+                          <SelectedIcon size={34} className="relative z-10" style={{ color: selectedPalette?.accent }} />
+                        </div>
 
-                      <div className="mt-7 flex flex-wrap items-center gap-3">
-                        {suggestions.map((suggestion) => (
+                        <div className="mt-5 text-[11px] uppercase tracking-[0.28em] text-white/34">
+                          {selectedMeta?.label}
+                        </div>
+                        <div className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">
+                          {selectedAgent.name}
+                        </div>
+                        <div className="mt-3 max-w-2xl text-sm leading-7 text-white/54 sm:text-[15px]">
+                          {selectedAgent.tagline}
+                        </div>
+
+                        <div className="mt-7 flex flex-col items-center gap-3 sm:flex-row">
                           <button
-                            key={suggestion}
-                            onClick={() => setBrief(suggestion)}
-                            className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-[12px] text-white/65 transition-colors hover:text-white"
+                            onClick={handleLaunch}
+                            disabled={isRunningAgent}
+                            className={cn(
+                              'inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition-all',
+                              isRunningAgent
+                                ? 'cursor-not-allowed bg-white/8 text-white/35'
+                                : 'bg-white text-black hover:-translate-y-[1px]'
+                            )}
                           >
-                            {suggestion}
+                            {isRunningAgent ? (
+                              <>
+                                <Loader2 size={15} className="animate-spin" />
+                                Ouverture...
+                              </>
+                            ) : (
+                              <>
+                                {selectedMeta?.actionLabel || "Ouvrir l'app"}
+                                <ArrowRight size={15} />
+                              </>
+                            )}
                           </button>
-                        ))}
-                      </div>
+                          <div className="text-xs uppercase tracking-[0.22em] text-white/28">
+                            {agents.length} app{agents.length > 1 ? 's' : ''} dans le lobby
+                          </div>
+                        </div>
+                      </motion.div>
+                    </AnimatePresence>
+                  ) : (
+                    <div className="text-center text-white/42">
+                      Aucune app pour le moment. Cree la premiere juste en bas.
                     </div>
+                  )}
 
-                    <div className="rounded-[2rem] border border-white/8 bg-black/20 p-4 shadow-[0_30px_80px_-35px_rgba(0,0,0,0.8)]">
-                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/42">
-                        <Wand2 size={12} />
-                        Forger une nouvelle app
+                  <div className="w-full">
+                    {agents.length === 0 ? (
+                      <div className="mx-auto max-w-xl text-center text-sm leading-7 text-white/38">
+                        Le lobby est vide pour l'instant. Decris une app a Cowork dans la barre de creation et elle apparaitra ici.
                       </div>
-                      <div className="mt-4 flex flex-col gap-3">
+                    ) : (
+                      <div className="mx-auto grid w-full max-w-5xl grid-cols-3 justify-items-center gap-x-3 gap-y-7 sm:grid-cols-4 sm:gap-x-8 sm:gap-y-10 lg:grid-cols-5 xl:grid-cols-6">
+                        {agents.map((agent) => {
+                          const meta = getAgentAppMeta(agent);
+                          const palette = getAgentPalette(agent);
+                          const Icon = meta.icon;
+                          const isSelected = selectedAgent?.id === agent.id;
+
+                          return (
+                            <button
+                              key={agent.id}
+                              onClick={() => setSelectedId(agent.id)}
+                              className="group flex w-[96px] flex-col items-center gap-3 text-center sm:w-[142px] sm:gap-4"
+                            >
+                              <div
+                                className={cn(
+                                  'relative flex h-16 w-16 items-center justify-center rounded-[1.35rem] border transition-all duration-300 sm:h-24 sm:w-24 sm:rounded-[1.7rem]',
+                                  isSelected ? 'scale-105' : 'opacity-72 group-hover:opacity-100'
+                                )}
+                                style={{
+                                  borderColor: palette.rim,
+                                  background: palette.frame.background,
+                                  boxShadow: isSelected ? palette.frame.boxShadow : 'none',
+                                }}
+                              >
+                                <div
+                                  className="absolute inset-[7px] rounded-[1rem] border transition-all duration-300 sm:inset-[9px] sm:rounded-[1.25rem]"
+                                  style={{
+                                    borderColor: palette.rim,
+                                    background: palette.accentSoft,
+                                  }}
+                                />
+                                <Icon
+                                  size={22}
+                                  className="relative z-10 transition-transform duration-300 group-hover:scale-105"
+                                  style={{ color: palette.accent }}
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <div
+                                  className={cn(
+                                    'text-sm font-medium tracking-tight transition-colors',
+                                    isSelected ? 'text-white' : 'text-white/74 group-hover:text-white'
+                                  )}
+                                >
+                                  {agent.name}
+                                </div>
+                                <div className="text-[10px] uppercase tracking-[0.22em] text-white/26">
+                                  {meta.category}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mx-auto w-full max-w-4xl pb-1 pt-4">
+                  {warningMessage && (
+                    <div className="mb-4 flex items-start gap-3 rounded-[1.5rem] border border-amber-300/12 bg-amber-300/[0.06] px-4 py-3 text-sm leading-6 text-amber-50/86 md:hidden">
+                      <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-200" />
+                      <span>{warningMessage}</span>
+                    </div>
+                  )}
+
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submit();
+                    }}
+                    className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-3 shadow-[0_30px_90px_-50px_rgba(0,0,0,0.8)] backdrop-blur-2xl"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                      <div className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-[1.2rem] border border-white/10 bg-white/[0.04] text-cyan-200 sm:flex">
+                        <Wand2 size={18} />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="px-2 pb-2 text-[11px] uppercase tracking-[0.24em] text-white/30">
+                          Creer une app
+                        </div>
                         <textarea
                           value={brief}
                           onChange={(event) => setBrief(event.target.value)}
-                          placeholder="Ex: cree une app Cowork qui analyse des startups, score les dossiers et livre un memo PDF actionnable"
-                          className="min-h-[148px] w-full rounded-[1.6rem] border border-white/8 bg-white/[0.03] px-5 py-4 text-[15px] text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/35"
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                              event.preventDefault();
+                              void submit();
+                            }
+                          }}
+                          rows={1}
+                          placeholder="Decris l'app que Cowork doit construire..."
+                          className="min-h-[64px] w-full resize-none rounded-[1.5rem] border border-white/8 bg-black/20 px-4 py-4 text-[15px] text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30"
                         />
-                        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-                          <p className="max-w-xl text-sm leading-6 text-white/45">
-                            Cowork doit sortir ici une app claire, pas un specialiste abstrait: promesse produit, interface utile et comportement distinct.
-                          </p>
-                          <button
-                            onClick={submit}
-                            disabled={isCreating || !brief.trim()}
-                            className={cn(
-                              'inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition-all sm:w-auto',
-                              isCreating || !brief.trim()
-                                ? 'cursor-not-allowed bg-white/8 text-white/35'
-                                : 'bg-white text-black hover:translate-y-[-1px]'
-                            )}
-                          >
-                            {isCreating ? 'Creation...' : 'Creer cette app'}
-                            <ArrowRight size={15} />
-                          </button>
-                        </div>
                       </div>
-                    </div>
-                  </div>
-                </section>
 
-                {warningMessage && (
-                  <div className="rounded-[1.8rem] border border-amber-300/12 bg-amber-300/[0.07] px-4 py-4 text-sm text-amber-50/88">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-200" />
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.2em] text-amber-100/60">Synchro cloud indisponible</div>
-                        <p className="mt-2 leading-6">{warningMessage}</p>
-                      </div>
+                      <button
+                        type="submit"
+                        disabled={isCreating || !brief.trim()}
+                        className={cn(
+                          'flex h-12 w-full shrink-0 items-center justify-center rounded-[1.4rem] px-5 text-sm font-semibold transition-all sm:h-14 sm:w-auto',
+                          isCreating || !brief.trim()
+                            ? 'cursor-not-allowed bg-white/8 text-white/35'
+                            : 'bg-white text-black hover:-translate-y-[1px]'
+                        )}
+                      >
+                        {isCreating ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={16} />
+                            <span className="ml-2 hidden sm:inline">Creer</span>
+                          </>
+                        )}
+                      </button>
                     </div>
-                  </div>
-                )}
-
-                <section className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/42">Vitrine Cowork</div>
-                      <div className="mt-1 text-sm text-white/55">Les apps recentes construites par Cowork remontent ici en premier.</div>
-                    </div>
-                  </div>
-
-                  {featuredAgents.length === 0 ? (
-                    <div className="rounded-[2rem] border border-dashed border-white/10 px-6 py-10 text-center text-white/45">
-                      Aucune app Cowork mise en avant pour le moment. Lance une creation depuis le module ci-dessus.
-                    </div>
-                  ) : (
-                    <div className="grid gap-4 lg:grid-cols-3">
-                      {featuredAgents.map((agent) => (
-                        <button
-                          key={agent.id}
-                          onClick={() => setSelectedId(agent.id)}
-                          className={cn(
-                            'group text-left transition-transform hover:-translate-y-[2px]',
-                            selectedAgent?.id === agent.id ? 'ring-1 ring-cyan-300/26' : ''
-                          )}
-                        >
-                          <AgentAppPreview agent={agent} size="feature" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                <section className="space-y-4 pb-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/42">Catalogue</div>
-                      <div className="mt-1 text-sm text-white/55">{agents.length} app(s) dans le store interne</div>
-                    </div>
-                    <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/42">
-                      apps utilisables
-                    </div>
-                  </div>
-
-                  {agents.length === 0 ? (
-                    <div className="rounded-[2rem] border border-dashed border-white/10 px-6 py-10 text-center text-white/45">
-                      Le store est vide pour l'instant. Cree une premiere app Cowork depuis le brief ci-dessus.
-                    </div>
-                  ) : (
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {agents.map((agent) => (
-                        <button
-                          key={agent.id}
-                          onClick={() => setSelectedId(agent.id)}
-                          className={cn(
-                            'group text-left transition-transform hover:-translate-y-[2px]',
-                            selectedAgent?.id === agent.id ? 'ring-1 ring-cyan-300/24' : ''
-                          )}
-                        >
-                          <AgentAppPreview agent={agent} />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </section>
+                  </form>
+                </div>
               </div>
-
-              <div className="space-y-6 xl:sticky xl:top-[6.5rem] xl:self-start">
-                {selectedAgent ? (
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={selectedAgent.id}
-                      initial={{ opacity: 0, y: 18 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -12 }}
-                      transition={{ duration: 0.22 }}
-                      className="space-y-5"
-                    >
-                      <div className="overflow-hidden rounded-[2.1rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))]">
-                        <div className="border-b border-white/8 px-5 py-5">
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">{selectedMeta?.label}</div>
-                              <div className="mt-1 text-3xl font-semibold tracking-tight text-white">{selectedAgent.name}</div>
-                              <div className="mt-2 text-sm text-white/50">{selectedAgent.tagline}</div>
-                            </div>
-                            <div className="rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/48">
-                              Mis a jour {formatRelativeDate(selectedAgent.updatedAt)}
-                            </div>
-                          </div>
-
-                          <div className="mt-5 flex flex-wrap gap-2">
-                            <span
-                              className="inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/78"
-                              style={{
-                                borderColor: selectedPalette?.rim,
-                                background: selectedPalette?.accentSoft,
-                              }}
-                            >
-                              {selectedAgent.createdBy === 'cowork' ? 'Creee par Cowork' : 'Ajoutee manuellement'}
-                            </span>
-                            <span className="inline-flex items-center rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/54">
-                              {selectedMeta?.category}
-                            </span>
-                            <span className="inline-flex items-center rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/54">
-                              {selectedMeta?.studioLabel}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="px-5 py-5">
-                          <AgentAppPreview agent={selectedAgent} size="workspace" />
-                        </div>
-                      </div>
-
-                      <div className="rounded-[2rem] border border-white/8 bg-white/[0.025] p-5">
-                        <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">Promesse</div>
-                        <p className="mt-3 text-[15px] leading-7 text-white/66">{selectedAgent.mission}</p>
-                        <div className="mt-5 grid gap-3 md:grid-cols-2">
-                          <div className="rounded-[1.25rem] border border-white/8 bg-black/18 p-4">
-                            <div className="text-[11px] uppercase tracking-[0.18em] text-white/42">Quand l'utiliser</div>
-                            <p className="mt-2 text-sm leading-6 text-white/62">{selectedAgent.whenToUse}</p>
-                          </div>
-                          <div className="rounded-[1.25rem] border border-white/8 bg-black/18 p-4">
-                            <div className="text-[11px] uppercase tracking-[0.18em] text-white/42">Interface embarquee</div>
-                            <p className="mt-2 text-sm leading-6 text-white/62">
-                              {renderableFields.length} champ(s) utilisateur, structuree(s) comme un poste de lancement propre a l'app.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="overflow-hidden rounded-[2rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))]">
-                        <div className="flex items-center justify-between gap-4 border-b border-white/8 px-5 py-4">
-                          <div>
-                            <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">Poste de lancement</div>
-                            <div className="mt-1 text-lg font-semibold tracking-tight text-white">Interface de mission</div>
-                          </div>
-                          <div className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-black/20 px-3 py-2 text-xs text-white/55">
-                            <CheckCircle2 size={14} className="text-cyan-200" />
-                            {renderableFields.length} champ(s)
-                          </div>
-                        </div>
-
-                        <div className="px-5 py-5">
-                          <div className="grid gap-4 md:grid-cols-2">
-                            {renderableFields.map((field) => (
-                              <div
-                                key={field.id}
-                                className={cn(
-                                  'space-y-2',
-                                  field.type === 'textarea' ? 'md:col-span-2' : ''
-                                )}
-                              >
-                                {field.type !== 'boolean' && (
-                                  <div className="flex items-center gap-2">
-                                    <label className="text-sm font-medium text-white/88">{field.label}</label>
-                                    {field.required && (
-                                      <span
-                                        className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-white/78"
-                                        style={{
-                                          borderColor: selectedPalette?.rim,
-                                          background: selectedPalette?.accentSoft,
-                                        }}
-                                      >
-                                        requis
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                {renderField(field)}
-                                {field.helpText && (
-                                  <p className="text-xs leading-5 text-white/42">{field.helpText}</p>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-
-                          {validationMessage && (
-                            <div className="mt-4 rounded-[1.2rem] border border-amber-300/14 bg-amber-300/[0.07] px-4 py-3 text-sm text-amber-50/88">
-                              {validationMessage}
-                            </div>
-                          )}
-
-                          <div className="mt-6 flex flex-col items-stretch gap-4 border-t border-white/8 pt-5 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="max-w-xl text-sm leading-6 text-white/48">
-                              L'ouverture ne renvoie pas vers un simple chat generique. Elle lance cette app dans son propre studio, avec son prompt, ses outils et ses parametres.
-                            </div>
-                            <button
-                              onClick={runSelectedAgent}
-                              disabled={isRunningAgent}
-                              className={cn(
-                                'inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition-all sm:w-auto',
-                                isRunningAgent
-                                  ? 'cursor-not-allowed bg-white/8 text-white/35'
-                                  : 'bg-white text-black hover:translate-y-[-1px]'
-                              )}
-                            >
-                              {isRunningAgent ? (
-                                <>
-                                  <Loader2 size={15} className="animate-spin" />
-                                  Ouverture...
-                                </>
-                              ) : (
-                                <>
-                                  <Play size={15} />
-                                  {selectedMeta?.actionLabel || "Ouvrir l'app"}
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="rounded-[1.8rem] border border-white/8 bg-white/[0.025] p-5">
-                          <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">Capacites visibles</div>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {selectedAgent.capabilities.length > 0 ? (
-                              selectedAgent.capabilities.map((capability) => (
-                                <span key={capability} className="rounded-full border border-white/8 px-3 py-2 text-sm text-white/72">
-                                  {capability}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-sm text-white/48">Pas encore de capacites formalisees.</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="rounded-[1.8rem] border border-white/8 bg-white/[0.025] p-5">
-                          <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">Outils autorises</div>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {selectedAgent.tools.length > 0 ? (
-                              selectedAgent.tools.map((tool) => (
-                                <span key={tool} className="rounded-full border border-white/8 bg-black/18 px-3 py-2 text-xs uppercase tracking-[0.14em] text-white/62">
-                                  {tool}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-sm text-white/48">Aucun outil specialise declare.</span>
-                            )}
-                          </div>
-                          <div className="mt-4 rounded-[1.2rem] border border-white/8 bg-black/18 px-4 py-4 text-sm leading-6 text-white/56">
-                            <div className="font-medium text-white/72">Starter prompt</div>
-                            <div className="mt-2">{selectedAgent.starterPrompt}</div>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  </AnimatePresence>
-                ) : (
-                  <div className="rounded-[2rem] border border-dashed border-white/10 px-6 py-10 text-center text-white/45">
-                    Selectionne une app pour voir son studio, sa promesse et son interface de lancement.
-                  </div>
-                )}
-              </div>
-            </div>
+            </main>
           </div>
-        </motion.div>
+        </motion.section>
       )}
     </AnimatePresence>
   );

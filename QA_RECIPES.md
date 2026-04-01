@@ -2,8 +2,9 @@
 
 ## Store Cowork Apps
 - Objectif:
-  - verifier que le hub se lit comme un app store Cowork et non comme un catalogue d'agents
-  - verifier qu'une app ouverte ressemble a un studio d'app avec une interface propre
+  - verifier que `Cowork Apps` se lit comme une vue a part, et non comme un overlay serre du shell
+  - verifier que les apps sont rendues comme une selection simple icone + nom
+  - verifier que la creation se fait depuis une seule chatbox basse
 
 ## Validation code
 - `npm run lint`
@@ -29,30 +30,30 @@
   --hide-scrollbars `
   --window-size=1440,2200 `
   --virtual-time-budget=2500 `
-  --screenshot="$env:TEMP\cowork-apps-store-desktop-tall.png" `
+  --screenshot="$env:TEMP\cowork-apps-lobby-desktop.png" `
   "http://127.0.0.1:4173/tmp/cowork-apps-preview.html"
 ```
-- Studio mobile:
+- Lobby mobile:
 ```powershell
 & 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' `
   --headless=new `
   --disable-gpu `
   --hide-scrollbars `
-  --window-size=430,4200 `
+  --window-size=430,1500 `
   --virtual-time-budget=2500 `
-  --screenshot="$env:TEMP\cowork-apps-workspace-mobile-fullish.png" `
-  "http://127.0.0.1:4173/tmp/cowork-apps-preview.html?view=workspace"
+  --screenshot="$env:TEMP\cowork-apps-lobby-mobile-tall-v4.png" `
+  "http://127.0.0.1:4173/tmp/cowork-apps-preview.html"
 ```
 
 ## Attendus visuels
 - Store:
-  - hero clairement oriente "apps creees par Cowork"
-  - plusieurs apps visibles dans la vitrine/catalogue
-  - previews differencies selon les familles d'app
-- Studio mobile:
-  - la zone basse du poste de lancement reste lisible
-  - le CTA principal se stacke correctement sous le texte explicatif
-  - pas de clipping horizontal sur les boutons ou les champs
+  - sidebars absentes, sensation de vue plein ecran
+  - apps visibles surtout comme icones + noms, sans panneaux lourds
+  - chatbox basse unique pour creer une app
+- Mobile:
+  - pas de clipping horizontal sur la headline
+  - pas d'icone coupee dans la liste d'apps
+  - bloc de creation lisible meme sur 430 px
 
 ## Limite connue
 - Si Playwright MCP reste bloque par `C:\Windows\System32\.playwright-mcp`, utiliser ce chemin Edge headless comme validation visuelle de reference.

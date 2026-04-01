@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-04-01 - `Cowork Apps` doit s'ouvrir comme une vraie surface a part
+- Statut: adopte
+- Contexte: meme reframed en store, le hub restait percu comme une vue serree injectee dans le shell principal. Le retour utilisateur est explicite: quand on ouvre le hub, les sidebars doivent disparaitre et la surface doit ressembler a une autre app.
+- Decision:
+  - faire de `showAgentsHub` un vrai mode de rendu plein ecran cote `src/App.tsx`
+  - ne plus rendre `SidebarLeft`, `SidebarRight`, le header standard, le chat et les overlays quand `Cowork Apps` est ouvert
+  - simplifier `src/components/AgentsHub.tsx` en lobby minimal: icones, noms, app selectionnee, chatbox de creation en bas
+  - ouvrir une app depuis le hub sans auto-run initial; l'execution part ensuite depuis le studio dedie
+- Pourquoi:
+  - colle beaucoup mieux au modele mental "autre app dans l'app"
+  - supprime immediatement la sensation de densite et de shell compresse
+  - clarifie le role du hub: selection/creation d'apps, pas configuration exhaustive
+- Consequence:
+  - `src/App.tsx` route maintenant vers une vue plein ecran `Cowork Apps`
+  - `src/components/AgentsHub.tsx` est devenu une scene tres epuree
+  - `openAgentWorkspace()` accepte maintenant une ouverture sans auto-run pour respecter ce flow
+
 ## 2026-04-01 - Le Hub devient un app store Cowork, pas un registre d'agents
 - Statut: adopte
 - Contexte: le besoin produit a ete reprécise tres clairement. Une surface "hub agent" meme executable restait encore trop abstraite et trop technique. L'utilisateur veut voir un store local d'apps creees par Cowork, avec plusieurs mini-produits distincts, chacun ayant son interface, sa promesse et sa logique propre.

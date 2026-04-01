@@ -6,7 +6,7 @@
 - `server/routes/standard.ts` : routes standard non-Cowork (`/api/chat`, media, status, etc.).
 
 ## Frontend - zones cle
-- `src/components/AgentsHub.tsx` : store `Cowork Apps`, vitrine, featured apps, detail de l'app selectionnee et poste de lancement.
+- `src/components/AgentsHub.tsx` : vue plein ecran `Cowork Apps`, type "autre app dans l'app", avec selection minimale d'apps + barre de creation en bas.
 - `src/components/AgentAppPreview.tsx` : bibliotheque de previews/studios par famille d'app (`pdf`, `html`, `podcast`, `code`, `research`, `automation`) avec palettes derivees par app.
 - `src/components/AgentWorkspacePanel.tsx` : studio dedie d'une app ouverte, distinct du shell Cowork general.
 - `src/components/SidebarLeft.tsx` : navigation, historique, sections chat/agents.
@@ -27,11 +27,12 @@
 ## Flux critique Hub -> usage
 1. Cowork cree ou modifie un blueprint/app.
 2. Le frontend persiste l'entite hub localement puis en best effort vers Firestore.
-3. `AgentsHub` la rend comme une app du store, avec positionnement produit et preview liee a `outputKind`.
-4. L'ouverture lance un studio dedie via `AgentWorkspacePanel`.
-5. Le runtime agent continue de tourner sur `/api/cowork`, mais la surface utilisateur est celle d'une app Cowork et non d'un agent abstrait.
+3. Quand l'utilisateur ouvre `Cowork Apps`, `App.tsx` quitte temporairement le shell normal et rend une vue plein ecran dediee.
+4. `AgentsHub` y rend les apps comme un lobby d'icones/noms avec une creation par chatbox basse.
+5. L'ouverture d'une app lance d'abord un studio dedie via `AgentWorkspacePanel`, sans auto-run immediat.
+6. Le runtime agent continue de tourner sur `/api/cowork`, mais la surface utilisateur est celle d'une app Cowork et non d'un agent abstrait.
 
 ## Fichiers chauds par type de changement
-- Refonte visuelle hub/app store : `src/components/AgentsHub.tsx`, `src/components/AgentAppPreview.tsx`, `src/components/AgentWorkspacePanel.tsx`, `src/App.tsx`, `src/index.css`.
+- Refonte visuelle hub/app plein ecran : `src/components/AgentsHub.tsx`, `src/components/AgentAppPreview.tsx`, `src/components/AgentWorkspacePanel.tsx`, `src/App.tsx`, `src/index.css`.
 - Changement de contrat agent/app : `src/types.ts`, `server/lib/agents.ts`, `src/utils/agentSnapshots.ts`.
 - Changement d'ouverture/workspace : `src/App.tsx`, `src/store/useStore.ts`.

@@ -32,6 +32,32 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
   - la profondeur de singularite depend encore de la richesse des blueprints reels generes par Cowork
   - la revalidation finale doit etre rejouee sur des apps persistees en session authentifiee
 
+## Mise a jour 2026-04-01 - `Cowork Apps` devient une vraie vue plein ecran
+- Retour produit:
+  - le store precedent etait deja mieux cadre, mais encore trop serre et trop pris dans le shell
+  - l'utilisateur veut que l'ouverture du hub fasse disparaitre les sidebars et donne l'impression d'entrer dans une autre app
+- Changement applique:
+  - `src/App.tsx`
+    - bascule vers un rendu plein ecran dedie quand `showAgentsHub` est actif en mode `cowork`
+    - sidebars, header standard, chat principal et overlays ne sont plus rendus dans cet etat
+    - ouverture d'une app depuis le hub sans auto-run immediat
+  - `src/components/AgentsHub.tsx`
+    - refonte en lobby minimal:
+      - nom + icone des apps
+      - focus sur l'app selectionnee
+      - un seul CTA d'ouverture
+      - une seule chatbox en bas pour creer une app
+    - suppression des panneaux/formulaires lourds du hub lui-meme
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-lobby-desktop.png`
+    - mobile final: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-lobby-mobile-tall-v4.png`
+- Limite restante:
+  - le ressenti de transition doit encore etre rejoue dans la vraie app avec des donnees reelles
+  - la qualite percue des apps depend toujours des blueprints que Cowork produit
+
 ## Priorite Principale
 - La priorite PRINCIPALE du projet est de faire de Cowork un agent **totalement libre, reflexif, visible et auto-dirige**.
 - Toute modification qui s'ecarte de cette direction ne doit PAS etre retenue par defaut. Si un changement reduit l'autonomie, la visibilite, la reflexivite ou la capacite de decision de l'agent, il est considere comme hors philosophie produit sauf validation explicite de Yassine.

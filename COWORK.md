@@ -3,6 +3,27 @@
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 
+## Mise a jour 2026-04-01 - `Nasheed Studio` se depouille pour devenir un vrai studio, pas un mur de texte
+- Retour produit:
+  - l'utilisateur juge la nouvelle surface musicale trop peu esthetique et trop bavarde
+  - le besoin n'est pas un ajout de fonctions, mais une vraie reduction du bruit visuel et textuel
+- Changement applique:
+  - `src/components/NasheedStudioWorkspace.tsx`
+    - header resserre autour du nom, du statut et de quelques pills
+    - hero recentre sur une headline de direction plus courte, un wave bus et un plan compact
+    - rail gauche simplifie en `Direction`, `Reglages`, `Session`
+    - rail droit fusionne autour de `Sorties` et `Run`
+    - suppression des longs paragraphes de contexte et des aides redondantes
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\nasheed-studio-desktop-apr01-v2.png`
+    - mobile: `C:\Users\Yassine\AppData\Local\Temp\nasheed-studio-mobile-apr01-v2.png`
+- Etat produit:
+  - la surface se lit maintenant plus comme une console de composition que comme un formulaire commente
+  - le prochain check utile est de rejouer cette compaction sur de vraies apps persistees et des briefs plus sales/longs
+
 ## Mise a jour 2026-04-01 - `Nasheed Studio` devient une vraie app musicale plein ecran
 - Retour produit:
   - l'utilisateur ne veut plus que `Nasheed Studio` tombe dans un chat ou une surface agent generique

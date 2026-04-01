@@ -4,6 +4,38 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-04-01 (`Nasheed Studio` passe en version epuree)
+- Besoin traite:
+  - l'utilisateur rejette la premiere version du studio musical dedie: trop de texte, pas assez esthetique
+  - il faut garder le vrai studio Nasheed, mais avec une hierarchie plus nette et une scene moins bavarde
+- Cause racine confirmee:
+  - `src/components/NasheedStudioWorkspace.tsx` empilait trop de copy de contexte entre header, hero, lancement et rail droit
+  - les aides de champs et les paragraphes d'explication noyaient la vraie matiere du morceau
+  - la composition manquait d'un centre de gravite unique; tout demandait de lire plutot que de sentir la surface
+- Correctifs appliques:
+  - `src/components/NasheedStudioWorkspace.tsx`
+    - refonte complete de la hierarchie visuelle
+    - header resserre: retour, nom, statut, pills
+    - rail gauche compact: `Direction`, `Reglages`, `Session`
+    - scene centrale recentree sur une headline courte, un wave bus et un plan compact
+    - rail droit simplifie autour de `Sorties` et `Run`
+    - coupe des longues explications et condensation des labels d'etat
+  - memoire projet:
+    - `NOW.md`
+    - `DECISIONS.md`
+    - `COWORK.md`
+    - `QA_RECIPES.md`
+    - `SESSION_STATE.md`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless via harness:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\nasheed-studio-desktop-apr01-v2.png`
+    - mobile: `C:\Users\Yassine\AppData\Local\Temp\nasheed-studio-mobile-apr01-v2.png`
+- Intention exacte:
+  - faire sentir un vrai poste de composition, pas une page qui explique son propre fonctionnement
+  - laisser la prochaine etape au niveau produit reel: vraie app, vraies donnees, vrai premier run audio/cover
+
 ## Mise a jour complementaire - 2026-04-01 (`Nasheed Studio` sort enfin du chat)
 - Besoin traite:
   - l'utilisateur refuse que `Nasheed Studio` ouvre encore un chat ou un workspace agent trop generique depuis le hub

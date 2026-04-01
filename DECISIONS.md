@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-04-01 - `Nasheed Studio` doit privilegier une scene utilitaire courte plutot qu'un studio bavard
+- Statut: adopte
+- Contexte: le premier `Nasheed Studio` dedie remplissait bien sa mission fonctionnelle, mais le retour utilisateur est net: l'interface restait peu esthetique et surtout surchargee de texte. Header, hero, lancement et journal repetaient trop d'explications.
+- Decision:
+  - recentrer `src/components/NasheedStudioWorkspace.tsx` sur une seule grande scene de composition
+  - couper les paragraphes marketing ou explicatifs redondants
+  - garder seulement trois zones lisibles: direction/reglages a gauche, scene + wave bus au centre, sorties/run a droite
+  - condenser le vocabulaire d'etat (`Pret`, `En rendu`, `Master pret`) et les demandes d'evolution du studio dans un dock compact
+- Pourquoi:
+  - une app studio doit se lire comme un instrument de travail, pas comme une brochure
+  - la direction visuelle premium vient plus de la hierarchie, de l'espace et de la retenue que de la quantite de blocs
+  - cela laisse respirer les vraies donnees du morceau au lieu de noyer l'utilisateur sous du texte produit
+- Consequence:
+  - `src/components/NasheedStudioWorkspace.tsx` porte maintenant une DA plus sobre et poster-like
+  - les validations QA doivent verifier explicitement l'absence de longues copies redondantes
+  - la prochaine verification critique se fera sur des blueprints reels pour confirmer que la compaction tient avec du contenu moins controle
+
 ## 2026-04-01 - Les apps musicales sortent du bucket podcast et ouvrent un vrai studio
 - Statut: adopte
 - Contexte: le besoin utilisateur est explicite: cliquer sur `Nasheed Studio` depuis le hub ne doit pas ouvrir un chat ni un panneau agent generique. L'architecture precedente forçait encore les experiences audio creatrices dans `podcast`, puis dans un workspace hybride studio + timeline.

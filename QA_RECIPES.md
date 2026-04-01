@@ -80,9 +80,10 @@
 - Nasheed Studio:
   - aucun rail de messages ou chatbox visible
   - header avec retour `Cowork Apps`, nom d'app et pills Lyria visibles
+  - pas de longs paragraphes marketing ou d'explication repetee dans le hero
   - colonne gauche dediee a la direction musicale et aux reglages
-  - grande scene centrale avec hero de composition et wave bus
-  - colonne droite avec sorties recentes et journal Cowork non-chat
+  - grande scene centrale avec headline courte, plan compact et wave bus
+  - colonne droite avec sorties recentes et journal Cowork non-chat, sans verbosite inutile
   - rendu premium, plus proche d'un studio musical que d'un formulaire
 - Store:
   - topbar utilitaire visible avec recherche centree
@@ -97,6 +98,7 @@
   - sur Nasheed Studio, header + pills Lyria + bloc `Direction musicale` visibles au premier viewport
   - pas de clipping horizontal sur la direction ni sur les pills
   - pas de clipping horizontal sur la headline
+  - pas d'empilement de longs textes explicatifs avant d'atteindre les vrais controles
   - topbar et recherche restent lisibles
   - pas d'icone coupee dans la liste d'apps
   - fleches visibles quand la page ne peut pas tout montrer

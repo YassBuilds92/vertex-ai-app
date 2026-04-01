@@ -1,5 +1,40 @@
 # DECISIONS
 
+## 2026-04-01 - Un bundle optionnel indisponible en environnement empaquete devient `skipped`, pas `failed`
+- Statut: adopte
+- Contexte: plusieurs drafts generated app remontaient un faux echec build avec `Could not resolve "./src/generated-app-sdk.tsx"` et `Could not resolve "react/jsx-runtime"`. Le rendu natif et la publication continuaient pourtant de fonctionner, donc le produit affichait une alarme rouge pour une capacite secondaire.
+- Decision:
+  - distinguer trois etats reellement utiles: `ready`, `skipped`, `failed`
+  - reclasser les erreurs de resolution connues liees a l'environnement empaquete en `bundleStatus='skipped'`
+  - ne reserver `failed` qu'aux vrais echec de bundle applicatifs
+  - masquer le diagnostic UI pour le cas `skipped`
+- Pourquoi:
+  - aligne l'UI avec la verite produit: le preview natif est canonique
+  - evite de faire croire qu'une draft est cassée alors que seul son bundle optionnel manque
+  - garde quand meme le rouge et le diagnostic pour les vrais echecs applicatifs
+- Consequence:
+  - le flux SSE generated app inclut maintenant `bundle_skipped`
+  - `sanitizeGeneratedAppManifest()` et `normalizeGeneratedApp()` nettoient aussi les anciennes drafts touchees par ce faux echec
+  - `GeneratedAppHost` n'affiche plus de panneau diagnostic sur un simple skip d'environnement
+
+## 2026-04-01 - Le preview generated app devient natif, le bundle devient un diagnostic optionnel
+- Statut: adopte
+- Contexte: le vrai point de rupture produit n'etait pas la generation de source, mais le bundling runtime dans la function backend empaquetee. En prod, la function ne retrouve pas toujours les modules frontend utilises au build de draft, alors que le meme chemin marche localement.
+- Decision:
+  - faire de `GeneratedAppCanvas` le chemin de rendu canonique dans `GeneratedAppHost`
+  - conserver `sourceCode` comme verite produit de la draft
+  - garder `bundleCode` / `bundleUrl` comme diagnostic best-effort avec `bundleStatus`
+  - autoriser `publish` tant que la source reste exploitable, meme si le bundle de preview a echoue
+  - normaliser les vieux `status='failed'` vers `draft` quand une source reste utilisable
+- Pourquoi:
+  - le code genere aujourd'hui est un scaffold autour du canvas natif; faire du bundle la condition de survie produit etait donc une complexite fragile sans vrai gain UX
+  - cela supprime la regression prod "draft inexploitable juste parce que la function empaquetee ne rebundle pas"
+  - cela garde un panneau diagnostic honnete sans bloquer l'utilisateur
+- Consequence:
+  - lifecycle reel retenu: `spec -> source -> native preview -> optional bundle -> publish`
+  - `GeneratedAppVersion` porte maintenant `bundleStatus`
+  - `GeneratedAppHost` doit toujours rester ouvrable si le manifest et la source existent
+
 ## 2026-04-01 - Cowork doit generer de vraies apps deployables, pas seulement des agents du hub
 - Statut: adopte
 - Contexte: le besoin utilisateur a change de nature. Le modele "Cowork cree un agent du Hub" restait trop proche d'un specialiste interne. Le besoin reel est: Cowork doit sortir une vraie app experte avec son propre prompt systeme, sa propre UI, sa liste d'outils autorises, et une ouverture sans chat generique.

@@ -1,10 +1,18 @@
 import { createHash } from 'crypto';
+import { fileURLToPath } from 'node:url';
 import { build as buildEsbuild } from 'esbuild';
+import * as generatedAppSdkRuntime from '../../src/generated-app-sdk.tsx';
+import {
+  isOptionalGeneratedAppBundleIssue,
+  normalizeGeneratedAppBundleState,
+} from '../../shared/generated-app-bundle.js';
 
 import { DEFAULT_IMAGE_MODEL, DEFAULT_LYRIA_MODEL, DEFAULT_TTS_MODEL } from './media-generation.js';
 import { createGoogleAI, parseApiError, retryWithBackoff } from './google-genai.js';
 import { log } from './logger.js';
 import { uploadToGCS } from './storage.js';
+
+void generatedAppSdkRuntime;
 
 export type GeneratedAppStatus = 'draft' | 'published' | 'failed';
 export type GeneratedAppOutputKind = 'pdf' | 'html' | 'music' | 'podcast' | 'code' | 'research' | 'automation' | 'image';
@@ -45,10 +53,21 @@ export type GeneratedAppRuntimeDefinition = {
   editHint?: string;
 };
 
+export type GeneratedAppBundleStatus = 'ready' | 'failed' | 'skipped';
+export type GeneratedAppCreationPhase =
+  | 'brief_validated'
+  | 'spec_ready'
+  | 'source_ready'
+  | 'bundle_ready'
+  | 'bundle_skipped'
+  | 'bundle_failed'
+  | 'manifest_ready';
+
 export type GeneratedAppVersion = {
   id: string;
   createdAt: number;
   status: GeneratedAppStatus;
+  bundleStatus: GeneratedAppBundleStatus;
   sourceCode: string;
   bundleCode?: string;
   sourceAssetPath?: string;
@@ -88,12 +107,42 @@ export type GeneratedAppManifest = {
   publishedVersion?: GeneratedAppVersion;
 };
 
+export type GeneratedAppManifestPreview = Pick<
+  GeneratedAppManifest,
+  | 'name'
+  | 'slug'
+  | 'tagline'
+  | 'summary'
+  | 'mission'
+  | 'whenToUse'
+  | 'outputKind'
+  | 'uiSchema'
+  | 'toolAllowList'
+  | 'capabilities'
+  | 'visualDirection'
+  | 'runtime'
+>;
+
+export type GeneratedAppCreationProgressEvent = {
+  phase: GeneratedAppCreationPhase;
+  label: string;
+  manifestPreview?: GeneratedAppManifestPreview;
+  sourceCode?: string;
+  buildLog?: string;
+  timestamp: number;
+};
+
 type DraftDefinition = Omit<
   GeneratedAppManifest,
   'id' | 'status' | 'createdAt' | 'updatedAt' | 'draftVersion' | 'publishedVersion'
 >;
 
+type GeneratedAppCreationProgressHandler = (event: GeneratedAppCreationProgressEvent) => void | Promise<void>;
+type GeneratedAppDefinitionBuilder = (brief: string, source: 'manual' | 'cowork') => Promise<DraftDefinition>;
+type GeneratedAppVersionBuilder = (sourceCode: string, slug: string) => Promise<GeneratedAppVersion>;
+
 const GENERATED_APP_MODEL = 'gemini-3.1-flash-lite-preview';
+const GENERATED_APP_BUILD_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const TOOL_LIBRARY = [
   'web_search',
   'web_fetch',
@@ -399,6 +448,40 @@ function buildVersionId(slug: string, createdAt: number) {
   return `${slug}-v${createdAt.toString(36)}`;
 }
 
+function buildManifestPreview(definition: DraftDefinition): GeneratedAppManifestPreview {
+  return {
+    name: definition.name,
+    slug: definition.slug,
+    tagline: definition.tagline,
+    summary: definition.summary,
+    mission: definition.mission,
+    whenToUse: definition.whenToUse,
+    outputKind: definition.outputKind,
+    uiSchema: definition.uiSchema,
+    toolAllowList: definition.toolAllowList,
+    capabilities: definition.capabilities,
+    visualDirection: definition.visualDirection,
+    runtime: definition.runtime,
+  };
+}
+
+function validateGeneratedAppBrief(brief: string) {
+  const cleanedBrief = clipText(brief, 2200);
+  if (!cleanedBrief) throw new Error("Le brief de generation d'app est vide.");
+  return cleanedBrief;
+}
+
+async function emitGeneratedAppProgress(
+  onProgress: GeneratedAppCreationProgressHandler | undefined,
+  event: Omit<GeneratedAppCreationProgressEvent, 'timestamp'>
+) {
+  if (!onProgress) return;
+  await onProgress({
+    ...event,
+    timestamp: Date.now(),
+  });
+}
+
 export function renderGeneratedAppSource(definition: DraftDefinition): string {
   const embeddedManifest = JSON.stringify(definition, null, 2);
   const featureDeck = JSON.stringify(definition.capabilities.slice(0, 4), null, 2);
@@ -455,10 +538,11 @@ export async function buildGeneratedAppVersion(sourceCode: string, slug: string)
 
   try {
     const buildResult = await buildEsbuild({
+      absWorkingDir: GENERATED_APP_BUILD_ROOT,
       stdin: {
         contents: sourceCode,
         loader: 'tsx',
-        resolveDir: process.cwd(),
+        resolveDir: GENERATED_APP_BUILD_ROOT,
         sourcefile: `${slug}.generated.tsx`,
       },
       bundle: true,
@@ -475,12 +559,12 @@ export async function buildGeneratedAppVersion(sourceCode: string, slug: string)
       id: versionId,
       createdAt,
       status: 'draft',
+      bundleStatus: 'ready',
       sourceCode,
       bundleCode: buildResult.outputFiles?.[0]?.text || '',
       bundleFormat: 'esm',
       sourceHash,
       bundleHash: buildResult.outputFiles?.[0]?.text ? hashText(buildResult.outputFiles[0].text) : undefined,
-      buildLog: 'Build esbuild reussi.',
     };
 
     try {
@@ -488,27 +572,42 @@ export async function buildGeneratedAppVersion(sourceCode: string, slug: string)
     } catch (storageError) {
       version = {
         ...version,
-        buildLog: `${version.buildLog}\nStockage distant indisponible: ${parseApiError(storageError)}`,
+        buildLog: `Stockage distant indisponible: ${parseApiError(storageError)}`,
       };
     }
 
     return version;
   } catch (error) {
+    const cleanError = parseApiError(error);
+
+    if (isOptionalGeneratedAppBundleIssue(cleanError)) {
+      log.warn('Generated app preview bundle skipped', { slug, reason: cleanError });
+      return {
+        id: versionId,
+        createdAt,
+        status: 'draft',
+        bundleStatus: 'skipped',
+        sourceCode,
+        bundleFormat: 'esm',
+        sourceHash,
+      };
+    }
+
     return {
       id: versionId,
       createdAt,
-      status: 'failed',
+      status: 'draft',
+      bundleStatus: 'failed',
       sourceCode,
       bundleFormat: 'esm',
       sourceHash,
-      buildLog: parseApiError(error),
+      buildLog: cleanError,
     };
   }
 }
 
 async function generateDefinitionFromBrief(brief: string, source: 'manual' | 'cowork'): Promise<DraftDefinition> {
-  const cleanedBrief = clipText(brief, 2200);
-  if (!cleanedBrief) throw new Error("Le brief de generation d'app est vide.");
+  const cleanedBrief = validateGeneratedAppBrief(brief);
 
   const ai = createGoogleAI(GENERATED_APP_MODEL);
   const result = await retryWithBackoff(() => ai.models.generateContent({
@@ -589,11 +688,9 @@ function materializeManifest(
   return {
     ...definition,
     id: options.id || `${definition.slug}-${now.toString(36)}`,
-    status: draftVersion.status === 'failed'
-      ? 'failed'
-      : options.publishedVersion && options.publishedVersion.id === draftVersion.id
-        ? 'published'
-        : 'draft',
+    status: options.publishedVersion && options.publishedVersion.id === draftVersion.id
+      ? 'published'
+      : 'draft',
     createdBy: options.createdBy,
     sourcePrompt: options.sourcePrompt || definition.sourcePrompt,
     sourceSessionId: options.sourceSessionId || definition.sourceSessionId,
@@ -607,20 +704,37 @@ function materializeManifest(
 function sanitizeVersion(raw: unknown, slug: string): GeneratedAppVersion {
   const input = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   const sourceCode = typeof input.sourceCode === 'string' ? input.sourceCode : '';
+  const sourceUrl = clipText(input.sourceUrl, 700) || undefined;
+  const bundleCode = typeof input.bundleCode === 'string' ? input.bundleCode : undefined;
+  const bundleUrl = clipText(input.bundleUrl, 700) || undefined;
+  const normalizedBundleState = normalizeGeneratedAppBundleState({
+    bundleStatus: typeof input.bundleStatus === 'string' ? input.bundleStatus : '',
+    bundleCode,
+    bundleUrl,
+    buildLog: clipText(input.buildLog, 4000) || undefined,
+  });
+  const hasUsableSource = sourceCode.trim().length > 0 || Boolean(sourceUrl);
+  const status: GeneratedAppStatus =
+    input.status === 'published'
+      ? 'published'
+      : input.status === 'failed' && !hasUsableSource
+        ? 'failed'
+        : 'draft';
   return {
     id: clipText(input.id, 160) || buildVersionId(slug, Date.now()),
     createdAt: Number(input.createdAt || Date.now()),
-    status: input.status === 'failed' ? 'failed' : input.status === 'published' ? 'published' : 'draft',
+    status,
+    bundleStatus: normalizedBundleState.bundleStatus,
     sourceCode,
-    bundleCode: typeof input.bundleCode === 'string' ? input.bundleCode : undefined,
+    bundleCode,
     sourceAssetPath: clipText(input.sourceAssetPath, 320) || undefined,
     bundleAssetPath: clipText(input.bundleAssetPath, 320) || undefined,
-    sourceUrl: clipText(input.sourceUrl, 700) || undefined,
-    bundleUrl: clipText(input.bundleUrl, 700) || undefined,
+    sourceUrl,
+    bundleUrl,
     bundleFormat: 'esm',
     sourceHash: clipText(input.sourceHash, 128) || hashText(sourceCode),
     bundleHash: clipText(input.bundleHash, 128) || undefined,
-    buildLog: clipText(input.buildLog, 4000) || undefined,
+    buildLog: normalizedBundleState.buildLog,
   };
 }
 
@@ -628,28 +742,100 @@ export function sanitizeGeneratedAppManifest(raw: unknown): GeneratedAppManifest
   if (!raw || typeof raw !== 'object') return null;
   const input = raw as Record<string, unknown>;
   const definition = sanitizeDefinition(input, clipText(input.sourcePrompt || input.mission || input.summary, 1500), input.createdBy === 'manual' ? 'manual' : 'cowork');
+  const draftVersion = sanitizeVersion(input.draftVersion, definition.slug);
+  const publishedVersion = input.publishedVersion ? sanitizeVersion(input.publishedVersion, definition.slug) : undefined;
   return {
     ...definition,
     id: clipText(input.id, 160) || `${definition.slug}-${Date.now().toString(36)}`,
-    status: input.status === 'failed' ? 'failed' : input.status === 'published' ? 'published' : 'draft',
+    status: publishedVersion && publishedVersion.id === draftVersion.id ? 'published' : 'draft',
     createdBy: input.createdBy === 'manual' ? 'manual' : 'cowork',
     sourcePrompt: clipText(input.sourcePrompt, 1500) || definition.sourcePrompt,
     sourceSessionId: clipText(input.sourceSessionId, 120) || definition.sourceSessionId,
     createdAt: Number(input.createdAt || Date.now()),
     updatedAt: Number(input.updatedAt || Date.now()),
-    draftVersion: sanitizeVersion(input.draftVersion, definition.slug),
-    publishedVersion: input.publishedVersion ? sanitizeVersion(input.publishedVersion, definition.slug) : undefined,
+    draftVersion,
+    publishedVersion,
   };
+}
+
+export async function createGeneratedAppFromBriefWithProgress(
+  brief: string,
+  source: 'manual' | 'cowork' = 'manual',
+  options?: {
+    onProgress?: GeneratedAppCreationProgressHandler;
+    generateDefinition?: GeneratedAppDefinitionBuilder;
+    buildVersion?: GeneratedAppVersionBuilder;
+  }
+): Promise<GeneratedAppManifest> {
+  const cleanedBrief = validateGeneratedAppBrief(brief);
+  const onProgress = options?.onProgress;
+  const generateDefinition = options?.generateDefinition || generateDefinitionFromBrief;
+  const buildVersion = options?.buildVersion || buildGeneratedAppVersion;
+
+  await emitGeneratedAppProgress(onProgress, {
+    phase: 'brief_validated',
+    label: 'Brief verrouille et pret pour la spec.',
+  });
+
+  const definition = await generateDefinition(cleanedBrief, source);
+  const manifestPreview = buildManifestPreview(definition);
+  await emitGeneratedAppProgress(onProgress, {
+    phase: 'spec_ready',
+    label: `Spec experte prete pour ${definition.name}.`,
+    manifestPreview,
+  });
+
+  const sourceCode = renderGeneratedAppSource(definition);
+  await emitGeneratedAppProgress(onProgress, {
+    phase: 'source_ready',
+    label: 'Source TSX generee pour la draft.',
+    manifestPreview,
+    sourceCode,
+  });
+
+  const draftVersion = await buildVersion(sourceCode, definition.slug);
+  const bundleProgress =
+    draftVersion.bundleStatus === 'ready'
+      ? {
+          phase: 'bundle_ready' as const,
+          label: 'Preview bundle prete pour le host.',
+        }
+      : draftVersion.bundleStatus === 'skipped'
+        ? {
+            phase: 'bundle_skipped' as const,
+            label: 'Bundle de preview saute sur cet environnement, preview native maintenu.',
+          }
+        : {
+            phase: 'bundle_failed' as const,
+            label: 'Le bundle de preview a rate, bascule native active.',
+          };
+  await emitGeneratedAppProgress(onProgress, {
+    phase: bundleProgress.phase,
+    label: bundleProgress.label,
+    manifestPreview,
+    sourceCode,
+    buildLog: draftVersion.buildLog,
+  });
+
+  const manifest = materializeManifest(definition, draftVersion, {
+    createdBy: source,
+    sourcePrompt: clipText(cleanedBrief, 1500),
+  });
+
+  await emitGeneratedAppProgress(onProgress, {
+    phase: 'manifest_ready',
+    label: `App ${manifest.name} prete pour le store.`,
+    manifestPreview,
+    sourceCode,
+    buildLog: draftVersion.buildLog,
+  });
+
+  return manifest;
 }
 
 export async function createGeneratedAppFromBrief(brief: string, source: 'manual' | 'cowork' = 'manual'): Promise<GeneratedAppManifest> {
   try {
-    const definition = await generateDefinitionFromBrief(brief, source);
-    const draftVersion = await buildGeneratedAppVersion(renderGeneratedAppSource(definition), definition.slug);
-    return materializeManifest(definition, draftVersion, {
-      createdBy: source,
-      sourcePrompt: clipText(brief, 1500),
-    });
+    return await createGeneratedAppFromBriefWithProgress(brief, source);
   } catch (error) {
     const cleanError = parseApiError(error);
     log.error('Generated app creation failed', cleanError);
@@ -691,8 +877,8 @@ export async function reviseGeneratedApp(existing: GeneratedAppManifest, changeR
 export function publishGeneratedApp(existing: GeneratedAppManifest): GeneratedAppManifest {
   const manifest = sanitizeGeneratedAppManifest(existing);
   if (!manifest) throw new Error("Manifest d'app invalide.");
-  if (!manifest.draftVersion.bundleCode && !manifest.draftVersion.bundleUrl) {
-    throw new Error("Impossible de publier une app sans bundle valide.");
+  if (!manifest.draftVersion.sourceCode && !manifest.draftVersion.sourceUrl) {
+    throw new Error("Impossible de publier une app sans source exploitable.");
   }
 
   const publishedVersion: GeneratedAppVersion = {

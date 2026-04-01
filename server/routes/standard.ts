@@ -1,8 +1,8 @@
-import { type Express } from 'express';
+import { type Express, type Response } from 'express';
 
 import { normalizeLatexProvider, resolveLatexProviderBaseUrl } from '../pdf/latex.js';
 import { generateAgentBlueprintFromBrief } from '../lib/agents.js';
-import { createGeneratedAppFromBrief, publishGeneratedApp } from '../lib/generated-apps.js';
+import { createGeneratedAppFromBrief, createGeneratedAppFromBriefWithProgress, publishGeneratedApp } from '../lib/generated-apps.js';
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_LYRIA_MODEL,
@@ -35,6 +35,71 @@ const ICON_PROMPT_SYSTEM_PROMPT = `Genere un prompt d'image pour un logo minimal
 function createUploadFileName(prefix: string, extension: string) {
   const safeExtension = extension.startsWith('.') ? extension : `.${extension}`;
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExtension}`;
+}
+
+function writeSseEvent(res: Response, event: string, data: unknown) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+type GeneratedAppStreamBuilder = (
+  brief: string,
+  source: 'manual' | 'cowork',
+  options?: Parameters<typeof createGeneratedAppFromBriefWithProgress>[2]
+) => ReturnType<typeof createGeneratedAppFromBriefWithProgress>;
+
+export async function streamGeneratedAppCreation(options: {
+  res: Response;
+  brief: string;
+  source?: 'manual' | 'cowork';
+  createManifest?: GeneratedAppStreamBuilder;
+}) {
+  const {
+    res,
+    brief,
+    source = 'manual',
+    createManifest = createGeneratedAppFromBriefWithProgress,
+  } = options;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  let closed = false;
+  const heartbeat = setInterval(() => {
+    if (!closed) {
+      res.write(': keep-alive\n\n');
+    }
+  }, 15000);
+
+  res.on('close', () => {
+    closed = true;
+    clearInterval(heartbeat);
+  });
+
+  const emit = (event: string, data: unknown) => {
+    if (closed) return;
+    writeSseEvent(res, event, data);
+  };
+
+  try {
+    const manifest = await createManifest(brief, source, {
+      onProgress: (progress) => emit('generated_app_creation', progress),
+    });
+
+    emit('generated_app_manifest', { manifest });
+    emit('done', { ok: true, manifestId: manifest.id });
+  } catch (error) {
+    emit('error', {
+      message: parseApiError(error),
+    });
+  } finally {
+    clearInterval(heartbeat);
+    if (!closed) {
+      res.end();
+    }
+  }
 }
 
 export function registerStandardApiRoutes(app: Express) {
@@ -218,6 +283,21 @@ export function registerStandardApiRoutes(app: Express) {
       const cleanError = parseApiError(error);
       log.error('Generated app create error', cleanError);
       res.status(500).json({ error: 'Generated app create failed', message: "Echec de creation d'app", details: cleanError });
+    }
+  });
+
+  app.post('/api/generated-apps/create/stream', async (req, res) => {
+    try {
+      const { brief, source } = GeneratedAppCreateSchema.parse(req.body);
+      await streamGeneratedAppCreation({
+        res,
+        brief,
+        source: source || 'manual',
+      });
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.error('Generated app create stream error', cleanError);
+      res.status(500).json({ error: 'Generated app create stream failed', message: "Echec de creation stream d'app", details: cleanError });
     }
   });
 

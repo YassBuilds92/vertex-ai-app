@@ -169,6 +169,7 @@ export interface GeneratedAppVersion {
   id: string;
   createdAt: number;
   status: GeneratedAppStatus;
+  bundleStatus: 'ready' | 'failed' | 'skipped';
   sourceCode: string;
   bundleCode?: string;
   sourceAssetPath?: string;
@@ -206,6 +207,52 @@ export interface GeneratedAppManifest {
   updatedAt: number;
   draftVersion: GeneratedAppVersion;
   publishedVersion?: GeneratedAppVersion;
+}
+
+export type GeneratedAppCreationPhase =
+  | 'brief_validated'
+  | 'spec_ready'
+  | 'source_ready'
+  | 'bundle_ready'
+  | 'bundle_skipped'
+  | 'bundle_failed'
+  | 'manifest_ready';
+
+export type GeneratedAppManifestPreview = Pick<
+  GeneratedAppManifest,
+  | 'name'
+  | 'slug'
+  | 'tagline'
+  | 'summary'
+  | 'mission'
+  | 'whenToUse'
+  | 'outputKind'
+  | 'uiSchema'
+  | 'toolAllowList'
+  | 'capabilities'
+  | 'visualDirection'
+  | 'runtime'
+>;
+
+export interface GeneratedAppCreationEvent {
+  phase: GeneratedAppCreationPhase;
+  label: string;
+  manifestPreview?: GeneratedAppManifestPreview;
+  sourceCode?: string;
+  buildLog?: string;
+  timestamp?: number;
+}
+
+export interface GeneratedAppCreationRun {
+  status: 'running' | 'completed' | 'failed';
+  startedAt: number;
+  completedAt?: number;
+  phases: GeneratedAppCreationEvent[];
+  manifestPreview?: GeneratedAppManifestPreview;
+  sourceCode?: string;
+  buildLog?: string;
+  manifest?: GeneratedAppManifest;
+  error?: string;
 }
 
 export interface GeneratedAppWorkspaceState {

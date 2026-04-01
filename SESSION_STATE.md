@@ -1,5 +1,105 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-01 (bundle generated app reclasse en `skipped` quand seul l'environnement empaquete manque)
+- Besoin traite:
+  - l'utilisateur voit encore des drafts generated app en faux echec bundle avec:
+    - `Could not resolve "./src/generated-app-sdk.tsx"`
+    - `Could not resolve "react/jsx-runtime"`
+  - produitement, cela donne une alerte rouge alors que le preview natif et la publication restent fonctionnels
+- Cause racine confirmee:
+  - `server/lib/generated-apps.ts` faisait resoudre `esbuild` depuis `process.cwd()`, trop fragile en environnement empaquete
+  - les erreurs de resolution connues du SDK partage / runtime React n'etaient pas distinguees d'un vrai echec applicatif
+  - le contrat SSE/frontend ne connaissait que `bundle_ready` ou `bundle_failed`
+- Correctifs appliques:
+  - `shared/generated-app-bundle.ts`
+    - normalisation partagee du statut bundle
+    - detection des erreurs d'environnement connues (`generated-app-sdk`, `react/jsx-runtime`, `lucide-react`)
+  - `server/lib/generated-apps.ts`
+    - `absWorkingDir` et `resolveDir` derives de `import.meta.url`
+    - import reelle de `../../src/generated-app-sdk.tsx` pour forcer la presence du SDK partage dans le package server
+    - reclassement des erreurs d'environnement en `bundleStatus='skipped'`
+    - nouveau phase SSE `bundle_skipped`
+  - `src/types.ts` / `src/App.tsx`
+    - prise en charge du nouveau phase `bundle_skipped`
+  - `src/utils/generatedAppSnapshots.ts`
+    - normalisation locale des anciennes drafts `failed` -> `skipped` quand le log correspond seulement au skip d'environnement
+  - `src/components/GeneratedAppHost.tsx`
+    - diagnostic affiche seulement sur vrai `bundle failed`
+    - copy neutre pour `bundle skipped`
+  - tests:
+    - ajout de `test-generated-app-bundle-state.ts`
+    - `test-generated-app-stream.ts` passe maintenant par `bundle_skipped`
+    - `test-generated-app-lifecycle.ts` conserve un vrai scenario `bundle failed`
+- Verification effectuee:
+  - pas encore rejouee au moment de cette note dans la vraie app authentifiee
+  - la verification code locale ciblee reste a lancer apres patch:
+    - `npm run lint`
+    - `npm run build`
+    - `npx tsx test-generated-app-manifest.ts`
+    - `npx tsx test-generated-app-bundle-state.ts`
+    - `npx tsx test-generated-app-lifecycle.ts`
+    - `npx tsx test-generated-app-stream.ts`
+- Limites restantes:
+  - il faut encore confirmer sur une vraie draft deja persistée que le sanitize/frontend la rehydrate bien en `skipped`
+  - d'autres erreurs de resolution non repertoriees peuvent encore remonter en vrai `failed`
+- Intention exacte:
+  - ne plus afficher un faux rouge quand seul le bundle optionnel est saute sur l'environnement serverless
+  - garder une signalisation rouge uniquement pour un vrai echec de build applicatif
+
+## Mise a jour complementaire - 2026-04-01 (generated apps stabilisees + creation visible en direct)
+- Besoin traite:
+  - le preview generated app cassait en prod a cause du bundling runtime dans la function backend empaquetee
+  - l'utilisateur veut voir la creation d'app se faire visuellement dans `Cowork Apps`
+- Cause racine confirmee:
+  - le bundling de draft s'appuyait sur des modules frontend non garantis dans la function serverless packagee
+  - le host faisait encore du bundle charge le chemin principal de rendu
+  - `Cowork Apps` n'exposait qu'un spinner binaire, pas une vraie creation visible
+- Correctifs appliques:
+  - `server/lib/generated-apps.ts`
+    - `bundleStatus` ajoute au contrat version
+    - succes bundle nettoye: plus de faux `buildLog` positif
+    - sanitation des vieux `status='failed'` vers `draft` quand une source reste exploitable
+    - `publishGeneratedApp()` n'exige plus de bundle
+  - `server/routes/standard.ts`
+    - extraction de `streamGeneratedAppCreation()`
+    - route SSE `POST /api/generated-apps/create/stream`
+  - `src/App.tsx`
+    - parsing SSE durci avec garde de type
+    - `generatedAppCreationRun` hydrate la timeline de creation
+  - `src/components/GeneratedAppHost.tsx`
+    - preview natif canonique via `GeneratedAppCanvas`
+    - bundle charge seulement comme diagnostic secondaire
+  - `src/components/AgentsHub.tsx`
+    - panneau `Creation visible` branche aux vraies phases backend
+    - rehierarchisation du labo de creation:
+      - formulaire compact quand une creation est en cours
+      - creation prioritaire sur mobile
+      - preview d'app remonte avant la timeline pour rendre la materialisation visible
+  - `tmp/cowork-apps-preview.tsx`
+    - nouvelles vues harness:
+      - `?view=creation`
+      - `?view=generated-host`
+  - nouveaux tests:
+    - `test-generated-app-lifecycle.ts`
+    - `test-generated-app-stream.ts`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-generated-app-lifecycle.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - captures Edge headless:
+    - `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-creation-desktop-apr01-v3.png`
+    - `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-creation-mobile-apr01-v3.png`
+    - `C:\Users\Yassine\AppData\Local\Temp\generated-app-host-desktop-apr01.png`
+    - `C:\Users\Yassine\AppData\Local\Temp\generated-app-host-mobile-apr01.png`
+- Limites restantes:
+  - le flux complet authentifie `create -> open -> run -> publish -> update draft` reste a observer dans la vraie app
+  - les captures actuelles restent des preuves harness, pas encore des preuves Firestore/Gemini reelles
+- Intention exacte:
+  - rendre le host produit robuste meme quand le bundle tombe
+  - transformer la creation generated app en scene visible et stylisee plutot qu'en attente opaque
+
 ## Mise a jour complementaire - 2026-04-01 (`Cowork Apps` ne crash plus a la creation et la scene respire enfin)
 - Besoin traite:
   - l'utilisateur a remonte un popup bloquant pendant la creation d'apps dans `Cowork Apps`

@@ -1,5 +1,42 @@
 # BUGS GRAVEYARD
 
+## 2026-04-01 - Generated app en faux `bundle failed` alors que seul le bundle optionnel manque
+- Statut: corrige localement, a revalider dans la vraie app connectee
+- Symptome:
+  - une draft generated app affiche un echec bundle rouge dans le host et/ou dans la creation visible
+  - logs observes:
+    - `Could not resolve "./src/generated-app-sdk.tsx"`
+    - `Could not resolve "react/jsx-runtime"`
+  - perception produit:
+    - l'app semble cassée alors que le preview natif et la publication fonctionnent encore
+- Tentatives:
+  - laisser le host vivre en preview natif uniquement
+  - garder la publication independante du bundle
+  - constat que l'UX restait quand meme trop rouge car le statut persiste restait `failed`
+- Cause racine:
+  - `server/lib/generated-apps.ts` faisait resoudre `esbuild` depuis `process.cwd()`, fragile en environnement empaquete
+  - les erreurs de resolution du SDK partage / runtime React etaient traitees comme un vrai echec applicatif
+  - le contrat de creation ne savait pas distinguer `bundle saute` de `bundle casse`
+- Resolution:
+  - `server/lib/generated-apps.ts`
+    - resolution `esbuild` recalee depuis `import.meta.url`
+    - import reelle de `../../src/generated-app-sdk.tsx` pour aider le packaging serveur
+    - reclassement des erreurs d'environnement connues en `bundleStatus='skipped'`
+    - nouveau phase `bundle_skipped`
+  - `shared/generated-app-bundle.ts`
+    - detection/normalisation partagee des statuts bundle
+  - `src/utils/generatedAppSnapshots.ts`
+    - nettoyage des anciennes drafts locales pour convertir ce faux `failed` en `skipped`
+  - `src/components/GeneratedAppHost.tsx`
+    - diagnostic rouge reserve au vrai `bundle failed`
+- Preuve:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-generated-app-bundle-state.ts` : OK
+  - `npx tsx test-generated-app-lifecycle.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+
 ## 2026-03-29 - Pieces jointes chat/cowork affichees mais invisibles pour le modele
 - Symptome:
   - l'utilisateur uploadait une image ou un PDF, puis le modele repondait qu'il ne voyait rien

@@ -21,6 +21,8 @@ service-account*.json
 # Temp & Test files
 .fuse_hidden*
 test-*.ts
+!test-generated-app-lifecycle.ts
+!test-generated-app-stream.ts
 test_output*.txt
 *.tmp
 *.txt

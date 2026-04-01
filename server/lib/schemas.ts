@@ -54,6 +54,7 @@ const GeneratedAppVersionSchema = z.object({
   id: z.string(),
   createdAt: z.number(),
   status: z.enum(['draft', 'published', 'failed']),
+  bundleStatus: z.enum(['ready', 'failed', 'skipped']),
   sourceCode: z.string(),
   bundleCode: z.string().optional(),
   sourceAssetPath: z.string().optional(),

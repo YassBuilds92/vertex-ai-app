@@ -1,5 +1,70 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-01 - Le faux `bundle failed` des generated apps devient un vrai `bundle skipped`
+- Retour produit:
+  - certaines drafts generated app affichaient encore un echec rouge avec:
+    - `Could not resolve "./src/generated-app-sdk.tsx"`
+    - `Could not resolve "react/jsx-runtime"`
+  - en pratique, seul le bundle optionnel manquait; le rendu natif et la publication restaient utilisables
+- Changement applique:
+  - `server/lib/generated-apps.ts`
+    - resolution `esbuild` recalee depuis `import.meta.url` au lieu de `process.cwd()`
+    - import reelle du SDK partage pour aider le packaging serveur
+    - reclassement des erreurs d'environnement connues en `bundleStatus='skipped'`
+    - nouveau phase SSE `bundle_skipped`
+  - `shared/generated-app-bundle.ts`
+    - normalisation partagee des statuts bundle entre backend et frontend
+  - frontend:
+    - `GeneratedAppHost` n'affiche plus de diagnostic rouge pour un simple skip d'environnement
+    - `normalizeGeneratedApp()` nettoie aussi les anciennes drafts stockees localement avec ce faux echec
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-generated-app-bundle-state.ts` : OK
+  - `npx tsx test-generated-app-lifecycle.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+- Etat produit:
+  - `failed` redevient reserve aux vrais echec bundle applicatifs
+  - `skipped` couvre maintenant honnetement le cas serverless ou le bundle optionnel n'est pas disponible
+  - prochaine verification utile: confirmer dans la vraie app qu'une ancienne draft deja stockee est bien rehydratee en `skipped`
+
+## Mise a jour 2026-04-01 - Generated apps stabilisees et creation visible en direct
+- Retour produit:
+  - la draft generated app pouvait casser en prod sur un bundle runtime introuvable alors que la meme creation marchait localement
+  - l'utilisateur veut aussi voir l'app se construire visuellement dans `Cowork Apps`, pas seulement attendre un spinner
+- Changement applique:
+  - backend:
+    - nouvelle route SSE `POST /api/generated-apps/create/stream`
+    - emission des vraies phases `brief_validated -> spec_ready -> source_ready -> bundle_ready|bundle_failed -> manifest_ready`
+    - `bundleStatus` ajoute au contrat version
+    - `publishGeneratedApp()` ne depend plus du bundle, seulement de la source exploitable
+    - normalisation des vieux etats `failed` vers `draft` quand la source reste utilisable
+  - frontend host:
+    - `GeneratedAppHost` rend maintenant l'app via `GeneratedAppCanvas` en chemin canonique
+    - le bundle est charge en arriere-plan comme diagnostic seulement
+    - si le bundle casse, l'app reste visible, le badge `bundle failed` reste honnete et `Publier la draft` reste actif
+  - `Cowork Apps`:
+    - remplacement du spinner binaire par un vrai `creationRun`
+    - timeline de phases reelles
+    - preview d'app qui se materialise pendant la creation
+    - hiérarchie corrigee pour rendre le panneau vivant visible plus tot, y compris sur mobile
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-generated-app-lifecycle.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - captures Edge headless:
+    - creation desktop: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-creation-desktop-apr01-v3.png`
+    - creation mobile: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-creation-mobile-apr01-v3.png`
+    - host desktop: `C:\Users\Yassine\AppData\Local\Temp\generated-app-host-desktop-apr01.png`
+    - host mobile: `C:\Users\Yassine\AppData\Local\Temp\generated-app-host-mobile-apr01.png`
+- Etat produit:
+  - une draft bundle-failed reste maintenant ouvrable et publiable
+  - la creation visible est enfin une vraie scene de studio plutot qu'un spinner
+  - prochaine verification utile: rejouer ce flow dans la vraie app connectee, avec Gemini/Firestore reelles
+
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 

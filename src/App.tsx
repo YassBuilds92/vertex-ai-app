@@ -25,7 +25,7 @@ import { AgentWorkspacePanel } from './components/AgentWorkspacePanel';
 import { GeneratedAppHost } from './components/GeneratedAppHost';
 import { NasheedStudioWorkspace } from './components/NasheedStudioWorkspace';
 import { StudioEmptyState } from './components/StudioEmptyState';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppManifest } from './types';
+import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppManifest } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -186,6 +186,43 @@ const buildGeneratedAppRemotePayload = (manifest: GeneratedAppManifest): Generat
     : undefined,
 });
 
+const GENERATED_APP_CREATION_PHASES: GeneratedAppCreationEvent['phase'][] = [
+  'brief_validated',
+  'spec_ready',
+  'source_ready',
+  'bundle_ready',
+  'bundle_skipped',
+  'bundle_failed',
+  'manifest_ready',
+];
+
+const isGeneratedAppCreationEvent = (value: unknown): value is GeneratedAppCreationEvent => {
+  if (!value || typeof value !== 'object') return false;
+  const input = value as Record<string, unknown>;
+  return typeof input.label === 'string'
+    && typeof input.phase === 'string'
+    && GENERATED_APP_CREATION_PHASES.includes(input.phase as GeneratedAppCreationEvent['phase']);
+};
+
+const isGeneratedAppManifestEnvelope = (value: unknown): value is { manifest: GeneratedAppManifest } => {
+  if (!value || typeof value !== 'object') return false;
+  const input = value as Record<string, unknown>;
+  return Boolean(input.manifest && typeof input.manifest === 'object');
+};
+
+const applyGeneratedAppCreationEvent = (
+  current: GeneratedAppCreationRun | null,
+  event: GeneratedAppCreationEvent
+): GeneratedAppCreationRun => ({
+  status: 'running',
+  startedAt: current?.startedAt || event.timestamp || Date.now(),
+  phases: [...(current?.phases || []), event],
+  manifestPreview: event.manifestPreview || current?.manifestPreview,
+  sourceCode: event.sourceCode || current?.sourceCode,
+  buildLog: event.buildLog || current?.buildLog,
+  manifest: current?.manifest,
+});
+
 const isScrolledNearBottom = (element: HTMLElement, threshold = AUTO_SCROLL_BOTTOM_THRESHOLD) =>
   element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
 
@@ -250,6 +287,7 @@ export default function App() {
   const [showAgentsHub, setShowAgentsHub] = useState(false);
   const [latestCreatedAgent, setLatestCreatedAgent] = useState<StudioAgent | null>(null);
   const [latestCreatedGeneratedApp, setLatestCreatedGeneratedApp] = useState<GeneratedAppManifest | null>(null);
+  const [generatedAppCreationRun, setGeneratedAppCreationRun] = useState<GeneratedAppCreationRun | null>(null);
   const [agentsWarning, setAgentsWarning] = useState<string | null>(null);
   const [isRunningHubAgent, setIsRunningHubAgent] = useState(false);
   const [isPublishingGeneratedApp, setIsPublishingGeneratedApp] = useState(false);
@@ -915,8 +953,13 @@ export default function App() {
     if (!cleanedBrief) return null;
 
     setIsCreatingAgent(true);
+    setGeneratedAppCreationRun({
+      status: 'running',
+      startedAt: Date.now(),
+      phases: [],
+    });
     try {
-      const response = await fetch('/api/generated-apps/create', {
+      const response = await fetch('/api/generated-apps/create/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -925,21 +968,141 @@ export default function App() {
         }),
       });
 
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data?.manifest) {
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
         throw new Error(data?.details || data?.message || "Impossible de creer l'app.");
       }
 
-      return await persistGeneratedAppManifest({
-        ...(data.manifest as GeneratedAppManifest),
+      if (!response.body) {
+        throw new Error("Le flux de creation n'a pas pu demarrer.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let pendingEvent = 'message';
+      let pendingData: string[] = [];
+      let finalManifest: GeneratedAppManifest | null = null;
+      let streamError: string | null = null;
+
+      const flushSseChunk = async () => {
+        if (pendingData.length === 0) {
+          pendingEvent = 'message';
+          return;
+        }
+
+        const rawPayload = pendingData.join('\n').trim();
+        pendingData = [];
+        const nextEvent = pendingEvent;
+        pendingEvent = 'message';
+
+        if (!rawPayload) return;
+
+        const data = JSON.parse(rawPayload) as unknown;
+
+        if (nextEvent === 'generated_app_creation') {
+          if (isGeneratedAppCreationEvent(data)) {
+            setGeneratedAppCreationRun(prev => applyGeneratedAppCreationEvent(prev, data));
+          }
+          return;
+        }
+
+        if (nextEvent === 'generated_app_manifest' && isGeneratedAppManifestEnvelope(data)) {
+          finalManifest = normalizeGeneratedApp(data.manifest);
+          return;
+        }
+
+        if (nextEvent === 'error' && data && typeof data === 'object') {
+          const message = (data as Record<string, unknown>).message;
+          streamError = typeof message === 'string' ? message : "La creation de l'app a echoue.";
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+        let delimiterIndex = buffer.indexOf('\n\n');
+        while (delimiterIndex !== -1) {
+          const rawEvent = buffer.slice(0, delimiterIndex);
+          buffer = buffer.slice(delimiterIndex + 2);
+
+          const lines = rawEvent.split(/\r?\n/);
+          for (const line of lines) {
+            if (!line || line.startsWith(':')) continue;
+            if (line.startsWith('event:')) {
+              pendingEvent = line.slice(6).trim();
+              continue;
+            }
+            if (line.startsWith('data:')) {
+              pendingData.push(line.slice(5).trimStart());
+            }
+          }
+
+          await flushSseChunk();
+          delimiterIndex = buffer.indexOf('\n\n');
+        }
+
+        if (done) break;
+      }
+
+      if (buffer.trim()) {
+        const lines = buffer.split(/\r?\n/);
+        for (const line of lines) {
+          if (!line || line.startsWith(':')) continue;
+          if (line.startsWith('event:')) {
+            pendingEvent = line.slice(6).trim();
+            continue;
+          }
+          if (line.startsWith('data:')) {
+            pendingData.push(line.slice(5).trimStart());
+          }
+        }
+        await flushSseChunk();
+      }
+
+      if (streamError) {
+        throw new Error(streamError);
+      }
+
+      if (!finalManifest) {
+        throw new Error("Le flux de creation s'est termine sans manifest.");
+      }
+
+      const persistedManifest = await persistGeneratedAppManifest({
+        ...finalManifest,
         createdBy: 'manual',
         sourcePrompt: cleanedBrief,
         sourceSessionId: activeSessionId && activeSessionId !== 'local-new' ? activeSessionId : undefined,
       }, {
         openHub: true,
       });
+
+      setGeneratedAppCreationRun(prev => ({
+        status: 'completed',
+        startedAt: prev?.startedAt || Date.now(),
+        completedAt: Date.now(),
+        phases: prev?.phases || [],
+        manifestPreview: prev?.manifestPreview,
+        sourceCode: prev?.sourceCode,
+        buildLog: prev?.buildLog,
+        manifest: persistedManifest || finalManifest || undefined,
+      }));
+
+      return persistedManifest;
     } catch (error) {
-      alert(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      setGeneratedAppCreationRun(prev => ({
+        status: 'failed',
+        startedAt: prev?.startedAt || Date.now(),
+        completedAt: Date.now(),
+        phases: prev?.phases || [],
+        manifestPreview: prev?.manifestPreview,
+        sourceCode: prev?.sourceCode,
+        buildLog: prev?.buildLog,
+        manifest: prev?.manifest,
+        error: message,
+      }));
       return null;
     } finally {
       setIsCreatingAgent(false);
@@ -2376,6 +2539,7 @@ export default function App() {
           isOpen={showAgentsHub}
           agents={coworkStoreAgents}
           isCreating={isCreatingAgent}
+          creationRun={generatedAppCreationRun}
           isRunningAgent={isRunningHubAgent || isLoading}
           latestCreatedAgent={latestCreatedStorePreview}
           warningMessage={agentsWarning}
@@ -2673,6 +2837,7 @@ export default function App() {
                 isOpen={showAgentsHub}
                 agents={coworkStoreAgents}
                 isCreating={isCreatingAgent}
+                creationRun={generatedAppCreationRun}
                 isRunningAgent={isRunningHubAgent || isLoading}
                 latestCreatedAgent={latestCreatedStorePreview}
                 warningMessage={agentsWarning}

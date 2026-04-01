@@ -1,9 +1,17 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+
 import '../src/index.css';
 import { AgentsHub } from '../src/components/AgentsHub';
+import { GeneratedAppHost } from '../src/components/GeneratedAppHost';
 import { NasheedStudioWorkspace } from '../src/components/NasheedStudioWorkspace';
-import type { AgentFormValues, Message, StudioAgent } from '../src/types';
+import type {
+  AgentFormValues,
+  GeneratedAppCreationRun,
+  GeneratedAppManifest,
+  Message,
+  StudioAgent,
+} from '../src/types';
 
 const now = Date.now();
 
@@ -33,7 +41,7 @@ const previewAgents: StudioAgent[] = [
     updatedAt: now - 1000 * 60 * 20,
   },
   {
-    id: 'site-issue',
+    id: 'issue-microsite',
     name: 'Issue Microsite',
     slug: 'issue-microsite',
     tagline: 'Transforme un dossier ou une veille en mini-site narratif.',
@@ -59,9 +67,9 @@ const previewAgents: StudioAgent[] = [
     id: 'dossier-premium',
     name: 'Dossier Premium',
     slug: 'dossier-premium',
-    tagline: 'Produit des dossiers PDF sourcés avec vraie mise en page.',
+    tagline: 'Produit des dossiers PDF sources avec vraie mise en page.',
     summary: 'Assemble recherche, structure et direction editoriale dans un atelier PDF.',
-    mission: 'Fabriquer un document source, structuré et publiable sans perdre la qualité de forme.',
+    mission: 'Fabriquer un document source, structure et publiable sans perdre la qualite de forme.',
     whenToUse: 'Quand tu veux une note, un rapport ou un dossier premium a envoyer tel quel.',
     outputKind: 'pdf',
     starterPrompt: 'Cadre le sujet, ouvre les bonnes sources puis livre un PDF premium.',
@@ -186,6 +194,158 @@ const workspaceMessages: Message[] = [
   },
 ];
 
+const duelPreviewManifest = {
+  name: 'DuelAudio',
+  slug: 'duel-audio',
+  tagline: 'Monte un duel podcast natif avec rounds, angles et sortie directe.',
+  summary: 'Cadre les protagonistes, le ton et les livrables puis orchestre un duel audio clair.',
+  mission: 'Transformer un brief de duel en experience audio visible avec angles, rounds et livrables propres.',
+  whenToUse: 'Quand tu veux un duel, un face-a-face ou un podcast compare sans repasser par un chat generique.',
+  outputKind: 'podcast' as const,
+  uiSchema: [
+    { id: 'sujet', label: 'Sujet', type: 'textarea' as const, required: true, placeholder: 'Le duel a monter', helpText: 'Le theme, les camps et le niveau de tension.' },
+    { id: 'format', label: 'Format', type: 'select' as const, options: ['Duel court', 'Comparatif', 'Round par round'], helpText: 'Choisis le tempo du face-a-face.' },
+    { id: 'voix', label: 'Voix', type: 'select' as const, options: ['Narrateur unique', 'Duo TTS'], helpText: 'Choisis le rendu vocal du duel.' },
+  ],
+  toolAllowList: ['web_search', 'web_fetch', 'create_podcast_episode', 'release_file'],
+  capabilities: ['Cadre les angles', 'Monte les rounds', 'Livre un audio final'],
+  visualDirection: {
+    thesis: 'Atelier nocturne de production audio, surfaces denses, relief discret et signal cyan sur fond carbone.',
+    mood: 'tendu mais precis',
+    accentColor: '#7dd3fc',
+    surfaceTone: 'dense',
+    primaryFont: 'Sora',
+    secondaryFont: 'IBM Plex Sans',
+  },
+  runtime: {
+    primaryActionLabel: 'Lancer le duel',
+    resultLabel: 'Sorties',
+    emptyStateLabel: 'Le duel apparait ici des le prochain render.',
+    editHint: 'Decris le nouvel angle, le rythme ou les rounds a faire evoluer.',
+  },
+};
+
+const creationSourceCode = [
+  "import { GeneratedAppCanvas } from './src/generated-app-sdk';",
+  '',
+  'export default function DuelAudioDraft(props) {',
+  '  return <GeneratedAppCanvas {...props} />;',
+  '}',
+].join('\n');
+
+const creationRun: GeneratedAppCreationRun = {
+  status: 'running',
+  startedAt: now - 1000 * 9,
+  phases: [
+    {
+      phase: 'brief_validated',
+      label: 'Brief verrouille et pret pour la spec.',
+      timestamp: now - 1000 * 9,
+    },
+    {
+      phase: 'spec_ready',
+      label: 'Spec experte prete pour DuelAudio.',
+      timestamp: now - 1000 * 7,
+      manifestPreview: duelPreviewManifest,
+    },
+    {
+      phase: 'source_ready',
+      label: 'Source TSX generee pour la draft.',
+      timestamp: now - 1000 * 4,
+      manifestPreview: duelPreviewManifest,
+      sourceCode: creationSourceCode,
+    },
+    {
+      phase: 'bundle_skipped',
+      label: 'Bundle de preview saute sur cet environnement, preview native maintenu.',
+      timestamp: now - 1000 * 2,
+      manifestPreview: duelPreviewManifest,
+      sourceCode: creationSourceCode,
+    },
+  ],
+  manifestPreview: duelPreviewManifest,
+  sourceCode: creationSourceCode,
+};
+
+const generatedHostManifest: GeneratedAppManifest = {
+  id: 'duel-audio-podcast-vmngdzkle',
+  name: 'DuelAudio',
+  slug: 'duel-audio',
+  tagline: duelPreviewManifest.tagline,
+  summary: duelPreviewManifest.summary,
+  mission: duelPreviewManifest.mission,
+  whenToUse: duelPreviewManifest.whenToUse,
+  outputKind: 'podcast',
+  starterPrompt: 'Cadre les camps, choisis le rythme, puis sors un duel audio pret a ecouter.',
+  systemInstruction: 'Tu es DuelAudio, une app Cowork specialisee dans les duels audio et podcasts compares.',
+  uiSchema: duelPreviewManifest.uiSchema,
+  toolAllowList: duelPreviewManifest.toolAllowList,
+  capabilities: [...duelPreviewManifest.capabilities, 'Fait evoluer le duel via Cowork'],
+  modelProfile: {
+    textModel: 'gemini-3.1-pro-preview',
+    ttsModel: 'gemini-2.5-pro-tts',
+    musicModel: 'lyria-002',
+  },
+  visualDirection: duelPreviewManifest.visualDirection,
+  runtime: duelPreviewManifest.runtime,
+  status: 'draft',
+  createdBy: 'manual',
+  sourcePrompt: 'Construis une app de duel audio visible et publishable.',
+  createdAt: now - 1000 * 60 * 40,
+  updatedAt: now - 1000 * 60 * 8,
+  draftVersion: {
+    id: 'duel-audio-podcast-vmngdzkle',
+    createdAt: now - 1000 * 60 * 8,
+    status: 'draft',
+    bundleStatus: 'skipped',
+    sourceCode: creationSourceCode,
+    bundleFormat: 'esm',
+    sourceHash: 'preview-source-hash',
+  },
+  publishedVersion: {
+    id: 'duel-audio-podcast-live-v1',
+    createdAt: now - 1000 * 60 * 180,
+    status: 'published',
+    bundleStatus: 'ready',
+    sourceCode: 'export default function DuelAudioLive() { return null; }',
+    bundleCode: 'export default function DuelAudioLive(){return null;}',
+    bundleFormat: 'esm',
+    sourceHash: 'live-source-hash',
+    bundleHash: 'live-bundle-hash',
+  },
+};
+
+const generatedHostValues: AgentFormValues = {
+  sujet: 'Duel sur les meilleurs workflows pour lancer une app podcast avec Cowork.',
+  format: 'Round par round',
+  voix: 'Duo TTS',
+};
+
+const generatedHostMessages: Message[] = [
+  {
+    id: 'generated-host-model-1',
+    role: 'model',
+    content: 'Le duel est pret. Un master audio et une cover ont ete livres dans la sortie native.',
+    attachments: [
+      {
+        id: 'generated-host-audio',
+        type: 'audio',
+        url: '/tmp/duo-smoke.wav',
+        mimeType: 'audio/wav',
+        name: 'duel-audio-master.wav',
+      },
+      {
+        id: 'generated-host-cover',
+        type: 'image',
+        url: '/tmp/qa-image-test.png',
+        mimeType: 'image/png',
+        name: 'duel-audio-cover.png',
+      },
+    ],
+    createdAt: now,
+  },
+];
+
 function PreviewApp() {
   const search = new URLSearchParams(window.location.search);
   const view = search.get('view') || 'store';
@@ -209,17 +369,55 @@ function PreviewApp() {
     );
   }
 
+  if (view === 'creation') {
+    return (
+      <div className="relative min-h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--app-text)]">
+        <AgentsHub
+          isOpen
+          agents={previewAgents}
+          isCreating
+          creationRun={creationRun}
+          isRunningAgent={false}
+          latestCreatedAgent={previewAgents[0]}
+          onClose={() => {}}
+          onCreateAgent={async () => undefined}
+          onRunAgent={async () => undefined}
+        />
+      </div>
+    );
+  }
+
+  if (view === 'generated-host') {
+    return (
+      <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-text)]">
+        <GeneratedAppHost
+          manifest={generatedHostManifest}
+          formValues={generatedHostValues}
+          messages={generatedHostMessages}
+          isRunning={false}
+          isPublishing={false}
+          onBackToHub={() => {}}
+          onFieldChange={() => {}}
+          onRunApp={() => {}}
+          onPublishApp={() => {}}
+          onAskCowork={() => Promise.resolve()}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--app-text)]">
       <AgentsHub
         isOpen
         agents={previewAgents}
         isCreating={false}
+        creationRun={null}
         isRunningAgent={false}
         latestCreatedAgent={previewAgents[0]}
         onClose={() => {}}
-        onCreateAgent={() => {}}
-        onRunAgent={() => {}}
+        onCreateAgent={async () => undefined}
+        onRunAgent={async () => undefined}
       />
     </div>
   );

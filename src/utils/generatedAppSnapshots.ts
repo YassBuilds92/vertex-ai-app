@@ -1,4 +1,5 @@
-import { GeneratedAppManifest } from '../types';
+import { GeneratedAppManifest, GeneratedAppVersion } from '../types';
+import { normalizeGeneratedAppBundleState } from '../../shared/generated-app-bundle.js';
 
 const GENERATED_APP_LOCAL_STORAGE_KEY = 'studio-pro-generated-apps-v1';
 const MAX_LOCAL_APPS_PER_USER = 32;
@@ -33,6 +34,21 @@ function writeStore(store: GeneratedAppSnapshotStore) {
 }
 
 export function normalizeGeneratedApp(manifest: GeneratedAppManifest): GeneratedAppManifest {
+  const normalizeVersion = (version: GeneratedAppVersion): GeneratedAppVersion => {
+    const normalizedBundleState = normalizeGeneratedAppBundleState({
+      bundleStatus: version.bundleStatus,
+      bundleCode: version.bundleCode,
+      bundleUrl: version.bundleUrl,
+      buildLog: version.buildLog,
+    });
+
+    return {
+      ...version,
+      bundleStatus: normalizedBundleState.bundleStatus,
+      buildLog: normalizedBundleState.buildLog,
+    };
+  };
+
   return {
     ...manifest,
     createdAt: Number(manifest.createdAt || Date.now()),
@@ -40,6 +56,8 @@ export function normalizeGeneratedApp(manifest: GeneratedAppManifest): Generated
     uiSchema: Array.isArray(manifest.uiSchema) ? manifest.uiSchema : [],
     toolAllowList: Array.isArray(manifest.toolAllowList) ? manifest.toolAllowList : [],
     capabilities: Array.isArray(manifest.capabilities) ? manifest.capabilities : [],
+    draftVersion: normalizeVersion(manifest.draftVersion),
+    publishedVersion: manifest.publishedVersion ? normalizeVersion(manifest.publishedVersion) : undefined,
   };
 }
 

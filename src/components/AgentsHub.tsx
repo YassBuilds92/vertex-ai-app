@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Bell,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Cog,
@@ -14,10 +15,11 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { StudioAgent } from '../types';
+import { GeneratedAppCreationRun, StudioAgent } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import {
+  AgentAppPreview,
   createInitialFieldValues,
   getAgentAppMeta,
   getAgentPalette,
@@ -73,10 +75,36 @@ function getAgentQuickActionLabel(agent: Pick<StudioAgent, 'outputKind'>) {
 
 const CREATION_TYPES = ['Podcast', 'Musique', 'Creature', 'Carte', 'Analyse', 'Autre'];
 
+function buildCreationPreviewAgent(run: GeneratedAppCreationRun | null): StudioAgent | null {
+  const preview = run?.manifest || run?.manifestPreview;
+  if (!preview) return null;
+
+  return {
+    id: `creation-preview-${preview.slug || 'pending'}`,
+    name: preview.name,
+    slug: preview.slug,
+    tagline: preview.tagline,
+    summary: preview.summary,
+    mission: preview.mission,
+    whenToUse: preview.whenToUse,
+    outputKind: preview.outputKind,
+    starterPrompt: `Ouvre ${preview.name}.`,
+    systemInstruction: `Tu es ${preview.name}.`,
+    uiSchema: Array.isArray(preview.uiSchema) ? preview.uiSchema : [],
+    tools: Array.isArray(preview.toolAllowList) ? preview.toolAllowList : [],
+    capabilities: Array.isArray(preview.capabilities) ? preview.capabilities : [],
+    status: run?.status === 'completed' ? 'ready' : 'draft',
+    createdBy: 'cowork',
+    createdAt: run?.startedAt || Date.now(),
+    updatedAt: run?.completedAt || run?.startedAt || Date.now(),
+  };
+}
+
 interface AgentsHubProps {
   isOpen: boolean;
   agents: StudioAgent[];
   isCreating: boolean;
+  creationRun?: GeneratedAppCreationRun | null;
   isRunningAgent: boolean;
   latestCreatedAgent?: StudioAgent | null;
   warningMessage?: string | null;
@@ -89,6 +117,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
   isOpen,
   agents,
   isCreating,
+  creationRun,
   isRunningAgent,
   latestCreatedAgent,
   warningMessage,
@@ -207,6 +236,18 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
   const SelectedIcon = selectedMeta?.icon || LayoutTemplate;
   const pageColumnsClass = getHubPageColumns(pageSize);
   const hasSearchResults = filteredAgents.length > 0;
+  const hasCreationRun = Boolean(creationRun);
+  const creationPreviewAgent = useMemo(() => buildCreationPreviewAgent(creationRun || null), [creationRun]);
+  const creationSourceSnippet = useMemo(() => {
+    const source = creationRun?.sourceCode?.trim();
+    if (!source) return null;
+    const lines = source.split('\n');
+    return {
+      lineCount: lines.length,
+      snippet: lines.slice(0, 8).join('\n'),
+    };
+  }, [creationRun?.sourceCode]);
+  const latestCreationPhase = creationRun?.phases[creationRun.phases.length - 1];
 
   const submit = async () => {
     const cleanedBrief = brief.trim();
@@ -337,7 +378,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
 
             <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 lg:py-5 xl:overflow-hidden">
               <div className="mx-auto grid min-h-full max-w-[1520px] gap-5 xl:h-full xl:grid-cols-[minmax(0,1fr)_388px] xl:gap-6">
-                <section className="grid min-h-0 gap-5 xl:grid-rows-[minmax(0,1fr)_auto] xl:gap-6">
+                <section className={cn('grid min-h-0 gap-5 xl:grid-rows-[minmax(0,1fr)_auto] xl:gap-6', hasCreationRun ? 'order-last xl:order-none' : '')}>
                   <div className="relative overflow-hidden rounded-[2.35rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015))] px-6 py-6 shadow-[0_34px_110px_-58px_rgba(0,0,0,0.92)] sm:px-9 sm:py-8">
                     <div className="pointer-events-none absolute inset-0">
                       <div className="absolute left-1/2 top-[12%] h-[80%] w-[72%] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(115,203,255,0.11),transparent_62%)] blur-[28px]" />
@@ -568,7 +609,10 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     )}
                   </div>
                 </section>
-                <aside className="flex min-h-0 flex-col rounded-[2.1rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.02))] p-4 shadow-[0_34px_100px_-56px_rgba(0,0,0,0.9)] backdrop-blur-2xl sm:p-5">
+                <aside className={cn(
+                  'flex min-h-0 flex-col rounded-[2.1rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.02))] p-4 shadow-[0_34px_100px_-56px_rgba(0,0,0,0.9)] backdrop-blur-2xl sm:p-5',
+                  hasCreationRun ? 'order-first xl:order-none' : ''
+                )}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-[11px] uppercase tracking-[0.22em] text-white/34">
@@ -600,52 +644,56 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     <div className="space-y-4">
                       <label className="block">
                         <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
-                          Vision
+                          {hasCreationRun ? 'Nouvelle vision' : 'Vision'}
                         </span>
                         <textarea
                           value={brief}
                           onChange={(event) => setBrief(event.target.value)}
-                          rows={isShortViewport ? 3 : 4}
+                          rows={hasCreationRun ? 2 : isShortViewport ? 3 : 4}
                           placeholder="Ex: un studio podcast qui cherche, ecrit, narre et livre un master final."
                           className={cn(
                             'w-full resize-none rounded-[1.35rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30',
-                            isShortViewport ? 'min-h-[6rem]' : 'min-h-[7.4rem]'
+                            hasCreationRun ? 'min-h-[4.6rem]' : isShortViewport ? 'min-h-[6rem]' : 'min-h-[7.4rem]'
                           )}
                         />
                       </label>
 
-                      <label className="block">
-                        <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
-                          Contraintes
-                        </span>
-                        <textarea
-                          value={creationNotes}
-                          onChange={(event) => setCreationNotes(event.target.value)}
-                          rows={isShortViewport ? 2 : 3}
-                          placeholder="Fonctions, ton, design, livrable, moteurs ou limites."
-                          className={cn(
-                            'w-full resize-none rounded-[1.35rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30',
-                            isShortViewport ? 'min-h-[4.3rem]' : 'min-h-[5.5rem]'
-                          )}
-                        />
-                      </label>
+                      {!hasCreationRun && (
+                        <>
+                          <label className="block">
+                            <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
+                              Contraintes
+                            </span>
+                            <textarea
+                              value={creationNotes}
+                              onChange={(event) => setCreationNotes(event.target.value)}
+                              rows={isShortViewport ? 2 : 3}
+                              placeholder="Fonctions, ton, design, livrable, moteurs ou limites."
+                              className={cn(
+                                'w-full resize-none rounded-[1.35rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30',
+                                isShortViewport ? 'min-h-[4.3rem]' : 'min-h-[5.5rem]'
+                              )}
+                            />
+                          </label>
 
-                      <label className="block">
-                        <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
-                          Type d'application
-                        </span>
-                        <select
-                          value={creationType}
-                          onChange={(event) => setCreationType(event.target.value)}
-                          className="h-12 w-full rounded-[1.1rem] border border-white/8 bg-white/[0.03] px-4 text-sm text-white outline-none transition-colors focus:border-cyan-300/30"
-                        >
-                          {CREATION_TYPES.map((type) => (
-                            <option key={type} value={type} className="bg-[#0a1018]">
-                              {type}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          <label className="block">
+                            <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
+                              Type d'application
+                            </span>
+                            <select
+                              value={creationType}
+                              onChange={(event) => setCreationType(event.target.value)}
+                              className="h-12 w-full rounded-[1.1rem] border border-white/8 bg-white/[0.03] px-4 text-sm text-white outline-none transition-colors focus:border-cyan-300/30"
+                            >
+                              {CREATION_TYPES.map((type) => (
+                                <option key={type} value={type} className="bg-[#0a1018]">
+                                  {type}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </>
+                      )}
 
                       <button
                         type="submit"
@@ -665,12 +713,139 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                         ) : (
                           <>
                             <Sparkles size={16} />
-                            Lancer l'assistant co-createur
+                            {hasCreationRun ? 'Lancer une autre app' : "Lancer l'assistant co-createur"}
                           </>
                         )}
                       </button>
                     </div>
                   </form>
+
+                  {creationRun && (
+                    <div className="mt-5 rounded-[1.7rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] uppercase tracking-[0.22em] text-white/34">
+                            Creation visible
+                          </div>
+                          <div className="mt-1 text-sm font-semibold text-white">
+                            {creationRun.status === 'completed'
+                              ? 'App prête dans le studio'
+                              : creationRun.status === 'failed'
+                                ? 'Creation interrompue'
+                                : latestCreationPhase?.label || 'Cowork construit la draft'}
+                          </div>
+                        </div>
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] uppercase tracking-[0.18em]',
+                            creationRun.status === 'completed'
+                              ? 'border-emerald-300/18 bg-emerald-300/[0.08] text-emerald-50/84'
+                              : creationRun.status === 'failed'
+                                ? 'border-rose-300/18 bg-rose-300/[0.08] text-rose-50/84'
+                                : 'border-cyan-300/16 bg-cyan-300/[0.08] text-cyan-50/84'
+                          )}
+                        >
+                          {creationRun.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                          {creationRun.status}
+                        </span>
+                      </div>
+
+                      {creationPreviewAgent && (
+                        <div className="mt-4 overflow-hidden rounded-[1.5rem] border border-white/10 bg-black/18">
+                          <AgentAppPreview
+                            agent={creationPreviewAgent}
+                            size="feature"
+                            className={cn('min-h-[14rem]', isShortViewport && 'min-h-[12rem]')}
+                          />
+                        </div>
+                      )}
+
+                      {creationRun.phases.length > 0 && (
+                        <div className="mt-4 space-y-3">
+                          {creationRun.phases.map((phase, index) => {
+                            const isLast = index === creationRun.phases.length - 1;
+                            const failedStep = phase.phase === 'bundle_failed' || creationRun.status === 'failed';
+
+                            return (
+                              <div key={`${phase.phase}-${phase.timestamp || index}`} className="flex items-start gap-3">
+                                <div className="flex flex-col items-center">
+                                  <span
+                                    className={cn(
+                                      'flex h-8 w-8 items-center justify-center rounded-full border',
+                                      failedStep
+                                        ? 'border-rose-300/18 bg-rose-300/[0.08] text-rose-100'
+                                        : 'border-cyan-300/16 bg-cyan-300/[0.08] text-cyan-100'
+                                    )}
+                                  >
+                                    {failedStep ? (
+                                      <AlertTriangle size={14} />
+                                    ) : creationRun.status === 'running' && isLast ? (
+                                      <Loader2 size={14} className="animate-spin" />
+                                    ) : (
+                                      <CheckCircle2 size={14} />
+                                    )}
+                                  </span>
+                                  {!isLast && <span className="mt-2 h-6 w-px bg-white/10" />}
+                                </div>
+                                <div className="min-w-0 pb-2">
+                                  <div className="text-sm font-medium text-white/88">{phase.label}</div>
+                                  <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-white/36">
+                                    {phase.phase.replace(/_/g, ' ')}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {(creationSourceSnippet || creationRun.buildLog || creationRun.error) && (
+                        <div className="mt-4 grid gap-3">
+                          {creationSourceSnippet && (
+                            <div className="rounded-[1.25rem] border border-white/10 bg-black/18 p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-[11px] uppercase tracking-[0.18em] text-white/38">Source</div>
+                                <div className="text-[11px] uppercase tracking-[0.18em] text-white/44">
+                                  {creationSourceSnippet.lineCount} lignes
+                                </div>
+                              </div>
+                              <pre className="mt-3 overflow-x-auto text-xs leading-6 text-white/66">
+                                {creationSourceSnippet.snippet}
+                              </pre>
+                            </div>
+                          )}
+
+                          {(creationRun.buildLog || creationRun.error) && (
+                            <div className="rounded-[1.25rem] border border-white/10 bg-black/18 p-4">
+                              <div className="text-[11px] uppercase tracking-[0.18em] text-white/38">
+                                {creationRun.status === 'failed' ? 'Erreur' : 'Diagnostic bundle'}
+                              </div>
+                              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-white/66">
+                                {creationRun.error || creationRun.buildLog}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {creationRun.status === 'completed' && latestCreatedAgent && (
+                        <button
+                          type="button"
+                          onClick={() => void launchAgent(latestCreatedAgent)}
+                          disabled={isRunningAgent}
+                          className={cn(
+                            'mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-all',
+                            isRunningAgent
+                              ? 'cursor-not-allowed bg-white/8 text-white/35'
+                              : 'bg-[linear-gradient(180deg,rgba(232,240,255,0.92),rgba(174,188,214,0.9))] text-[#07121d] hover:-translate-y-[1px]'
+                          )}
+                        >
+                          {isRunningAgent ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                          Ouvrir le studio
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {!isShortViewport && (
                     <div className="mt-5 flex min-h-0 flex-1 flex-col rounded-[1.7rem] border border-white/10 bg-black/18 p-4">

@@ -28,7 +28,7 @@ const HubAgentSchema = z.object({
   summary: z.string(),
   mission: z.string(),
   whenToUse: z.string(),
-  outputKind: z.enum(['pdf', 'html', 'podcast', 'code', 'research', 'automation']),
+  outputKind: z.enum(['pdf', 'html', 'music', 'podcast', 'code', 'research', 'automation']),
   starterPrompt: z.string(),
   systemInstruction: z.string(),
   uiSchema: z.array(AgentFieldSchema),

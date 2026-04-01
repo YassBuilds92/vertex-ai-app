@@ -1,7 +1,7 @@
 import { createGoogleAI, parseApiError, retryWithBackoff } from './google-genai.js';
 import { log } from './logger.js';
 
-export type AgentOutputKind = 'pdf' | 'html' | 'podcast' | 'code' | 'research' | 'automation';
+export type AgentOutputKind = 'pdf' | 'html' | 'music' | 'podcast' | 'code' | 'research' | 'automation';
 export type AgentFieldType = 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'url';
 
 export type AgentFieldSchema = {
@@ -76,7 +76,7 @@ Schema attendu:
   "summary": "resume concret en 1 phrase",
   "mission": "ce que l'app accomplit exactement",
   "whenToUse": "quand l'utilisateur doit preferer cette app",
-  "outputKind": "pdf | html | podcast | code | research | automation",
+  "outputKind": "pdf | html | music | podcast | code | research | automation",
   "starterPrompt": "prompt de depart que Cowork ou l'utilisateur peut envoyer a cette app",
   "systemInstruction": "prompt systeme complet, directement reutilisable",
   "tools": ["liste d'outils pertinents"],
@@ -102,12 +102,14 @@ Regles:
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - Les capabilities sont des promesses produit courtes, pas du jargon.
 - Le uiSchema doit ressembler a un vrai poste de lancement de l'app, pas a un formulaire administratif generique.
-- Si le brief parle de podcast, de voix ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
+- Si le brief parle de nasheed, de chanson, de composition musicale, de bed instrumental, de beat, de refrain, de chant ou d'une app Lyria, utilise \`outputKind: "music"\` et prefere \`generate_music_audio\`. Ajoute \`generate_image_asset\` et \`release_file\` si la cover ou l'export final sont utiles.
+- Si le brief parle de podcast, de narration, de chronique ou de voix-off avec habillage sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Pour la synthese Gemini TTS: choisis une seule voix pour narration, voix-off, chronique, flash info ou explication; choisis 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
 - Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
 - En duo, impose 2 voix distinctes et 2 styles de jeu vraiment contrastes; n'utilise jamais la meme voix pour les 2 intervenants.
 - Pense aux style instructions globales et par intervenant pour preciser ton, rythme, accent, energie et emotion.
 - Quand des noms propres ou mots etrangers apparaissent dans un script TTS/podcast, ecris-les dans leur ecriture d'origine quand cela ameliore la fluidite orale.
+- Pour une app \`music\`, si l'utilisateur veut explicitement Lyria 3 ou un vrai nasheed/chanson, cadre le systemInstruction autour de \`lyria-3-pro-preview\` pour les morceaux complets et \`lyria-3-clip-preview\` pour les extraits courts; garde \`lyria-002\` comme repli robuste.
 - Pour la musique podcast, garde \`lyria-002\` comme option robuste par defaut. N'oriente vers \`lyria-3-clip-preview\` ou \`lyria-3-pro-preview\` que si l'utilisateur veut explicitement tester la preview.
 - Le systemInstruction doit etre exigeant, concret et exploitable tel quel.
 - Le starterPrompt doit etre pret a l'emploi.
@@ -126,7 +128,7 @@ Schema attendu:
   "summary": "resume concret en 1 phrase",
   "mission": "ce que l'app accomplit exactement",
   "whenToUse": "quand l'utilisateur doit preferer cette app",
-  "outputKind": "pdf | html | podcast | code | research | automation",
+  "outputKind": "pdf | html | music | podcast | code | research | automation",
   "starterPrompt": "prompt de depart que l'utilisateur peut envoyer a cette app",
   "systemInstruction": "prompt systeme complet, directement reutilisable",
   "tools": ["liste d'outils pertinents"],
@@ -151,12 +153,14 @@ Regles:
 - Si l'utilisateur demande une evolution d'interface, mets a jour \`uiSchema\`.
 - Si l'utilisateur demande une evolution de comportement, mets a jour \`systemInstruction\`, \`capabilities\` et \`tools\` si besoin.
 - Le resultat doit rester une app Cowork utilisable, pas juste un prompt refait sans surface claire.
-- Si la mission parle de voix, de narration ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
+- Si la mission parle de nasheed, de chanson, de composition musicale, de bed instrumental, de beat, de refrain, de chant ou d'une app Lyria, utilise \`outputKind: "music"\` et prefere \`generate_music_audio\`. Ajoute \`generate_image_asset\` et \`release_file\` si la cover ou l'export final sont utiles.
+- Si la mission parle de narration, de chronique, de podcast ou de voix-off avec habillage sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Pour la synthese Gemini TTS: garde 1 voix pour narration, voix-off, chronique, flash info ou explication; passe a 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
 - Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
 - En duo, impose 2 voix distinctes et 2 styles de jeu vraiment contrastes; n'utilise jamais la meme voix pour les 2 intervenants.
 - Pense aux style instructions globales et par intervenant pour preciser ton, rythme, accent, energie et emotion.
 - Quand des noms propres ou mots etrangers apparaissent dans un script TTS/podcast, ecris-les dans leur ecriture d'origine quand cela ameliore la fluidite orale.
+- Pour une app \`music\`, si l'utilisateur veut explicitement Lyria 3 ou un vrai nasheed/chanson, cadre le systemInstruction autour de \`lyria-3-pro-preview\` pour les morceaux complets et \`lyria-3-clip-preview\` pour les extraits courts; garde \`lyria-002\` comme repli robuste.
 - Pour la musique podcast, garde \`lyria-002\` comme option robuste par defaut. N'oriente vers \`lyria-3-clip-preview\` ou \`lyria-3-pro-preview\` que si l'utilisateur veut explicitement tester la preview.
 - Garde 3 a 6 champs UI max.
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
@@ -219,14 +223,23 @@ function normalizeFieldType(value: unknown): AgentFieldType {
   }
 }
 
+function isMusicBrief(brief: string) {
+  return /\b(nasheed|anashid|anachid|nashid|song|songs|chanson|musique|music|lyria|beat|instrumental|melodie|melody|chorus|refrain|hook|acapella|anthem|chant)\b/.test(brief);
+}
+
+function isPodcastBrief(brief: string) {
+  return /\b(podcast|episode|chronique|interview|narration|narratif|host|flash info|tts|voice[- ]?over|voix off)\b/.test(brief);
+}
+
 function normalizeOutputKind(value: unknown, fallbackBrief = ''): AgentOutputKind {
   const normalized = typeof value === 'string' ? value.toLowerCase().trim() : '';
-  if (normalized === 'pdf' || normalized === 'html' || normalized === 'podcast' || normalized === 'code' || normalized === 'research' || normalized === 'automation') {
+  if (normalized === 'pdf' || normalized === 'html' || normalized === 'music' || normalized === 'podcast' || normalized === 'code' || normalized === 'research' || normalized === 'automation') {
     return normalized;
   }
 
   const brief = fallbackBrief.toLowerCase();
-  if (brief.includes('podcast') || brief.includes('audio')) return 'podcast';
+  if (isMusicBrief(brief) && !isPodcastBrief(brief)) return 'music';
+  if (isPodcastBrief(brief) || brief.includes('audio')) return 'podcast';
   if (brief.includes('html') || brief.includes('site') || brief.includes('landing')) return 'html';
   if (brief.includes('code') || brief.includes('app') || brief.includes('plugin')) return 'code';
   if (brief.includes('pdf') || brief.includes('rapport') || brief.includes('document')) return 'pdf';
@@ -253,6 +266,43 @@ function defaultUiSchema(outputKind: AgentOutputKind): AgentFieldSchema[] {
       required: false,
     },
   ];
+
+  if (outputKind === 'music') {
+    return [
+      {
+        id: 'direction',
+        label: 'Direction du nasheed',
+        type: 'textarea',
+        placeholder: 'Le message, l emotion, le type de refrain et l ambience generale du morceau',
+        helpText: 'Donne le coeur spirituel, la couleur et l intention musicale.',
+        required: true,
+      },
+      {
+        id: 'structure',
+        label: 'Structure',
+        type: 'select',
+        helpText: 'Cadre rapidement l architecture du morceau.',
+        required: false,
+        options: ['Intro + couplet + refrain', 'Hook court', 'Instrumental', 'Nasheed complet'],
+      },
+      {
+        id: 'energie',
+        label: 'Energie',
+        type: 'select',
+        helpText: 'Pilote la poussee, la densite et la cadence.',
+        required: false,
+        options: ['Contemple', 'Ascendant', 'Epic', 'Minimal'],
+      },
+      {
+        id: 'moteur',
+        label: 'Moteur musical',
+        type: 'select',
+        helpText: 'Lyria 3 pour la creation ambitieuse, Lyria 2 pour le repli robuste.',
+        required: false,
+        options: ['Lyria 3 Pro preview', 'Lyria 3 Clip preview', 'Lyria 2 stable'],
+      },
+    ];
+  }
 
   if (outputKind === 'podcast') {
     return [
@@ -405,6 +455,8 @@ export function sanitizeAgentBlueprint(raw: unknown, brief = ''): AgentBlueprint
     uiSchema,
     tools: tools.length > 0
       ? tools
+      : outputKind === 'music'
+        ? ['generate_music_audio', 'generate_image_asset', 'release_file']
       : outputKind === 'podcast'
         ? ['web_search', 'web_fetch', 'generate_image_asset', 'create_podcast_episode', 'release_file']
         : ['web_search', 'web_fetch'],

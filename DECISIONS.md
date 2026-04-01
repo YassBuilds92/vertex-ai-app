@@ -1,5 +1,21 @@
 # DECISIONS
 
+## 2026-04-01 - Les apps musicales sortent du bucket podcast et ouvrent un vrai studio
+- Statut: adopte
+- Contexte: le besoin utilisateur est explicite: cliquer sur `Nasheed Studio` depuis le hub ne doit pas ouvrir un chat ni un panneau agent generique. L'architecture precedente forçait encore les experiences audio creatrices dans `podcast`, puis dans un workspace hybride studio + timeline.
+- Decision:
+  - ajouter `outputKind: music` au contrat blueprint/app
+  - laisser le runtime outille `/api/cowork` intact, mais rendre la surface utilisateur via un composant plein ecran dedie `NasheedStudioWorkspace`
+  - traiter aussi comme `music` les apps historiques mal classees en `podcast` quand leur identite parle clairement de nasheed/musique/Lyria
+- Pourquoi:
+  - la metaphore produit "podcast" etait fausse pour un studio de composition musicale
+  - le bon niveau de specialisation doit venir de la surface, pas seulement du prompt systeme
+  - cette separation permet a Cowork de continuer a architecturer les apps sans imposer au user final une UX de conversation
+- Consequence:
+  - `server/lib/agents.ts` peut maintenant generer de vraies apps `music` avec `generate_music_audio`
+  - le hub et les previews savent reconnaitre/rendre cette famille d'apps
+  - les futures surfaces specialisees pourront suivre le meme schema sans recoder le backend agentique
+
 ## 2026-04-01 - `Cowork Apps` adopte une composition "laboratoire Cowork" proche de la reference produit
 - Statut: adopte
 - Contexte: le lobby plein ecran precedent etait deja plus propre qu'un dashboard, mais il restait trop abstrait face a la reference utilisateur. Le besoin reel etait une scene plus proche d'un produit Cowork final: topbar utilitaire, hero central tres editorial, rail d'apps en bas et panneau de co-creation lateral.

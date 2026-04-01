@@ -13,6 +13,7 @@ import {
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { AgentFieldSchema, StudioAgent } from '../types';
+import { resolveAgentVisualOutputKind } from '../utils/agentStudio';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -61,6 +62,15 @@ const OUTPUT_META: Record<StudioAgent['outputKind'], AgentAppMeta> = {
     heroHint: 'structure, design et export',
     icon: Globe2,
   },
+  music: {
+    label: 'Nasheed Studio',
+    category: 'Music',
+    spotlight: 'Composition, voix et texture Lyria',
+    studioLabel: 'Studio nasheed',
+    actionLabel: 'Ouvrir Nasheed Studio',
+    heroHint: 'compose, sculpte et exporte',
+    icon: Radio,
+  },
   podcast: {
     label: 'Audio Studio',
     category: 'Podcast',
@@ -102,6 +112,7 @@ const OUTPUT_META: Record<StudioAgent['outputKind'], AgentAppMeta> = {
 const BASE_HUES: Record<StudioAgent['outputKind'], number> = {
   pdf: 16,
   html: 194,
+  music: 52,
   podcast: 36,
   code: 148,
   research: 226,
@@ -139,12 +150,13 @@ export function createInitialFieldValues(fields: AgentFieldSchema[]) {
 }
 
 export function getAgentAppMeta(agent: Pick<StudioAgent, 'outputKind'>): AgentAppMeta {
-  return OUTPUT_META[agent.outputKind];
+  return OUTPUT_META[resolveAgentVisualOutputKind(agent)];
 }
 
 export function getAgentPalette(agent: Pick<StudioAgent, 'id' | 'name' | 'outputKind'>): AgentPalette {
-  const hash = hashString(`${agent.id}:${agent.name}:${agent.outputKind}`);
-  const baseHue = BASE_HUES[agent.outputKind];
+  const visualOutputKind = resolveAgentVisualOutputKind(agent);
+  const hash = hashString(`${agent.id}:${agent.name}:${visualOutputKind}`);
+  const baseHue = BASE_HUES[visualOutputKind];
   const hue = (baseHue + (hash % 28) - 14 + 360) % 360;
   const accent = `hsl(${hue} 88% 74%)`;
   const accentStrong = `hsl(${(hue + 18) % 360} 90% 62%)`;
@@ -288,7 +300,7 @@ function renderHtmlPreview(agent: StudioAgent, palette: AgentPalette) {
       </div>
       <div className="mt-4 grid h-[calc(100%-3.25rem)] gap-3 md:grid-cols-[0.58fr_0.42fr]">
         <div className="rounded-[1.25rem] border p-4" style={palette.tile}>
-          <PreviewBadge palette={palette}>{agent.outputKind}</PreviewBadge>
+          <PreviewBadge palette={palette}>{resolveAgentVisualOutputKind(agent)}</PreviewBadge>
           <div className="mt-4 max-w-[13rem] text-2xl font-semibold leading-[1.02] tracking-tight text-white">
             {agent.name}
           </div>
@@ -400,6 +412,109 @@ function renderPodcastPreview(agent: StudioAgent, palette: AgentPalette) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function renderMusicPreview(agent: StudioAgent, palette: AgentPalette) {
+  const bars = [32, 54, 76, 88, 64, 92, 58, 72, 44, 82, 61, 70];
+
+  return (
+    <div className="grid h-full gap-3 md:grid-cols-[0.58fr_0.42fr]">
+      <div className="overflow-hidden rounded-[1.35rem] border p-4" style={palette.panel}>
+        <div className="flex items-center justify-between">
+          <PreviewBadge palette={palette}>lyria 3 lane</PreviewBadge>
+          <span className="text-[11px] uppercase tracking-[0.2em] text-white/44">Nasheed</span>
+        </div>
+        <div className="mt-4 text-2xl font-semibold tracking-tight text-white">{agent.name}</div>
+        <div className="mt-2 max-w-[26rem] text-sm leading-6 text-white/62">{agent.tagline}</div>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-[0.58fr_0.42fr]">
+          <div className="rounded-[1.25rem] border border-white/10 bg-black/22 p-4">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-white/48">Scene</div>
+            <div className="mt-4 flex aspect-square items-center justify-center rounded-[1.4rem] border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.16),rgba(255,255,255,0.02)_52%,rgba(0,0,0,0.18)_72%)]">
+              <div
+                className="flex h-44 w-44 items-center justify-center rounded-full border"
+                style={{
+                  borderColor: palette.rim,
+                  boxShadow: `0 0 0 20px ${palette.accentSoft}, 0 20px 56px -28px ${palette.glow}`,
+                  background: `radial-gradient(circle, ${palette.accentSoft}, rgba(0,0,0,0.12) 66%)`,
+                }}
+              >
+                <div className="h-16 w-16 rounded-full border border-white/20 bg-black/40" />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Wave bed</div>
+              <div className="mt-4 flex h-24 items-end gap-1.5 overflow-hidden rounded-[1rem] bg-black/16 px-3 pb-3">
+                {bars.map((height, index) => (
+                  <span
+                    key={`${height}-${index}`}
+                    className="w-full rounded-full"
+                    style={{
+                      height: `${height}%`,
+                      background: index % 3 === 0
+                        ? `linear-gradient(180deg, ${palette.accent}, rgba(255,255,255,0.14))`
+                        : index % 2 === 0
+                          ? `linear-gradient(180deg, ${palette.accentStrong}, rgba(255,255,255,0.12))`
+                          : 'linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.16))',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Structure</div>
+              <div className="mt-3 space-y-2">
+                {['Intro spirituelle', 'Couplet principal', 'Refrain porte', 'Outro respirante'].map((label, index) => (
+                  <div key={label} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/74">
+                    <span>{label}</span>
+                    <span className="text-[10px] uppercase tracking-[0.18em] text-white/42">0{index + 1}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        <div className="rounded-[1.25rem] border p-3" style={palette.tile}>
+          <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-white/52">
+            <span>Moteur</span>
+            <span>Preview</span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {['Lyria 3 Pro', 'Lyria 3 Clip', 'Cover art'].map((label, index) => (
+              <div key={label} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/74">
+                <span>{label}</span>
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ background: index === 2 ? 'rgba(255,255,255,0.4)' : palette.accent }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 rounded-[1.25rem] border p-3" style={palette.tile}>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Palette</div>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            {[palette.accent, palette.accentStrong, 'rgba(255,255,255,0.78)'].map((color) => (
+              <div key={color} className="h-14 rounded-[1rem] border border-white/10" style={{ background: color }} />
+            ))}
+          </div>
+          <div className="mt-4 space-y-2.5">
+            <FauxLine palette={palette} width="76%" strong />
+            <FauxLine palette={palette} width="100%" />
+            <FauxLine palette={palette} width="63%" />
           </div>
         </div>
       </div>
@@ -542,11 +657,13 @@ function renderAutomationPreview(palette: AgentPalette) {
 }
 
 function renderPreviewByKind(agent: StudioAgent, palette: AgentPalette) {
-  switch (agent.outputKind) {
+  switch (resolveAgentVisualOutputKind(agent)) {
     case 'pdf':
       return renderPdfPreview(agent, palette);
     case 'html':
       return renderHtmlPreview(agent, palette);
+    case 'music':
+      return renderMusicPreview(agent, palette);
     case 'podcast':
       return renderPodcastPreview(agent, palette);
     case 'code':

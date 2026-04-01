@@ -22,6 +22,7 @@ import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
 import { AgentsHub } from './components/AgentsHub';
 import { AgentWorkspacePanel } from './components/AgentWorkspacePanel';
+import { NasheedStudioWorkspace } from './components/NasheedStudioWorkspace';
 import { StudioEmptyState } from './components/StudioEmptyState';
 import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -59,6 +60,7 @@ import {
   buildApiAttachmentPayloads,
   buildApiHistoryFromMessages,
 } from './utils/chat-parts';
+import { resolveAgentStudioKind } from './utils/agentStudio';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -105,10 +107,15 @@ const formatAgentFormValues = (agent: StudioAgent, values: AgentFormValues) =>
 
 const buildAgentLaunchPrompt = (agent: StudioAgent, values: AgentFormValues) => {
   const formattedValues = formatAgentFormValues(agent, values);
+  const hasExplicitMusicEngine = agent.uiSchema.some((field) => /moteur|lyria|modele|model|engine/i.test(`${field.id} ${field.label}`));
+  const nasheedRuntimeHint = resolveAgentStudioKind(agent) === 'nasheed' && !hasExplicitMusicEngine
+    ? "Orientation moteur:\n- modele musical prefere: lyria-3-pro-preview\n- si l'utilisateur veut surtout un extrait court ou un premier brouillon rapide, lyria-3-clip-preview est acceptable."
+    : '';
 
   return [
     agent.starterPrompt || `Prends en charge la mission de ${agent.name}.`,
     formattedValues.length > 0 ? `Parametres de l'interface:\n${formattedValues.join('\n')}` : '',
+    nasheedRuntimeHint,
     `Type de sortie attendu: ${agent.outputKind}.`,
   ].filter(Boolean).join('\n\n');
 };
@@ -219,6 +226,9 @@ export default function App() {
       formValues: buildAgentRuntimeFormValues(latestAgent, activeSession.agentWorkspace.formValues || {}),
     };
   }, [activeSession, agents]);
+  const activeAgentStudioKind = activeAgentWorkspace
+    ? resolveAgentStudioKind(activeAgentWorkspace.agent)
+    : 'default';
 
   const materializeAgentBlueprint = useCallback((blueprint: AgentBlueprint, overrides?: Partial<StudioAgent>): StudioAgent => {
     const now = Date.now();
@@ -328,6 +338,7 @@ export default function App() {
     ? 'App Cowork'
     : activeModeLabel;
   const isCoworkAppsView = Boolean(user && activeMode === 'cowork' && showAgentsHub);
+  const isDedicatedAgentStudioView = Boolean(user && activeAgentWorkspace && activeAgentStudioKind !== 'default');
 
   const getPreferredSessionsForMode = useCallback((mode: AppMode) => (
     sessions.filter((session) => session.mode === mode && !(mode === 'chat' && session.sessionKind === 'agent'))
@@ -1968,6 +1979,41 @@ export default function App() {
           onRunAgent={handleRunAgentFromHub}
         />
       </div>
+    );
+  }
+
+  if (isDedicatedAgentStudioView && activeAgentWorkspace && activeAgentStudioKind === 'nasheed') {
+    return (
+      <>
+        <NasheedStudioWorkspace
+          agent={activeAgentWorkspace.agent}
+          formValues={activeAgentWorkspace.formValues}
+          messages={displayedMessages}
+          isRunning={isLoading}
+          onFieldChange={(fieldId, value) => {
+            void updateAgentWorkspaceValues({
+              ...activeAgentWorkspace.formValues,
+              [fieldId]: value,
+            });
+          }}
+          onRunAgent={() => rerunActiveAgentWorkspace()}
+          onAskCowork={(request) => requestCoworkAgentEdit(
+            activeAgentWorkspace.agent,
+            request,
+            activeAgentWorkspace.formValues
+          )}
+          onBackToHub={() => {
+            setActiveMode('cowork');
+            setShowAgentsHub(true);
+          }}
+          setSelectedImage={setSelectedImage}
+        />
+        {selectedImage && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 p-4 backdrop-blur-xl" onClick={() => setSelectedImage(null)}>
+            <img src={selectedImage} className="max-h-full max-w-full rounded-[2rem] border border-white/10 shadow-[0_30px_80px_-28px_rgba(0,0,0,0.9)]" />
+          </div>
+        )}
+      </>
     );
   }
 

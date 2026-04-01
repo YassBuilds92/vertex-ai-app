@@ -68,21 +68,7 @@ function formatProjectAge(timestamp?: number) {
 }
 
 function getAgentQuickActionLabel(agent: Pick<StudioAgent, 'outputKind'>) {
-  switch (agent.outputKind) {
-    case 'podcast':
-      return 'Lancer le studio';
-    case 'pdf':
-      return "Ouvrir l'atelier";
-    case 'html':
-      return 'Ouvrir';
-    case 'code':
-      return 'Construire';
-    case 'automation':
-      return 'Lancer';
-    case 'research':
-    default:
-      return 'Ouvrir';
-  }
+  return getAgentAppMeta(agent).actionLabel;
 }
 
 const CREATION_TYPES = ['Podcast', 'Musique', 'Creature', 'Carte', 'Analyse', 'Autre'];

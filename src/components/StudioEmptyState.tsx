@@ -51,7 +51,7 @@ const modeCopy: Record<AppMode, EmptyStateContent> = {
   cowork: {
     eyebrow: 'Cowork apps',
     title: 'Un atelier pour lancer une mission, puis ouvrir de vraies apps construites par Cowork.',
-    body: "Recherche, PDF premium, podcast, media et apps reutilisables: tout demarre depuis une scene simple, lisible et directement actionnable.",
+    body: "Recherche, PDF premium, nasheed studio, media et apps reutilisables: tout demarre depuis une scene simple, lisible et directement actionnable.",
     bullets: [
       'App Store Cowork visible sans transformer le shell en dashboard generique',
       'Chaque app garde sa propre scene, pas juste un prompt renomme',
@@ -60,7 +60,7 @@ const modeCopy: Record<AppMode, EmptyStateContent> = {
     suggestions: [
       'Creer une app PDF premium',
       'Transformer une veille en mini-site',
-      'Preparer une app podcast Gemini et Lyria',
+      'Preparer un Nasheed Studio avec Lyria 3',
     ],
     ambientWords: ['atelier', 'apps', 'mission', 'catalogue', 'studio', 'livraison'],
     primaryLabel: 'Lancer une premiere mission',

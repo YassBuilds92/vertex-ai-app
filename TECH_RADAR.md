@@ -9,6 +9,30 @@
 - Cout
 - Sources officielles
 
+## 2026-04-01 - Nasheed Studio s'appuie sur Lyria 3 preview en surface dediee
+- Statut: retenu pour la nouvelle surface produit
+- Date de verification: 2026-04-01
+- Technologie: Lyria 3 via Gemini API / Google AI Studio
+- Choix:
+  - pousser `lyria-3-pro-preview` comme moteur ambitieux par defaut de la surface `Nasheed Studio`
+  - exposer `lyria-3-clip-preview` comme variante courte/rapide
+  - garder `lyria-002` comme repli robuste quand la preview n'est pas souhaitable
+- Pourquoi:
+  - l'utilisateur veut explicitement une vraie interface de creation de nasheed avec Lyria 3, pas une app podcast ni un chat de delegation
+  - le billet officiel Google du 25 mars 2026 annonce `lyria-3-pro-preview` et `lyria-3-clip-preview` en public preview pour les developpeurs via Gemini API et AI Studio
+  - le studio dedie peut donc orienter proprement les blueprints musicaux vers Lyria 3 sans casser le repli robuste deja present
+- Alternatives evaluees:
+  - rester dans `outputKind: podcast`
+    - Ecartee: mauvaise metaphore produit pour un nasheed et retombe dans la mauvaise surface UI
+  - rester uniquement sur `lyria-002`
+    - Ecartee: ne respecte pas la demande explicite "avec Lyria 3" alors que la preview est officiellement ouverte
+- Cout:
+  - payant a l'usage via Gemini API / Google AI Studio
+  - aucune dependance npm ajoutee
+- Sources officielles:
+  - [Build with Lyria 3, our newest music generation model](https://blog.google/innovation-and-ai/technology/developers-tools/lyria-3-developers/)
+  - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
+
 ## 2026-03-29 - Lyria 3 preview corrigee, `lyria-002` conserve en defaut robuste
 - Statut: retenu et verifie en smoke test reel
 - Date de verification: 2026-03-29

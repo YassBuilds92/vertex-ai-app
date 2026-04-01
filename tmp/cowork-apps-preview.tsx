@@ -2,30 +2,31 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import '../src/index.css';
 import { AgentsHub } from '../src/components/AgentsHub';
-import { AgentWorkspacePanel } from '../src/components/AgentWorkspacePanel';
-import type { AgentFormValues, StudioAgent } from '../src/types';
+import { NasheedStudioWorkspace } from '../src/components/NasheedStudioWorkspace';
+import type { AgentFormValues, Message, StudioAgent } from '../src/types';
 
 const now = Date.now();
 
 const previewAgents: StudioAgent[] = [
   {
-    id: 'podcast-editorial',
-    name: 'Briefing Sonore',
-    slug: 'briefing-sonore',
-    tagline: "Veille, script, voix, bed musical et master final dans une meme app.",
-    summary: "Transforme un sujet d'actualite en episode court, credible et pret a publier.",
-    mission: "Cadrer un angle, produire un script original, generer la narration, ajouter l'habillage sonore et livrer un master final exploitable.",
-    whenToUse: "Quand tu veux un podcast ou un flash audio qui sorte proprement sans devoir bricoler les pistes a la main.",
-    outputKind: 'podcast',
-    starterPrompt: "Prends le sujet fourni, ecris un angle clair, structure l'episode puis livre un master final.",
-    systemInstruction: "Tu es Briefing Sonore, une app Cowork specialisee podcast.",
+    id: 'nasheed-studio',
+    name: 'Nasheed Studio',
+    slug: 'nasheed-studio',
+    tagline: 'Compose des nasheeds, refrains et textures devotionnelles dans une vraie surface Lyria.',
+    summary: 'Cadre le message, choisis la structure, pilote Lyria 3 et sors un master audio plus une cover si besoin.',
+    mission: "Transformer une intention spirituelle ou editoriale en nasheed proprement compose, avec direction sonore claire, moteur Lyria adapte et export final pret a ecouter.",
+    whenToUse: "Quand tu veux creer un nasheed, une ambience vocale ou un morceau spirituel sans tomber dans un workflow de podcast ou un simple chat.",
+    outputKind: 'music',
+    starterPrompt: "Compose un nasheed original a partir de la direction fournie, choisis le bon moteur Lyria puis livre un master final propre.",
+    systemInstruction: "Tu es Nasheed Studio, une app Cowork specialisee dans la creation de nasheeds avec Lyria 3.",
     uiSchema: [
-      { id: 'angle', label: 'Angle editorial', type: 'textarea', required: true, placeholder: "Le sujet et l'angle a traiter", helpText: "Decris l'angle, le ton et le public vise." },
-      { id: 'duree', label: 'Duree cible', type: 'select', options: ['2 min', '5 min', '8 min'], helpText: "Calibre le format de l'episode." },
-      { id: 'cover', label: 'Generer cover', type: 'boolean', helpText: "Ajoute une cover en plus du master audio." },
+      { id: 'direction', label: 'Direction du nasheed', type: 'textarea', required: true, placeholder: 'Le message, la couleur, les voix et le type de refrain', helpText: 'Decris l intensite, les mots cles et l intention musicale.' },
+      { id: 'structure', label: 'Structure', type: 'select', options: ['Intro + couplet + refrain', 'Hook court', 'Instrumental', 'Nasheed complet'], helpText: 'Choisis l architecture du morceau.' },
+      { id: 'energie', label: 'Energie', type: 'select', options: ['Contemple', 'Ascendant', 'Epic', 'Minimal'], helpText: 'Calibre la poussee et la densite.' },
+      { id: 'moteur', label: 'Moteur musical', type: 'select', options: ['Lyria 3 Pro preview', 'Lyria 3 Clip preview', 'Lyria 2 stable'], helpText: 'Lyria 3 pour le rendu ambitieux, Lyria 2 pour le repli robuste.' },
     ],
-    tools: ['web_search', 'web_fetch', 'create_podcast_episode', 'generate_image_asset', 'release_file'],
-    capabilities: ['Ecrit un angle audio clair', 'Livre un master final mixe', 'Peut generer une cover assortie'],
+    tools: ['generate_music_audio', 'generate_image_asset', 'release_file'],
+    capabilities: ['Cadre une direction musicale claire', 'Pilote Lyria 3 depuis une vraie surface', 'Livre un master et une cover assortie'],
     status: 'ready',
     createdBy: 'cowork',
     createdAt: now - 1000 * 60 * 60 * 12,
@@ -102,10 +103,88 @@ const previewAgents: StudioAgent[] = [
 ];
 
 const workspaceValues: AgentFormValues = {
-  angle: 'Fais un briefing de 5 minutes sur les nouveaux usages IA en PME, ton clair et vivant.',
-  duree: '5 min',
-  cover: true,
+  direction: 'Nasheed chaleureux et eleve sur la gratitude, refrain ample, voix masculines douces, percussion legere et sensation d aube.',
+  structure: 'Nasheed complet',
+  energie: 'Ascendant',
+  moteur: 'Lyria 3 Pro preview',
 };
+
+const workspaceMessages: Message[] = [
+  {
+    id: 'preview-model-1',
+    role: 'model',
+    content: 'Master nasheed cree. Le refrain est plus ample, la texture percussive reste discrete et une cover associee a ete preparee pour la livraison finale.',
+    attachments: [
+      {
+        id: 'preview-audio',
+        type: 'audio',
+        url: '/tmp/duo-smoke.wav',
+        mimeType: 'audio/wav',
+        name: 'nasheed-master.wav',
+      },
+      {
+        id: 'preview-cover',
+        type: 'image',
+        url: '/tmp/qa-image-test.png',
+        mimeType: 'image/png',
+        name: 'nasheed-cover.png',
+      },
+    ],
+    activity: [
+      {
+        id: 'activity-1',
+        kind: 'status',
+        timestamp: now,
+        iteration: 1,
+        title: 'Direction verrouillee',
+        message: 'Le message, la structure et l energie du morceau ont ete stabilises avant generation.',
+      },
+      {
+        id: 'activity-2',
+        kind: 'tool_result',
+        timestamp: now,
+        iteration: 2,
+        title: 'Generation Lyria',
+        message: 'Un premier master Lyria 3 Pro a ete rendu puis retenu comme base finale.',
+        toolName: 'generate_music_audio',
+      },
+      {
+        id: 'activity-3',
+        kind: 'tool_result',
+        timestamp: now,
+        iteration: 3,
+        title: 'Cover associee',
+        message: 'Une cover assortie a ete exportee pour accompagner le master.',
+        toolName: 'generate_image_asset',
+      },
+    ],
+    runState: 'completed',
+    runMeta: {
+      iterations: 3,
+      modelCalls: 2,
+      toolCalls: 2,
+      searchCount: 0,
+      fetchCount: 0,
+      sourcesOpened: 0,
+      domainsOpened: 0,
+      artifactState: 'released',
+      stalledTurns: 0,
+      retryCount: 0,
+      queueWaitMs: 0,
+      mode: 'autonomous',
+      phase: 'delivery',
+      taskComplete: true,
+      inputTokens: 0,
+      outputTokens: 0,
+      thoughtTokens: 0,
+      toolUseTokens: 0,
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+      estimatedCostEur: 0,
+    },
+    createdAt: now,
+  },
+];
 
 function PreviewApp() {
   const search = new URLSearchParams(window.location.search);
@@ -114,14 +193,17 @@ function PreviewApp() {
 
   if (view === 'workspace') {
     return (
-      <div className="min-h-screen bg-[var(--app-bg)] px-6 py-8 text-[var(--app-text)]">
-        <AgentWorkspacePanel
+      <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-text)]">
+        <NasheedStudioWorkspace
           agent={previewAgent}
           formValues={workspaceValues}
+          messages={workspaceMessages}
           isRunning={false}
           onFieldChange={() => {}}
           onRunAgent={() => {}}
           onAskCowork={() => {}}
+          onBackToHub={() => {}}
+          setSelectedImage={() => {}}
         />
       </div>
     );

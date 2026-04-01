@@ -5970,7 +5970,7 @@ app.post('/api/cowork', async (req, res) => {
           type: "object",
           properties: {
             brief: { type: "string", description: "Mission exacte du futur agent specialise." },
-            outputKindHint: { type: "string", description: "Type de livrable prefere si connu: pdf, html, podcast, code, research, automation." }
+            outputKindHint: { type: "string", description: "Type de livrable prefere si connu: pdf, html, music, podcast, code, research, automation." }
           },
           required: ["brief"]
         },

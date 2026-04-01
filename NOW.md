@@ -1,33 +1,36 @@
 # NOW
 
 ## Objectif actuel
-- Rejouer le nouveau `Cowork Apps` inspire de la reference utilisateur dans la vraie app, avec une session authentifiee et de vraies apps du store.
+- Revalider dans la vraie app qu'un clic sur une app musicale type `Nasheed Studio` ouvre bien une surface dediee et non un chat generique.
 
 ## Blocage actuel
-- Pas de blocage technique immediat.
-- La mise en page de reference est validee sur harness local, mais pas encore ressentie dans le shell complet avec de vraies donnees.
-- Le comportement des noms tres longs et des stores plus fournis reste a confirmer hors fixtures.
+- Pas de blocage code immediat.
+- La surface `Nasheed Studio` est validee sur harness local, mais pas encore rejouee avec une app persistee reelle dans le shell complet authentifie.
+- Le tout premier vrai run musical (master + cover) depuis cette nouvelle surface reste a observer hors fixtures locales.
 
 ## Prochaine action exacte
-- Ouvrir `Cowork Apps` dans la vraie app et verifier que:
-  - la topbar recherche + hero + rail d'apps + labo lateral tiennent bien sur desktop reel
-  - l'ouverture d'une app depuis une carte garde le bon flow `autoRun:false`
-  - le panneau lateral reste lisible avec des apps reelles et des titres plus longs
+- Ouvrir `Cowork Apps` dans la vraie app, cliquer sur une app musicale/Nasheed reelle et verifier que:
+  - l'app entre dans `NasheedStudioWorkspace` au lieu de retomber dans la surface chat
+  - un run reel depuis `Composer maintenant` sort bien dans le rail `Sorties recentes`
+  - la navigation retour vers `Cowork Apps` reste nette sans casser la session agent
 
 ## Fichiers chauds
-- `src/components/AgentsHub.tsx`
+- `src/App.tsx`
+- `src/components/NasheedStudioWorkspace.tsx`
+- `src/components/AgentAppPreview.tsx`
+- `server/lib/agents.ts`
 - `QA_RECIPES.md`
 - `SESSION_STATE.md`
 - `COWORK.md`
 - `DECISIONS.md`
 
 ## Validations restantes
-- Rejouer `Cowork Apps` dans la vraie app avec login/session reelle.
+- Rejouer le clic reel hub -> `Nasheed Studio` dans une session authentifiee.
+- Verifier un premier export reel audio/cover depuis la surface dediee.
 - Reconfirmer desktop/mobile sur des vraies donnees, pas seulement sur le harness `tmp`.
-- Verifier les noms d'apps tres longs dans le rail et dans `Derniers projets collaboratifs`.
-- Observer si la colonne de droite doit encore etre compacte sur des resolutions desktop plus basses.
+- Observer si la colonne `Sorties recentes` doit etre encore compacte sur desktop de faible hauteur.
 
 ## Risques immediats
-- Des blueprints reels trop faibles peuvent rendre le rail d'apps moins singulier que dans le harness.
-- Des titres reels trop longs peuvent casser l'equilibre des cartes et de la colonne laterale.
-- Le rendu plein ecran est valide localement, mais doit encore etre ressenti dans le shell complet en session reelle.
+- Des blueprints reels encore classes `podcast` mais sans indices musicaux forts peuvent rater la nouvelle surface dediee.
+- Un premier vrai run Lyria 3 peut encore demander un ajustement de prompt/engine une fois confronte a des donnees reelles.
+- Le rendu est valide sur harness local, mais doit encore etre ressenti dans le shell complet en session reelle.

@@ -4,6 +4,56 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-04-01 (`Nasheed Studio` sort enfin du chat)
+- Besoin traite:
+  - l'utilisateur refuse que `Nasheed Studio` ouvre encore un chat ou un workspace agent trop generique depuis le hub
+  - il veut une vraie interface specialisee de creation de nasheed avec Lyria 3, construite par Cowork
+- Cause racine confirmee:
+  - `openAgentWorkspace()` ouvrait toujours une session agent dans `mode: 'chat'`
+  - `AgentWorkspacePanel` restait une bonne peau "app", mais pas assez radicalement differente d'un studio + conversation
+  - le contrat agent ne distinguait pas encore une vraie famille `music`; tout le son creatif glissait vers `podcast`
+- Correctifs appliques:
+  - `src/types.ts`
+    - ajout de `outputKind: 'music'`
+  - `server/lib/agents.ts`
+    - blueprints Cowork capables de generer de vraies apps `music`
+    - UI schema par defaut pour un studio musical/Nasheed
+    - outils par defaut recentres sur `generate_music_audio`, `generate_image_asset`, `release_file`
+    - regles prompt corrigees: nasheed/chanson/Lyria => `music`, podcast/narration => `podcast`
+  - `src/utils/agentStudio.ts`
+    - detection des apps a rendre comme surface `nasheed`, y compris pour des apps historiques mal classees en `podcast`
+  - `src/components/AgentAppPreview.tsx`
+    - nouvelle famille visuelle `music`
+    - previews et palettes reorientees `Nasheed Studio`
+  - `src/components/NasheedStudioWorkspace.tsx`
+    - nouvelle surface plein ecran dediee
+    - colonne direction/reglages
+    - hero central de composition
+    - sorties recentes + journal Cowork non-chat
+  - `src/App.tsx`
+    - redirection des apps `nasheed/music` vers la nouvelle surface dediee
+    - hint runtime Lyria 3 si le blueprint n'expose pas encore son propre select moteur
+  - harness / memoire:
+    - `tmp/cowork-apps-preview.tsx`
+    - `QA_RECIPES.md`
+    - `TECH_RADAR.md`
+    - `DECISIONS.md`
+    - `NOW.md`
+    - `COWORK.md`
+    - `SYSTEM_MAP.md`
+    - `SESSION_STATE.md`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation visuelle via harness `tmp/cowork-apps-preview.html?view=workspace`
+  - captures Edge headless:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\nasheed-studio-desktop.png`
+    - mobile: `C:\Users\Yassine\AppData\Local\Temp\nasheed-studio-mobile.png`
+- Intention exacte:
+  - faire sentir un vrai studio musical Cowork, pas un chat de delegation
+  - donner a `Nasheed Studio` un contrat produit juste (`music`) et une surface coherente avec Lyria 3
+  - laisser comme prochaine etape la revalidation sur une app persistee reelle dans le shell complet
+
 ## Mise a jour complementaire - 2026-04-01 (`Cowork Apps` recadre comme un vrai laboratoire Cowork)
 - Besoin traite:
   - l'utilisateur a fourni une reference visuelle explicite et veut que le hub agent s'en rapproche franchement

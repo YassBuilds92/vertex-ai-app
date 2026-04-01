@@ -3,6 +3,32 @@
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 
+## Mise a jour 2026-04-01 - `Nasheed Studio` devient une vraie app musicale plein ecran
+- Retour produit:
+  - l'utilisateur ne veut plus que `Nasheed Studio` tombe dans un chat ou une surface agent generique
+  - il veut une interface totalement specialisee creation de nasheed avec Lyria 3, faite par Cowork
+- Changement applique:
+  - `server/lib/agents.ts`
+    - nouveau `outputKind: music`
+    - regles blueprint separees entre musique creative (`generate_music_audio`) et podcast/narration (`create_podcast_episode`)
+  - `src/components/NasheedStudioWorkspace.tsx`
+    - nouvelle surface dediee plein ecran pour la creation musicale
+    - direction musicale + reglages + scene centrale + sorties recentes + journal Cowork non-chat
+  - `src/App.tsx`
+    - les apps musicales/Nasheed ouvrent maintenant cette surface specialisee directement depuis le hub
+  - `src/components/AgentAppPreview.tsx`
+    - nouvelle famille visuelle `music`/`Nasheed Studio`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\nasheed-studio-desktop.png`
+    - mobile: `C:\Users\Yassine\AppData\Local\Temp\nasheed-studio-mobile.png`
+- Etat produit:
+  - Cowork sait maintenant distinguer une app musicale d'une app podcast
+  - le runtime agentique reste le meme, mais la surface user-facing est enfin celle d'un vrai studio
+  - la prochaine etape utile est de verifier le clic reel hub -> app musicale sur donnees/auth reelles
+
 ## Mise a jour 2026-04-01 - `Cowork Apps` prend la forme d'un vrai laboratoire Cowork
 - Retour produit:
   - l'utilisateur veut explicitement que le hub ressemble a la reference fournie: plus "Cowork app", moins "composant de hub"

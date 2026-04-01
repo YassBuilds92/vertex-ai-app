@@ -87,7 +87,7 @@ export interface ActivityItem {
   meta?: Record<string, string | number | boolean | null | undefined>;
 }
 
-export type AgentOutputKind = 'pdf' | 'html' | 'podcast' | 'code' | 'research' | 'automation';
+export type AgentOutputKind = 'pdf' | 'html' | 'music' | 'podcast' | 'code' | 'research' | 'automation';
 
 export type AgentFieldType = 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'url';
 

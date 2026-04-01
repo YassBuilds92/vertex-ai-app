@@ -1,22 +1,25 @@
 # NOW
 
 ## Objectif actuel
-- Revalider en conditions reelles la navigation `Cowork Apps` apres le correctif retour accueil : une app ouverte (`Nasheed Studio` / generated app) ne doit plus devenir la surface de fond quand on revient au hub.
+- Revalider en conditions reelles `Cowork Apps` apres le correctif creation + densite :
+  - la creation d'une generated app ne doit plus echouer avec `Cannot read properties of undefined (reading 'length')`
+  - le hub doit rester lisible, aere et sans texte coupe sur desktop standard
 - Puis rejouer le pivot `generated app` : creation -> ouverture dans `GeneratedAppHost` -> run -> publication -> evolution Cowork -> nouvelle draft.
 
 ## Blocage actuel
-- Pas de blocage code immediat : le correctif de navigation compile et bundle.
-- La validation visuelle automatisee reste partielle sur cette machine :
-  - Playwright MCP bloque sur une permission Windows hors workspace
-  - l'outil screenshot desktop a echoue cote handle natif
-- Le flux reel `retour a l'accueil depuis Nasheed Studio / GeneratedAppHost` reste a observer dans la vraie app authentifiee avec Firestore/Vertex actifs.
-- Le flux complet `create generated app -> publish -> update draft` reste a rejouer dans la vraie app authentifiee avec Firestore/Vertex actifs.
+- Pas de blocage code immediat :
+  - le bug serveur `sanitizeFields()` sur `options.length` est corrige
+  - le hub a ete recompacte et revalide visuellement via captures Edge headless
+- Les limites restantes sont surtout de validation produit reelle :
+  - le flux authentifie `create generated app -> publish -> update draft` reste a observer dans la vraie app
+  - `GeneratedAppHost` n'a pas encore de preuve visuelle automatisee fiable sur cette machine
+  - le rendu mobile du lobby est plus propre et sans clipping, mais merite encore une revalidation produit dans le shell complet
 
 ## Prochaine action exacte
-- Ouvrir `Cowork Apps` dans la vraie app et verifier d'abord la navigation :
-  - ouvrir `Nasheed Studio`
-  - cliquer `Retour a l'accueil`
-  - fermer le hub pour confirmer qu'on reste bien sur l'accueil Cowork et pas sur la session app precedente
+- Ouvrir `Cowork Apps` dans la vraie app et verifier d'abord un flux reel de creation :
+  - saisir un brief de generated app depuis le laboratoire
+  - confirmer qu'aucune alerte `reading 'length'` n'apparait
+  - confirmer que l'app arrive bien dans le store et s'ouvre
 - Ensuite verifier un flux reel sur 2 cas :
   - `app de cartes Pokemon personnalisees`
   - `app nasheed`
@@ -29,29 +32,28 @@
 
 ## Fichiers chauds
 - `src/App.tsx`
-- `api/index.ts`
 - `server/lib/generated-apps.ts`
-- `server/routes/standard.ts`
-- `src/components/GeneratedAppHost.tsx`
+- `src/components/AgentsHub.tsx`
+- `src/components/AgentAppPreview.tsx`
+- `src/components/AgentWorkspacePanel.tsx`
 - `src/generated-app-sdk.tsx`
-- `src/utils/generatedAppBundle.ts`
+- `src/utils/agentSnapshots.ts`
 - `src/utils/generatedAppSnapshots.ts`
-- `src/utils/sessionRecovery.ts`
-- `src/utils/sessionShells.ts`
+- `src/components/GeneratedAppHost.tsx`
+- `test-generated-app-manifest.ts`
 - `QA_RECIPES.md`
+- `AI_LEARNINGS.md`
 - `SESSION_STATE.md`
 - `COWORK.md`
-- `DECISIONS.md`
-- `SYSTEM_MAP.md`
 
 ## Validations restantes
-- Rejouer en vrai le retour `app ouverte -> Retour a l'accueil -> fermeture du hub` pour confirmer que `Nasheed Studio` ne reste plus la surface de fond.
 - Rejouer en vrai le flux `create -> open -> run -> publish -> update` sur session authentifiee.
 - Verifier un cas `Pokemon` (image) et un cas `Nasheed` (music).
+- Reconfirmer le lobby `Cowork Apps` dans la vraie app desktop avec des donnees reelles, pas seulement via harness.
 - Confirmer qu'une draft en echec de build remonte bien son `buildLog` dans le host.
 - Revalider desktop/mobile dans le shell complet, pas seulement via code/lint/build.
 
 ## Risques immediats
-- Le correctif `Retour a l'accueil` repose maintenant sur `activateMode('cowork')` ; il faut l'observer sur un vrai compte pour confirmer qu'il n'introduit pas de regression sur la reprise des workspaces `agent-*` et `gapp-*`.
+- Le correctif creation generated app corrige la sanitisation cote serveur et blinde le frontend, mais il faut encore l'observer sur de vraies reponses Gemini/Firestore.
 - La preuve visuelle du `GeneratedAppHost` n'a pas encore ete capturee a cause des limites outils locales.
 - Le chunk principal reste lourd ; non bloquant pour ce lot, mais a garder en tete si le host genere grossit encore.

@@ -3,6 +3,37 @@
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 
+## Mise a jour 2026-04-01 - `Cowork Apps` corrige enfin le crash de creation et desserre la scene
+- Retour produit:
+  - l'utilisateur a remonte un vrai blocage pendant la creation d'apps: popup `TypeError: Cannot read properties of undefined (reading 'length')`
+  - il juge aussi le hub `Cowork Apps` trop serre, avec des textes coupes et une scene trop compacte
+- Cause racine confirmee:
+  - cote serveur, `server/lib/generated-apps.ts` lisait `options.length` meme pour des champs `uiSchema` non-`select`
+  - cote frontend, le hub supposait encore des manifests/apps toujours completement hydrates et gardait une densite trop agressive sur viewport desktop reel
+- Changement applique:
+  - backend:
+    - correctif de `sanitizeFields()` pour ne plus lire `.length` sur `undefined`
+    - ajout du test de regression `test-generated-app-manifest.ts`
+  - frontend:
+    - normalisation plus dure des `StudioAgent` / `GeneratedAppManifest` a l'entree du store et des workspaces
+    - garde-fous ajoutés dans `AgentAppPreview`, `AgentWorkspacePanel` et `generated-app-sdk`
+    - `src/components/AgentsHub.tsx` recompose:
+      - hero plus court et plus respirant
+      - cards d'app plus larges et moins bavardes
+      - labo de creation simplifie
+      - compaction pilotee par la hauteur reelle du viewport
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - captures Edge headless:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-hub-apr01-desktop-fix-v3.png`
+    - mobile: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-hub-apr01-mobile-fix-v3.png`
+- Etat produit:
+  - le crash de creation est corrige au niveau racine
+  - le store respire mieux et les textes ne sont plus coupes sur la capture desktop de reference
+  - prochaine verification utile: rejouer la creation reale dans la vraie app connectee pour confirmer la fin du bug sur flux complet
+
 ## Mise a jour 2026-04-01 - Cowork devient generateur d'apps expertes deployees
 - Retour produit:
   - l'utilisateur ne veut plus simplement que Cowork cree "un agent comme lui" dans le hub

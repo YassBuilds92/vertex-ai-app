@@ -39,6 +39,8 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
   onAskCowork,
 }) => {
   const [editRequest, setEditRequest] = useState('');
+  const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities : [];
+  const tools = Array.isArray(agent.tools) ? agent.tools : [];
 
   const renderableFields = useMemo(
     () => getRenderableFields(agent),
@@ -173,7 +175,7 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
-              {agent.capabilities.map((capability) => (
+              {capabilities.map((capability) => (
                 <span key={capability} className="rounded-full border border-white/8 px-3 py-2 text-sm text-white/72">
                   {capability}
                 </span>
@@ -262,8 +264,8 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
               Outils et surface
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              {agent.tools.length > 0 ? (
-                agent.tools.map((tool) => (
+              {tools.length > 0 ? (
+                tools.map((tool) => (
                   <span key={tool} className="rounded-full border border-white/8 bg-black/18 px-3 py-2 text-xs uppercase tracking-[0.14em] text-white/62">
                     {tool}
                   </span>

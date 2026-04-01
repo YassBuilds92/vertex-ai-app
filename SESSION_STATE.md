@@ -1,5 +1,52 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-01 (`Cowork Apps` ne crash plus a la creation et la scene respire enfin)
+- Besoin traite:
+  - l'utilisateur a remonte un popup bloquant pendant la creation d'apps dans `Cowork Apps`
+  - en plus du bug, il jugeait l'interface trop serree, avec des textes coupes et une impression de scene etouffee
+- Cause racine confirmee:
+  - `server/lib/generated-apps.ts` lisait `options.length` dans `sanitizeFields()` meme quand le champ `uiSchema` n'etait pas un `select`
+  - une generated app avec `textarea` / `text` cassait donc `/api/generated-apps/create` avant meme l'insertion dans le store
+  - cote frontend, le hub et plusieurs surfaces supposaient encore des arrays toujours presents (`uiSchema`, `tools`, `capabilities`, `toolAllowList`)
+  - la composition `AgentsHub` etait trop dense pour un viewport desktop reel de type `1440x900`
+- Correctifs appliques:
+  - `server/lib/generated-apps.ts`
+    - garde sur `options.length` dans `sanitizeFields()`
+  - `test-generated-app-manifest.ts`
+    - nouveau test de regression sur un manifest avec champs non-`select`
+  - `src/utils/agentSnapshots.ts`
+    - export de `normalizeAgent()`
+  - `src/utils/generatedAppSnapshots.ts`
+    - export de `normalizeGeneratedApp()`
+  - `src/App.tsx`
+    - normalisation plus dure des agents/apps au moment de l'adaptation, de la persistance et de la rehydratation workspace
+  - `src/components/AgentAppPreview.tsx`
+    - garde sur `uiSchema`
+  - `src/components/AgentWorkspacePanel.tsx`
+    - garde sur `capabilities` et `tools`
+  - `src/generated-app-sdk.tsx`
+    - garde sur `manifest.uiSchema`
+  - `src/components/AgentsHub.tsx`
+    - hero plus court
+    - cartes plus larges et moins bavardes
+    - labo de creation simplifie
+    - compaction sur viewport court
+    - suppression du bloc `Derniers projets` sur les hauteurs desktop trop serrees
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - captures Edge headless via harness:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-hub-apr01-desktop-fix-v3.png`
+    - mobile: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-hub-apr01-mobile-fix-v3.png`
+- Limites restantes:
+  - le flux reel authentifie `create -> open -> run -> publish -> update` reste a rejouer dans la vraie app
+  - le rendu mobile a ete nettoye et ne coupe plus les textes visibles, mais merite encore une revalidation produit dans le shell complet
+- Intention exacte:
+  - tuer le bug a sa vraie source serveur
+  - blinder le store contre les manifests partiels
+  - transformer `Cowork Apps` en scene plus calme et plus lisible, sans copy tronquee
+
 ## Derniere mise a jour
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents

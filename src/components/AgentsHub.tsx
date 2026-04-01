@@ -37,15 +37,15 @@ function getViewportSize() {
 }
 
 function getHubPageSize(width: number) {
-  if (width >= 1280) return 4;
-  if (width >= 920) return 3;
-  return 2;
+  if (width >= 1580) return 3;
+  if (width >= 1040) return 2;
+  return 1;
 }
 
 function getHubPageColumns(pageSize: number) {
-  if (pageSize >= 4) return 'grid-cols-1 md:grid-cols-2 xl:grid-cols-4';
-  if (pageSize === 3) return 'grid-cols-1 md:grid-cols-3';
-  return 'grid-cols-1 sm:grid-cols-2';
+  if (pageSize >= 3) return 'grid-cols-1 xl:grid-cols-3';
+  if (pageSize === 2) return 'grid-cols-1 lg:grid-cols-2';
+  return 'grid-cols-1';
 }
 
 function formatProjectAge(timestamp?: number) {
@@ -182,15 +182,25 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
   }, [filteredAgents, page, pageSize]);
 
   const isDesktopScene = viewport.width >= 1280;
+  const isShortViewport = viewport.height < 930;
+  const heroTitle = isShortViewport
+    ? 'Ouvrez une app nette. Forgez la suivante.'
+    : 'Ouvrez une app nette, puis forgez la suivante.';
+  const heroCopy = selectedAgent
+    ? isShortViewport
+      ? selectedAgent.tagline || selectedAgent.summary
+      : selectedAgent.summary || selectedAgent.tagline
+    : '';
 
   const recentAgents = useMemo(() => {
     const source = filteredAgents.length > 0 ? filteredAgents : agents;
     const withoutSelected = selectedAgent
       ? source.filter((agent) => agent.id !== selectedAgent.id)
       : source;
+    const recentCount = isDesktopScene ? (isShortViewport ? 1 : 2) : 2;
 
-    return (withoutSelected.length > 0 ? withoutSelected : source).slice(0, isDesktopScene ? 2 : 3);
-  }, [agents, filteredAgents, isDesktopScene, selectedAgent]);
+    return (withoutSelected.length > 0 ? withoutSelected : source).slice(0, recentCount);
+  }, [agents, filteredAgents, isDesktopScene, isShortViewport, selectedAgent]);
 
   const selectedMeta = selectedAgent ? getAgentAppMeta(selectedAgent) : null;
   const selectedPalette = selectedAgent ? getAgentPalette(selectedAgent) : null;
@@ -326,9 +336,9 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
             </header>
 
             <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 lg:py-5 xl:overflow-hidden">
-              <div className="mx-auto grid min-h-full max-w-[1520px] gap-4 xl:h-full xl:grid-cols-[minmax(0,1fr)_336px]">
-                <section className="grid min-h-0 gap-4 xl:grid-rows-[minmax(0,1fr)_auto]">
-                  <div className="relative overflow-hidden rounded-[2.1rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.015))] px-5 py-5 shadow-[0_34px_110px_-58px_rgba(0,0,0,0.92)] sm:px-8 sm:py-7">
+              <div className="mx-auto grid min-h-full max-w-[1520px] gap-5 xl:h-full xl:grid-cols-[minmax(0,1fr)_388px] xl:gap-6">
+                <section className="grid min-h-0 gap-5 xl:grid-rows-[minmax(0,1fr)_auto] xl:gap-6">
+                  <div className="relative overflow-hidden rounded-[2.35rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015))] px-6 py-6 shadow-[0_34px_110px_-58px_rgba(0,0,0,0.92)] sm:px-9 sm:py-8">
                     <div className="pointer-events-none absolute inset-0">
                       <div className="absolute left-1/2 top-[12%] h-[80%] w-[72%] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(115,203,255,0.11),transparent_62%)] blur-[28px]" />
                       <div
@@ -342,7 +352,10 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                       />
                     </div>
 
-                    <div className="relative z-10 flex h-full min-h-[19rem] flex-col items-center justify-center text-center sm:min-h-[21rem] xl:min-h-0">
+                    <div className={cn(
+                      'relative z-10 flex h-full flex-col items-center justify-center text-center xl:min-h-0',
+                      isShortViewport ? 'min-h-[17.5rem] sm:min-h-[18.5rem]' : 'min-h-[19rem] sm:min-h-[21rem]'
+                    )}>
                       {hasSearchResults && selectedAgent ? (
                         <AnimatePresence mode="wait">
                           <motion.div
@@ -354,20 +367,28 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                             className="flex w-full max-w-5xl flex-col items-center"
                           >
                             <div className="text-[11px] uppercase tracking-[0.34em] text-white/34">Mon ecosysteme Cowork</div>
-                            <h1 className="mt-3 max-w-[14ch] text-balance text-[clamp(2.1rem,4.9vw,4.15rem)] font-semibold leading-[0.95] tracking-[-0.06em] text-white">
-                              Ouvrez des outils puissants ou co-creez l'IA de demain.
+                            <h1 className={cn(
+                              'mt-4 text-balance font-semibold leading-[0.92] tracking-[-0.065em] text-white',
+                              isShortViewport
+                                ? 'max-w-[13ch] text-[clamp(1.9rem,4vw,3.2rem)]'
+                                : 'max-w-[11ch] text-[clamp(2.3rem,5vw,4.45rem)]'
+                            )}>
+                              {heroTitle}
                             </h1>
-                            <p className="mt-3 max-w-[44rem] text-pretty text-sm leading-7 text-white/56 sm:text-[15px]">
-                              Une application phare mise en avant, un studio d'apps en bas, et un laboratoire de co-creation sur la droite pour imaginer le prochain produit.
+                            <p className="mt-4 max-w-[34rem] text-pretty text-sm leading-7 text-white/56 sm:text-[15px]">
+                              {heroCopy}
                             </p>
 
-                            <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
+                            <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
                               <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs uppercase tracking-[0.2em] text-white/70">
                                 <SelectedIcon size={14} style={{ color: selectedPalette?.accent }} />
                                 {selectedMeta?.label}
                               </span>
                               <span className="inline-flex rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-xs uppercase tracking-[0.2em] text-white/56">
                                 {selectedAgent.name}
+                              </span>
+                              <span className="inline-flex rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-xs uppercase tracking-[0.2em] text-white/56">
+                                {filteredAgents.length} app{filteredAgents.length > 1 ? 's' : ''}
                               </span>
                             </div>
                           </motion.div>
@@ -394,13 +415,16 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     </div>
                   </div>
 
-                  <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.018))] px-4 py-4 shadow-[0_34px_100px_-56px_rgba(0,0,0,0.86)] backdrop-blur-xl sm:px-5 sm:py-4">
+                  <div className={cn(
+                    'rounded-[2.1rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.018))] px-4 py-4 shadow-[0_34px_100px_-56px_rgba(0,0,0,0.86)] backdrop-blur-xl sm:px-5',
+                    isShortViewport ? 'sm:py-4' : 'sm:py-5'
+                  )}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <div className="text-[11px] uppercase tracking-[0.24em] text-white/34">
                           Mon studio d'applications d'IA
                         </div>
-                        <div className="mt-1 text-sm text-white/56">
+                        <div className="mt-1 text-sm leading-6 text-white/56">
                           {filteredAgents.length === 0
                             ? 'Decris une premiere app pour ouvrir le studio.'
                             : `Page ${page + 1} / ${totalPages} - ${filteredAgents.length} application${filteredAgents.length > 1 ? 's' : ''}`}
@@ -453,7 +477,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                           animate={{ opacity: 1, x: 0 }}
                           exit={{ opacity: 0, x: -16 }}
                           transition={{ duration: 0.18, ease: 'easeOut' }}
-                          className={cn('mt-4 grid gap-3', pageColumnsClass)}
+                          className={cn('mt-5 grid gap-4', pageColumnsClass)}
                         >
                           {pageAgents.map((agent) => {
                             const meta = getAgentAppMeta(agent);
@@ -465,7 +489,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                               <article
                                 key={agent.id}
                                 className={cn(
-                                  'flex min-h-[14rem] flex-col rounded-[1.55rem] border p-4 transition-all duration-300',
+                                  'flex min-h-[15.75rem] flex-col rounded-[1.75rem] border p-5 transition-all duration-300',
                                   isSelected
                                     ? 'border-white/14 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] shadow-[0_22px_60px_-34px_rgba(0,0,0,0.85)]'
                                     : 'border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] hover:border-white/12 hover:bg-white/[0.05]'
@@ -487,19 +511,21 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                                     >
                                       <Icon size={20} style={{ color: palette.accent }} />
                                     </div>
-                                    <div className="min-w-0">
-                                      <div className="truncate text-lg font-semibold tracking-tight text-white">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="text-pretty text-[1.28rem] font-semibold leading-[1.05] tracking-[-0.035em] text-white">
                                         {agent.name}
                                       </div>
-                                      <div className="mt-1 text-sm text-white/58">{meta.spotlight}</div>
+                                      <div className="mt-2 text-[12px] uppercase tracking-[0.2em] text-white/42">
+                                        {meta.spotlight}
+                                      </div>
                                     </div>
                                   </div>
 
-                                  <p className="mt-3 line-clamp-2 text-sm leading-6 text-white/52">
-                                    {agent.tagline}
+                                  <p className="mt-5 text-sm leading-7 text-white/56">
+                                    {agent.summary || agent.tagline}
                                   </p>
 
-                                  <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
+                                  <div className="mt-auto flex flex-wrap items-center gap-2 pt-5">
                                     <span
                                       className="inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-white/66"
                                       style={{ borderColor: palette.rim, background: palette.accentSoft }}
@@ -517,10 +543,10 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                                   onClick={() => void launchAgent(agent)}
                                   disabled={isRunningAgent}
                                   className={cn(
-                                    'mt-4 inline-flex h-11 items-center justify-center rounded-full px-4 text-sm font-semibold transition-all',
+                                    'mt-5 inline-flex h-11 items-center justify-center rounded-full px-4 text-sm font-semibold transition-all',
                                     isRunningAgent
                                       ? 'cursor-not-allowed bg-white/8 text-white/35'
-                                      : isSelected
+                                    : isSelected
                                         ? 'bg-white text-black hover:-translate-y-[1px]'
                                         : 'border border-white/10 bg-white/[0.04] text-white/78 hover:border-white/18 hover:text-white'
                                   )}
@@ -542,13 +568,13 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     )}
                   </div>
                 </section>
-                <aside className="flex min-h-0 flex-col rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.02))] p-4 shadow-[0_34px_100px_-56px_rgba(0,0,0,0.9)] backdrop-blur-2xl sm:p-5">
+                <aside className="flex min-h-0 flex-col rounded-[2.1rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.02))] p-4 shadow-[0_34px_100px_-56px_rgba(0,0,0,0.9)] backdrop-blur-2xl sm:p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-[11px] uppercase tracking-[0.22em] text-white/34">
                         Laboratoire de co-creation d'applications
                       </div>
-                      <h2 className="mt-3 text-[1.55rem] font-semibold leading-[1.02] tracking-[-0.05em] text-white">
+                      <h2 className="mt-3 max-w-[12ch] text-[1.72rem] font-semibold leading-[0.98] tracking-[-0.05em] text-white">
                         Concevez votre prochaine app
                       </h2>
                     </div>
@@ -569,24 +595,40 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                       event.preventDefault();
                       void submit();
                     }}
-                    className="mt-4 rounded-[1.6rem] border border-white/10 bg-black/18 p-3.5"
+                    className="mt-5 rounded-[1.7rem] border border-white/10 bg-black/18 p-4"
                   >
-                    <div className="space-y-3">
-                      <textarea
-                        value={brief}
-                        onChange={(event) => setBrief(event.target.value)}
-                        rows={3}
-                        placeholder="Quel type d'outil d'IA voulez-vous creer ? Decrivez votre vision, le role de l'app et le besoin qu'elle doit couvrir."
-                        className="min-h-[5.1rem] w-full resize-none rounded-[1.3rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30"
-                      />
+                    <div className="space-y-4">
+                      <label className="block">
+                        <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
+                          Vision
+                        </span>
+                        <textarea
+                          value={brief}
+                          onChange={(event) => setBrief(event.target.value)}
+                          rows={isShortViewport ? 3 : 4}
+                          placeholder="Ex: un studio podcast qui cherche, ecrit, narre et livre un master final."
+                          className={cn(
+                            'w-full resize-none rounded-[1.35rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30',
+                            isShortViewport ? 'min-h-[6rem]' : 'min-h-[7.4rem]'
+                          )}
+                        />
+                      </label>
 
-                      <textarea
-                        value={creationNotes}
-                        onChange={(event) => setCreationNotes(event.target.value)}
-                        rows={2}
-                        placeholder="Decrivez l'app que Cowork doit construire: structure, fonctionnalites, design, ton ou livrables attendus."
-                        className="min-h-[4.1rem] w-full resize-none rounded-[1.3rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30"
-                      />
+                      <label className="block">
+                        <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
+                          Contraintes
+                        </span>
+                        <textarea
+                          value={creationNotes}
+                          onChange={(event) => setCreationNotes(event.target.value)}
+                          rows={isShortViewport ? 2 : 3}
+                          placeholder="Fonctions, ton, design, livrable, moteurs ou limites."
+                          className={cn(
+                            'w-full resize-none rounded-[1.35rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30',
+                            isShortViewport ? 'min-h-[4.3rem]' : 'min-h-[5.5rem]'
+                          )}
+                        />
+                      </label>
 
                       <label className="block">
                         <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
@@ -630,63 +672,65 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     </div>
                   </form>
 
-                  <div className="mt-4 flex min-h-0 flex-1 flex-col rounded-[1.6rem] border border-white/10 bg-black/18 p-3.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/34">
-                          Derniers projets collaboratifs
+                  {!isShortViewport && (
+                    <div className="mt-5 flex min-h-0 flex-1 flex-col rounded-[1.7rem] border border-white/10 bg-black/18 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] uppercase tracking-[0.22em] text-white/34">
+                            Derniers projets collaboratifs
+                          </div>
+                          <div className="mt-1 text-sm leading-6 text-white/50">
+                            Une vue rapide sur les surfaces les plus recentes du studio.
+                          </div>
                         </div>
-                        <div className="mt-1 text-sm text-white/50">
-                          Les apps les plus recentes du studio Cowork.
+                        <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/60">
+                          {agents.length}
                         </div>
                       </div>
-                      <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/60">
-                        {agents.length}
-                      </div>
-                    </div>
 
-                    <div className={cn('mt-4 grid gap-3', isDesktopScene ? 'grid-rows-2' : 'sm:grid-cols-3 xl:grid-cols-1')}>
-                      {recentAgents.map((agent) => {
-                        const meta = getAgentAppMeta(agent);
-                        const palette = getAgentPalette(agent);
-                        const Icon = meta.icon;
+                      <div className={cn('mt-4 grid gap-3', isDesktopScene ? 'grid-rows-2' : 'grid-cols-1')}>
+                        {recentAgents.map((agent) => {
+                          const meta = getAgentAppMeta(agent);
+                          const palette = getAgentPalette(agent);
+                          const Icon = meta.icon;
 
-                        return (
-                          <button
-                            key={agent.id}
-                            type="button"
-                            onClick={() => setSelectedId(agent.id)}
-                            className="group rounded-[1.2rem] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-left transition-all hover:border-white/16 hover:bg-white/[0.05]"
-                          >
-                            <div className="flex items-start gap-3">
-                              <div
-                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.9rem] border"
-                                style={{ borderColor: palette.rim, background: palette.accentSoft }}
-                              >
-                                <Icon size={15} style={{ color: palette.accent }} />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-semibold text-white">{agent.name}</div>
-                                <div className="mt-0.5 line-clamp-1 text-[11px] leading-5 text-white/48">
-                                  {agent.summary || agent.tagline}
+                          return (
+                            <button
+                              key={agent.id}
+                              type="button"
+                              onClick={() => setSelectedId(agent.id)}
+                              className="group rounded-[1.3rem] border border-white/10 bg-white/[0.03] px-3.5 py-3.5 text-left transition-all hover:border-white/16 hover:bg-white/[0.05]"
+                            >
+                              <div className="flex items-start gap-3">
+                                <div
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.9rem] border"
+                                  style={{ borderColor: palette.rim, background: palette.accentSoft }}
+                                >
+                                  <Icon size={15} style={{ color: palette.accent }} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-semibold leading-5 text-white">{agent.name}</div>
+                                  <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-white/42">
+                                    {meta.category}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
 
-                            <div className="mt-2.5 flex items-center justify-between gap-3">
-                              <span className="text-[10px] uppercase tracking-[0.18em] text-white/34">
-                                {formatProjectAge(agent.updatedAt)}
-                              </span>
-                              <span className="inline-flex items-center gap-1 text-xs font-medium text-white/68 transition-transform group-hover:translate-x-[2px]">
-                                {meta.category}
-                                <ArrowRight size={13} />
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
+                              <div className="mt-2.5 flex items-center justify-between gap-3">
+                                <span className="text-[10px] uppercase tracking-[0.18em] text-white/34">
+                                  {formatProjectAge(agent.updatedAt)}
+                                </span>
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-white/68 transition-transform group-hover:translate-x-[2px]">
+                                  {meta.category}
+                                  <ArrowRight size={13} />
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </aside>
               </div>
             </main>

@@ -151,7 +151,8 @@ export function buildFallbackField(agent: StudioAgent): AgentFieldSchema {
 
 export function getRenderableFields(agent: StudioAgent | null): AgentFieldSchema[] {
   if (!agent) return [];
-  return agent.uiSchema.length > 0 ? agent.uiSchema : [buildFallbackField(agent)];
+  const uiSchema = Array.isArray(agent.uiSchema) ? agent.uiSchema : [];
+  return uiSchema.length > 0 ? uiSchema : [buildFallbackField(agent)];
 }
 
 export function createInitialFieldValues(fields: AgentFieldSchema[]) {

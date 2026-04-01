@@ -34,7 +34,7 @@ function writeAgentSnapshotStore(store: AgentSnapshotStore) {
   }
 }
 
-function normalizeAgent(agent: StudioAgent): StudioAgent {
+export function normalizeAgent(agent: StudioAgent): StudioAgent {
   return {
     ...agent,
     createdAt: Number(agent.createdAt || Date.now()),

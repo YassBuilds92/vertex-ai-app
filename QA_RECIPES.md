@@ -40,6 +40,7 @@
 ## Validation code
 - `npm run lint`
 - `npm run build`
+- `npx tsx test-generated-app-manifest.ts`
 
 ## Validation shell local
 - `Invoke-WebRequest http://127.0.0.1:3000`
@@ -119,11 +120,12 @@
   - rendu premium, plus proche d'un studio musical que d'un formulaire
 - Store:
   - topbar utilitaire visible avec recherche centree
-  - grand hero editorial lisible en entier, sans ligne coupee
+  - grand hero editorial lisible en entier, sans ligne coupee ni recadrage vertical
   - panneau lateral de co-creation visible dans le meme ecran
   - sidebars absentes, sensation de vue plein ecran
   - aucun scroll requis pour voir la scene complete
   - apps visibles comme mini-studios premium, pas comme dashboard SaaS
+  - titres d'app et copy des cartes ne doivent pas etre tronques
   - CTA d'ouverture visible
   - rail d'apps + bloc de creation visibles dans le meme ecran
 - Mobile:

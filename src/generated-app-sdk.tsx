@@ -116,6 +116,7 @@ export function GeneratedAppCanvas({
   const [editRequest, setEditRequest] = useState('');
   const accentColor = manifest.visualDirection.accentColor || '#7dd3fc';
   const artifacts = useMemo(() => collectArtifacts(messages), [messages]);
+  const manifestFields = Array.isArray(manifest.uiSchema) ? manifest.uiSchema : [];
 
   return (
     <div className="relative min-h-full overflow-hidden rounded-[2.2rem] border border-white/10 bg-[#060b12] text-white shadow-[0_34px_110px_-54px_rgba(0,0,0,0.92)]">
@@ -181,12 +182,12 @@ export function GeneratedAppCanvas({
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-3 py-2 text-xs text-white/60">
                   <CheckCircle2 size={14} style={{ color: accentColor }} />
-                  {manifest.uiSchema.length} champ(s)
+                  {manifestFields.length} champ(s)
                 </div>
               </div>
 
               <div className="mt-5 grid gap-4 md:grid-cols-2">
-                {manifest.uiSchema.map((field) => (
+                {manifestFields.map((field) => (
                   <div key={field.id} className={field.type === 'textarea' ? 'space-y-2 md:col-span-2' : 'space-y-2'}>
                     {field.type !== 'boolean' && (
                       <div className="flex items-center gap-2">

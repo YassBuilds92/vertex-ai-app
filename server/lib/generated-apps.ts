@@ -260,7 +260,7 @@ function sanitizeFields(input: unknown, outputKind: GeneratedAppOutputKind): Gen
       placeholder: clipText(field.placeholder, 96) || undefined,
       helpText: clipText(field.helpText, 140) || undefined,
       required: Boolean(field.required),
-      options: options.length > 0 ? options : undefined,
+      options: Array.isArray(options) && options.length > 0 ? options : undefined,
     });
 
     if (fields.length >= 6) break;

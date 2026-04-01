@@ -55,11 +55,13 @@ import {
 import {
   loadLocalAgents,
   mergeAgentsWithLocal,
+  normalizeAgent,
   saveLocalAgent,
 } from './utils/agentSnapshots';
 import {
   loadLocalGeneratedApps,
   mergeGeneratedAppsWithLocal,
+  normalizeGeneratedApp,
   saveLocalGeneratedApp,
 } from './utils/generatedAppSnapshots';
 import {
@@ -86,7 +88,8 @@ const slugifyAgentLabel = (value: string) =>
     .slice(0, 48) || 'agent-studio';
 
 const buildAgentRuntimeFormValues = (agent: StudioAgent, values: AgentFormValues): AgentFormValues => {
-  const normalizedEntries = (agent.uiSchema.length > 0 ? agent.uiSchema : [{
+  const uiSchema = Array.isArray(agent.uiSchema) ? agent.uiSchema : [];
+  const normalizedEntries = (uiSchema.length > 0 ? uiSchema : [{
     id: 'missionBrief',
     label: 'Brief libre',
     type: 'textarea',
@@ -102,27 +105,31 @@ const buildAgentRuntimeFormValues = (agent: StudioAgent, values: AgentFormValues
   return Object.fromEntries(normalizedEntries);
 };
 
-const adaptGeneratedAppToStudioAgent = (app: GeneratedAppManifest): StudioAgent => ({
-  id: app.id,
-  name: app.name,
-  slug: app.slug,
-  tagline: app.tagline,
-  summary: app.summary,
-  mission: app.mission,
-  whenToUse: app.whenToUse,
-  outputKind: app.outputKind,
-  starterPrompt: app.starterPrompt,
-  systemInstruction: app.systemInstruction,
-  uiSchema: app.uiSchema,
-  tools: app.toolAllowList,
-  capabilities: app.capabilities,
-  status: app.status === 'failed' ? 'draft' : 'ready',
-  createdBy: app.createdBy,
-  sourcePrompt: app.sourcePrompt,
-  sourceSessionId: app.sourceSessionId,
-  createdAt: app.createdAt,
-  updatedAt: app.updatedAt,
-});
+const adaptGeneratedAppToStudioAgent = (app: GeneratedAppManifest): StudioAgent => {
+  const normalizedApp = normalizeGeneratedApp(app);
+
+  return {
+    id: normalizedApp.id,
+    name: normalizedApp.name,
+    slug: normalizedApp.slug,
+    tagline: normalizedApp.tagline,
+    summary: normalizedApp.summary,
+    mission: normalizedApp.mission,
+    whenToUse: normalizedApp.whenToUse,
+    outputKind: normalizedApp.outputKind,
+    starterPrompt: normalizedApp.starterPrompt,
+    systemInstruction: normalizedApp.systemInstruction,
+    uiSchema: normalizedApp.uiSchema,
+    tools: normalizedApp.toolAllowList,
+    capabilities: normalizedApp.capabilities,
+    status: normalizedApp.status === 'failed' ? 'draft' : 'ready',
+    createdBy: normalizedApp.createdBy,
+    sourcePrompt: normalizedApp.sourcePrompt,
+    sourceSessionId: normalizedApp.sourceSessionId,
+    createdAt: normalizedApp.createdAt,
+    updatedAt: normalizedApp.updatedAt,
+  };
+};
 
 const formatAgentFormValues = (agent: StudioAgent, values: AgentFormValues) =>
   Object.entries(buildAgentRuntimeFormValues(agent, values))
@@ -282,8 +289,9 @@ export default function App() {
   const activeAgentWorkspace = React.useMemo(() => {
     if (activeSession.sessionKind !== 'agent' || !activeSession.agentWorkspace) return null;
 
-    const latestAgent = agents.find(agent => agent.id === activeSession.agentWorkspace?.agent.id)
-      || activeSession.agentWorkspace.agent;
+    const sessionAgent = normalizeAgent(activeSession.agentWorkspace.agent);
+    const latestAgent = agents.find(agent => agent.id === sessionAgent.id)
+      || sessionAgent;
 
     return {
       ...activeSession.agentWorkspace,
@@ -297,8 +305,9 @@ export default function App() {
   const activeGeneratedAppWorkspace = React.useMemo(() => {
     if (activeSession.sessionKind !== 'generated_app' || !activeSession.generatedAppWorkspace) return null;
 
-    const latestApp = generatedApps.find(app => app.id === activeSession.generatedAppWorkspace?.app.id)
-      || activeSession.generatedAppWorkspace.app;
+    const sessionApp = normalizeGeneratedApp(activeSession.generatedAppWorkspace.app);
+    const latestApp = generatedApps.find(app => app.id === sessionApp.id)
+      || sessionApp;
 
     return {
       ...activeSession.generatedAppWorkspace,
@@ -312,7 +321,7 @@ export default function App() {
     const baseSlug = slugifyAgentLabel(blueprint.slug || blueprint.name || 'agent-studio');
     const id = blueprint.id || `${baseSlug}-${now.toString(36)}`;
 
-    return {
+    return normalizeAgent({
       ...blueprint,
       ...overrides,
       id,
@@ -334,7 +343,7 @@ export default function App() {
       sourceSessionId: overrides?.sourceSessionId ?? blueprint.sourceSessionId,
       createdAt: overrides?.createdAt || now,
       updatedAt: now,
-    };
+    });
   }, []);
 
   const persistAgentBlueprint = useCallback(async (
@@ -377,11 +386,11 @@ export default function App() {
   ) => {
     if (!user) return null;
 
-    const nextManifest = {
+    const nextManifest = normalizeGeneratedApp({
       ...manifest,
       updatedAt: Number(manifest.updatedAt || Date.now()),
       createdAt: Number(manifest.createdAt || Date.now()),
-    };
+    });
 
     setGeneratedApps(prev => {
       const withoutCurrent = prev.filter(app => app.id !== nextManifest.id);
@@ -1268,7 +1277,7 @@ export default function App() {
       systemInstruction: app.systemInstruction,
       sessionKind: 'generated_app',
       generatedAppWorkspace: {
-        app: buildGeneratedAppRemotePayload(app),
+        app: buildGeneratedAppRemotePayload(normalizeGeneratedApp(app)),
         formValues: normalizedValues,
         lastLaunchPrompt: launchPrompt,
       },

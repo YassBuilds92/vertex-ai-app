@@ -32,7 +32,7 @@ function writeStore(store: GeneratedAppSnapshotStore) {
   }
 }
 
-function normalizeGeneratedApp(manifest: GeneratedAppManifest): GeneratedAppManifest {
+export function normalizeGeneratedApp(manifest: GeneratedAppManifest): GeneratedAppManifest {
   return {
     ...manifest,
     createdAt: Number(manifest.createdAt || Date.now()),

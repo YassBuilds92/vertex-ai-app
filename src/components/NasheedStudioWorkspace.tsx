@@ -295,7 +295,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                 className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/74 transition-colors hover:bg-white/[0.08]"
               >
                 <ArrowLeft size={15} />
-                Cowork Apps
+                Retour a l'accueil
               </button>
 
               <div className="min-w-0">

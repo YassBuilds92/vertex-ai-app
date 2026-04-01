@@ -4,6 +4,34 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-04-01 (`Nasheed Studio` / generated apps ne doivent plus devenir un faux accueil)
+- Besoin traite:
+  - l'utilisateur est bloque quand il revient depuis `Nasheed Studio` ou une generated app
+  - le hub `Cowork Apps` s'ouvrait, mais la session app restait en fond et donnait l'impression que `Nasheed Studio` etait devenu l'accueil
+  - fermer le hub pouvait renvoyer immediatement dans la meme app au lieu de revenir a une vraie surface d'accueil
+- Cause racine confirmee:
+  - `src/App.tsx` passait bien `setActiveMode('cowork')` + `setShowAgentsHub(true)` depuis `onBackToHub`
+  - mais cela ne reactualisait pas la session active ; la session `agent-*` / `gapp-*` restait selectionnee
+  - le hub etait donc affiche comme une surcouche sur une app encore active, pas comme un vrai retour d'accueil
+- Correctifs appliques:
+  - `src/App.tsx`
+    - ajout du helper `openCoworkAppsHome()`
+    - ce helper appelle `activateMode('cowork')` avant d'ouvrir `showAgentsHub`, ce qui rebascule aussi la session active vers la vraie surface Cowork (session preferee ou `local-new`)
+    - les callbacks `onBackToHub` de `NasheedStudioWorkspace` et `GeneratedAppHost` utilisent maintenant ce helper commun
+  - `src/components/NasheedStudioWorkspace.tsx`
+    - libelle du bouton clarifie en `Retour a l'accueil`
+  - `src/components/GeneratedAppHost.tsx`
+    - libelle du bouton clarifie en `Retour a l'accueil`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+- Limites restantes:
+  - le flow reel authentifie `app ouverte -> Retour a l'accueil -> fermeture du hub` n'a pas encore ete rejoue dans la vraie app locale
+  - la validation visuelle reste partielle ici a cause des limites outils/auth locales
+- Intention exacte:
+  - faire du retour accueil un vrai changement de surface et de session, pas juste un overlay
+  - eviter que `Nasheed Studio` ou une generated app donne l'impression d'etre devenue la page d'accueil du produit
+
 ## Mise a jour complementaire - 2026-04-01 (pivot `generated app` deploye de bout en bout)
 - Besoin traite:
   - l'utilisateur veut que Cowork cree une vraie app experte "comme lui", avec son propre systeme, ses outils, son UI et un rendu sans chat generique

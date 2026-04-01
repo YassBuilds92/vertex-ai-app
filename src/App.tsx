@@ -514,6 +514,12 @@ export default function App() {
     setActiveSessionId('local-new', { remember: false, modeOverride: mode });
   }, [getPreferredSessionsForMode, lastSessionIdsByMode, setActiveMode, setActiveSessionId]);
 
+  const openCoworkAppsHome = useCallback(() => {
+    setSelectedImage(null);
+    activateMode('cowork');
+    setShowAgentsHub(true);
+  }, [activateMode]);
+
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2392,10 +2398,7 @@ export default function App() {
             request,
             activeAgentWorkspace.formValues
           )}
-          onBackToHub={() => {
-            setActiveMode('cowork');
-            setShowAgentsHub(true);
-          }}
+          onBackToHub={openCoworkAppsHome}
           setSelectedImage={setSelectedImage}
         />
         {selectedImage && (
@@ -2428,10 +2431,7 @@ export default function App() {
           request,
           activeGeneratedAppWorkspace.formValues
         )}
-        onBackToHub={() => {
-          setActiveMode('cowork');
-          setShowAgentsHub(true);
-        }}
+        onBackToHub={openCoworkAppsHome}
       />
     );
   }

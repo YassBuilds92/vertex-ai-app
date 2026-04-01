@@ -76,7 +76,7 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.08]"
             >
               <ArrowLeft size={15} />
-              Retour au store
+              Retour a l'accueil
             </button>
             <div>
               <div className="text-[11px] uppercase tracking-[0.24em] text-white/34">Generated App Host</div>

@@ -4,6 +4,61 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-04-01 (Hub Agents reframed en vrai app store Cowork)
+- Besoin traite:
+  - l'utilisateur a rejete le modele precedent: meme execute, le `Hub Agents` restait trop proche d'un catalogue technique d'agents
+  - le besoin precise est un app store local d'apps creees par Cowork, avec plusieurs mini-produits et une interface propre a chaque app
+- Cause racine confirmee:
+  - `src/components/AgentsHub.tsx` exposait encore trop un vocabulaire et une structure de type "hub / agent / formulaire"
+  - `src/components/AgentWorkspacePanel.tsx` ressemblait encore trop a un panneau agent generique
+  - le systeme manquait d'une couche de preview partagee capable de rendre des familles d'apps visuellement distinctes a partir du meme contrat `StudioAgent`
+- Correctifs appliques:
+  - ajout de `src/components/AgentAppPreview.tsx`
+    - previews/specimens d'app par `outputKind`
+    - palettes derivees par app pour casser l'effet uniforme
+    - helpers `getRenderableFields`, `createInitialFieldValues`, `getAgentAppMeta`, `getAgentPalette`
+  - refonte de `src/components/AgentsHub.tsx`
+    - hero/store `Cowork Apps`
+    - apps featured + detail selectionne + vitrine/catalogue
+    - creation guidee "forge une nouvelle app" au lieu d'un simple create-agent
+  - refonte de `src/components/AgentWorkspacePanel.tsx`
+    - studio d'app dedie avec poste de lancement et preview app-specifique
+    - CTA et copy repositionnes pour parler d'app, pas d'agent
+  - ajustements de copy dans `src/App.tsx`, `src/components/StudioEmptyState.tsx` et `server/lib/agents.ts`
+    - runtime et create/edit flows requalifies en apps Cowork
+  - correctif responsive:
+    - CTA des surfaces hub/workspace empiles sur petit viewport pour eviter le clipping
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation visuelle reelle via harness local:
+    - `tmp/cowork-apps-preview.html`
+    - `tmp/cowork-apps-preview.tsx`
+  - captures Edge headless validees:
+    - store desktop haut: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-store-desktop-tall.png`
+    - studio mobile complet: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-workspace-mobile-fullish.png`
+  - constat cle:
+    - le store se lit maintenant comme une vitrine d'apps
+    - le studio mobile affiche bien le CTA sans clipping apres le fix
+- Fichiers touches:
+  - `src/components/AgentsHub.tsx`
+  - `src/components/AgentWorkspacePanel.tsx`
+  - `src/components/AgentAppPreview.tsx`
+  - `src/components/StudioEmptyState.tsx`
+  - `src/App.tsx`
+  - `server/lib/agents.ts`
+  - `NOW.md`
+  - `SYSTEM_MAP.md`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `COWORK.md`
+  - `QA_RECIPES.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - faire sentir immediatement que Cowork construit des mini-produits utilisables, pas des agents abstraits
+  - garder le runtime agentique existant, mais lui donner une peau produit beaucoup plus juste
+  - laisser comme prochaine vraie etape la validation sur des apps reelles persistees, pas seulement sur fixtures locales
+
 ## Mise a jour complementaire - 2026-03-31 (Cowork garde enfin la memoire textuelle du dernier livrable pour les follow-ups)
 - Besoin traite:
   - l'utilisateur signalait qu'apres une generation reussie suivie d'un mauvais lien final, un simple "ton lien est mauvais" faisait souvent repartir Cowork presque comme au premier message

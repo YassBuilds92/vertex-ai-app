@@ -65,19 +65,19 @@ const TOOL_LIBRARY = [
   'execute_script',
 ] as const;
 
-const AGENT_ARCHITECT_SYSTEM_PROMPT = `Tu es l'architecte d'agents de Studio Pro.
+const AGENT_ARCHITECT_SYSTEM_PROMPT = `Tu es l'architecte d'apps de Studio Pro.
 Tu dois retourner UNIQUEMENT un objet JSON valide, sans markdown et sans texte autour.
 
 Schema attendu:
 {
-  "name": "Nom court de l'agent",
+  "name": "Nom court de l'app",
   "slug": "slug-kebab-case",
   "tagline": "phrase courte produit",
   "summary": "resume concret en 1 phrase",
-  "mission": "ce que l'agent accomplit exactement",
-  "whenToUse": "quand l'utilisateur doit preferer cet agent",
+  "mission": "ce que l'app accomplit exactement",
+  "whenToUse": "quand l'utilisateur doit preferer cette app",
   "outputKind": "pdf | html | podcast | code | research | automation",
-  "starterPrompt": "prompt de depart que Cowork ou l'utilisateur peut envoyer a cet agent",
+  "starterPrompt": "prompt de depart que Cowork ou l'utilisateur peut envoyer a cette app",
   "systemInstruction": "prompt systeme complet, directement reutilisable",
   "tools": ["liste d'outils pertinents"],
   "capabilities": ["3 a 6 capacites lisibles cote produit"],
@@ -96,10 +96,12 @@ Schema attendu:
 
 Regles:
 - Ecris en francais.
-- Fais un agent specialise, reutilisable et vraiment utile.
+- Fais une app Cowork specialisee, reutilisable et vraiment utile.
+- Tu ne concois pas un agent abstrait: tu concois un mini-produit avec une promesse claire, une interface exploitable et un fonctionnement distinct.
 - 3 a 6 champs UI max.
 - Les tools doivent etre choisis dans cette liste: ${TOOL_LIBRARY.join(', ')}.
 - Les capabilities sont des promesses produit courtes, pas du jargon.
+- Le uiSchema doit ressembler a un vrai poste de lancement de l'app, pas a un formulaire administratif generique.
 - Si le brief parle de podcast, de voix ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Pour la synthese Gemini TTS: choisis une seule voix pour narration, voix-off, chronique, flash info ou explication; choisis 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
 - Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
@@ -112,20 +114,20 @@ Regles:
 - Le slug doit etre propre et stable.
 - N'invente pas de cle hors schema.`;
 
-const AGENT_REVISION_SYSTEM_PROMPT = `Tu es l'architecte d'agents de Studio Pro.
-Tu dois mettre a jour un agent existant.
+const AGENT_REVISION_SYSTEM_PROMPT = `Tu es l'architecte d'apps de Studio Pro.
+Tu dois mettre a jour une app existante.
 Tu retournes UNIQUEMENT un objet JSON valide, sans markdown et sans texte autour.
 
 Schema attendu:
 {
-  "name": "Nom court de l'agent",
+  "name": "Nom court de l'app",
   "slug": "slug-kebab-case",
   "tagline": "phrase courte produit",
   "summary": "resume concret en 1 phrase",
-  "mission": "ce que l'agent accomplit exactement",
-  "whenToUse": "quand l'utilisateur doit preferer cet agent",
+  "mission": "ce que l'app accomplit exactement",
+  "whenToUse": "quand l'utilisateur doit preferer cette app",
   "outputKind": "pdf | html | podcast | code | research | automation",
-  "starterPrompt": "prompt de depart que l'utilisateur peut envoyer a cet agent",
+  "starterPrompt": "prompt de depart que l'utilisateur peut envoyer a cette app",
   "systemInstruction": "prompt systeme complet, directement reutilisable",
   "tools": ["liste d'outils pertinents"],
   "capabilities": ["3 a 6 capacites lisibles cote produit"],
@@ -144,10 +146,11 @@ Schema attendu:
 
 Regles:
 - Ecris en francais.
-- Conserve l'identite utile de l'agent quand la demande ne demande pas de la changer.
+- Conserve l'identite utile de l'app quand la demande ne demande pas de la changer.
 - Modifie uniquement ce qui est necessaire pour satisfaire la demande d'evolution.
 - Si l'utilisateur demande une evolution d'interface, mets a jour \`uiSchema\`.
 - Si l'utilisateur demande une evolution de comportement, mets a jour \`systemInstruction\`, \`capabilities\` et \`tools\` si besoin.
+- Le resultat doit rester une app Cowork utilisable, pas juste un prompt refait sans surface claire.
 - Si la mission parle de voix, de narration ou d'ambiance sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Pour la synthese Gemini TTS: garde 1 voix pour narration, voix-off, chronique, flash info ou explication; passe a 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
 - Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
@@ -383,7 +386,7 @@ function extractJsonObject(raw: string): Record<string, unknown> {
 export function sanitizeAgentBlueprint(raw: unknown, brief = ''): AgentBlueprint {
   const input = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   const outputKind = normalizeOutputKind(input.outputKind, brief);
-  const name = clipText(input.name, 48) || 'Agent specialise';
+  const name = clipText(input.name, 48) || 'App Cowork';
   const slug = slugify(String(input.slug || name));
   const tools = uniqueStrings(input.tools, 10).filter(tool => TOOL_LIBRARY.includes(tool as typeof TOOL_LIBRARY[number]));
   const capabilities = uniqueStrings(input.capabilities, 6);
@@ -392,13 +395,13 @@ export function sanitizeAgentBlueprint(raw: unknown, brief = ''): AgentBlueprint
   return {
     name,
     slug,
-    tagline: clipText(input.tagline, 72) || `Specialiste ${outputKind}`,
-    summary: clipText(input.summary, 180) || clipText(brief, 180) || `Agent ${name} pret a l emploi.`,
+    tagline: clipText(input.tagline, 72) || `App ${outputKind} prete a lancer`,
+    summary: clipText(input.summary, 180) || clipText(brief, 180) || `App ${name} prete a l emploi.`,
     mission: clipText(input.mission, 240) || clipText(brief, 240) || `Accomplir la mission suivante: ${name}.`,
-    whenToUse: clipText(input.whenToUse, 200) || `Utilise cet agent quand la demande tourne surtout autour de ${name.toLowerCase()}.`,
+    whenToUse: clipText(input.whenToUse, 200) || `Utilise cette app quand la demande tourne surtout autour de ${name.toLowerCase()}.`,
     outputKind,
     starterPrompt: clipText(input.starterPrompt, 420) || `Prends en charge cette mission: ${brief || name}.`,
-    systemInstruction: clipText(input.systemInstruction, 4000) || `Tu es ${name}, un agent specialise. Tu livres un resultat net, exploitable et honnete.`,
+    systemInstruction: clipText(input.systemInstruction, 4000) || `Tu es ${name}, une app Cowork specialisee. Tu livres un resultat net, exploitable et honnete.`,
     uiSchema,
     tools: tools.length > 0
       ? tools
@@ -408,7 +411,7 @@ export function sanitizeAgentBlueprint(raw: unknown, brief = ''): AgentBlueprint
     capabilities: capabilities.length > 0 ? capabilities : [
       'Cadre vite la mission',
       'Propose un livrable net',
-      'Travaille avec une interface simple',
+      'Travaille avec une interface exploitable',
     ],
     status: input.status === 'draft' ? 'draft' : 'ready',
     createdBy: input.createdBy === 'manual' ? 'manual' : 'cowork',
@@ -486,7 +489,7 @@ export function summarizeHubAgentsForPrompt(agents: HubAgentRecord[], max = 8): 
 export async function generateAgentBlueprintFromBrief(brief: string, source: 'manual' | 'cowork' = 'manual'): Promise<AgentBlueprint> {
   const cleanedBrief = clipText(brief, 1200);
   if (!cleanedBrief) {
-    throw new Error("Le brief de creation d'agent est vide.");
+    throw new Error("Le brief de creation d'app est vide.");
   }
 
   const ai = createGoogleAI(AGENT_ARCHITECT_MODEL);
@@ -521,7 +524,7 @@ export async function reviseAgentBlueprint(existingAgent: HubAgentRecord, change
 
   const ai = createGoogleAI(AGENT_ARCHITECT_MODEL);
   const prompt = [
-    "Agent existant a mettre a jour:",
+    "App existante a mettre a jour:",
     JSON.stringify({
       name: existingAgent.name,
       slug: existingAgent.slug,
@@ -540,7 +543,7 @@ export async function reviseAgentBlueprint(existingAgent: HubAgentRecord, change
     "Demande d'evolution utilisateur:",
     cleanedRequest,
     "",
-    "Retourne l'agent complet mis a jour, pas un patch partiel.",
+    "Retourne l'app complete mise a jour, pas un patch partiel.",
   ].join('\n');
 
   try {

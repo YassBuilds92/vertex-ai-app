@@ -230,13 +230,13 @@ export default function App() {
       ...overrides,
       id,
       slug: baseSlug,
-      name: blueprint.name || overrides?.name || 'Agent specialise',
-      tagline: blueprint.tagline || overrides?.tagline || 'Agent pret a deleguer',
+      name: blueprint.name || overrides?.name || 'App Cowork',
+      tagline: blueprint.tagline || overrides?.tagline || 'App prete a ouvrir',
       summary: blueprint.summary || overrides?.summary || 'Blueprint genere par Cowork.',
       mission: blueprint.mission || overrides?.mission || blueprint.summary || 'Mission a preciser.',
       whenToUse: blueprint.whenToUse || overrides?.whenToUse || 'A utiliser quand tu veux deleguer une mission recurrente.',
-      starterPrompt: blueprint.starterPrompt || overrides?.starterPrompt || `Prends en charge cette mission: ${blueprint.name || 'agent specialise'}.`,
-      systemInstruction: blueprint.systemInstruction || overrides?.systemInstruction || `Tu es ${blueprint.name || 'un agent specialise'}.`,
+      starterPrompt: blueprint.starterPrompt || overrides?.starterPrompt || `Prends en charge cette mission dans l'app ${blueprint.name || 'Cowork'}.`,
+      systemInstruction: blueprint.systemInstruction || overrides?.systemInstruction || `Tu es ${blueprint.name || 'une app Cowork specialisee'}.`,
       outputKind: blueprint.outputKind || overrides?.outputKind || 'research',
       uiSchema: Array.isArray(blueprint.uiSchema) ? blueprint.uiSchema : [],
       tools: Array.isArray(blueprint.tools) ? blueprint.tools : [],
@@ -278,7 +278,7 @@ export default function App() {
       );
     } catch (error) {
       console.error('Agent persistence degraded, keeping local snapshot only:', error);
-      setAgentsWarning("Le Hub Agents ne peut pas se synchroniser avec Firestore pour l'instant. Les agents restent disponibles sur cet appareil.");
+      setAgentsWarning("Cowork Apps ne peut pas se synchroniser avec Firestore pour l'instant. Les apps restent disponibles sur cet appareil.");
     }
 
     return nextAgent;
@@ -325,7 +325,7 @@ export default function App() {
   }[activeMode];
 
   const activeSurfaceLabel = isAgentSession
-    ? 'Workspace Agent'
+    ? 'App Cowork'
     : activeModeLabel;
 
   const getPreferredSessionsForMode = useCallback((mode: AppMode) => (
@@ -471,8 +471,8 @@ export default function App() {
       setAgents(fallbackAgents);
       setAgentsWarning(
         fallbackAgents.length > 0
-          ? "Le Hub Agents n'a pas pu se synchroniser avec Firestore. Affichage du cache local sur cet appareil."
-          : "Le Hub Agents n'a pas pu se synchroniser avec Firestore. Les prochains agents seront gardes localement sur cet appareil."
+          ? "Cowork Apps n'a pas pu se synchroniser avec Firestore. Affichage du cache local sur cet appareil."
+          : "Cowork Apps n'a pas pu se synchroniser avec Firestore. Les prochaines apps seront gardees localement sur cet appareil."
       );
     });
   }, [user]);
@@ -720,7 +720,7 @@ export default function App() {
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.blueprint) {
-        throw new Error(data?.details || data?.message || "Impossible de creer l'agent.");
+        throw new Error(data?.details || data?.message || "Impossible de creer l'app.");
       }
 
       return await persistAgentBlueprint(data.blueprint as AgentBlueprint, {
@@ -905,8 +905,8 @@ export default function App() {
     setShowAgentsHub(false);
 
     const editPrompt = [
-      `Modifie l'agent existant du Hub "${agent.name}" (id: ${agent.id}, slug: ${agent.slug}).`,
-      "N'en cree pas un nouveau. Mets a jour cet agent existant avec l'outil update_agent_blueprint.",
+      `Modifie l'app existante du store "${agent.name}" (id: ${agent.id}, slug: ${agent.slug}).`,
+      "N'en cree pas une nouvelle. Mets a jour cette app existante avec l'outil update_agent_blueprint.",
       `Demande utilisateur: ${cleanedRequest}`,
       `Systeme actuel: ${agent.systemInstruction}`,
       agent.tools.length > 0 ? `Outils actuels: ${agent.tools.join(', ')}` : '',
@@ -915,7 +915,7 @@ export default function App() {
         ? `Interface actuelle: ${agent.uiSchema.map(field => `${field.label} (${field.type})`).join(', ')}`
         : 'Interface actuelle: aucune interface detaillee.',
       agentContextLines.length > 0 ? `Dernieres valeurs utilisees:\n${agentContextLines.join('\n')}` : '',
-      "Si l'utilisateur demande un changement d'interface, mets a jour uiSchema. Si l'utilisateur demande un changement de comportement, mets a jour le prompt systeme et les outils si necessaire.",
+      "Si l'utilisateur demande un changement d'interface, mets a jour uiSchema. Si l'utilisateur demande un changement de comportement, mets a jour le prompt systeme et les outils si necessaire pour cette app.",
     ].filter(Boolean).join('\n\n');
 
     if (handleSendRuntimeRef.current) {
@@ -931,7 +931,7 @@ export default function App() {
     const launchPrompt = buildAgentLaunchPrompt(agent, normalizedValues);
     const session: ChatSession = {
       id: sessionId,
-      title: `Agent · ${agent.name}`,
+      title: `App · ${agent.name}`,
       messages: [],
       updatedAt: Date.now(),
       mode: 'chat',
@@ -1485,7 +1485,7 @@ export default function App() {
             iteration: 0,
             title: 'Initialisation',
             message: isAgentRun
-              ? `Connexion au workspace agent ${runtimeLabel}...`
+              ? `Ouverture de l'app ${runtimeLabel}...`
               : 'Connexion a la boucle Cowork...',
             status: 'info',
           }],
@@ -1530,7 +1530,7 @@ export default function App() {
                   return applyCoworkEventToMessage(prev, {
                     type: 'warning',
                     title: 'Hub non synchronise',
-                    message: "L'agent a ete genere, mais sa sauvegarde Firestore a echoue. Le run Cowork continue.",
+                    message: "L'app a ete generee, mais sa sauvegarde Firestore a echoue. Le run Cowork continue.",
                   });
                 });
               }
@@ -2041,7 +2041,7 @@ export default function App() {
                           <span className="truncate text-[10px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] sm:text-[11px]">{activeSurfaceLabel}</span>
                          {activeSession.sessionKind === 'agent' && (
                            <span className="rounded-full border border-[var(--app-border)] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--app-accent)]">
-                             Agent
+                            App
                            </span>
                          )}
                        </div>
@@ -2075,10 +2075,10 @@ export default function App() {
                  <button
                    onClick={() => setShowAgentsHub(true)}
                    className="hidden items-center gap-2 rounded-full border border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] px-3.5 py-2 text-sm font-medium text-[var(--app-text)] transition-colors hover:bg-[rgba(129,236,255,0.2)] sm:inline-flex"
-                   title="Ouvrir le Hub Agents"
+                  title="Ouvrir Cowork Apps"
                  >
                    <Bot size={15} />
-                   <span className="hidden sm:inline">Hub Agents</span>
+                  <span className="hidden sm:inline">Cowork Apps</span>
                    {agentsWarning && (
                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/18 bg-amber-300/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-amber-100/80">
                        <span className="h-1.5 w-1.5 rounded-full bg-amber-200" />
@@ -2107,7 +2107,7 @@ export default function App() {
                     className="inline-flex items-center gap-2 rounded-full border border-cyan-300/18 bg-cyan-300/[0.08] px-3.5 py-2 text-xs font-medium text-cyan-50 transition-colors hover:bg-cyan-300/[0.12]"
                   >
                     <Bot size={13} />
-                    <span className="max-w-[14rem] truncate">{latestCreatedAgent.name} est pret</span>
+                    <span className="max-w-[14rem] truncate">{latestCreatedAgent.name} est prete dans le store</span>
                   </button>
                 )}
                 {agentsWarning && (
@@ -2116,7 +2116,7 @@ export default function App() {
                     className="inline-flex items-center gap-2 rounded-full border border-amber-300/14 bg-amber-300/[0.08] px-3.5 py-2 text-xs font-medium text-amber-50/88 transition-colors hover:bg-amber-300/[0.12]"
                   >
                     <span className="h-2 w-2 rounded-full bg-amber-200" />
-                    Hub local
+                    Store local
                   </button>
                 )}
                 {latestCreatedAgent && (

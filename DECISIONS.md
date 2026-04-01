@@ -1,5 +1,23 @@
 # DECISIONS
 
+## 2026-04-01 - Le Hub devient un app store Cowork, pas un registre d'agents
+- Statut: adopte
+- Contexte: le besoin produit a ete reprécise tres clairement. Une surface "hub agent" meme executable restait encore trop abstraite et trop technique. L'utilisateur veut voir un store local d'apps creees par Cowork, avec plusieurs mini-produits distincts, chacun ayant son interface, sa promesse et sa logique propre.
+- Decision:
+  - requalifier toute la surface hub en `Cowork Apps`
+  - presenter les entites du hub comme des apps creees par Cowork, pas comme des agents a configurer
+  - donner a chaque app une famille de rendu/studio selon `outputKind` via un composant partage `AgentAppPreview`
+  - faire du workspace ouvert un studio d'app dedie plutot qu'un panneau agent generique
+- Pourquoi:
+  - c'est le vrai modele mental produit attendu par l'utilisateur
+  - cela rend la valeur beaucoup plus concrete: promesse, type de sortie, studio et interface sont visibles avant meme l'ouverture
+  - cela permet de garder le runtime agentique existant tout en changeant radicalement la perception produit
+- Consequence:
+  - `src/components/AgentsHub.tsx` devient une vitrine `app store`
+  - `src/components/AgentWorkspacePanel.tsx` devient un studio d'app
+  - `src/components/AgentAppPreview.tsx` centralise les previews/specimens d'interface par famille d'app
+  - `src/App.tsx` et `server/lib/agents.ts` parlent maintenant d'apps Cowork plutot que d'agents abstraits
+
 ## 2026-03-31 - La memoire des runs Cowork doit etre explicitement reinjectee au modele sur les tours suivants
 - Statut: adopte
 - Contexte: Cowork persistait bien ses messages riches (`activity`, `runMeta`, `attachments`) pour l'UI et Firestore, mais au tour suivant le modele ne recevait plus que `content` + `attachments`. Sur une remarque comme "le lien est mauvais", il n'avait donc pas une memoire operationnelle fiable du `release_file` precedent et pouvait reexecuter toute la mission.

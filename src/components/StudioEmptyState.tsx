@@ -49,20 +49,20 @@ const modeCopy: Record<AppMode, EmptyStateContent> = {
     icon: MessageSquare,
   },
   cowork: {
-    eyebrow: 'Agent studio',
-    title: 'Un atelier plus net pour lancer une mission, deleguer, puis livrer sans bruit parasite.',
-    body: 'Recherche, PDF premium, podcast, media et specialistes reutilisables: tout demarre depuis une scene simple, lisible et directement actionnable.',
+    eyebrow: 'Cowork apps',
+    title: 'Un atelier pour lancer une mission, puis ouvrir de vraies apps construites par Cowork.',
+    body: "Recherche, PDF premium, podcast, media et apps reutilisables: tout demarre depuis une scene simple, lisible et directement actionnable.",
     bullets: [
-      'Hub Agents visible sans surcharger la home',
-      'Recherche, artefacts et outils dans un seul flux',
-      'Premiere action claire des l ouverture',
+      'App Store Cowork visible sans transformer le shell en dashboard generique',
+      'Chaque app garde sa propre scene, pas juste un prompt renomme',
+      'Recherche, artefacts et apps dans un seul flux',
     ],
     suggestions: [
-      'Creer un agent PDF premium',
+      'Creer une app PDF premium',
       'Transformer une veille en mini-site',
-      'Preparer un podcast Gemini et Lyria',
+      'Preparer une app podcast Gemini et Lyria',
     ],
-    ambientWords: ['atelier', 'agent', 'mission', 'cadence', 'delegation', 'livraison'],
+    ambientWords: ['atelier', 'apps', 'mission', 'catalogue', 'studio', 'livraison'],
     primaryLabel: 'Lancer une premiere mission',
     icon: BrainCircuit,
   },
@@ -146,7 +146,7 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
   ];
 
   const surfaceLabel = mode === 'cowork'
-    ? 'mode agent'
+    ? 'app store cowork'
     : mode === 'chat'
       ? 'chat & raisonnement'
       : mode === 'image'
@@ -244,7 +244,7 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
                   {mode === 'cowork' && onOpenAgentsHub && (
                     <button onClick={onOpenAgentsHub} className="studio-button-secondary studio-glow">
                       <BrainCircuit size={16} />
-                      Ouvrir le Hub Agents
+                      Ouvrir Cowork Apps
                     </button>
                   )}
                 </>

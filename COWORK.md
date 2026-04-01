@@ -3,6 +3,35 @@
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 
+## Mise a jour 2026-04-01 - Le Hub Agents devient `Cowork Apps`
+- Retour produit:
+  - le hub precedent restait trop proche d'un catalogue d'agents, meme apres l'ouverture en workspace
+  - le besoin reel est un store local d'apps creees par Cowork, avec plusieurs mini-produits visibles et une interface propre a chaque app
+- Changement applique:
+  - `src/components/AgentsHub.tsx`
+    - reframing complet en `Cowork Apps`
+    - hero de store, apps mises en avant, detail d'app selectionnee, catalogue visible plus bas
+  - `src/components/AgentAppPreview.tsx`
+    - nouvelle bibliotheque de previews d'apps par famille de sortie (`pdf`, `html`, `podcast`, `code`, `research`, `automation`)
+    - palette derivee par app pour eviter l'effet catalogue uniforme
+  - `src/components/AgentWorkspacePanel.tsx`
+    - le workspace agent devient un vrai studio d'app avec poste de lancement, preview et demande d'evolution via Cowork
+  - `src/App.tsx` et `server/lib/agents.ts`
+    - copy/runtime repenses pour parler d'apps Cowork, de store local et de studio d'app
+- Contrat produit retenu:
+  - Cowork sert d'architecte d'apps
+  - l'utilisateur ouvre ensuite une app de premiere classe
+  - chaque app doit porter sa propre promesse, son type de sortie et une interface qui ne sente pas le formulaire generique
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation visuelle reelle via harness `tmp/cowork-apps-preview.*` + Edge headless
+  - capture desktop store validee
+  - capture mobile studio validee, y compris le correctif responsive des CTA empiles
+- Limite restante:
+  - la profondeur de singularite depend encore de la richesse des blueprints reels generes par Cowork
+  - la revalidation finale doit etre rejouee sur des apps persistees en session authentifiee
+
 ## Priorite Principale
 - La priorite PRINCIPALE du projet est de faire de Cowork un agent **totalement libre, reflexif, visible et auto-dirige**.
 - Toute modification qui s'ecarte de cette direction ne doit PAS etre retenue par defaut. Si un changement reduit l'autonomie, la visibilite, la reflexivite ou la capacite de decision de l'agent, il est considere comme hors philosophie produit sauf validation explicite de Yassine.

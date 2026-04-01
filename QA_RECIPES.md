@@ -49,13 +49,17 @@
 
 ## Attendus visuels
 - Store:
+  - topbar utilitaire visible avec recherche centree
+  - grand hero editorial lisible en entier, sans ligne coupee
+  - panneau lateral de co-creation visible dans le meme ecran
   - sidebars absentes, sensation de vue plein ecran
   - aucun scroll requis pour voir la scene complete
-  - apps visibles surtout comme icones + noms, sans panneaux lourds
+  - apps visibles comme mini-studios premium, pas comme dashboard SaaS
   - CTA d'ouverture visible
-  - dock pagine + bloc de creation visibles dans le meme ecran
+  - rail d'apps + bloc de creation visibles dans le meme ecran
 - Mobile:
   - pas de clipping horizontal sur la headline
+  - topbar et recherche restent lisibles
   - pas d'icone coupee dans la liste d'apps
   - fleches visibles quand la page ne peut pas tout montrer
   - bloc de creation lisible meme sur 430 px

@@ -1,37 +1,33 @@
 # NOW
 
 ## Objectif actuel
-- Rejouer `Cowork Apps` dans la vraie app avec une session authentifiee, maintenant que le shell ne reste plus bloque sur `Chargement du studio...` en environnement headless.
+- Rejouer le nouveau `Cowork Apps` inspire de la reference utilisateur dans la vraie app, avec une session authentifiee et de vraies apps du store.
 
 ## Blocage actuel
 - Pas de blocage technique immediat.
-- La prochaine validation utile est produit: verifier le ressenti dans l'app complete avec de vraies apps Cowork et pas seulement sur fixtures locales.
-- Il reste a confirmer le comportement quand le store contient vraiment plus d'apps que la page courante sur desktop reel.
-- La validation reelle de `Cowork Apps` reste dependante d'une session authentifiee; le fallback headless montre maintenant le shell et l'empty state, mais pas le store authentifie.
+- La mise en page de reference est validee sur harness local, mais pas encore ressentie dans le shell complet avec de vraies donnees.
+- Le comportement des noms tres longs et des stores plus fournis reste a confirmer hors fixtures.
 
 ## Prochaine action exacte
-- Rejouer l'ouverture de `Cowork Apps` dans la vraie app, confirmer que:
-  - le lobby tient entierement dans le viewport sans scroll
-  - les fleches de pagination sortent bien quand le nombre d'apps depasse la page
-  - l'ouverture d'une app sans auto-run reste le bon comportement produit
-  - tout cela est vrai avec une vraie session Google et de vraies apps du store
+- Ouvrir `Cowork Apps` dans la vraie app et verifier que:
+  - la topbar recherche + hero + rail d'apps + labo lateral tiennent bien sur desktop reel
+  - l'ouverture d'une app depuis une carte garde le bon flow `autoRun:false`
+  - le panneau lateral reste lisible avec des apps reelles et des titres plus longs
 
 ## Fichiers chauds
 - `src/components/AgentsHub.tsx`
-- `src/App.tsx`
 - `QA_RECIPES.md`
 - `SESSION_STATE.md`
 - `COWORK.md`
+- `DECISIONS.md`
 
 ## Validations restantes
 - Rejouer `Cowork Apps` dans la vraie app avec login/session reelle.
-- Verifier que le fallback `isAuthReady` ne produit pas de clignotement parasite quand Firebase Auth repond normalement.
-- Verifier que l'ouverture d'une app sans auto-run ne casse pas le flow de lancement ensuite depuis le studio.
 - Reconfirmer desktop/mobile sur des vraies donnees, pas seulement sur le harness `tmp`.
-- Verifier les noms d'apps tres longs dans le dock pagine.
+- Verifier les noms d'apps tres longs dans le rail et dans `Derniers projets collaboratifs`.
+- Observer si la colonne de droite doit encore etre compacte sur des resolutions desktop plus basses.
 
 ## Risques immediats
-- Certaines apps reelles trop pauvres peuvent paraitre encore trop similaires si leurs blueprints restent faibles.
-- Des noms d'apps reels tres longs peuvent tasser les libelles du dock et necessiter un dernier polissage.
-- Le passage plein ecran est valide localement, mais doit encore etre ressenti dans le shell complet en session reelle.
-- Le fallback auth evite le spinner infini en headless, mais doit etre observe une fois dans un navigateur normal pour confirmer qu'il reste invisible quand tout se passe bien.
+- Des blueprints reels trop faibles peuvent rendre le rail d'apps moins singulier que dans le harness.
+- Des titres reels trop longs peuvent casser l'equilibre des cartes et de la colonne laterale.
+- Le rendu plein ecran est valide localement, mais doit encore etre ressenti dans le shell complet en session reelle.

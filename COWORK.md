@@ -3,6 +3,28 @@
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 
+## Mise a jour 2026-04-01 - `Cowork Apps` prend la forme d'un vrai laboratoire Cowork
+- Retour produit:
+  - l'utilisateur veut explicitement que le hub ressemble a la reference fournie: plus "Cowork app", moins "composant de hub"
+  - le besoin n'est pas seulement un plein ecran, mais une scene structuree avec topbar, grand hero, rail d'apps et labo lateral
+- Changement applique:
+  - `src/components/AgentsHub.tsx`
+    - nouvelle topbar avec recherche centree et actions utilitaires
+    - hero editorial recentre sur un grand statement visuel
+    - rail bas d'apps transforme en mini-studios avec CTA compacts
+    - panneau lateral de co-creation avec type d'app, vision, notes et projets recents
+    - recherche locale des apps directement dans le hub
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\cowork-hub-reference-desktop-v4.png`
+    - mobile: `C:\Users\Yassine\AppData\Local\Temp\cowork-hub-reference-mobile-v4.png`
+- Etat produit:
+  - la surface ressemble beaucoup plus a un vrai produit Cowork
+  - le hub garde ses comportements utilitaires (pagination, ouverture d'app, creation) mais avec une composition plus desiree
+  - la prochaine verification utile est dans la vraie app avec vraies apps/auth Google
+
 ## Mise a jour 2026-04-01 - `Cowork Apps` tient dans un seul ecran et pagine les apps
 - Retour produit:
   - l'utilisateur ne voyait pas toute la scene du lobby et ne pouvait pas descendre

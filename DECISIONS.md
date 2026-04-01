@@ -1,5 +1,23 @@
 # DECISIONS
 
+## 2026-04-01 - `Cowork Apps` adopte une composition "laboratoire Cowork" proche de la reference produit
+- Statut: adopte
+- Contexte: le lobby plein ecran precedent etait deja plus propre qu'un dashboard, mais il restait trop abstrait face a la reference utilisateur. Le besoin reel etait une scene plus proche d'un produit Cowork final: topbar utilitaire, hero central tres editorial, rail d'apps en bas et panneau de co-creation lateral.
+- Decision:
+  - refaire `src/components/AgentsHub.tsx` en layout 2 colonnes type "laboratoire"
+  - ajouter une vraie barre de recherche visuelle en topbar
+  - recentrer le hero sur un statement fort, avec moins de chrome parasite
+  - transformer le dock bas en rail de mini-studios avec CTA courts
+  - remplacer le simple create box par un panneau lateral de co-creation avec type d'app, brief et notes
+- Pourquoi:
+  - colle beaucoup mieux a la reference visuelle attendue
+  - garde le cap premium/non generique sans revenir a un catalogue technique
+  - rend plus evidente la promesse produit "ouvrir une app ou en co-creer une nouvelle"
+- Consequence:
+  - `src/components/AgentsHub.tsx` porte maintenant une vraie composition desktop type poster + labo
+  - la QA visuelle doit verifier explicitement la topbar, le hero complet et la colonne laterale
+  - la prochaine verification prioritaire se fait dans la vraie app avec des donnees reelles
+
 ## 2026-04-01 - `Cowork Apps` doit tenir dans un seul viewport et paginer au lieu de scroller
 - Statut: adopte
 - Contexte: meme en vue plein ecran, le lobby `Cowork Apps` restait coupe sur des hauteurs desktop courantes. Le besoin utilisateur est explicite: tout voir sans descendre, puis utiliser des fleches si le nombre d'apps depasse la place disponible.

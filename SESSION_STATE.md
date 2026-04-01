@@ -4,6 +4,39 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-04-01 (`Cowork Apps` recadre comme un vrai laboratoire Cowork)
+- Besoin traite:
+  - l'utilisateur a fourni une reference visuelle explicite et veut que le hub agent s'en rapproche franchement
+  - il fallait conserver le plein ecran et les flows deja valides, mais remplacer la composition actuelle par une scene plus "Cowork produit final"
+- Cause racine confirmee:
+  - `src/components/AgentsHub.tsx` etait deja premium, mais encore trop minimal dans sa structure
+  - il manquait les codes visuels de la reference: topbar avec recherche, hero statement tres fort, rail d'apps plus studio, panneau lateral de co-creation
+- Correctifs appliques:
+  - `src/components/AgentsHub.tsx`
+    - topbar utilitaire avec recherche locale des apps
+    - hero editorial recentre sur un grand statement
+    - rail bas d'apps recompose en cartes mini-studio avec CTA plus courts
+    - panneau lateral avec vision, notes, type d'application et projets recents
+    - compaction desktop/mobile pour garder le tout dans un rendu propre
+  - `QA_RECIPES.md`
+    - attendus visuels enrichis pour couvrir topbar, hero complet et panneau lateral
+  - memoire projet:
+    - `NOW.md`
+    - `DECISIONS.md`
+    - `COWORK.md`
+    - `SESSION_STATE.md`
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation visuelle reelle via harness `tmp/cowork-apps-preview.html`
+  - captures Edge headless:
+    - desktop: `C:\Users\Yassine\AppData\Local\Temp\cowork-hub-reference-desktop-v4.png`
+    - mobile: `C:\Users\Yassine\AppData\Local\Temp\cowork-hub-reference-mobile-v4.png`
+- Intention exacte:
+  - faire sentir un vrai "Cowork app store + labo"
+  - coller a la reference sans perdre les invariants produit deja verrouilles
+  - laisser comme prochaine etape la revalidation sur donnees reelles dans le shell complet
+
 ## Mise a jour complementaire - 2026-04-01 (startup auth durci pour la validation reelle)
 - Besoin traite:
   - en voulant revalider la vraie app locale, le shell restait bloque sur `Chargement du studio...` dans le navigateur headless

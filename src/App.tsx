@@ -409,11 +409,25 @@ export default function App() {
   });
 
   useEffect(() => {
+    let authResolved = false;
+    const authReadyFallback = window.setTimeout(() => {
+      if (authResolved) return;
+      console.warn('Firebase auth init timed out; falling back to unauthenticated shell.');
+      setIsAuthReady(true);
+    }, 4000);
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
+      authResolved = true;
+      window.clearTimeout(authReadyFallback);
       setUser(u);
       setIsAuthReady(true);
     });
-    return () => unsubscribe();
+
+    return () => {
+      authResolved = true;
+      window.clearTimeout(authReadyFallback);
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

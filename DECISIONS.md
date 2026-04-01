@@ -1,5 +1,23 @@
 # DECISIONS
 
+## 2026-04-01 - `Cowork Apps` doit tenir dans un seul viewport et paginer au lieu de scroller
+- Statut: adopte
+- Contexte: meme en vue plein ecran, le lobby `Cowork Apps` restait coupe sur des hauteurs desktop courantes. Le besoin utilisateur est explicite: tout voir sans descendre, puis utiliser des fleches si le nombre d'apps depasse la place disponible.
+- Decision:
+  - verrouiller `src/components/AgentsHub.tsx` sur un vrai layout `100dvh` sans scroll
+  - remplacer la liste libre d'apps par un dock pagine avec fleches gauche/droite
+  - faire suivre automatiquement la page courante a l'app selectionnee
+  - partager le footer desktop entre le dock et la creation pour economiser la hauteur
+  - remonter le CTA d'ouverture dans le header du dock plutot que sous le spotlight
+- Pourquoi:
+  - respecte le besoin produit "je vois toute la page"
+  - evite qu'un simple overflow cache l'action principale d'ouverture
+  - garde un lobby calme meme quand le nombre d'apps augmente
+- Consequence:
+  - `src/components/AgentsHub.tsx` gere maintenant `page`, `pageSize`, `viewport` et `totalPages`
+  - le dock d'apps n'a plus besoin de scroll vertical
+  - les validations QA doivent se faire sur des tailles de viewport reelles (`1440x900`, `430x932`)
+
 ## 2026-04-01 - `Cowork Apps` doit s'ouvrir comme une vraie surface a part
 - Statut: adopte
 - Contexte: meme reframed en store, le hub restait percu comme une vue serree injectee dans le shell principal. Le retour utilisateur est explicite: quand on ouvre le hub, les sidebars doivent disparaitre et la surface doit ressembler a une autre app.

@@ -4,6 +4,8 @@
 - Objectif:
   - verifier que `Cowork Apps` se lit comme une vue a part, et non comme un overlay serre du shell
   - verifier que les apps sont rendues comme une selection simple icone + nom
+  - verifier que tout le lobby tient dans un seul viewport sans scroll
+  - verifier que les fleches paginent les apps quand la place manque
   - verifier que la creation se fait depuis une seule chatbox basse
 
 ## Validation code
@@ -28,9 +30,9 @@
   --headless=new `
   --disable-gpu `
   --hide-scrollbars `
-  --window-size=1440,2200 `
+  --window-size=1440,900 `
   --virtual-time-budget=2500 `
-  --screenshot="$env:TEMP\cowork-apps-lobby-desktop.png" `
+  --screenshot="$env:TEMP\cowork-apps-lobby-desktop-fit.png" `
   "http://127.0.0.1:4173/tmp/cowork-apps-preview.html"
 ```
 - Lobby mobile:
@@ -39,20 +41,23 @@
   --headless=new `
   --disable-gpu `
   --hide-scrollbars `
-  --window-size=430,1500 `
+  --window-size=430,932 `
   --virtual-time-budget=2500 `
-  --screenshot="$env:TEMP\cowork-apps-lobby-mobile-tall-v4.png" `
+  --screenshot="$env:TEMP\cowork-apps-lobby-mobile-fit.png" `
   "http://127.0.0.1:4173/tmp/cowork-apps-preview.html"
 ```
 
 ## Attendus visuels
 - Store:
   - sidebars absentes, sensation de vue plein ecran
+  - aucun scroll requis pour voir la scene complete
   - apps visibles surtout comme icones + noms, sans panneaux lourds
-  - chatbox basse unique pour creer une app
+  - CTA d'ouverture visible
+  - dock pagine + bloc de creation visibles dans le meme ecran
 - Mobile:
   - pas de clipping horizontal sur la headline
   - pas d'icone coupee dans la liste d'apps
+  - fleches visibles quand la page ne peut pas tout montrer
   - bloc de creation lisible meme sur 430 px
 
 ## Limite connue

@@ -4,6 +4,81 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-04-01 (startup auth durci pour la validation reelle)
+- Besoin traite:
+  - en voulant revalider la vraie app locale, le shell restait bloque sur `Chargement du studio...` dans le navigateur headless
+  - tant que ce spinner ne tombait pas, impossible meme d'atteindre proprement l'empty state ou de preparer une validation reelle de `Cowork Apps`
+- Cause racine confirmee:
+  - `src/App.tsx` dependait integralement du callback `onAuthStateChanged(auth, ...)` pour sortir du spinner
+  - dans l'environnement headless local, ce callback pouvait tarder ou ne pas revenir assez vite, laissant `isAuthReady=false` indefiniment
+- Correctifs appliques:
+  - `src/App.tsx`
+    - ajout d'un fallback timeout autour de l'initialisation auth
+    - si Firebase Auth ne repond pas rapidement, l'app bascule quand meme vers le shell/empty state au lieu de rester bloquee
+    - le vrai callback auth garde la priorite s'il arrive ensuite
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation visuelle reelle via Edge headless sur la vraie app locale `http://127.0.0.1:3000`
+    - avant fix: spinner infini `Chargement du studio...`
+    - apres fix desktop: shell + topbar + empty state chat visibles
+    - apres fix mobile: shell visible, plus de spinner infini
+  - captures utiles:
+    - desktop apres fallback auth: `C:\Users\Yassine\AppData\Local\Temp\cowork-real-app-desktop-after-auth-fallback.png`
+    - mobile apres fallback auth: `C:\Users\Yassine\AppData\Local\Temp\cowork-real-app-mobile-after-auth-fallback.png`
+- Limite restante:
+  - la validation reelle de `Cowork Apps` elle-meme reste bloquee sans session Google/authentifiee dans ce contexte de capture headless
+  - le fix auth doit encore etre observe une fois dans un navigateur normal pour verifier qu'il reste invisible quand Firebase repond normalement
+- Fichiers touches:
+  - `src/App.tsx`
+  - `NOW.md`
+  - `AI_LEARNINGS.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - transformer un blocage de QA en etat de repli propre
+  - garantir qu'un probleme d'initialisation auth ne masque pas toute la surface de l'app
+
+## Mise a jour complementaire - 2026-04-01 (`Cowork Apps` tient enfin dans l'ecran et pagine les apps)
+- Besoin traite:
+  - l'utilisateur ne voyait pas toute la page du lobby et ne pouvait pas descendre
+  - il voulait un lobby qui prenne tout l'ecran sans scroll, avec des fleches si trop d'apps doivent etre montrees
+- Cause racine confirmee:
+  - `src/components/AgentsHub.tsx` etait deja en plein ecran, mais sa pile verticale restait trop haute: hero, spotlight, grille d'apps et creation s'empilaient encore
+  - `overflow-hidden` masquait le symptome sans corriger le budget de hauteur reel
+  - le CTA d'ouverture restait trop bas, donc il pouvait disparaitre du viewport sur desktop standard
+- Correctifs appliques:
+  - `src/components/AgentsHub.tsx`
+    - passage a un vrai layout `h-[100dvh]`
+    - grille `auto / minmax(0,1fr) / auto` pour garder un centre respirant sans scroll
+    - compactage pilote par `window.innerWidth` / `window.innerHeight`
+    - dock d'apps pagine avec `page`, `pageSize`, `totalPages`
+    - fleches gauche/droite pour changer de page quand il y a trop d'apps
+    - page courante synchronisee automatiquement avec l'app selectionnee
+    - footer desktop partage entre dock et creation via une grille laterale
+    - CTA d'ouverture de l'app deplace dans l'en-tete du dock pour rester visible
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - validation visuelle reelle via harness local `tmp/cowork-apps-preview.html`
+  - captures Edge headless validees:
+    - desktop fit: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-lobby-desktop-fit.png`
+    - mobile fit: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-lobby-mobile-fit.png`
+  - constat cle:
+    - desktop: dock + creation + CTA d'ouverture tiennent dans le viewport
+    - mobile: la page tient sans scroll et les fleches apparaissent bien avec `Page 1/2`
+- Fichiers touches:
+  - `src/components/AgentsHub.tsx`
+  - `NOW.md`
+  - `QA_RECIPES.md`
+  - `AI_LEARNINGS.md`
+  - `DECISIONS.md`
+  - `COWORK.md`
+  - `SESSION_STATE.md`
+- Intention exacte:
+  - faire du lobby une vraie scene "poster" qui se voit en un coup d'oeil
+  - eviter tout scroll masque ou CTA coupe
+  - rendre la croissance du nombre d'apps propre grace a une pagination simple
+
 ## Mise a jour complementaire - 2026-04-01 (Hub Agents reframed en vrai app store Cowork)
 - Besoin traite:
   - l'utilisateur a rejete le modele precedent: meme execute, le `Hub Agents` restait trop proche d'un catalogue technique d'agents

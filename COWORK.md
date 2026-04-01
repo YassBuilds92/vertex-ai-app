@@ -3,6 +3,29 @@
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 
+## Mise a jour 2026-04-01 - `Cowork Apps` tient dans un seul ecran et pagine les apps
+- Retour produit:
+  - l'utilisateur ne voyait pas toute la scene du lobby et ne pouvait pas descendre
+  - il veut un vrai plein ecran sans scroll, puis des fleches pour tourner entre les apps quand il y en a trop
+- Changement applique:
+  - `src/components/AgentsHub.tsx`
+    - verrouille la scene a `100dvh`
+    - compresse le hero/spotlight selon la hauteur reelle du viewport
+    - remplace la liste libre par un dock pagine avec fleches
+    - suit automatiquement la page de l'app selectionnee
+    - partage le footer desktop entre dock et creation pour garder tout visible
+    - deplace le CTA d'ouverture dans le header du dock
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless:
+    - desktop fit: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-lobby-desktop-fit.png`
+    - mobile fit: `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-lobby-mobile-fit.png`
+- Etat produit:
+  - le lobby se lit maintenant comme une scene complete visible d'un coup
+  - les apps peuvent augmenter sans refaire apparaitre un scroll ou un bas coupe
+  - la vraie revalidation restante est sur donnees/auth reelles dans l'app complete
+
 ## Mise a jour 2026-04-01 - Le Hub Agents devient `Cowork Apps`
 - Retour produit:
   - le hub precedent restait trop proche d'un catalogue d'agents, meme apres l'ouverture en workspace

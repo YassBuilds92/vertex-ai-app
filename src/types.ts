@@ -87,7 +87,7 @@ export interface ActivityItem {
   meta?: Record<string, string | number | boolean | null | undefined>;
 }
 
-export type AgentOutputKind = 'pdf' | 'html' | 'music' | 'podcast' | 'code' | 'research' | 'automation';
+export type AgentOutputKind = 'pdf' | 'html' | 'music' | 'podcast' | 'code' | 'research' | 'automation' | 'image';
 
 export type AgentFieldType = 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'url';
 
@@ -137,6 +137,83 @@ export interface AgentWorkspaceState {
   lastLaunchPrompt?: string;
 }
 
+export type GeneratedAppStatus = 'draft' | 'published' | 'failed';
+export type GeneratedAppOutputKind = AgentOutputKind;
+
+export interface GeneratedAppModelProfile {
+  textModel: string;
+  reasoningLevel?: 'minimal' | 'low' | 'medium' | 'high';
+  imageModel?: string;
+  musicModel?: string;
+  ttsModel?: string;
+  videoModel?: string;
+}
+
+export interface GeneratedAppVisualDirection {
+  thesis: string;
+  mood: string;
+  accentColor: string;
+  surfaceTone: string;
+  primaryFont: string;
+  secondaryFont?: string;
+}
+
+export interface GeneratedAppRuntimeDefinition {
+  primaryActionLabel: string;
+  resultLabel: string;
+  emptyStateLabel?: string;
+  editHint?: string;
+}
+
+export interface GeneratedAppVersion {
+  id: string;
+  createdAt: number;
+  status: GeneratedAppStatus;
+  sourceCode: string;
+  bundleCode?: string;
+  sourceAssetPath?: string;
+  bundleAssetPath?: string;
+  sourceUrl?: string;
+  bundleUrl?: string;
+  bundleFormat: 'esm';
+  sourceHash: string;
+  bundleHash?: string;
+  buildLog?: string;
+}
+
+export interface GeneratedAppManifest {
+  id: string;
+  name: string;
+  slug: string;
+  tagline: string;
+  summary: string;
+  mission: string;
+  whenToUse: string;
+  outputKind: GeneratedAppOutputKind;
+  starterPrompt: string;
+  systemInstruction: string;
+  uiSchema: AgentFieldSchema[];
+  toolAllowList: string[];
+  capabilities: string[];
+  modelProfile: GeneratedAppModelProfile;
+  visualDirection: GeneratedAppVisualDirection;
+  runtime: GeneratedAppRuntimeDefinition;
+  status: GeneratedAppStatus;
+  createdBy: 'manual' | 'cowork';
+  sourcePrompt?: string;
+  sourceSessionId?: string;
+  createdAt: number;
+  updatedAt: number;
+  draftVersion: GeneratedAppVersion;
+  publishedVersion?: GeneratedAppVersion;
+}
+
+export interface GeneratedAppWorkspaceState {
+  app: GeneratedAppManifest;
+  formValues: AgentFormValues;
+  lastLaunchPrompt?: string;
+}
+
 export interface SystemPromptVersion {
   version: number;
   prompt: string;
@@ -153,8 +230,9 @@ export interface ChatSession {
   userId: string;
   systemInstruction?: string;
   systemPromptHistory?: SystemPromptVersion[];
-  sessionKind?: 'standard' | 'agent';
+  sessionKind?: 'standard' | 'agent' | 'generated_app';
   agentWorkspace?: AgentWorkspaceState;
+  generatedAppWorkspace?: GeneratedAppWorkspaceState;
 }
 
 export interface ModelConfig {

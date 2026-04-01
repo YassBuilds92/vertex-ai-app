@@ -1,4 +1,4 @@
-import { AppMode, Attachment, ChatSession, Message, StudioAgent } from '../types';
+import { AppMode, Attachment, ChatSession, GeneratedAppManifest, Message, StudioAgent } from '../types';
 
 type RecoverableMessage = Partial<Message> & {
   id?: string;
@@ -14,6 +14,11 @@ function clipTitle(value: string, max = 60) {
 
 function parseAgentIdFromSessionId(sessionId: string) {
   const match = /^agent-(.+)-(\d+)$/.exec(sessionId);
+  return match?.[1] || null;
+}
+
+function parseGeneratedAppIdFromSessionId(sessionId: string) {
+  const match = /^gapp-(.+)-(\d+)$/.exec(sessionId);
   return match?.[1] || null;
 }
 
@@ -89,16 +94,19 @@ export function buildRecoveredSessionShell(
   sessionId: string,
   userId: string,
   messages: Message[],
-  agentsById: Map<string, StudioAgent>
+  agentsById: Map<string, StudioAgent>,
+  generatedAppsById?: Map<string, GeneratedAppManifest>
 ): ChatSession | null {
   if (!sessionId || !userId || messages.length === 0) return null;
 
   const sortedMessages = [...messages].sort((left, right) => left.createdAt - right.createdAt);
   const updatedAt = sortedMessages[sortedMessages.length - 1]?.createdAt || Date.now();
   const parsedAgentId = parseAgentIdFromSessionId(sessionId);
+  const parsedGeneratedAppId = parseGeneratedAppIdFromSessionId(sessionId);
   const recoveredAgent = parsedAgentId ? agentsById.get(parsedAgentId) : undefined;
-  const sessionKind = recoveredAgent ? 'agent' : 'standard';
-  const mode = parsedAgentId ? 'chat' : inferSessionMode(sessionId, sortedMessages);
+  const recoveredGeneratedApp = parsedGeneratedAppId ? generatedAppsById?.get(parsedGeneratedAppId) : undefined;
+  const sessionKind = recoveredGeneratedApp ? 'generated_app' : recoveredAgent ? 'agent' : 'standard';
+  const mode = parsedAgentId || parsedGeneratedAppId ? 'chat' : inferSessionMode(sessionId, sortedMessages);
   const title = inferRecoveredTitle(mode, sortedMessages);
   const firstUserMessage = sortedMessages.find((message) => message.role === 'user' && message.content.trim().length > 0);
 
@@ -109,13 +117,20 @@ export function buildRecoveredSessionShell(
     updatedAt,
     mode,
     userId,
-    systemInstruction: recoveredAgent?.systemInstruction || '',
+    systemInstruction: recoveredGeneratedApp?.systemInstruction || recoveredAgent?.systemInstruction || '',
     sessionKind,
     agentWorkspace: recoveredAgent
       ? {
           agent: recoveredAgent,
           formValues: {},
           lastLaunchPrompt: firstUserMessage?.content || recoveredAgent.starterPrompt,
+        }
+      : undefined,
+    generatedAppWorkspace: recoveredGeneratedApp
+      ? {
+          app: recoveredGeneratedApp,
+          formValues: {},
+          lastLaunchPrompt: firstUserMessage?.content || recoveredGeneratedApp.starterPrompt,
         }
       : undefined,
   };

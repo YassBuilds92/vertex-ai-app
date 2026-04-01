@@ -1,5 +1,27 @@
 # QA RECIPES
 
+## Generated Apps - flux critique
+- Objectif:
+  - verifier que Cowork cree une vraie `generated app` avec manifest, source, bundle et host dedie
+  - verifier que l'ouverture d'une generated app ne retombe ni dans un chat generique ni dans `AgentWorkspacePanel`
+  - verifier le lifecycle `draft -> publish -> update draft`
+- Scenarios cibles:
+  - `app de cartes Pokemon personnalisees`
+  - `app nasheed`
+- Etapes manuelles:
+  - creer l'app depuis la chatbox de `Cowork Apps`
+  - ouvrir l'app creee depuis le store
+  - lancer un premier run depuis le host
+  - publier la draft
+  - demander une evolution via Cowork depuis le host
+- Attendus:
+  - l'app apparait dans le store avec une vraie identite produit
+  - le host affiche bien la draft courante, le badge live si deja publiee, et un bouton `Publier la draft`
+  - l'appel runtime passe par `appRuntime` et limite les outils au `toolAllowList`
+  - apres publication, la version live reste stable
+  - apres evolution Cowork, une nouvelle draft apparait sans effacer la version publiee
+  - si le bundle est invalide, le host affiche le `buildLog` au lieu de casser silencieusement
+
 ## Nasheed Studio
 - Objectif:
   - verifier qu'un clic sur une app musicale type `Nasheed Studio` n'ouvre plus une surface chat/workspace generique
@@ -18,6 +40,10 @@
 ## Validation code
 - `npm run lint`
 - `npm run build`
+
+## Validation shell local
+- `Invoke-WebRequest http://127.0.0.1:3000`
+  - attendu: `StatusCode 200`
 
 ## Preview local du store
 - Harness:
@@ -77,6 +103,12 @@
 ```
 
 ## Attendus visuels
+- Generated App Host:
+  - header avec retour store + badges draft/live visibles
+  - pas de shell chat classique ni de sidebars standard
+  - panneau gauche = mission + formulaire + CTA run/publish
+  - panneau droit = artefacts / sorties / evolution Cowork
+  - en cas d'erreur de bundle, un etat bloque lisible avec `buildLog`
 - Nasheed Studio:
   - aucun rail de messages ou chatbox visible
   - header avec retour `Cowork Apps`, nom d'app et pills Lyria visibles
@@ -106,3 +138,4 @@
 
 ## Limite connue
 - Si Playwright MCP reste bloque par `C:\Windows\System32\.playwright-mcp`, utiliser ce chemin Edge headless comme validation visuelle de reference.
+- Sur cette machine, la preuve visuelle automatisee du `GeneratedAppHost` n'a pas encore pu etre capturee a cause des limites outils Windows ; ne pas pretendre cette validation faite tant qu'un rendu reel n'a pas ete observe.

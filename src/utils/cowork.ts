@@ -1,4 +1,4 @@
-import { AgentBlueprint, ActivityItem, Attachment, Message, RunMeta, RunState } from '../types';
+import { AgentBlueprint, ActivityItem, Attachment, GeneratedAppManifest, Message, RunMeta, RunState } from '../types';
 
 const MAX_ACTIVITY_ITEMS = 80;
 const MAX_ACTIVITY_TEXT = 420;
@@ -65,6 +65,13 @@ export type CoworkStreamEvent =
       timestamp?: number;
       iteration?: number;
       blueprint?: AgentBlueprint;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
+      type: 'generated_app_manifest';
+      timestamp?: number;
+      iteration?: number;
+      manifest?: GeneratedAppManifest;
       runMeta?: Partial<RunMeta>;
     }
   | {
@@ -320,6 +327,16 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
         createActivityItem(next, 'status', iteration, timestamp, {
           title: event.blueprint?.name ? `Agent cree: ${event.blueprint.name}` : 'Agent cree',
           message: event.blueprint?.tagline || "Le Hub Agents vient de recevoir un nouveau specialiste.",
+          status: 'success',
+        })
+      );
+
+    case 'generated_app_manifest':
+      return pushActivity(
+        next,
+        createActivityItem(next, 'status', iteration, timestamp, {
+          title: event.manifest?.name ? `App creee: ${event.manifest.name}` : 'App creee',
+          message: event.manifest?.tagline || "Le store Cowork vient de recevoir une nouvelle app experte.",
           status: 'success',
         })
       );

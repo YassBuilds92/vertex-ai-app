@@ -3,6 +3,48 @@
 ## Vision
 L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairement au chat classique, il peut planifier, rechercher (via des outils locaux) et executer des taches directement sur le systeme de fichiers.
 
+## Mise a jour 2026-04-01 - Cowork devient generateur d'apps expertes deployees
+- Retour produit:
+  - l'utilisateur ne veut plus simplement que Cowork cree "un agent comme lui" dans le hub
+  - il veut que Cowork fabrique une vraie app experte avec :
+    - son `systemInstruction`
+    - sa `toolAllowList`
+    - son `modelProfile`
+    - une UI dediee
+    - un cycle `draft -> preview -> publish`
+- Changement applique:
+  - contrat:
+    - ajout de `GeneratedAppManifest` cote frontend/backend
+    - nouvelles sessions `sessionKind='generated_app'`
+    - nouvelle charge utile `/api/cowork.appRuntime`
+  - pipeline:
+    - `server/lib/generated-apps.ts`
+      - `spec -> source TSX -> bundle ESM -> upload best-effort`
+      - statuts `draft | published | failed`
+      - build log conserve si le bundle casse
+    - `server/routes/standard.ts`
+      - `POST /api/generated-apps/create`
+      - `POST /api/generated-apps/publish`
+  - runtime Cowork:
+    - nouveaux outils `create_generated_app` et `update_generated_app`
+    - system prompt runtime remplace la posture "Cowork general" par "Tu es cette app experte, concue par Cowork" quand `appRuntime` est fourni
+    - outils limites a la `toolAllowList` de l'app
+    - modeles limites au `modelProfile` Google-only de l'app
+  - frontend:
+    - `GeneratedAppHost` charge le bundle draft et ouvre une vraie surface plein ecran
+    - petit SDK `src/generated-app-sdk.tsx` pour les apps generees
+    - snapshots locaux + persistance Firestore best effort sur `users/{uid}/generatedApps`
+    - edition via Cowork = nouvelle draft sur le meme `id`, sans casser la version live
+  - stabilisation:
+    - la reparation automatique des sessions attend maintenant le chargement des catalogues `agents` et `generatedApps` avant de reconstruire des workspaces orphelins
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - smoke shell local deja vu sur `http://127.0.0.1:3000` : HTTP 200
+- Limites restantes:
+  - pas encore de preuve visuelle automatisee du `GeneratedAppHost` sur cette machine a cause des limites Playwright/screenshot Windows
+  - le flux complet `create -> open -> run -> publish -> update draft` reste a rejouer dans la vraie app authentifiee
+
 ## Mise a jour 2026-04-01 - `Nasheed Studio` se depouille pour devenir un vrai studio, pas un mur de texte
 - Retour produit:
   - l'utilisateur juge la nouvelle surface musicale trop peu esthetique et trop bavarde

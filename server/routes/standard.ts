@@ -2,6 +2,7 @@ import { type Express } from 'express';
 
 import { normalizeLatexProvider, resolveLatexProviderBaseUrl } from '../pdf/latex.js';
 import { generateAgentBlueprintFromBrief } from '../lib/agents.js';
+import { createGeneratedAppFromBrief, publishGeneratedApp } from '../lib/generated-apps.js';
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_LYRIA_MODEL,
@@ -18,6 +19,8 @@ import {
   AudioGenRequestSchema,
   ChatRefineSchema,
   ChatSchema,
+  GeneratedAppCreateSchema,
+  GeneratedAppPublishSchema,
   ImageGenRequestSchema,
   MusicGenRequestSchema,
   UploadSchema,
@@ -203,6 +206,30 @@ export function registerStandardApiRoutes(app: Express) {
       const cleanError = parseApiError(error);
       log.error('Agent create error', cleanError);
       res.status(500).json({ error: 'Agent create failed', message: "Echec de creation d'agent", details: cleanError });
+    }
+  });
+
+  app.post('/api/generated-apps/create', async (req, res) => {
+    try {
+      const { brief, source } = GeneratedAppCreateSchema.parse(req.body);
+      const manifest = await createGeneratedAppFromBrief(brief, source || 'manual');
+      res.json({ manifest });
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.error('Generated app create error', cleanError);
+      res.status(500).json({ error: 'Generated app create failed', message: "Echec de creation d'app", details: cleanError });
+    }
+  });
+
+  app.post('/api/generated-apps/publish', async (req, res) => {
+    try {
+      const { manifest } = GeneratedAppPublishSchema.parse(req.body);
+      const publishedManifest = publishGeneratedApp(manifest);
+      res.json({ manifest: publishedManifest });
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.error('Generated app publish error', cleanError);
+      res.status(500).json({ error: 'Generated app publish failed', message: "Echec de publication d'app", details: cleanError });
     }
   });
 

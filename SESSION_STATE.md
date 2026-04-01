@@ -4,6 +4,79 @@
 - Date: 2026-03-29
 - Contexte: chantier Cowork / Hub Agents
 
+## Mise a jour complementaire - 2026-04-01 (pivot `generated app` deploye de bout en bout)
+- Besoin traite:
+  - l'utilisateur veut que Cowork cree une vraie app experte "comme lui", avec son propre systeme, ses outils, son UI et un rendu sans chat generique
+  - il ne veut plus seulement un agent du hub, mais un mini-produit deployable avec draft/live
+- Cause racine confirmee:
+  - l'architecture precedente etait encore centree sur le blueprint d'agent (`Hub Agents` + `AgentWorkspacePanel`)
+  - meme quand l'UX devenait plus "app", le contrat de donnees restait celui d'un specialiste legacy, sans source/bundle versionnes ni cycle `preview -> publish`
+  - `/api/cowork` savait faire tourner Cowork ou un agent, mais pas une app experte avec allowlist/model profile propre
+- Correctifs appliques:
+  - contrat / types:
+    - `src/types.ts`
+      - nouveaux types `GeneratedAppManifest`, `GeneratedAppVersion`, `GeneratedAppWorkspaceState`, `GeneratedAppModelProfile`, `GeneratedAppRuntimeDefinition`
+      - ajout de `sessionKind='generated_app'`
+    - `server/lib/schemas.ts`
+      - schemas `GeneratedAppCreateSchema`, `GeneratedAppManifestSchema`, `GeneratedAppPublishSchema`, `GeneratedAppRuntimeSchema`
+  - backend generated app:
+    - `server/lib/generated-apps.ts`
+      - generation du spec JSON via Gemini 3.1 Flash Lite
+      - sanitation du manifest, allowlist, model profile et direction visuelle
+      - rendu d'un vrai fichier TSX
+      - bundling ESM navigateur via `esbuild`
+      - upload best effort de la source et du bundle
+      - cycle `draft | published | failed`
+    - `server/routes/standard.ts`
+      - nouvelles routes `POST /api/generated-apps/create` et `POST /api/generated-apps/publish`
+  - runtime Cowork:
+    - `api/index.ts`
+      - nouveaux outils `create_generated_app` et `update_generated_app`
+      - prise en charge de `generatedApps` et `appRuntime` dans `/api/cowork`
+      - nouveau prompt runtime pour app experte : "Tu es cette app experte, concue par Cowork"
+      - tool filtering par `toolAllowList`
+      - priorite modeles via `modelProfile.textModel`
+      - emission SSE `generated_app_manifest`
+  - frontend:
+    - `src/generated-app-sdk.tsx`
+      - mini-SDK de rendu partage pour les bundles generes
+    - `src/components/GeneratedAppHost.tsx`
+      - host plein ecran avec badges draft/live, etats d'erreur bundle, run/publish/evolution
+    - `src/utils/generatedAppBundle.ts`
+      - chargement dynamique du bundle ESM via blob URL
+    - `src/utils/generatedAppSnapshots.ts`
+      - cache local-first des generated apps
+    - `src/App.tsx`
+      - store `generatedApps`
+      - sync Firestore `users/{uid}/generatedApps`
+      - ouverture des generated apps dans `GeneratedAppHost`
+      - relance via `appRuntime`
+      - publication de la draft
+      - edition Cowork = nouvelle draft sur le meme `id`
+    - `src/components/SidebarLeft.tsx`
+      - section `Apps` dans l'historique
+    - `src/utils/sessionRecovery.ts` / `src/utils/sessionShells.ts`
+      - prise en charge des sessions `gapp-*` et nettoyage des gros payloads `sourceCode` / `bundleCode`
+    - `firestore.rules`
+      - `generatedAppWorkspace`
+      - collection `generatedApps`
+      - `sessionKind='generated_app'`
+  - stabilisation de reprise:
+    - `src/App.tsx`
+      - ajout de `hasLoadedRemoteAgents` et `hasLoadedRemoteGeneratedApps`
+      - la reparation des sessions orphelines attend maintenant que les catalogues agents/apps soient charges avant de reconstruire les workspaces
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - smoke shell local deja observe sur `http://127.0.0.1:3000` : HTTP 200
+- Limites restantes:
+  - pas encore de capture visuelle fiable du `GeneratedAppHost` sur cette machine
+  - le flux produit reel `create -> open -> run -> publish -> update draft` reste a rejouer dans une vraie session authentifiee
+  - les agents legacy existent encore ; la trajectoire produit privilegie maintenant les generated apps mais le code garde les deux chemins
+- Intention exacte:
+  - sortir definitivement de la logique "Cowork cree un agent du hub"
+  - faire de Cowork un generateur de mini-produits experts, chacun avec sa propre surface, son propre runtime et son propre lifecycle de publication
+
 ## Mise a jour complementaire - 2026-04-01 (`Nasheed Studio` passe en version epuree)
 - Besoin traite:
   - l'utilisateur rejette la premiere version du studio musical dedie: trop de texte, pas assez esthetique

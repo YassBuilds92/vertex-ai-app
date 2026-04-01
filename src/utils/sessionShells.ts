@@ -40,6 +40,35 @@ function writeSessionShellStore(store: SessionShellStore) {
 }
 
 function normalizeSessionShell(session: ChatSession): ChatSession {
+  const generatedAppWorkspace = session.generatedAppWorkspace
+    ? {
+        ...session.generatedAppWorkspace,
+        app: {
+          ...session.generatedAppWorkspace.app,
+          draftVersion: {
+            ...session.generatedAppWorkspace.app.draftVersion,
+            sourceCode: session.generatedAppWorkspace.app.draftVersion.sourceUrl
+              ? ''
+              : session.generatedAppWorkspace.app.draftVersion.sourceCode,
+            bundleCode: session.generatedAppWorkspace.app.draftVersion.bundleUrl
+              ? undefined
+              : session.generatedAppWorkspace.app.draftVersion.bundleCode,
+          },
+          publishedVersion: session.generatedAppWorkspace.app.publishedVersion
+            ? {
+                ...session.generatedAppWorkspace.app.publishedVersion,
+                sourceCode: session.generatedAppWorkspace.app.publishedVersion.sourceUrl
+                  ? ''
+                  : session.generatedAppWorkspace.app.publishedVersion.sourceCode,
+                bundleCode: session.generatedAppWorkspace.app.publishedVersion.bundleUrl
+                  ? undefined
+                  : session.generatedAppWorkspace.app.publishedVersion.bundleCode,
+              }
+            : undefined,
+        },
+      }
+    : undefined;
+
   return {
     ...session,
     title: typeof session.title === 'string' && session.title.trim().length > 0
@@ -50,8 +79,9 @@ function normalizeSessionShell(session: ChatSession): ChatSession {
     userId: session.userId || '',
     systemInstruction: typeof session.systemInstruction === 'string' ? session.systemInstruction : '',
     systemPromptHistory: Array.isArray(session.systemPromptHistory) ? session.systemPromptHistory : undefined,
-    sessionKind: session.sessionKind === 'agent' ? 'agent' : 'standard',
+    sessionKind: session.sessionKind === 'generated_app' ? 'generated_app' : session.sessionKind === 'agent' ? 'agent' : 'standard',
     agentWorkspace: session.agentWorkspace,
+    generatedAppWorkspace,
     messages: [],
   };
 }

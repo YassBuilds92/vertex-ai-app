@@ -4,6 +4,7 @@ import {
   Code2,
   FileText,
   Globe2,
+  ImageIcon,
   Radio,
   Search,
   Sparkles,
@@ -107,6 +108,15 @@ const OUTPUT_META: Record<StudioAgent['outputKind'], AgentAppMeta> = {
     heroHint: 'declenche, surveille et boucle',
     icon: Workflow,
   },
+  image: {
+    label: 'Image Forge',
+    category: 'Visual',
+    spotlight: 'Direction visuelle et rendu image',
+    studioLabel: 'Studio image',
+    actionLabel: "Ouvrir le studio visuel",
+    heroHint: 'cadre, genere et publie',
+    icon: ImageIcon,
+  },
 };
 
 const BASE_HUES: Record<StudioAgent['outputKind'], number> = {
@@ -117,6 +127,7 @@ const BASE_HUES: Record<StudioAgent['outputKind'], number> = {
   code: 148,
   research: 226,
   automation: 174,
+  image: 28,
 };
 
 function hashString(value: string) {
@@ -567,6 +578,44 @@ function renderCodePreview(agent: StudioAgent, palette: AgentPalette) {
   );
 }
 
+function renderImagePreview(agent: StudioAgent, palette: AgentPalette) {
+  return (
+    <div className="grid h-full gap-3 md:grid-cols-[0.56fr_0.44fr]">
+      <div className="rounded-[1.35rem] border p-4" style={palette.panel}>
+        <div className="flex items-center justify-between">
+          <PreviewBadge palette={palette}>image lab</PreviewBadge>
+          <span className="text-[11px] uppercase tracking-[0.18em] text-white/44">render</span>
+        </div>
+        <div className="mt-4 rounded-[1.4rem] border border-white/10 p-4" style={{ background: `linear-gradient(135deg, ${palette.accentSoft}, rgba(255,255,255,0.04))` }}>
+          <div className="aspect-[4/5] rounded-[1.2rem] border border-white/10 bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,0.18),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(0,0,0,0.22))]" />
+        </div>
+        <div className="mt-4 text-sm text-white/62">{agent.tagline}</div>
+      </div>
+      <div className="grid gap-3">
+        <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Layers</div>
+          <div className="mt-3 space-y-2">
+            {['Subject', 'Foil', 'Frame'].map((label, index) => (
+              <div key={label} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/74">
+                <span>{label}</span>
+                <span className="h-2 w-10 rounded-full" style={{ background: index === 1 ? palette.accentStrong : palette.accent }} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex-1 rounded-[1.15rem] border p-3" style={palette.tile}>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Palette</div>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            {[palette.accent, palette.accentStrong, 'rgba(255,255,255,0.78)'].map((color) => (
+              <div key={color} className="h-14 rounded-[1rem] border border-white/10" style={{ background: color }} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function renderResearchPreview(agent: StudioAgent, palette: AgentPalette) {
   return (
     <div className="grid h-full gap-3 md:grid-cols-[0.46fr_0.54fr]">
@@ -668,6 +717,8 @@ function renderPreviewByKind(agent: StudioAgent, palette: AgentPalette) {
       return renderPodcastPreview(agent, palette);
     case 'code':
       return renderCodePreview(agent, palette);
+    case 'image':
+      return renderImagePreview(agent, palette);
     case 'automation':
       return renderAutomationPreview(palette);
     case 'research':

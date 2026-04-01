@@ -22,9 +22,10 @@ import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
 import { AgentsHub } from './components/AgentsHub';
 import { AgentWorkspacePanel } from './components/AgentWorkspacePanel';
+import { GeneratedAppHost } from './components/GeneratedAppHost';
 import { NasheedStudioWorkspace } from './components/NasheedStudioWorkspace';
 import { StudioEmptyState } from './components/StudioEmptyState';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues } from './types';
+import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppManifest } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -56,6 +57,11 @@ import {
   mergeAgentsWithLocal,
   saveLocalAgent,
 } from './utils/agentSnapshots';
+import {
+  loadLocalGeneratedApps,
+  mergeGeneratedAppsWithLocal,
+  saveLocalGeneratedApp,
+} from './utils/generatedAppSnapshots';
 import {
   buildApiAttachmentPayloads,
   buildApiHistoryFromMessages,
@@ -96,6 +102,28 @@ const buildAgentRuntimeFormValues = (agent: StudioAgent, values: AgentFormValues
   return Object.fromEntries(normalizedEntries);
 };
 
+const adaptGeneratedAppToStudioAgent = (app: GeneratedAppManifest): StudioAgent => ({
+  id: app.id,
+  name: app.name,
+  slug: app.slug,
+  tagline: app.tagline,
+  summary: app.summary,
+  mission: app.mission,
+  whenToUse: app.whenToUse,
+  outputKind: app.outputKind,
+  starterPrompt: app.starterPrompt,
+  systemInstruction: app.systemInstruction,
+  uiSchema: app.uiSchema,
+  tools: app.toolAllowList,
+  capabilities: app.capabilities,
+  status: app.status === 'failed' ? 'draft' : 'ready',
+  createdBy: app.createdBy,
+  sourcePrompt: app.sourcePrompt,
+  sourceSessionId: app.sourceSessionId,
+  createdAt: app.createdAt,
+  updatedAt: app.updatedAt,
+});
+
 const formatAgentFormValues = (agent: StudioAgent, values: AgentFormValues) =>
   Object.entries(buildAgentRuntimeFormValues(agent, values))
     .filter(([, value]) => typeof value === 'boolean' || String(value).trim().length > 0)
@@ -119,6 +147,37 @@ const buildAgentLaunchPrompt = (agent: StudioAgent, values: AgentFormValues) => 
     `Type de sortie attendu: ${agent.outputKind}.`,
   ].filter(Boolean).join('\n\n');
 };
+
+const buildGeneratedAppLaunchPrompt = (app: GeneratedAppManifest, values: AgentFormValues) => {
+  const formattedValues = Object.entries(values)
+    .filter(([, value]) => typeof value === 'boolean' || String(value || '').trim().length > 0)
+    .map(([fieldId, value]) => {
+      const fieldLabel = app.uiSchema.find(field => field.id === fieldId)?.label || fieldId;
+      return `- ${fieldLabel}: ${typeof value === 'boolean' ? (value ? 'oui' : 'non') : String(value).trim()}`;
+    });
+
+  return [
+    app.starterPrompt || `Prends en charge la mission de ${app.name}.`,
+    formattedValues.length > 0 ? `Parametres de l'interface:\n${formattedValues.join('\n')}` : '',
+    `Type de sortie attendu: ${app.outputKind}.`,
+  ].filter(Boolean).join('\n\n');
+};
+
+const buildGeneratedAppRemotePayload = (manifest: GeneratedAppManifest): GeneratedAppManifest => ({
+  ...manifest,
+  draftVersion: {
+    ...manifest.draftVersion,
+    sourceCode: manifest.draftVersion.sourceUrl ? '' : manifest.draftVersion.sourceCode,
+    bundleCode: manifest.draftVersion.bundleUrl ? undefined : manifest.draftVersion.bundleCode,
+  },
+  publishedVersion: manifest.publishedVersion
+    ? {
+        ...manifest.publishedVersion,
+        sourceCode: manifest.publishedVersion.sourceUrl ? '' : manifest.publishedVersion.sourceCode,
+        bundleCode: manifest.publishedVersion.bundleUrl ? undefined : manifest.publishedVersion.bundleCode,
+      }
+    : undefined,
+});
 
 const isScrolledNearBottom = (element: HTMLElement, threshold = AUTO_SCROLL_BOTTOM_THRESHOLD) =>
   element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
@@ -157,6 +216,7 @@ export default function App() {
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [agents, setAgents] = useState<StudioAgent[]>([]);
+  const [generatedApps, setGeneratedApps] = useState<GeneratedAppManifest[]>([]);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -182,9 +242,13 @@ export default function App() {
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
   const [showAgentsHub, setShowAgentsHub] = useState(false);
   const [latestCreatedAgent, setLatestCreatedAgent] = useState<StudioAgent | null>(null);
+  const [latestCreatedGeneratedApp, setLatestCreatedGeneratedApp] = useState<GeneratedAppManifest | null>(null);
   const [agentsWarning, setAgentsWarning] = useState<string | null>(null);
   const [isRunningHubAgent, setIsRunningHubAgent] = useState(false);
+  const [isPublishingGeneratedApp, setIsPublishingGeneratedApp] = useState(false);
   const [hasLoadedRemoteSessions, setHasLoadedRemoteSessions] = useState(false);
+  const [hasLoadedRemoteAgents, setHasLoadedRemoteAgents] = useState(false);
+  const [hasLoadedRemoteGeneratedApps, setHasLoadedRemoteGeneratedApps] = useState(false);
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -212,7 +276,8 @@ export default function App() {
   };
 
   const isAgentSession = activeSession.sessionKind === 'agent' && Boolean(activeSession.agentWorkspace);
-  const richSessionUsesCoworkSnapshots = activeMode === 'cowork' || isAgentSession;
+  const isGeneratedAppSession = activeSession.sessionKind === 'generated_app' && Boolean(activeSession.generatedAppWorkspace);
+  const richSessionUsesCoworkSnapshots = activeMode === 'cowork' || isAgentSession || isGeneratedAppSession;
 
   const activeAgentWorkspace = React.useMemo(() => {
     if (activeSession.sessionKind !== 'agent' || !activeSession.agentWorkspace) return null;
@@ -229,6 +294,18 @@ export default function App() {
   const activeAgentStudioKind = activeAgentWorkspace
     ? resolveAgentStudioKind(activeAgentWorkspace.agent)
     : 'default';
+  const activeGeneratedAppWorkspace = React.useMemo(() => {
+    if (activeSession.sessionKind !== 'generated_app' || !activeSession.generatedAppWorkspace) return null;
+
+    const latestApp = generatedApps.find(app => app.id === activeSession.generatedAppWorkspace?.app.id)
+      || activeSession.generatedAppWorkspace.app;
+
+    return {
+      ...activeSession.generatedAppWorkspace,
+      app: latestApp,
+      formValues: buildAgentRuntimeFormValues(adaptGeneratedAppToStudioAgent(latestApp), activeSession.generatedAppWorkspace.formValues || {}),
+    };
+  }, [activeSession, generatedApps]);
 
   const materializeAgentBlueprint = useCallback((blueprint: AgentBlueprint, overrides?: Partial<StudioAgent>): StudioAgent => {
     const now = Date.now();
@@ -294,6 +371,43 @@ export default function App() {
     return nextAgent;
   }, [materializeAgentBlueprint, user]);
 
+  const persistGeneratedAppManifest = useCallback(async (
+    manifest: GeneratedAppManifest,
+    options?: { openHub?: boolean }
+  ) => {
+    if (!user) return null;
+
+    const nextManifest = {
+      ...manifest,
+      updatedAt: Number(manifest.updatedAt || Date.now()),
+      createdAt: Number(manifest.createdAt || Date.now()),
+    };
+
+    setGeneratedApps(prev => {
+      const withoutCurrent = prev.filter(app => app.id !== nextManifest.id);
+      return [nextManifest, ...withoutCurrent].sort((left, right) => right.updatedAt - left.updatedAt);
+    });
+
+    setLatestCreatedGeneratedApp(nextManifest);
+    if (options?.openHub) {
+      setShowAgentsHub(true);
+    }
+
+    saveLocalGeneratedApp(user.uid, nextManifest);
+
+    try {
+      await setDoc(
+        doc(db, 'users', user.uid, 'generatedApps', nextManifest.id),
+        cleanForFirestore(buildGeneratedAppRemotePayload(nextManifest))
+      );
+    } catch (error) {
+      console.error('Generated app persistence degraded, keeping local snapshot only:', error);
+      setAgentsWarning("Cowork Apps ne peut pas se synchroniser completement avec Firestore pour l'instant. Les apps restent disponibles sur cet appareil.");
+    }
+
+    return nextManifest;
+  }, [user]);
+
   const displayedMessages = React.useMemo(() => {
     const merged = new Map<string, Message>();
 
@@ -316,7 +430,7 @@ export default function App() {
     [displayedMessages, hiddenMessagesCount]
   );
 
-  const shouldShowEmptyState = !activeAgentWorkspace && displayedMessages.length === 0 && !isLoading && !refiningStatus;
+  const shouldShowEmptyState = !activeAgentWorkspace && !activeGeneratedAppWorkspace && displayedMessages.length === 0 && !isLoading && !refiningStatus;
   const shouldRenderMessageEndSpacer = displayedMessages.length > 0 || isLoading || Boolean(refiningStatus);
 
   const activeModeLabel = {
@@ -334,14 +448,24 @@ export default function App() {
     audio: 'Nouvelle voix',
   }[activeMode];
 
-  const activeSurfaceLabel = isAgentSession
+  const activeSurfaceLabel = isAgentSession || isGeneratedAppSession
     ? 'App Cowork'
     : activeModeLabel;
   const isCoworkAppsView = Boolean(user && activeMode === 'cowork' && showAgentsHub);
   const isDedicatedAgentStudioView = Boolean(user && activeAgentWorkspace && activeAgentStudioKind !== 'default');
+  const coworkStoreAgents = React.useMemo(
+    () => [
+      ...generatedApps.map(adaptGeneratedAppToStudioAgent),
+      ...agents,
+    ].sort((left, right) => right.updatedAt - left.updatedAt),
+    [agents, generatedApps]
+  );
+  const latestCreatedStorePreview = latestCreatedGeneratedApp
+    ? adaptGeneratedAppToStudioAgent(latestCreatedGeneratedApp)
+    : latestCreatedAgent;
 
   const getPreferredSessionsForMode = useCallback((mode: AppMode) => (
-    sessions.filter((session) => session.mode === mode && !(mode === 'chat' && session.sessionKind === 'agent'))
+    sessions.filter((session) => session.mode === mode && !(mode === 'chat' && (session.sessionKind === 'agent' || session.sessionKind === 'generated_app')))
   ), [sessions]);
 
   const handleGoogleLogin = useCallback(async () => {
@@ -449,6 +573,8 @@ export default function App() {
     if (!user) {
       setSessions([]);
       setHasLoadedRemoteSessions(false);
+      setHasLoadedRemoteAgents(false);
+      setHasLoadedRemoteGeneratedApps(false);
       sessionRepairAttemptedRef.current = {};
       return;
     }
@@ -478,6 +604,7 @@ export default function App() {
     if (!user) {
       setAgents([]);
       setAgentsWarning(null);
+      setHasLoadedRemoteAgents(false);
       return;
     }
 
@@ -491,6 +618,7 @@ export default function App() {
       const remoteAgents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudioAgent));
       setAgents(mergeAgentsWithLocal(user.uid, remoteAgents));
       setAgentsWarning(null);
+      setHasLoadedRemoteAgents(true);
     }, (error) => {
       console.error('Agent list sync degraded, using local snapshots:', error);
       const fallbackAgents = loadLocalAgents(user.uid);
@@ -500,6 +628,38 @@ export default function App() {
           ? "Cowork Apps n'a pas pu se synchroniser avec Firestore. Affichage du cache local sur cet appareil."
           : "Cowork Apps n'a pas pu se synchroniser avec Firestore. Les prochaines apps seront gardees localement sur cet appareil."
       );
+      setHasLoadedRemoteAgents(true);
+    });
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setGeneratedApps([]);
+      setHasLoadedRemoteGeneratedApps(false);
+      return;
+    }
+
+    const localApps = loadLocalGeneratedApps(user.uid);
+    if (localApps.length > 0) {
+      setGeneratedApps(localApps);
+    }
+
+    const q = query(collection(db, 'users', user.uid, 'generatedApps'), orderBy('updatedAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const remoteApps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GeneratedAppManifest));
+      setGeneratedApps(mergeGeneratedAppsWithLocal(user.uid, remoteApps));
+      setAgentsWarning(null);
+      setHasLoadedRemoteGeneratedApps(true);
+    }, (error) => {
+      console.error('Generated app list sync degraded, using local snapshots:', error);
+      const fallbackApps = loadLocalGeneratedApps(user.uid);
+      setGeneratedApps(fallbackApps);
+      setAgentsWarning(
+        fallbackApps.length > 0
+          ? "Cowork Apps n'a pas pu se synchroniser completement avec Firestore. Affichage du cache local sur cet appareil."
+          : "Cowork Apps n'a pas pu se synchroniser avec Firestore. Les prochaines apps resteront disponibles localement."
+      );
+      setHasLoadedRemoteGeneratedApps(true);
     });
   }, [user]);
 
@@ -741,7 +901,7 @@ export default function App() {
 
     setIsCreatingAgent(true);
     try {
-      const response = await fetch('/api/agents/create', {
+      const response = await fetch('/api/generated-apps/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -751,14 +911,16 @@ export default function App() {
       });
 
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data?.blueprint) {
+      if (!response.ok || !data?.manifest) {
         throw new Error(data?.details || data?.message || "Impossible de creer l'app.");
       }
 
-      return await persistAgentBlueprint(data.blueprint as AgentBlueprint, {
+      return await persistGeneratedAppManifest({
+        ...(data.manifest as GeneratedAppManifest),
         createdBy: 'manual',
         sourcePrompt: cleanedBrief,
         sourceSessionId: activeSessionId && activeSessionId !== 'local-new' ? activeSessionId : undefined,
+      }, {
         openHub: true,
       });
     } catch (error) {
@@ -767,7 +929,7 @@ export default function App() {
     } finally {
       setIsCreatingAgent(false);
     }
-  }, [activeSessionId, isCreatingAgent, persistAgentBlueprint, user]);
+  }, [activeSessionId, isCreatingAgent, persistGeneratedAppManifest, user]);
 
   const persistSessionShell = useCallback(async (session: ChatSession) => {
     if (!user) return false;
@@ -800,7 +962,7 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || !hasLoadedRemoteSessions) return;
+    if (!user || !hasLoadedRemoteSessions || !hasLoadedRemoteAgents || !hasLoadedRemoteGeneratedApps) return;
     if (sessionRepairAttemptedRef.current[user.uid]) return;
 
     sessionRepairAttemptedRef.current[user.uid] = true;
@@ -810,6 +972,7 @@ export default function App() {
       try {
         const knownSessionIds = new Set(sessions.map((session) => session.id));
         const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
+        const generatedAppsById = new Map(generatedApps.map((app) => [app.id, app]));
         const snapshot = await getDocs(
           query(collectionGroup(db, 'messages'), where('userId', '==', user.uid))
         );
@@ -839,7 +1002,7 @@ export default function App() {
         if (orphanMessages.size === 0) return;
 
         const recoveredSessions = Array.from(orphanMessages.entries())
-          .map(([sessionId, messages]) => buildRecoveredSessionShell(sessionId, user.uid, messages, agentsById))
+          .map(([sessionId, messages]) => buildRecoveredSessionShell(sessionId, user.uid, messages, agentsById, generatedAppsById))
           .filter((session): session is ChatSession => Boolean(session));
 
         if (recoveredSessions.length === 0) return;
@@ -875,7 +1038,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [agents, hasLoadedRemoteSessions, sessions, user]);
+  }, [agents, generatedApps, hasLoadedRemoteAgents, hasLoadedRemoteGeneratedApps, hasLoadedRemoteSessions, sessions, user]);
 
   const updateAgentWorkspaceValues = useCallback(async (nextValues: AgentFormValues) => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeAgentWorkspace) return;
@@ -909,6 +1072,40 @@ export default function App() {
       console.warn('Agent workspace form persistence degraded:', error);
     }
   }, [activeAgentWorkspace, activeSessionId, user]);
+
+  const updateGeneratedAppWorkspaceValues = useCallback(async (nextValues: AgentFormValues) => {
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeGeneratedAppWorkspace) return;
+
+    const normalizedValues = buildAgentRuntimeFormValues(adaptGeneratedAppToStudioAgent(activeGeneratedAppWorkspace.app), nextValues);
+
+    setSessions(prev => prev.map(session => {
+      if (session.id !== activeSessionId || session.sessionKind !== 'generated_app' || !session.generatedAppWorkspace) {
+        return session;
+      }
+
+      return {
+        ...session,
+        updatedAt: Date.now(),
+        generatedAppWorkspace: {
+          ...session.generatedAppWorkspace,
+          formValues: normalizedValues,
+        }
+      };
+    }));
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId), {
+        updatedAt: Date.now(),
+        generatedAppWorkspace: cleanForFirestore({
+          ...activeGeneratedAppWorkspace,
+          app: buildGeneratedAppRemotePayload(activeGeneratedAppWorkspace.app),
+          formValues: normalizedValues,
+        }),
+      });
+    } catch (error) {
+      console.warn('Generated app workspace form persistence degraded:', error);
+    }
+  }, [activeGeneratedAppWorkspace, activeSessionId, user]);
 
   const requestCoworkAgentEdit = useCallback(async (agent: StudioAgent, request: string, formValues: AgentFormValues) => {
     if (!user) return;
@@ -955,6 +1152,58 @@ export default function App() {
     }
   }, [configs.cowork.systemInstruction, isLoading, persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
 
+  const requestCoworkGeneratedAppEdit = useCallback(async (app: GeneratedAppManifest, request: string, formValues: AgentFormValues) => {
+    if (!user) return;
+
+    const cleanedRequest = request.trim();
+    if (!cleanedRequest || isLoading || sendInFlightRef.current) return;
+
+    const appContextLines = Object.entries(formValues)
+      .filter(([, value]) => typeof value === 'boolean' || String(value || '').trim().length > 0)
+      .map(([fieldId, value]) => {
+        const label = app.uiSchema.find(field => field.id === fieldId)?.label || fieldId;
+        return `- ${label}: ${typeof value === 'boolean' ? (value ? 'oui' : 'non') : String(value).trim()}`;
+      });
+
+    const sessionId = `cw-generated-app-edit-${Date.now()}`;
+    const session: ChatSession = {
+      id: sessionId,
+      title: `Cowork · ${app.name}`,
+      messages: [],
+      updatedAt: Date.now(),
+      mode: 'cowork',
+      userId: user.uid,
+      systemInstruction: configs.cowork.systemInstruction || '',
+      sessionKind: 'standard',
+    };
+
+    upsertSessionLocal(session, { pendingRemote: true });
+    await persistSessionShell(session);
+    setActiveMode('cowork');
+    setActiveSessionId(sessionId, { modeOverride: 'cowork' });
+    setCustomTitle(null);
+    setShowAgentsHub(false);
+
+    const editPrompt = [
+      `Modifie l'app experte existante "${app.name}" (id: ${app.id}, slug: ${app.slug}).`,
+      "N'en cree pas une nouvelle. Mets a jour cette app existante avec l'outil update_generated_app.",
+      `Demande utilisateur: ${cleanedRequest}`,
+      `Systeme actuel: ${app.systemInstruction}`,
+      app.toolAllowList.length > 0 ? `Outils actuels: ${app.toolAllowList.join(', ')}` : '',
+      app.capabilities.length > 0 ? `Capacites actuelles: ${app.capabilities.join(', ')}` : '',
+      app.uiSchema.length > 0
+        ? `Interface actuelle: ${app.uiSchema.map(field => `${field.label} (${field.type})`).join(', ')}`
+        : 'Interface actuelle: aucune interface detaillee.',
+      `Modeles actuels: texte=${app.modelProfile.textModel}${app.modelProfile.imageModel ? `, image=${app.modelProfile.imageModel}` : ''}${app.modelProfile.musicModel ? `, musique=${app.modelProfile.musicModel}` : ''}${app.modelProfile.ttsModel ? `, voix=${app.modelProfile.ttsModel}` : ''}`,
+      appContextLines.length > 0 ? `Dernieres valeurs utilisees:\n${appContextLines.join('\n')}` : '',
+      "Si l'utilisateur demande un changement d'interface, regenere uiSchema et la draft de code. Si l'utilisateur demande un changement de comportement, mets a jour le prompt systeme, les outils autorises, les modeles et la direction visuelle si necessaire.",
+    ].filter(Boolean).join('\n\n');
+
+    if (handleSendRuntimeRef.current) {
+      await handleSendRuntimeRef.current(editPrompt, undefined, session);
+    }
+  }, [configs.cowork.systemInstruction, isLoading, persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
+
   const openAgentWorkspace = useCallback(async (
     agent: StudioAgent,
     values: AgentFormValues,
@@ -976,6 +1225,44 @@ export default function App() {
       sessionKind: 'agent',
       agentWorkspace: {
         agent,
+        formValues: normalizedValues,
+        lastLaunchPrompt: launchPrompt,
+      },
+    };
+
+    upsertSessionLocal(session, { pendingRemote: true });
+    await persistSessionShell(session);
+    setActiveMode('chat');
+    setActiveSessionId(sessionId, { remember: false, modeOverride: 'chat' });
+    setCustomTitle(null);
+    setShowAgentsHub(false);
+
+    if (options?.autoRun !== false && handleSendRuntimeRef.current) {
+      await handleSendRuntimeRef.current(launchPrompt, undefined, session);
+    }
+  }, [persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
+
+  const openGeneratedAppWorkspace = useCallback(async (
+    app: GeneratedAppManifest,
+    values: AgentFormValues,
+    options?: { autoRun?: boolean }
+  ) => {
+    if (!user) return;
+
+    const normalizedValues = buildAgentRuntimeFormValues(adaptGeneratedAppToStudioAgent(app), values);
+    const sessionId = `gapp-${app.id}-${Date.now()}`;
+    const launchPrompt = buildGeneratedAppLaunchPrompt(app, normalizedValues);
+    const session: ChatSession = {
+      id: sessionId,
+      title: `App · ${app.name}`,
+      messages: [],
+      updatedAt: Date.now(),
+      mode: 'chat',
+      userId: user.uid,
+      systemInstruction: app.systemInstruction,
+      sessionKind: 'generated_app',
+      generatedAppWorkspace: {
+        app: buildGeneratedAppRemotePayload(app),
         formValues: normalizedValues,
         lastLaunchPrompt: launchPrompt,
       },
@@ -1131,7 +1418,7 @@ export default function App() {
     estimateSize: () => 180,
     overscan: 5,
   });
-  const shouldVirtualizeMessages = activeMode !== 'cowork' && !activeAgentWorkspace && !isLoading && visibleMessages.length > 80;
+  const shouldVirtualizeMessages = activeMode !== 'cowork' && !activeAgentWorkspace && !activeGeneratedAppWorkspace && !isLoading && visibleMessages.length > 80;
 
   useEffect(() => {
     if (!shouldVirtualizeMessages) return;
@@ -1250,7 +1537,8 @@ export default function App() {
       const effectiveSessionMessages = runtimeSessionOverride?.messages || currentMessages;
       const isCoworkRun = effectiveMode === 'cowork';
       const isAgentRun = effectiveSession.sessionKind === 'agent' && Boolean(effectiveSession.agentWorkspace);
-      isRichToolRun = isCoworkRun || isAgentRun;
+      const isGeneratedAppRun = effectiveSession.sessionKind === 'generated_app' && Boolean(effectiveSession.generatedAppWorkspace);
+      isRichToolRun = isCoworkRun || isAgentRun || isGeneratedAppRun;
 
       let currentSessionId = runtimeSessionOverride?.id || activeSessionId;
       if (user && (currentSessionId === 'local-new' || !currentSessionId)) {
@@ -1431,7 +1719,7 @@ export default function App() {
         return;
       }
 
-      if (isCoworkRun || isAgentRun) {
+      if (isCoworkRun || isAgentRun || isGeneratedAppRun) {
         if (!overrideMessages) {
           const userMessage: Message = {
             id: createClientMessageId('msg'),
@@ -1463,6 +1751,12 @@ export default function App() {
               formValues: effectiveSession.agentWorkspace.formValues,
             }
           : undefined;
+        const appRuntime = isGeneratedAppRun && effectiveSession.generatedAppWorkspace
+          ? {
+              ...effectiveSession.generatedAppWorkspace.app,
+              formValues: effectiveSession.generatedAppWorkspace.formValues,
+            }
+          : undefined;
 
         const response = await fetch('/api/cowork', {
           method: 'POST',
@@ -1489,7 +1783,9 @@ export default function App() {
               nowIso: new Date().toISOString(),
             },
             hubAgents: agents,
+            generatedApps,
             agentRuntime,
+            appRuntime,
             sessionId: currentSessionId,
           }),
         });
@@ -1505,22 +1801,24 @@ export default function App() {
         const decoder = new TextDecoder();
         let buffer = '';
 
-        const runtimeLabel = isAgentRun
-          ? (effectiveSession.agentWorkspace?.agent.name || 'Agent')
-          : 'Cowork';
+        const runtimeLabel = isGeneratedAppRun
+          ? (effectiveSession.generatedAppWorkspace?.app.name || 'App')
+          : isAgentRun
+            ? (effectiveSession.agentWorkspace?.agent.name || 'Agent')
+            : 'Cowork';
 
         const modelMessage: Message = {
-          id: `${isAgentRun ? 'agent' : 'cowork'}-${Date.now()}`,
+          id: `${isGeneratedAppRun ? 'gapp' : isAgentRun ? 'agent' : 'cowork'}-${Date.now()}`,
           role: 'model',
           content: '',
           thoughts: '',
           activity: [{
-            id: `${isAgentRun ? 'agent' : 'cw'}-init-${Date.now()}`,
+            id: `${isGeneratedAppRun ? 'gapp' : isAgentRun ? 'agent' : 'cw'}-init-${Date.now()}`,
             kind: 'status',
             timestamp: Date.now(),
             iteration: 0,
             title: 'Initialisation',
-            message: isAgentRun
+            message: isGeneratedAppRun || isAgentRun
               ? `Ouverture de l'app ${runtimeLabel}...`
               : 'Connexion a la boucle Cowork...',
             status: 'info',
@@ -1567,6 +1865,27 @@ export default function App() {
                     type: 'warning',
                     title: 'Hub non synchronise',
                     message: "L'app a ete generee, mais sa sauvegarde Firestore a echoue. Le run Cowork continue.",
+                  });
+                });
+              }
+            }
+
+            if (data.type === 'generated_app_manifest' && data.manifest) {
+              try {
+                await persistGeneratedAppManifest({
+                  ...data.manifest,
+                  createdBy: 'cowork',
+                  sourcePrompt: data.manifest.sourcePrompt || finalPrompt,
+                  sourceSessionId: currentSessionId,
+                });
+              } catch (persistError) {
+                console.error('Generated app persistence failed:', persistError);
+                setCoworkDraft(prev => {
+                  if (!prev) return prev;
+                  return applyCoworkEventToMessage(prev, {
+                    type: 'warning',
+                    title: 'Store non synchronise',
+                    message: "L'app a ete regeneree, mais sa sauvegarde Firestore a echoue. Le run Cowork continue.",
                   });
                 });
               }
@@ -1803,6 +2122,72 @@ export default function App() {
     }
   }, [activeAgentWorkspace, activeSession, activeSessionId, isLoading, persistSessionShell, upsertSessionLocal, user]);
 
+  const rerunActiveGeneratedAppWorkspace = useCallback(async () => {
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeGeneratedAppWorkspace) return;
+    if (isLoading || sendInFlightRef.current) return;
+
+    const launchPrompt = buildGeneratedAppLaunchPrompt(activeGeneratedAppWorkspace.app, activeGeneratedAppWorkspace.formValues);
+    const updatedSession: ChatSession = {
+      ...activeSession,
+      updatedAt: Date.now(),
+      sessionKind: 'generated_app',
+      generatedAppWorkspace: {
+        ...activeGeneratedAppWorkspace,
+        app: buildGeneratedAppRemotePayload(activeGeneratedAppWorkspace.app),
+        formValues: buildAgentRuntimeFormValues(adaptGeneratedAppToStudioAgent(activeGeneratedAppWorkspace.app), activeGeneratedAppWorkspace.formValues),
+        lastLaunchPrompt: launchPrompt,
+      },
+    };
+
+    upsertSessionLocal(updatedSession, { pendingRemote: true });
+    await persistSessionShell(updatedSession);
+
+    if (handleSendRuntimeRef.current) {
+      await handleSendRuntimeRef.current(launchPrompt, undefined, updatedSession);
+    }
+  }, [activeGeneratedAppWorkspace, activeSession, activeSessionId, isLoading, persistSessionShell, upsertSessionLocal, user]);
+
+  const publishActiveGeneratedAppWorkspace = useCallback(async () => {
+    if (!user || !activeGeneratedAppWorkspace) return;
+    if (isPublishingGeneratedApp) return;
+
+    setIsPublishingGeneratedApp(true);
+    try {
+      const response = await fetch('/api/generated-apps/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          manifest: activeGeneratedAppWorkspace.app,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.manifest) {
+        throw new Error(data?.details || data?.message || "Impossible de publier l'app.");
+      }
+
+      const publishedManifest = await persistGeneratedAppManifest(data.manifest as GeneratedAppManifest);
+      if (!publishedManifest || !activeSessionId || activeSessionId === 'local-new') return;
+
+      const updatedSession: ChatSession = {
+        ...activeSession,
+        updatedAt: Date.now(),
+        sessionKind: 'generated_app',
+        generatedAppWorkspace: {
+          ...activeGeneratedAppWorkspace,
+          app: buildGeneratedAppRemotePayload(publishedManifest),
+        },
+      };
+
+      upsertSessionLocal(updatedSession, { pendingRemote: true });
+      await persistSessionShell(updatedSession);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsPublishingGeneratedApp(false);
+    }
+  }, [activeGeneratedAppWorkspace, activeSession, activeSessionId, isPublishingGeneratedApp, persistGeneratedAppManifest, persistSessionShell, upsertSessionLocal, user]);
+
   const handleRunAgentFromHub = useCallback(async (
     agent: StudioAgent,
     values: AgentFormValues
@@ -1812,11 +2197,16 @@ export default function App() {
     setIsRunningHubAgent(true);
 
     try {
-      await openAgentWorkspace(agent, values, { autoRun: false });
+      const matchedGeneratedApp = generatedApps.find(app => app.id === agent.id);
+      if (matchedGeneratedApp) {
+        await openGeneratedAppWorkspace(matchedGeneratedApp, values, { autoRun: false });
+      } else {
+        await openAgentWorkspace(agent, values, { autoRun: false });
+      }
     } finally {
       setIsRunningHubAgent(false);
     }
-  }, [isLoading, openAgentWorkspace]);
+  }, [generatedApps, isLoading, openAgentWorkspace, openGeneratedAppWorkspace]);
 
   const handleRetry = async (idx: number) => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading || sendInFlightRef.current) return;
@@ -1969,10 +2359,10 @@ export default function App() {
       >
         <AgentsHub
           isOpen={showAgentsHub}
-          agents={agents}
+          agents={coworkStoreAgents}
           isCreating={isCreatingAgent}
           isRunningAgent={isRunningHubAgent || isLoading}
-          latestCreatedAgent={latestCreatedAgent}
+          latestCreatedAgent={latestCreatedStorePreview}
           warningMessage={agentsWarning}
           onClose={() => setShowAgentsHub(false)}
           onCreateAgent={handleCreateAgent}
@@ -2014,6 +2404,35 @@ export default function App() {
           </div>
         )}
       </>
+    );
+  }
+
+  if (activeGeneratedAppWorkspace) {
+    return (
+      <GeneratedAppHost
+        manifest={activeGeneratedAppWorkspace.app}
+        formValues={activeGeneratedAppWorkspace.formValues}
+        messages={displayedMessages}
+        isRunning={isLoading}
+        isPublishing={isPublishingGeneratedApp}
+        onFieldChange={(fieldId, value) => {
+          void updateGeneratedAppWorkspaceValues({
+            ...activeGeneratedAppWorkspace.formValues,
+            [fieldId]: value,
+          });
+        }}
+        onRunApp={() => rerunActiveGeneratedAppWorkspace()}
+        onPublishApp={() => publishActiveGeneratedAppWorkspace()}
+        onAskCowork={(request) => requestCoworkGeneratedAppEdit(
+          activeGeneratedAppWorkspace.app,
+          request,
+          activeGeneratedAppWorkspace.formValues
+        )}
+        onBackToHub={() => {
+          setActiveMode('cowork');
+          setShowAgentsHub(true);
+        }}
+      />
     );
   }
 
@@ -2133,7 +2552,7 @@ export default function App() {
                         <div className="truncate text-sm font-semibold text-[var(--app-text)]">{activeSession.title}</div>
                         <div className="mt-0.5 flex items-center gap-2 overflow-hidden">
                           <span className="truncate text-[10px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] sm:text-[11px]">{activeSurfaceLabel}</span>
-                         {activeSession.sessionKind === 'agent' && (
+                         {(activeSession.sessionKind === 'agent' || activeSession.sessionKind === 'generated_app') && (
                            <span className="rounded-full border border-[var(--app-border)] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--app-accent)]">
                             App
                            </span>
@@ -2179,9 +2598,9 @@ export default function App() {
                        Local
                      </span>
                    )}
-                   {agents.length > 0 && (
+                   {coworkStoreAgents.length > 0 && (
                      <span className="rounded-full bg-white/12 px-2 py-0.5 text-[11px] text-white/80">
-                       {agents.length}
+                       {coworkStoreAgents.length}
                      </span>
                    )}
                  </button>
@@ -2192,16 +2611,16 @@ export default function App() {
             </div>
           </header>
 
-          {activeMode === 'cowork' && user && !showAgentsHub && (latestCreatedAgent || agentsWarning) && (
+          {activeMode === 'cowork' && user && !showAgentsHub && (latestCreatedStorePreview || agentsWarning) && (
             <div className="border-b border-[var(--app-border)] bg-white/[0.02] px-4 py-2.5 sm:px-6">
               <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2.5">
-                {latestCreatedAgent && (
+                {latestCreatedStorePreview && (
                   <button
                     onClick={() => setShowAgentsHub(true)}
                     className="inline-flex items-center gap-2 rounded-full border border-cyan-300/18 bg-cyan-300/[0.08] px-3.5 py-2 text-xs font-medium text-cyan-50 transition-colors hover:bg-cyan-300/[0.12]"
                   >
                     <Bot size={13} />
-                    <span className="max-w-[14rem] truncate">{latestCreatedAgent.name} est prete dans le store</span>
+                    <span className="max-w-[14rem] truncate">{latestCreatedStorePreview.name} est prete dans le store</span>
                   </button>
                 )}
                 {agentsWarning && (
@@ -2213,9 +2632,12 @@ export default function App() {
                     Store local
                   </button>
                 )}
-                {latestCreatedAgent && (
+                {latestCreatedStorePreview && (
                   <button
-                    onClick={() => setLatestCreatedAgent(null)}
+                    onClick={() => {
+                      setLatestCreatedAgent(null);
+                      setLatestCreatedGeneratedApp(null);
+                    }}
                     className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-white/58 transition-colors hover:text-white"
                     title="Masquer le statut de creation"
                   >
@@ -2240,10 +2662,10 @@ export default function App() {
             <>
               <AgentsHub
                 isOpen={showAgentsHub}
-                agents={agents}
+                agents={coworkStoreAgents}
                 isCreating={isCreatingAgent}
                 isRunningAgent={isRunningHubAgent || isLoading}
-                latestCreatedAgent={latestCreatedAgent}
+                latestCreatedAgent={latestCreatedStorePreview}
                 warningMessage={agentsWarning}
                 onClose={() => setShowAgentsHub(false)}
                 onCreateAgent={handleCreateAgent}
@@ -2362,7 +2784,7 @@ export default function App() {
                  )}
 
                  {/* Message en cours de génération — visible immédiatement avec toggle Thoughts */}
-                 {isLoading && !refiningStatus && activeMode !== 'cowork' && !isAgentSession && (
+                 {isLoading && !refiningStatus && activeMode !== 'cowork' && !isAgentSession && !isGeneratedAppSession && (
                     <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 lg:px-10">
                      <MessageItem
                        msg={{ id: 'streaming', role: 'model', content: streamingContent, thoughts: streamingThoughts, createdAt: Date.now() }}

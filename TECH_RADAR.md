@@ -9,6 +9,32 @@
 - Cout
 - Sources officielles
 
+## 2026-04-01 - `esbuild` pour bundler les generated apps cote serveur
+- Statut: retenu pour le lifecycle preview/publish
+- Date de verification: 2026-04-01
+- Technologie: `esbuild`
+- Choix:
+  - utiliser `esbuild` en bundle in-memory cote serveur pour compiler le TSX genere par Cowork en ESM navigateur
+  - versionner a la fois la `sourceCode` et la `bundleCode`
+  - uploader ces artefacts en best effort vers GCS sans ecrire le repo de production
+- Pourquoi:
+  - repond directement au besoin "vrai code React/TSX" sans monter un mini-projet Vite par app
+  - `esbuild` sait bundler vite depuis une string `stdin`, ce qui colle parfaitement a un pipeline `spec -> source -> bundle`
+  - permet d'afficher un `buildLog` et un statut `failed` propres quand le bundle casse
+- Alternatives evaluees:
+  - lancer un build Vite complet par app
+    - Ecartee: trop lourd pour une generation a la volee et trop couple au filesystem/projet principal
+  - garder seulement un `uiSchema` rendu par un host generique
+    - Ecartee: ne respecte pas la demande explicite "vrai code React"
+  - transpiler seulement avec Babel/SWC sans bundler
+    - Ecartee: ne resout pas proprement les imports et la livraison preview d'un bundle autonome
+- Cout:
+  - gratuit / open-source
+  - aucune nouvelle dependance ajoutee au projet pour ce lot
+- Sources officielles:
+  - [esbuild API](https://esbuild.github.io/api/)
+  - [esbuild getting started](https://esbuild.github.io/getting-started/)
+
 ## 2026-04-01 - Nasheed Studio s'appuie sur Lyria 3 preview en surface dediee
 - Statut: retenu pour la nouvelle surface produit
 - Date de verification: 2026-04-01

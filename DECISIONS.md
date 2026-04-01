@@ -1,5 +1,39 @@
 # DECISIONS
 
+## 2026-04-01 - Cowork doit generer de vraies apps deployables, pas seulement des agents du hub
+- Statut: adopte
+- Contexte: le besoin utilisateur a change de nature. Le modele "Cowork cree un agent du Hub" restait trop proche d'un specialiste interne. Le besoin reel est: Cowork doit sortir une vraie app experte avec son propre prompt systeme, sa propre UI, sa liste d'outils autorises, et une ouverture sans chat generique.
+- Decision:
+  - introduire une nouvelle famille d'entites `generated app`, distincte du contrat agent legacy
+  - faire porter a chaque app un `GeneratedAppManifest` complet : identite produit, `systemInstruction`, `toolAllowList`, `modelProfile`, UI, direction visuelle, versions source/bundle et statut
+  - ouvrir ces apps dans `GeneratedAppHost`, jamais dans `AgentWorkspacePanel`
+  - faire tourner leur execution sur `/api/cowork` avec un nouveau payload `appRuntime`
+- Pourquoi:
+  - le bon niveau de specialisation produit n'est plus "un agent de plus", mais un mini-produit deploye dans le produit
+  - cela permet de garder Cowork comme architecte/editeur tout en donnant a l'utilisateur final une vraie surface d'usage
+  - le runtime reste mutualise, mais l'identite et les permissions deviennent propres a chaque app
+- Consequence:
+  - `src/types.ts`, `server/lib/schemas.ts`, `api/index.ts` et `src/App.tsx` portent maintenant un vrai chemin `generated_app`
+  - le store peut afficher a la fois des agents legacy et des generated apps, mais le flux produit cible privilegie ces dernieres
+
+## 2026-04-01 - Le lifecycle generated app est `spec -> source -> bundle -> preview -> publish`
+- Statut: adopte
+- Contexte: l'utilisateur veut du "deployed-first" sans que Cowork ecrive directement le repo de production. Il faut donc une version source et une version bundle, puis une distinction nette entre draft et live.
+- Decision:
+  - generer le code React/TSX en string cote serveur
+  - bundler cette source en ESM navigateur via `esbuild`
+  - conserver la draft meme si le build echoue, avec `status: failed` et `buildLog`
+  - publier uniquement par action explicite, en recopiant la draft vers `publishedVersion`
+  - lors d'une evolution Cowork, regenerer une nouvelle draft sans casser la version live existante
+- Pourquoi:
+  - respecte la demande "vrai code React" et "preview puis publish"
+  - donne un host fiable pour la previsualisation et le debug
+  - evite d'ecraser silencieusement une app publiee a chaque iteration Cowork
+- Consequence:
+  - `server/lib/generated-apps.ts` devient le coeur de la chaine de build/versioning
+  - le host frontend peut charger soit le `bundleCode`, soit le `bundleUrl`
+  - les tests produit doivent maintenant couvrir explicitement les cas `failed draft`, `publish`, `update draft`
+
 ## 2026-04-01 - `Nasheed Studio` doit privilegier une scene utilitaire courte plutot qu'un studio bavard
 - Statut: adopte
 - Contexte: le premier `Nasheed Studio` dedie remplissait bien sa mission fonctionnelle, mais le retour utilisateur est net: l'interface restait peu esthetique et surtout surchargee de texte. Header, hero, lancement et journal repetaient trop d'explications.

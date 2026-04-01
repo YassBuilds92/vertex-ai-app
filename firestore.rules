@@ -71,7 +71,7 @@ service cloud.firestore {
     }
 
     function isValidSessionKind(data) {
-      return !('sessionKind' in data) || (data.sessionKind is string && data.sessionKind in ['standard', 'agent']);
+      return !('sessionKind' in data) || (data.sessionKind is string && data.sessionKind in ['standard', 'agent', 'generated_app']);
     }
 
     function isValidAgentWorkspace(data) {
@@ -83,6 +83,19 @@ service cloud.firestore {
         (!('lastLaunchPrompt' in data.agentWorkspace) || (
           data.agentWorkspace.lastLaunchPrompt is string &&
           data.agentWorkspace.lastLaunchPrompt.size() <= 20000
+        ))
+      );
+    }
+
+    function isValidGeneratedAppWorkspace(data) {
+      return !('generatedAppWorkspace' in data) || (
+        data.generatedAppWorkspace is map &&
+        data.generatedAppWorkspace.keys().hasOnly(['app', 'formValues', 'lastLaunchPrompt']) &&
+        (!('app' in data.generatedAppWorkspace) || data.generatedAppWorkspace.app is map) &&
+        (!('formValues' in data.generatedAppWorkspace) || data.generatedAppWorkspace.formValues is map) &&
+        (!('lastLaunchPrompt' in data.generatedAppWorkspace) || (
+          data.generatedAppWorkspace.lastLaunchPrompt is string &&
+          data.generatedAppWorkspace.lastLaunchPrompt.size() <= 20000
         ))
       );
     }
@@ -158,7 +171,8 @@ service cloud.firestore {
                'systemInstruction',
                'systemPromptHistory',
                'sessionKind',
-               'agentWorkspace'
+               'agentWorkspace',
+               'generatedAppWorkspace'
              ]) &&
              data.title is string && data.title.size() <= 200 &&
              data.mode is string && data.mode.size() <= 50 &&
@@ -167,7 +181,8 @@ service cloud.firestore {
              (!('systemInstruction' in data) || (data.systemInstruction is string && data.systemInstruction.size() <= 20000)) &&
              (!('systemPromptHistory' in data) || (data.systemPromptHistory is list)) &&
              isValidSessionKind(data) &&
-             isValidAgentWorkspace(data);
+             isValidAgentWorkspace(data) &&
+             isValidGeneratedAppWorkspace(data);
     }
 
     function isValidMessage(data) {
@@ -220,6 +235,10 @@ service cloud.firestore {
       }
 
       match /agents/{agentId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /generatedApps/{appId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
     }

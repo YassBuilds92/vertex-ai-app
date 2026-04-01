@@ -48,6 +48,12 @@ import {
   type HubAgentRecord,
 } from '../server/lib/agents.js';
 import {
+  createGeneratedAppFromBrief,
+  reviseGeneratedApp,
+  sanitizeGeneratedAppManifest,
+  type GeneratedAppManifest,
+} from '../server/lib/generated-apps.js';
+import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_LYRIA_MODEL,
   DEFAULT_PODCAST_TTS_MODEL,
@@ -594,6 +600,8 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
 - Node.js uniquement. Python n'est pas disponible.
 - N'expose jamais ton chain-of-thought brut.
 - Outils disponibles:
+  - 'create_generated_app' : concoit une vraie app experte deployable avec prompt systeme, UI, models, source TSX et bundle.
+  - 'update_generated_app' : regenere une nouvelle draft d'une app experte existante sans casser la version publiee.
   - 'create_agent_blueprint' : concoit un agent specialise reutilisable pour le Hub Agents.
   - 'update_agent_blueprint' : met a jour un agent deja present dans le Hub Agents.
   - 'run_hub_agent' : relance un agent deja present dans le Hub Agents comme vraie sous-mission.
@@ -627,8 +635,10 @@ ${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraime
 7. Si tu utilises 'review_pdf_draft' et qu'une signature t'est fournie, passe-la telle quelle dans 'create_pdf.reviewSignature'.
 8. Si tu dois faire plusieurs outils dans un meme tour, garde une mini-chaine coherente: lecture/recherche d'abord, mutation eventuelle en dernier.
 9. Si l'utilisateur veut un specialiste recurrent ou delegable, tu peux creer un agent pour le Hub puis l'annoncer clairement.
-10. Si un agent du Hub correspond deja a la mission, prefere 'run_hub_agent' a la creation d'un nouveau blueprint.
-11. Si l'utilisateur veut corriger un agent existant du Hub, prefere 'update_agent_blueprint' a la creation d'un nouveau blueprint.
+10. Si l'utilisateur veut une vraie app experte deployable avec UI dediee, prefere 'create_generated_app'.
+11. Si l'utilisateur veut modifier une app experte existante, prefere 'update_generated_app' pour regenerer une nouvelle draft.
+12. Si un agent du Hub correspond deja a la mission, prefere 'run_hub_agent' a la creation d'un nouveau blueprint.
+13. Si l'utilisateur veut corriger un agent existant du Hub, prefere 'update_agent_blueprint' a la creation d'un nouveau blueprint.
 
 ### REPERES TEMPORELS
 ${requestClock
@@ -721,6 +731,69 @@ function buildAgentRuntimeSystemInstruction(
     "- Tu n'es pas Cowork. Tu es le specialiste final utilise directement par l'utilisateur.",
     "- Si une information manque, utilise intelligemment les champs deja fournis avant de reclamer plus de friction.",
     "- Si l'utilisateur demande de modifier ton interface, ton prompt ou tes outils, indique que Cowork peut faire cette evolution sur l'agent lui-meme.",
+  ].filter(Boolean).join('\n');
+}
+
+function formatGeneratedAppRuntimeValues(
+  app: GeneratedAppManifest,
+  formValues?: Record<string, string | boolean>
+): string {
+  if (!formValues || typeof formValues !== 'object') {
+    return '- aucune valeur pre-remplie';
+  }
+
+  const entries = Object.entries(formValues)
+    .map(([fieldId, value]) => {
+      const label = app.uiSchema.find(field => field.id === fieldId)?.label || fieldId;
+      if (typeof value === 'boolean') {
+        return `${label}: ${value ? 'oui' : 'non'}`;
+      }
+      const text = String(value || '').trim();
+      if (!text) return '';
+      return `${label}: ${text}`;
+    })
+    .filter(Boolean);
+
+  return entries.length > 0
+    ? entries.map(entry => `- ${entry}`).join('\n')
+    : '- aucune valeur pre-remplie';
+}
+
+function buildGeneratedAppRuntimeSystemInstruction(
+  app: GeneratedAppManifest,
+  runtime?: { requestClock?: RequestClock; formValues?: Record<string, string | boolean> }
+): string {
+  const requestClock = runtime?.requestClock;
+  const allowedTools = Array.isArray(app.toolAllowList) && app.toolAllowList.length > 0
+    ? app.toolAllowList.join(', ')
+    : 'aucun outil specialise';
+  const runtimeValues = formatGeneratedAppRuntimeValues(app, runtime?.formValues);
+  const preferredModels = [
+    app.modelProfile.textModel ? `texte=${app.modelProfile.textModel}` : null,
+    app.modelProfile.imageModel ? `image=${app.modelProfile.imageModel}` : null,
+    app.modelProfile.musicModel ? `music=${app.modelProfile.musicModel}` : null,
+    app.modelProfile.ttsModel ? `tts=${app.modelProfile.ttsModel}` : null,
+  ].filter(Boolean).join(', ');
+
+  return [
+    app.systemInstruction.trim(),
+    '### CONTEXTE DE SESSION',
+    `- Tu es l'app experte '${app.name}', concue par Cowork et utilisee directement par l'utilisateur.`,
+    `- Type de sortie privilegie: ${app.outputKind}.`,
+    `- Quand t'activer: ${app.whenToUse}.`,
+    `- Outils autorises: ${allowedTools}.`,
+    preferredModels ? `- Profil modele prefere: ${preferredModels}.` : null,
+    "- N'expose jamais ton chain-of-thought brut.",
+    "- Si un livrable doit etre cree, cree-le reellement puis publie-le si necessaire.",
+    requestClock
+      ? `- Date et heure de reference: ${requestClock.absoluteDateTimeLabel} (${requestClock.timeZone}).`
+      : null,
+    '### VALEURS FOURNIES DANS L INTERFACE',
+    runtimeValues,
+    '### POSTURE',
+    "- Tu es cette app experte, concue par Cowork.",
+    "- Utilise d'abord les champs deja fournis pour reduire la friction et garder l'experience studio.",
+    "- Si l'utilisateur veut modifier l'interface, le systeme ou les outils de l'app, indique que Cowork peut regenerer une nouvelle draft de cette app.",
   ].filter(Boolean).join('\n');
 }
 
@@ -3695,6 +3768,12 @@ type DirectSourceCategory =
 function getPublicToolNarrationTarget(toolName: string, args: any): string | null {
   let rawTarget: unknown = null;
   switch (toolName) {
+    case 'create_generated_app':
+      rawTarget = args?.brief ?? args?.name ?? args?.title;
+      break;
+    case 'update_generated_app':
+      rawTarget = args?.appId ?? args?.changeRequest ?? args?.brief;
+      break;
     case 'create_agent_blueprint':
       rawTarget = args?.brief ?? args?.name ?? args?.title;
       break;
@@ -3764,6 +3843,20 @@ function buildPublicToolNarration(
   const target = getPublicToolNarrationTarget(toolName, args);
 
   switch (toolName) {
+    case 'create_generated_app':
+      return {
+        title: 'App experte',
+        message: target
+          ? `Je dessine maintenant une vraie app experte pour '${target}'.`
+          : "Je prepare une vraie app experte deployable."
+      };
+    case 'update_generated_app':
+      return {
+        title: 'Nouvelle draft',
+        message: target
+          ? `Je regenere maintenant la draft de l'app '${target}'.`
+          : "Je regenere maintenant une nouvelle draft d'app."
+      };
     case 'create_agent_blueprint':
       return {
         title: 'Delegation',
@@ -5356,7 +5449,7 @@ app.post('/api/cowork', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
   };
   try {
-    const { message, sessionId, history, attachments, config, clientContext, hubAgents, agentRuntime } = ChatSchema.parse(req.body);
+    const { message, sessionId, history, attachments, config, clientContext, hubAgents, generatedApps, agentRuntime, appRuntime } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
     const availableHubAgents = Array.isArray(hubAgents)
       ? hubAgents
@@ -5365,10 +5458,26 @@ app.post('/api/cowork', async (req, res) => {
           .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
           .slice(0, 16)
       : [];
+    const availableGeneratedApps = Array.isArray(generatedApps)
+      ? generatedApps
+          .map(sanitizeGeneratedAppManifest)
+          .filter((app): app is GeneratedAppManifest => Boolean(app))
+          .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+          .slice(0, 16)
+      : [];
     const runtimeAgent = agentRuntime ? sanitizeHubAgentRecord(agentRuntime) : null;
     const runtimeAgentFormValues = agentRuntime?.formValues
       ? Object.fromEntries(
           Object.entries(agentRuntime.formValues).map(([fieldId, value]) => [
+            fieldId,
+            typeof value === 'boolean' ? value : String(value ?? ''),
+          ])
+        ) as Record<string, string | boolean>
+      : undefined;
+    const runtimeApp = appRuntime ? sanitizeGeneratedAppManifest(appRuntime) : null;
+    const runtimeAppFormValues = appRuntime?.formValues
+      ? Object.fromEntries(
+          Object.entries(appRuntime.formValues).map(([fieldId, value]) => [
             fieldId,
             typeof value === 'boolean' ? value : String(value ?? ''),
           ])
@@ -5409,17 +5518,26 @@ app.post('/api/cowork', async (req, res) => {
     }
 
     // Model ID mapping
-    let modelId = normalizeConfiguredModelId(config.model, 'gemini-3.1-pro-preview');
+    let modelId = normalizeConfiguredModelId(
+      runtimeApp?.modelProfile?.textModel || config.model,
+      runtimeApp?.modelProfile?.textModel || 'gemini-3.1-pro-preview'
+    );
 
     const ai = createGoogleAI(modelId);
 
-    const runtimeToolAllowList = runtimeAgent
+    const runtimeToolAllowList = runtimeApp
       ? new Set(
-          (Array.isArray(runtimeAgent.tools) ? runtimeAgent.tools : [])
+          (Array.isArray(runtimeApp.toolAllowList) ? runtimeApp.toolAllowList : [])
             .filter(Boolean)
-            .filter(name => !['create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
+            .filter(name => !['create_generated_app', 'update_generated_app', 'create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
         )
-      : null;
+      : runtimeAgent
+        ? new Set(
+            (Array.isArray(runtimeAgent.tools) ? runtimeAgent.tools : [])
+              .filter(Boolean)
+              .filter(name => !['create_generated_app', 'update_generated_app', 'create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
+          )
+        : null;
     const webSearchEnabled = runtimeToolAllowList
       ? ['web_search', 'web_fetch', 'music_catalog_lookup'].some(toolName => runtimeToolAllowList.has(toolName))
       : config.googleSearch !== false;
@@ -5430,6 +5548,18 @@ app.post('/api/cowork', async (req, res) => {
 
     const formatToolArgsPreview = (args: unknown) => clipText(args, 260);
     const formatToolMeta = (toolName: string, args: any) => {
+      if (toolName === 'create_generated_app') {
+        return {
+          brief: clipText(args?.brief || '', 140),
+          outputKind: clipText(args?.outputKindHint || '', 24),
+        };
+      }
+      if (toolName === 'update_generated_app') {
+        return {
+          app: clipText(args?.appId || '', 80),
+          request: clipText(args?.changeRequest || '', 140),
+        };
+      }
       if (toolName === 'create_agent_blueprint') {
         return {
           brief: clipText(args?.brief || '', 140),
@@ -5571,6 +5701,17 @@ app.post('/api/cowork', async (req, res) => {
       return undefined;
     };
     const formatToolResultMeta = (toolName: string, args: any, output: any) => {
+      if (toolName === 'create_generated_app' || toolName === 'update_generated_app') {
+        const manifest = (output?.manifest || output) as GeneratedAppManifest;
+        return {
+          name: clipText(manifest?.name || '', 64),
+          slug: clipText(manifest?.slug || '', 48),
+          outputKind: clipText(manifest?.outputKind || '', 24),
+          fields: Array.isArray(manifest?.uiSchema) ? manifest.uiSchema.length : 0,
+          tools: Array.isArray(manifest?.toolAllowList) ? manifest.toolAllowList.length : 0,
+          status: clipText(manifest?.status || '', 24),
+        };
+      }
       if (toolName === 'create_agent_blueprint') {
         const blueprint = (output?.blueprint || output) as AgentBlueprint;
         return {
@@ -5707,6 +5848,16 @@ app.post('/api/cowork', async (req, res) => {
       return formatToolMeta(toolName, args);
     };
     const formatToolResultPreview = (toolName: string, output: any) => {
+      if (toolName === 'create_generated_app' || toolName === 'update_generated_app') {
+        const manifest = output?.manifest || output;
+        return [
+          manifest?.name ? `App: ${manifest.name}` : null,
+          manifest?.outputKind ? `sortie ${manifest.outputKind}` : null,
+          Array.isArray(manifest?.uiSchema) ? `${manifest.uiSchema.length} champ(s)` : null,
+          Array.isArray(manifest?.toolAllowList) ? `${manifest.toolAllowList.length} outil(s)` : null,
+          manifest?.tagline ? clipText(manifest.tagline, 90) : null,
+        ].filter(Boolean).join(' | ');
+      }
       if (toolName === 'create_agent_blueprint') {
         const blueprint = output?.blueprint || output;
         return [
@@ -5964,6 +6115,102 @@ app.post('/api/cowork', async (req, res) => {
       }
       ] : []),
       {
+        name: "create_generated_app",
+        description: "Concoit une vraie app experte deployable avec systemInstruction specialise, UI, modelProfile Google-only, source TSX versionne et bundle de preview.",
+        parameters: {
+          type: "object",
+          properties: {
+            brief: { type: "string", description: "Mission exacte de la future app experte." },
+            outputKindHint: { type: "string", description: "Type de sortie prefere si connu: pdf, html, music, podcast, code, research, automation, image." }
+          },
+          required: ["brief"]
+        },
+        execute: async ({
+          brief,
+          outputKindHint
+        }: {
+          brief: string;
+          outputKindHint?: string;
+        }) => {
+          const effectiveBrief = [brief, outputKindHint ? `Format prefere: ${outputKindHint}.` : null]
+            .filter(Boolean)
+            .join('\n');
+          const manifest = await createGeneratedAppFromBrief(effectiveBrief, 'cowork');
+          return {
+            success: true,
+            message: `App experte '${manifest.name}' generee avec une draft ${manifest.draftVersion.status}.`,
+            manifest,
+          };
+        }
+      },
+      {
+        name: "update_generated_app",
+        description: "Regenere une nouvelle draft d'une app experte existante sans casser sa version publiee.",
+        parameters: {
+          type: "object",
+          properties: {
+            appId: { type: "string", description: "ID, slug ou nom de l'app a faire evoluer." },
+            changeRequest: { type: "string", description: "Evolution demandee sur l'interface, le systeme, les outils ou la direction visuelle." }
+          },
+          required: ["appId", "changeRequest"]
+        },
+        execute: async ({
+          appId,
+          changeRequest
+        }: {
+          appId: string;
+          changeRequest: string;
+        }) => {
+          const selector = clipText(appId, 120);
+          const effectiveRequest = clipText(changeRequest, 1600);
+
+          if (!availableGeneratedApps.length) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Aucune app experte n'est disponible dans le store pour cette modification."
+            };
+          }
+
+          if (!selector) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Precise l'app a modifier via son id, son slug ou son nom."
+            };
+          }
+
+          const selectedApp = availableGeneratedApps.find((app) => {
+            const keys = [app.id, app.slug, app.name]
+              .map(value => normalizeCoworkText(value).replace(/\s+/g, ' ').trim())
+              .filter(Boolean);
+            const normalizedSelector = normalizeCoworkText(selector).replace(/\s+/g, ' ').trim();
+            return keys.some(key => key === normalizedSelector || key.includes(normalizedSelector) || normalizedSelector.includes(key));
+          });
+
+          if (!selectedApp) {
+            return {
+              success: false,
+              recoverable: true,
+              error: `Aucune app experte ne correspond a '${selector}'.`,
+              availableApps: availableGeneratedApps.slice(0, 8).map(app => ({
+                id: app.id,
+                slug: app.slug,
+                name: app.name,
+                outputKind: app.outputKind,
+              }))
+            };
+          }
+
+          const manifest = await reviseGeneratedApp(selectedApp, effectiveRequest);
+          return {
+            success: true,
+            message: `Nouvelle draft regeneree pour '${manifest.name}'.`,
+            manifest,
+          };
+        }
+      },
+      {
         name: "create_agent_blueprint",
         description: "Concoit un agent specialise reutilisable pour le Hub Agents quand la meilleure reponse est de deleguer a un specialiste recurrent. Retourne un blueprint complet avec prompt systeme, prompt de depart, champs UI et outils conseilles.",
         parameters: {
@@ -6135,7 +6382,7 @@ app.post('/api/cowork', async (req, res) => {
           const delegatedToolNames = new Set(
             (Array.isArray(selectedAgent.tools) ? selectedAgent.tools : [])
               .filter(Boolean)
-              .filter(name => !['create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
+              .filter(name => !['create_generated_app', 'update_generated_app', 'create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent', 'publish_status', 'report_progress'].includes(name))
           );
           const delegatedTools = localTools.filter(tool => delegatedToolNames.has(tool.name));
           const delegatedToolDeclarations = delegatedTools.length > 0
@@ -8782,22 +9029,27 @@ app.post('/api/cowork', async (req, res) => {
       topP: config.topP || 1.0,
       topK: config.topK || 1,
       maxOutputTokens: config.maxOutputTokens || 65536,
-      systemInstruction: runtimeAgent
-        ? buildAgentRuntimeSystemInstruction(runtimeAgent, {
+      systemInstruction: runtimeApp
+        ? buildGeneratedAppRuntimeSystemInstruction(runtimeApp, {
             requestClock,
-            formValues: runtimeAgentFormValues,
+            formValues: runtimeAppFormValues,
           })
-        : buildCoworkSystemInstruction(config.systemInstruction, {
-            webSearch: webSearchEnabled,
-            executeScript: executeScriptEnabled
-          }, {
-            originalMessage: message,
-            requestClock,
-            hubAgents: availableHubAgents,
-          }, {
-            executionMode,
-            debugReasoning: COWORK_DEBUG_REASONING
-          })
+        : runtimeAgent
+          ? buildAgentRuntimeSystemInstruction(runtimeAgent, {
+              requestClock,
+              formValues: runtimeAgentFormValues,
+            })
+          : buildCoworkSystemInstruction(config.systemInstruction, {
+              webSearch: webSearchEnabled,
+              executeScript: executeScriptEnabled
+            }, {
+              originalMessage: message,
+              requestClock,
+              hubAgents: availableHubAgents,
+            }, {
+              executionMode,
+              debugReasoning: COWORK_DEBUG_REASONING
+            })
     };
     const thinkingConfig = buildThinkingConfig(modelId, {
       thinkingLevel: config.thinkingLevel || 'high',
@@ -9609,6 +9861,14 @@ app.post('/api/cowork', async (req, res) => {
                   iteration: iterations,
                   operation: tool.name === 'update_agent_blueprint' ? 'update' : 'create',
                   blueprint: (output as any).blueprint,
+                  runMeta
+                });
+              }
+              if (!isError && ['create_generated_app', 'update_generated_app'].includes(tool.name) && (output as any).manifest) {
+                emitEvent('generated_app_manifest', {
+                  iteration: iterations,
+                  operation: tool.name === 'update_generated_app' ? 'update' : 'create',
+                  manifest: (output as any).manifest,
                   runMeta
                 });
               }

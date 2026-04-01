@@ -56,7 +56,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
   } = useStore();
 
   const standardModeSessions = sessions
-    .filter((session) => session.mode === activeMode && session.sessionKind !== 'agent')
+    .filter((session) => session.mode === activeMode && session.sessionKind !== 'agent' && session.sessionKind !== 'generated_app')
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   const agentSessions = activeMode === 'chat'
@@ -64,13 +64,18 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         .filter((session) => session.sessionKind === 'agent')
         .sort((a, b) => b.updatedAt - a.updatedAt)
     : [];
+  const appSessions = activeMode === 'chat'
+    ? sessions
+        .filter((session) => session.sessionKind === 'generated_app')
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+    : [];
 
-  const renderSessionList = (items: ChatSession[], options?: { agentLabel?: boolean }) => (
+  const renderSessionList = (items: ChatSession[], options?: { badgeLabel?: string }) => (
     <div className="space-y-1">
       {items.map((session) => (
         <div key={session.id} className="group relative">
           <button
-            onClick={() => setActiveSessionId(session.id, { remember: session.sessionKind !== 'agent' })}
+            onClick={() => setActiveSessionId(session.id, { remember: session.sessionKind !== 'agent' && session.sessionKind !== 'generated_app' })}
             className={cn(
               'flex w-full items-center gap-2.5 rounded-[1.2rem] border px-3 py-2.5 text-left text-[13px] transition-all duration-200',
               activeSessionId === session.id
@@ -87,9 +92,9 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="truncate">{session.title}</span>
-                {options?.agentLabel && (
+                {options?.badgeLabel && (
                   <span className="shrink-0 rounded-full border border-[var(--app-border)] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--app-accent)]">
-                    Agent
+                    {options.badgeLabel}
                   </span>
                 )}
               </div>
@@ -110,7 +115,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                     clearSessionSnapshots(user.uid, session.id);
                     removeLocalSessionShell(user.uid, session.id);
                     if (activeSessionId === session.id) {
-                      const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent');
+                      const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent' && item.sessionKind !== 'generated_app');
                       if (nextSession) setActiveSessionId(nextSession.id);
                       else onNewChat();
                     }
@@ -202,12 +207,12 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         <div className="mb-2 flex items-center justify-between px-2">
           <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">Historique</div>
           <div className="rounded-full border border-[var(--app-border)] bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-[var(--app-text-muted)]">
-            {standardModeSessions.length + agentSessions.length}
+            {standardModeSessions.length + agentSessions.length + appSessions.length}
           </div>
         </div>
 
         <div className="space-y-1">
-          {standardModeSessions.length === 0 && agentSessions.length === 0 && (
+          {standardModeSessions.length === 0 && agentSessions.length === 0 && appSessions.length === 0 && (
             <div className="flex flex-col items-center gap-2.5 px-4 py-8 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04]">
                 {React.createElement(modeConfig[activeMode].icon, { size: 18, className: 'text-[var(--app-text-muted)]' })}
@@ -225,7 +230,16 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
               <div className="px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                 Agents
               </div>
-              {renderSessionList(agentSessions, { agentLabel: true })}
+              {renderSessionList(agentSessions, { badgeLabel: 'Agent' })}
+            </div>
+          )}
+
+          {appSessions.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <div className="px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                Apps
+              </div>
+              {renderSessionList(appSessions, { badgeLabel: 'App' })}
             </div>
           )}
         </div>

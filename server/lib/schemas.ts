@@ -10,6 +10,11 @@ export const AgentCreateSchema = z.object({
   source: z.enum(['manual', 'cowork']).optional(),
 });
 
+export const GeneratedAppCreateSchema = z.object({
+  brief: z.string(),
+  source: z.enum(['manual', 'cowork']).optional(),
+});
+
 const AgentFieldSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -18,6 +23,74 @@ const AgentFieldSchema = z.object({
   helpText: z.string().optional(),
   required: z.boolean().optional(),
   options: z.array(z.string()).optional(),
+});
+
+const GeneratedAppModelProfileSchema = z.object({
+  textModel: z.string(),
+  reasoningLevel: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
+  imageModel: z.string().optional(),
+  musicModel: z.string().optional(),
+  ttsModel: z.string().optional(),
+  videoModel: z.string().optional(),
+});
+
+const GeneratedAppVisualDirectionSchema = z.object({
+  thesis: z.string(),
+  mood: z.string(),
+  accentColor: z.string(),
+  surfaceTone: z.string(),
+  primaryFont: z.string(),
+  secondaryFont: z.string().optional(),
+});
+
+const GeneratedAppRuntimeDefinitionSchema = z.object({
+  primaryActionLabel: z.string(),
+  resultLabel: z.string(),
+  emptyStateLabel: z.string().optional(),
+  editHint: z.string().optional(),
+});
+
+const GeneratedAppVersionSchema = z.object({
+  id: z.string(),
+  createdAt: z.number(),
+  status: z.enum(['draft', 'published', 'failed']),
+  sourceCode: z.string(),
+  bundleCode: z.string().optional(),
+  sourceAssetPath: z.string().optional(),
+  bundleAssetPath: z.string().optional(),
+  sourceUrl: z.string().optional(),
+  bundleUrl: z.string().optional(),
+  bundleFormat: z.enum(['esm']),
+  sourceHash: z.string(),
+  bundleHash: z.string().optional(),
+  buildLog: z.string().optional(),
+});
+
+export const GeneratedAppManifestSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  tagline: z.string(),
+  summary: z.string(),
+  mission: z.string(),
+  whenToUse: z.string(),
+  outputKind: z.enum(['pdf', 'html', 'music', 'podcast', 'code', 'research', 'automation', 'image']),
+  starterPrompt: z.string(),
+  systemInstruction: z.string(),
+  uiSchema: z.array(AgentFieldSchema),
+  toolAllowList: z.array(z.string()),
+  capabilities: z.array(z.string()),
+  modelProfile: GeneratedAppModelProfileSchema,
+  visualDirection: GeneratedAppVisualDirectionSchema,
+  runtime: GeneratedAppRuntimeDefinitionSchema,
+  status: z.enum(['draft', 'published', 'failed']),
+  createdBy: z.enum(['manual', 'cowork']),
+  sourcePrompt: z.string().optional(),
+  sourceSessionId: z.string().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  draftVersion: GeneratedAppVersionSchema,
+  publishedVersion: GeneratedAppVersionSchema.optional(),
 });
 
 const HubAgentSchema = z.object({
@@ -43,6 +116,10 @@ const HubAgentSchema = z.object({
 });
 
 const AgentRuntimeSchema = HubAgentSchema.extend({
+  formValues: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
+});
+
+const GeneratedAppRuntimeSchema = GeneratedAppManifestSchema.extend({
   formValues: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
 });
 
@@ -141,7 +218,13 @@ export const ChatSchema = z.object({
     nowIso: z.string().optional().nullable(),
   }).optional(),
   hubAgents: z.array(HubAgentSchema).optional(),
+  generatedApps: z.array(GeneratedAppManifestSchema).optional(),
   agentRuntime: AgentRuntimeSchema.optional(),
+  appRuntime: GeneratedAppRuntimeSchema.optional(),
+});
+
+export const GeneratedAppPublishSchema = z.object({
+  manifest: GeneratedAppManifestSchema,
 });
 
 export const UploadSchema = z.object({

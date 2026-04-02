@@ -216,6 +216,40 @@ function clipText(value: unknown, max = 280): string {
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
+function normalizeGeneratedAppSemanticText(value: unknown): string {
+  return clipText(value, 4000)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function buildGeneratedAppSemanticHaystack(values: unknown[]): string {
+  return values
+    .map((value) => {
+      if (Array.isArray(value)) {
+        return buildGeneratedAppSemanticHaystack(value);
+      }
+      if (value && typeof value === 'object') {
+        return buildGeneratedAppSemanticHaystack(Object.values(value as Record<string, unknown>));
+      }
+      return normalizeGeneratedAppSemanticText(value);
+    })
+    .filter(Boolean)
+    .join(' ');
+}
+
+function isDebatePodcastIntent(...values: unknown[]): boolean {
+  const haystack = buildGeneratedAppSemanticHaystack(values);
+  if (!haystack) return false;
+
+  const hasDebateLexicon = /\b(debat|debate|duel|joute|controverse|contradiction|opposition|opposes?|affrontement|versus|vs|pour contre|pour\/contre|dialectique)\b/.test(haystack);
+  const hasDualActors = /\b(deux|2|duo|double|two)\b/.test(haystack)
+    && /\b(ia|ai|voix|intervenants?|speakers?|agents?|personas?|positions?|perspectives?|points? de vue)\b/.test(haystack);
+  const hasAudioFrame = /\b(podcast|audio|voix|speaker|narration|conversation|dialogue|interview)\b/.test(haystack);
+
+  return hasDebateLexicon || (hasDualActors && hasAudioFrame);
+}
+
 function uniqueStrings(values: unknown, max = 8): string[] {
   if (!Array.isArray(values)) return [];
   const seen = new Set<string>();
@@ -250,7 +284,8 @@ function inferOutputKind(brief: string): GeneratedAppOutputKind {
   const lowered = brief.toLowerCase();
   if (/\b(pokemon|carte|card|collector|illustration|sprite|cover|visuel)\b/.test(lowered)) return 'image';
   if (/\b(nasheed|music|musique|lyria|song|beat|instrumental|refrain)\b/.test(lowered)) return 'music';
-  if (/\b(podcast|narration|voice|voix|tts|interview)\b/.test(lowered)) return 'podcast';
+  if (/\b(podcast|narration|voice|voix|tts|interview|audio)\b/.test(lowered)) return 'podcast';
+  if (isDebatePodcastIntent(brief) && /\b(type d'application cible:\s*podcast|podcast|audio|voix)\b/.test(lowered)) return 'podcast';
   if (/\b(site|landing|web|html)\b/.test(lowered)) return 'html';
   if (/\b(code|prototype|plugin|script)\b/.test(lowered)) return 'code';
   if (/\b(pdf|rapport|memo|document)\b/.test(lowered)) return 'pdf';
@@ -271,7 +306,10 @@ function normalizeFieldType(value: unknown): GeneratedAppFieldType {
   }
 }
 
-function defaultFields(outputKind: GeneratedAppOutputKind): GeneratedAppFieldSchema[] {
+function defaultFields(
+  outputKind: GeneratedAppOutputKind,
+  options: { debatePodcast?: boolean } = {}
+): GeneratedAppFieldSchema[] {
   if (outputKind === 'music') {
     return [
       { id: 'theme', label: 'Theme', type: 'textarea', placeholder: 'Message central du nasheed', helpText: 'La mission poetique et spirituelle.', required: true },
@@ -285,6 +323,16 @@ function defaultFields(outputKind: GeneratedAppOutputKind): GeneratedAppFieldSch
       { id: 'subject', label: 'Sujet', type: 'text', placeholder: 'Creature ou carte', helpText: 'Element central du visuel.', required: true },
       { id: 'artDirection', label: 'Direction artistique', type: 'textarea', placeholder: 'Palette, style, energie...', helpText: 'Look final attendu.', required: true },
       { id: 'rarity', label: 'Rarete', type: 'select', helpText: 'Prestige du rendu.', options: ['Common', 'Rare', 'Epic', 'Legendary'] },
+    ];
+  }
+
+  if (outputKind === 'podcast' && options.debatePodcast) {
+    return [
+      { id: 'topic', label: 'Motion du debat', type: 'textarea', placeholder: 'Proposition precise a confronter', helpText: 'La question centrale du duel audio.', required: true },
+      { id: 'stance_a', label: 'Camp A', type: 'text', placeholder: 'Position ou personnage 1', helpText: 'Perspective initiale du premier intervenant.', required: true },
+      { id: 'stance_b', label: 'Camp B', type: 'text', placeholder: 'Position ou personnage 2', helpText: 'Perspective opposee du second intervenant.', required: true },
+      { id: 'debate_frame', label: 'Cadre', type: 'select', helpText: 'Forme de l affrontement oratoire.', options: ['Debat frontal', 'Pour / contre', 'Sceptique / defenseur', 'Moderateur + contradiction'] },
+      { id: 'duration', label: 'Duree', type: 'number', placeholder: '6', helpText: 'Minutes approximatives du duel.' },
     ];
   }
 
@@ -303,8 +351,12 @@ function defaultFields(outputKind: GeneratedAppOutputKind): GeneratedAppFieldSch
   ];
 }
 
-function sanitizeFields(input: unknown, outputKind: GeneratedAppOutputKind): GeneratedAppFieldSchema[] {
-  if (!Array.isArray(input)) return defaultFields(outputKind);
+function sanitizeFields(
+  input: unknown,
+  outputKind: GeneratedAppOutputKind,
+  options: { debatePodcast?: boolean } = {}
+): GeneratedAppFieldSchema[] {
+  if (!Array.isArray(input)) return defaultFields(outputKind, options);
 
   const fields: GeneratedAppFieldSchema[] = [];
   for (const rawField of input) {
@@ -331,7 +383,49 @@ function sanitizeFields(input: unknown, outputKind: GeneratedAppOutputKind): Gen
     if (fields.length >= 6) break;
   }
 
-  return fields.length > 0 ? fields : defaultFields(outputKind);
+  return fields.length > 0 ? fields : defaultFields(outputKind, options);
+}
+
+function hasDebateStructuredUi(fields: GeneratedAppFieldSchema[]): boolean {
+  return fields.some((field) =>
+    /\b(camp|stance|position|contre|perspective|point_de_vue|point de vue|duel|debat|motion)\b/.test(
+      normalizeGeneratedAppSemanticText(`${field.id} ${field.label} ${field.helpText || ''}`)
+    )
+  );
+}
+
+function mergeCapabilityDeck(primary: string[], secondary: string[], max = 6): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  for (const value of [...primary, ...secondary]) {
+    const text = clipText(value, 140);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(text);
+    if (merged.length >= max) break;
+  }
+
+  return merged;
+}
+
+function buildSpecializedSystemInstruction(
+  baseInstruction: string,
+  options: { debatePodcast?: boolean }
+): string {
+  if (!options.debatePodcast) return clipText(baseInstruction, 5000) || baseInstruction;
+
+  return clipText([
+    baseInstruction,
+    '### EXIGENCE DUEL AUDIO',
+    "- Cette app ne doit pas livrer une chronique solo quand la mission parle de duel, debat ou confrontation d'idees.",
+    "- Le rendu final vise un vrai face-a-face entre deux voix IA nettement distinctes, avec theses opposees, objections, rebuttals et breve synthese finale.",
+    "- Quand tu appelles `create_podcast_episode`, prepare toujours un duo a 2 intervenants avec des positions clairement antagonistes et des styles de jeu contrastes.",
+    "- Si les champs Camp A / Camp B sont vides, deduis toi-meme deux perspectives solides et opposees a partir du sujet.",
+    "- Sur les sujets sensibles, expose les arguments proprement, sans caricature ni ton cheap.",
+  ].join('\n'), 5000);
 }
 
 function sanitizeToolAllowList(input: unknown, outputKind: GeneratedAppOutputKind): string[] {
@@ -435,8 +529,42 @@ function sanitizeDefinition(raw: unknown, brief: string, source: 'manual' | 'cow
   const outputKind = (typeof input.outputKind === 'string' && ['pdf', 'html', 'music', 'podcast', 'code', 'research', 'automation', 'image'].includes(input.outputKind))
     ? input.outputKind as GeneratedAppOutputKind
     : inferOutputKind(brief);
+  const debatePodcast = outputKind === 'podcast' && isDebatePodcastIntent(
+    brief,
+    input.name,
+    input.slug,
+    input.tagline,
+    input.summary,
+    input.mission,
+    input.whenToUse,
+    input.starterPrompt,
+    input.systemInstruction,
+    input.sourcePrompt,
+    input.uiSchema,
+  );
   const name = clipText(input.name, 52) || 'Cowork Expert App';
   const slug = slugify(String(input.slug || name));
+  const sanitizedFields = sanitizeFields(input.uiSchema, outputKind, { debatePodcast });
+  const uiSchema = debatePodcast && !hasDebateStructuredUi(sanitizedFields)
+    ? defaultFields(outputKind, { debatePodcast: true })
+    : sanitizedFields;
+  const requestedCapabilities = uniqueStrings(input.capabilities, 6);
+  const fallbackCapabilities = ['Cadre vite la mission', 'Lance une action experte', 'Expose un resultat publiable'];
+  const capabilities = debatePodcast
+    ? mergeCapabilityDeck(
+        [
+          'Cadre un vrai duel contradictoire',
+          'Fait parler deux voix nettement distinctes',
+          'Produit un master audio de debat pret a publier',
+          'Peut sourcer les angles si le sujet le demande',
+        ],
+        requestedCapabilities.length > 0 ? requestedCapabilities : fallbackCapabilities,
+      )
+    : (requestedCapabilities.length > 0 ? requestedCapabilities : fallbackCapabilities);
+  const systemInstruction = buildSpecializedSystemInstruction(
+    clipText(input.systemInstruction, 5000) || `Tu es ${name}, une app experte concue par Cowork. Tu livres un resultat net, specialise et honnete.`,
+    { debatePodcast }
+  );
 
   return {
     name,
@@ -447,10 +575,10 @@ function sanitizeDefinition(raw: unknown, brief: string, source: 'manual' | 'cow
     whenToUse: clipText(input.whenToUse, 220) || `Utilise cette app quand le besoin principal tourne autour de ${name.toLowerCase()}.`,
     outputKind,
     starterPrompt: clipText(input.starterPrompt, 420) || `Prends en charge cette mission dans ${name}.`,
-    systemInstruction: clipText(input.systemInstruction, 5000) || `Tu es ${name}, une app experte concue par Cowork. Tu livres un resultat net, specialise et honnete.`,
-    uiSchema: sanitizeFields(input.uiSchema, outputKind),
+    systemInstruction,
+    uiSchema,
     toolAllowList: sanitizeToolAllowList(input.toolAllowList, outputKind),
-    capabilities: uniqueStrings(input.capabilities, 6).length > 0 ? uniqueStrings(input.capabilities, 6) : ['Cadre vite la mission', 'Lance une action experte', 'Expose un resultat publiable'],
+    capabilities,
     modelProfile: sanitizeModelProfile(input.modelProfile, outputKind),
     visualDirection: sanitizeVisualDirection(input.visualDirection, outputKind),
     runtime: sanitizeRuntime(input.runtime, outputKind),

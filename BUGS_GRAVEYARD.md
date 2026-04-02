@@ -1,5 +1,39 @@
 # BUGS GRAVEYARD
 
+## 2026-04-02 - `IA Duel Podcast` faisait un faux podcast solo au lieu d'un vrai debat
+- Statut: corrige localement, non deploye dans cette session
+- Symptome:
+  - l'utilisateur clique sur `Produire maintenant`, obtient bien un fichier audio, mais le rendu est percu comme un monologue/podcast a une seule voix
+  - l'interface de sortie audio est plate et ne communique ni les 2 camps ni le type de master
+  - la creation generated app ne clarifie pas assez la direction produit avant generation
+- Tentatives:
+  - verification du host generated app local pour confirmer que le probleme n'est pas un simple player casse
+  - audit de `server/lib/generated-apps.ts` pour voir comment le manifest specialise un podcast
+  - audit de `api/index.ts` pour voir ce que `create_podcast_episode` recoit reellement depuis une generated app
+- Cause racine:
+  - la specialisation `podcast` etait correcte, mais la specialisation `debat` etait trop faible
+  - le manifest pouvait garder un formulaire generique, sans `stance_a` ni `stance_b`
+  - au runtime, si Gemini n'inventait pas explicitement un duo, `create_podcast_episode` pouvait retomber sur un brief de chronique solo
+  - le host audio ne recevait pas assez de metadonnees pour presenter le master final comme un livrable premium
+- Resolution:
+  - `server/lib/generated-apps.ts`
+    - detection semantique des apps de duel
+    - schema specialise `topic + stance_a + stance_b + debate_frame + duration`
+    - capacites et `systemInstruction` renforces pour imposer un vrai face-a-face
+  - `api/index.ts`
+    - defaults runtime pour injecter un vrai brief de debat
+    - 2 speakers par defaut si l'app est un duel et qu'aucun speaker n'est fourni
+    - meta `speakerMode`, `speakerNames`, `speakerVoices`, `mixStrategy`
+  - `shared/generated-app-sdk.tsx`
+    - nouvelle carte `Master audio` avec lecteur embarque, meta, actions et habillage plus editorial
+  - `src/components/AgentsHub.tsx`
+    - premiere couche de clarification avec choix recommandes + `Autre direction`
+- Preuve:
+  - `npm run lint` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+  - capture locale host: `generated-app-host-debate-apr02-vite.png`
+
 ## 2026-04-02 - Generated app podcast specialisee en UI, mais pas encore assez specialisee a l'execution
 - Statut: corrige localement, non deploye dans cette session
 - Symptome:

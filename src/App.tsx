@@ -131,6 +131,34 @@ const adaptGeneratedAppToStudioAgent = (app: GeneratedAppManifest): StudioAgent 
   };
 };
 
+const normalizeGeneratedAppSemanticText = (value: unknown) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+const isLikelyDebateGeneratedApp = (app: GeneratedAppManifest) => {
+  if (app.outputKind !== 'podcast') return false;
+  const haystack = [
+    app.name,
+    app.slug,
+    app.tagline,
+    app.summary,
+    app.mission,
+    app.whenToUse,
+    app.starterPrompt,
+    app.systemInstruction,
+    app.sourcePrompt,
+    ...app.uiSchema.flatMap((field) => [field.id, field.label, field.helpText, field.placeholder]),
+  ]
+    .map(normalizeGeneratedAppSemanticText)
+    .filter(Boolean)
+    .join(' ');
+
+  return /\b(debat|debate|duel|joute|controverse|contradiction|versus|vs)\b/.test(haystack)
+    || (/\b(deux|2|duo)\b/.test(haystack) && /\b(ia|ai|voix|intervenants?|speakers?|positions?)\b/.test(haystack));
+};
+
 const formatAgentFormValues = (agent: StudioAgent, values: AgentFormValues) =>
   Object.entries(buildAgentRuntimeFormValues(agent, values))
     .filter(([, value]) => typeof value === 'boolean' || String(value).trim().length > 0)
@@ -162,10 +190,14 @@ const buildGeneratedAppLaunchPrompt = (app: GeneratedAppManifest, values: AgentF
       const fieldLabel = app.uiSchema.find(field => field.id === fieldId)?.label || fieldId;
       return `- ${fieldLabel}: ${typeof value === 'boolean' ? (value ? 'oui' : 'non') : String(value).trim()}`;
     });
+  const debateHint = isLikelyDebateGeneratedApp(app)
+    ? "Mode attendu: vrai debat oral a deux voix IA opposees, avec repliques, objections, rebuttals et synthese finale. Interdit de livrer une chronique solo."
+    : '';
 
   return [
     app.starterPrompt || `Prends en charge la mission de ${app.name}.`,
     formattedValues.length > 0 ? `Parametres de l'interface:\n${formattedValues.join('\n')}` : '',
+    debateHint,
     `Type de sortie attendu: ${app.outputKind}.`,
   ].filter(Boolean).join('\n\n');
 };

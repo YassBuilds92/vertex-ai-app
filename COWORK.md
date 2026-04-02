@@ -1,5 +1,37 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-02 - Les apps de duel audio deviennent vraiment des duels, et la creation demande enfin une direction avant de generer
+- Retour produit:
+  - l'utilisateur signale que `IA Duel Podcast` produit bien un audio, mais que le rendu est peu esthetique et surtout pas fidele a la promesse "deux IA qui debattent"
+  - il demande aussi une phase de clarification initiale avec plusieurs choix, un choix recommande et une voie libre
+- Cause racine confirmee:
+  - le pipeline savait creer une app `podcast`, mais pas encore verrouiller suffisamment le sous-type `debat`
+  - la creation partait sur le premier brief sans mini-cadrage produit, donc une app pouvait etre "pas absurde" mais mal alignee
+- Changement applique:
+  - `server/lib/generated-apps.ts`
+    - detection semantique des apps de debat/duel
+    - schema specialise `topic`, `stance_a`, `stance_b`, `debate_frame`, `duration`
+    - capacites et `systemInstruction` renforces pour imposer un vrai face-a-face
+  - `api/index.ts`
+    - runtime generated app capable d'identifier une app de duel
+    - `create_podcast_episode` recoit des defaults duo (brief contradictoire, duree, 2 speakers) si Gemini n'explicite pas ces arguments
+    - les metadonnees de sortie exposent `speakerMode`, `speakerNames`, `speakerVoices`, `mixStrategy`
+  - `shared/generated-app-sdk.tsx`
+    - le livrable principal audio devient une vraie carte `Master audio` avec lecteur integre, actions et meta visibles
+  - `src/components/AgentsHub.tsx`
+    - ajout d'une clarification initiale avant generation avec option recommandee + `Autre direction`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npm run build` : OK
+  - captures locales:
+    - `C:\Users\Yassine\AppData\Local\Temp\generated-app-host-debate-apr02-vite.png`
+    - `C:\Users\Yassine\AppData\Local\Temp\cowork-apps-creation-apr02-vite.png`
+- Etat produit:
+  - la correction est prete localement, mais le run authentifie complet et le redeploiement restent a faire
+  - la capture creation actuelle valide le harness, pas encore la vraie clarification dans l'app connectee
+
 ## Mise a jour 2026-04-02 - Les generated apps doivent respecter leurs modeles reels et leurs outils specialises, pas seulement les afficher
 - Retour produit:
   - l'utilisateur doute du flux `Produire maintenant` sur une app podcast (`IA Duel Podcast`) et demande si Cowork genere vraiment les bonnes apps avec les bons outils

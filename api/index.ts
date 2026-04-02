@@ -759,6 +759,123 @@ function formatGeneratedAppRuntimeValues(
     : '- aucune valeur pre-remplie';
 }
 
+function normalizeGeneratedAppSemanticText(value: unknown): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function isDebateGeneratedApp(app?: GeneratedAppManifest | null): boolean {
+  if (!app || app.outputKind !== 'podcast') return false;
+
+  const haystack = [
+    app.name,
+    app.slug,
+    app.tagline,
+    app.summary,
+    app.mission,
+    app.whenToUse,
+    app.starterPrompt,
+    app.systemInstruction,
+    app.sourcePrompt,
+    ...(Array.isArray(app.uiSchema)
+      ? app.uiSchema.flatMap((field) => [field.id, field.label, field.helpText, field.placeholder])
+      : []),
+  ]
+    .map(normalizeGeneratedAppSemanticText)
+    .filter(Boolean)
+    .join(' ');
+
+  const hasDebateLexicon = /\b(debat|debate|duel|joute|controverse|contradiction|opposition|opposes?|affrontement|versus|vs|pour contre|pour\/contre|dialectique)\b/.test(haystack);
+  const hasDualActors = /\b(deux|2|duo|double|two)\b/.test(haystack)
+    && /\b(ia|ai|voix|intervenants?|speakers?|agents?|personas?|positions?|perspectives?|points? de vue)\b/.test(haystack);
+
+  return hasDebateLexicon || hasDualActors;
+}
+
+function findGeneratedAppRuntimeValue(
+  formValues: Record<string, string | boolean> | undefined,
+  patterns: RegExp[]
+): string {
+  if (!formValues) return '';
+
+  for (const [fieldId, rawValue] of Object.entries(formValues)) {
+    if (typeof rawValue !== 'string') continue;
+    const normalizedId = normalizeGeneratedAppSemanticText(fieldId);
+    if (!patterns.some((pattern) => pattern.test(normalizedId))) continue;
+    const cleaned = rawValue.trim();
+    if (cleaned) return cleaned;
+  }
+
+  return '';
+}
+
+function sanitizeDebateSpeakerLabel(value: string, fallback: string): string {
+  const cleaned = clipText(value.replace(/[\r\n:]+/g, ' ').replace(/\s+/g, ' ').trim(), 40);
+  return cleaned || fallback;
+}
+
+function buildDebatePodcastRuntimeDefaults(
+  app: GeneratedAppManifest,
+  formValues?: Record<string, string | boolean>
+): {
+  title: string;
+  brief: string;
+  hostStyle: string;
+  styleInstructions: string;
+  approxDurationSeconds?: number;
+  speakers: Array<{ name: string; voice: string; styleInstructions: string }>;
+} {
+  const topic = findGeneratedAppRuntimeValue(formValues, [/topic/, /motion/, /sujet/, /debat/, /duel/]) || app.tagline || app.summary || app.name;
+  const stanceA = sanitizeDebateSpeakerLabel(
+    findGeneratedAppRuntimeValue(formValues, [/stance_a/, /camp_a/, /position_a/, /role_a/, /persona_a/, /camp a/, /camp1/]),
+    'Camp A'
+  );
+  const rawStanceB = sanitizeDebateSpeakerLabel(
+    findGeneratedAppRuntimeValue(formValues, [/stance_b/, /camp_b/, /position_b/, /role_b/, /persona_b/, /camp b/, /camp2/]),
+    'Camp B'
+  );
+  const stanceB = normalizeGeneratedAppSemanticText(rawStanceB) === normalizeGeneratedAppSemanticText(stanceA)
+    ? 'Camp B'
+    : rawStanceB;
+  const frame = findGeneratedAppRuntimeValue(formValues, [/debate_frame/, /cadre/, /frame/, /format/]);
+  const durationValue = findGeneratedAppRuntimeValue(formValues, [/duration/, /duree/, /minutes?/]);
+  const durationMinutes = Number(durationValue);
+  const approxDurationSeconds = Number.isFinite(durationMinutes) && durationMinutes > 0
+    ? Math.max(45, Math.min(12 * 60, Math.round(durationMinutes * 60)))
+    : undefined;
+  const title = clipText(`Duel IA · ${topic}`, 180);
+  const brief = [
+    `Organise un vrai debat oral entre deux IA sur ce sujet: ${topic}.`,
+    `Camp A: ${stanceA}.`,
+    `Camp B: ${stanceB}.`,
+    frame ? `Cadre: ${frame}.` : 'Cadre: duel contradictoire net, rythme et lisible.',
+    "Le format doit ressembler a une joute argumentee: ouverture courte, theses opposees, objections, rebuttals, puis synthese breve.",
+    "Interdit de retomber en chronique solo ou en monologue unique.",
+  ].join(' ');
+
+  return {
+    title,
+    brief,
+    hostStyle: 'duel editorial net, intelligent, equitable, vif mais lisible',
+    styleInstructions: `Deux voix clairement distinctes. ${stanceA} doit sonner pose, structure et tenace. ${stanceB} doit sonner plus reactif, incisif et contradicteur. Pas de chronique solo. Repliques courtes a moyennes, vraies relances, vraies objections, conclusion resserree.`,
+    approxDurationSeconds,
+    speakers: [
+      {
+        name: stanceA,
+        voice: 'Charon',
+        styleInstructions: 'anchored, calm, deliberate, lower register, measured pauses, editorial authority',
+      },
+      {
+        name: stanceB,
+        voice: 'Aoede',
+        styleInstructions: 'brighter, reactive, quicker pace, expressive lift, conversational energy',
+      },
+    ],
+  };
+}
+
 function buildGeneratedAppRuntimeSystemInstruction(
   app: GeneratedAppManifest,
   runtime?: { requestClock?: RequestClock; formValues?: Record<string, string | boolean> }
@@ -774,6 +891,15 @@ function buildGeneratedAppRuntimeSystemInstruction(
     app.modelProfile.musicModel ? `music=${app.modelProfile.musicModel}` : null,
     app.modelProfile.ttsModel ? `tts=${app.modelProfile.ttsModel}` : null,
   ].filter(Boolean).join(', ');
+  const debateGuidance = isDebateGeneratedApp(app)
+    ? [
+        '### GARDE-FOUS DUEL',
+        "- Cette app doit produire un vrai debat a deux voix IA, pas une chronique solo.",
+        "- Pour le rendu final, utilise `create_podcast_episode` en mode duo avec exactement 2 speakers contrastes.",
+        "- Si le formulaire fournit Camp A / Camp B / Motion du debat, traite-les comme la matrice du face-a-face et preserve leur opposition.",
+        "- Fais alterner theses, objections et rebuttals; evite les longs monologues miroirs.",
+      ].join('\n')
+    : null;
 
   return [
     app.systemInstruction.trim(),
@@ -790,6 +916,7 @@ function buildGeneratedAppRuntimeSystemInstruction(
       : null,
     '### VALEURS FOURNIES DANS L INTERFACE',
     runtimeValues,
+    debateGuidance,
     '### POSTURE',
     "- Tu es cette app experte, concue par Cowork.",
     "- Utilise d'abord les champs deja fournis pour reduire la friction et garder l'experience studio.",
@@ -806,7 +933,8 @@ type RuntimeModelAwareToolName =
 function applyRuntimeMediaToolDefaults<T extends Record<string, unknown> | undefined>(
   toolName: RuntimeModelAwareToolName,
   args: T,
-  runtimeApp?: GeneratedAppManifest | null
+  runtimeApp?: GeneratedAppManifest | null,
+  runtimeAppFormValues?: Record<string, string | boolean>
 ): (T extends undefined ? Record<string, unknown> : T) & Record<string, unknown> {
   const nextArgs = { ...(args || {}) } as Record<string, unknown>;
   const modelProfile = runtimeApp?.modelProfile;
@@ -829,6 +957,32 @@ function applyRuntimeMediaToolDefaults<T extends Record<string, unknown> | undef
     }
     if (!nextArgs.musicModel && modelProfile.musicModel) {
       nextArgs.musicModel = modelProfile.musicModel;
+    }
+    if (runtimeApp && isDebateGeneratedApp(runtimeApp)) {
+      const debateDefaults = buildDebatePodcastRuntimeDefaults(runtimeApp, runtimeAppFormValues);
+      const existingBrief = typeof nextArgs.brief === 'string' ? nextArgs.brief.trim() : '';
+      const existingScript = typeof nextArgs.script === 'string' ? nextArgs.script.trim() : '';
+
+      if (!nextArgs.title) {
+        nextArgs.title = debateDefaults.title;
+      }
+      if (!nextArgs.hostStyle) {
+        nextArgs.hostStyle = debateDefaults.hostStyle;
+      }
+      if (!nextArgs.styleInstructions) {
+        nextArgs.styleInstructions = debateDefaults.styleInstructions;
+      }
+      if (!nextArgs.approxDurationSeconds && debateDefaults.approxDurationSeconds) {
+        nextArgs.approxDurationSeconds = debateDefaults.approxDurationSeconds;
+      }
+      if (!Array.isArray(nextArgs.speakers) || nextArgs.speakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+        nextArgs.speakers = debateDefaults.speakers;
+      }
+      if (!existingScript) {
+        nextArgs.brief = existingBrief
+          ? `${debateDefaults.brief}\n\nMateriau supplementaire fourni par le modele: ${existingBrief}`
+          : debateDefaults.brief;
+      }
     }
   }
 
@@ -5526,7 +5680,7 @@ app.post('/api/cowork', async (req, res) => {
     const withRuntimeToolDefaults = <T extends Record<string, unknown> | undefined>(
       toolName: RuntimeModelAwareToolName,
       args: T
-    ) => applyRuntimeMediaToolDefaults(toolName, args, runtimeApp);
+    ) => applyRuntimeMediaToolDefaults(toolName, args, runtimeApp, runtimeAppFormValues);
 
     if (requestRequiresAbuseBlock(message)) {
       const runMeta = createEmptyCoworkRunMeta();
@@ -5798,6 +5952,9 @@ app.post('/api/cowork', async (req, res) => {
           ttsModel: clipText(output?.ttsModel || '', 48),
           musicModel: clipText(output?.musicModel || '', 48),
           voice: clipText(output?.voice || '', 32),
+          speakerMode: clipText(output?.speakerMode || '', 24),
+          speakerNames: Array.isArray(output?.speakerNames) ? clipText(output.speakerNames.join(' vs '), 80) : '',
+          speakerVoices: Array.isArray(output?.speakerVoices) ? clipText(output.speakerVoices.join(' / '), 80) : '',
           mixStrategy: clipText(output?.mixStrategy || '', 24),
           durationSeconds: Number(output?.durationSeconds || 0),
           warning: clipText(output?.warning || '', 140),
@@ -5844,6 +6001,8 @@ app.post('/api/cowork', async (req, res) => {
           ttsModel: clipText(output?.ttsModel || '', 48),
           musicModel: clipText(output?.musicModel || '', 48),
           voice: clipText(output?.voice || '', 32),
+          speakerMode: clipText(output?.speakerMode || '', 24),
+          speakerNames: Array.isArray(output?.speakerNames) ? clipText(output.speakerNames.join(' vs '), 80) : '',
           durationSeconds: Number(output?.durationSeconds || 0),
         };
       }
@@ -5977,6 +6136,7 @@ app.post('/api/cowork', async (req, res) => {
           output?.ttsModel ? `voix ${output.ttsModel}` : null,
           output?.musicModel ? `musique ${output.musicModel}` : null,
           output?.voice ? `voix ${output.voice}` : null,
+          Array.isArray(output?.speakerNames) && output.speakerNames.length > 0 ? `duo ${clipText(output.speakerNames.join(' vs '), 80)}` : null,
           output?.mixStrategy ? `mix ${output.mixStrategy}` : null,
           Number(output?.durationSeconds || 0) > 0 ? `${Number(output.durationSeconds).toFixed(1)}s` : null,
           output?.warning ? clipText(output.warning, 120) : null,

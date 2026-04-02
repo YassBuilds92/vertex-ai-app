@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRight, CheckCircle2, Loader2, PackageOpen, Sparkles, Wand2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Download, ExternalLink, Headphones, Loader2, PackageOpen, Sparkles, Wand2 } from 'lucide-react';
 
-import type { AgentFieldSchema, AgentFormValues, GeneratedAppManifest, Message } from '../src/types.js';
+import type { AgentFieldSchema, AgentFormValues, Attachment, GeneratedAppManifest, Message } from '../src/types.js';
 
 export interface GeneratedAppComponentProps {
   manifest: GeneratedAppManifest;
@@ -22,6 +22,43 @@ function collectArtifacts(messages: Message[]) {
     .flatMap((message) => message.attachments || [])
     .slice()
     .reverse();
+}
+
+function isAudioArtifact(artifact: Attachment | undefined) {
+  if (!artifact) return false;
+  return artifact.type === 'audio' || String(artifact.mimeType || '').toLowerCase().startsWith('audio/');
+}
+
+function formatDurationLabel(seconds: number | null | undefined) {
+  if (!Number.isFinite(Number(seconds)) || Number(seconds) <= 0) return '';
+  const totalSeconds = Math.round(Number(seconds));
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = totalSeconds % 60;
+  return minutes > 0 ? `${minutes} min ${String(remainder).padStart(2, '0')}` : `${remainder}s`;
+}
+
+function collectLatestPodcastMeta(messages: Message[]) {
+  const reversedMessages = messages
+    .filter((message) => message.role === 'model')
+    .slice()
+    .reverse();
+
+  for (const message of reversedMessages) {
+    const activities = Array.isArray(message.activity) ? message.activity.slice().reverse() : [];
+    for (const item of activities) {
+      if (item.toolName !== 'create_podcast_episode' || !item.meta) continue;
+      return {
+        speakerMode: typeof item.meta.speakerMode === 'string' ? item.meta.speakerMode : '',
+        speakerNames: typeof item.meta.speakerNames === 'string' ? item.meta.speakerNames : '',
+        speakerVoices: typeof item.meta.speakerVoices === 'string' ? item.meta.speakerVoices : '',
+        mixStrategy: typeof item.meta.mixStrategy === 'string' ? item.meta.mixStrategy : '',
+        warning: typeof item.meta.warning === 'string' ? item.meta.warning : '',
+        durationSeconds: typeof item.meta.durationSeconds === 'number' ? item.meta.durationSeconds : Number(item.meta.durationSeconds || 0),
+      };
+    }
+  }
+
+  return null;
 }
 
 function fieldInputClassName(accentColor: string) {
@@ -116,6 +153,15 @@ export function GeneratedAppCanvas({
   const [editRequest, setEditRequest] = useState('');
   const accentColor = manifest.visualDirection.accentColor || '#7dd3fc';
   const artifacts = useMemo(() => collectArtifacts(messages), [messages]);
+  const featuredAudioArtifact = useMemo(
+    () => artifacts.find((artifact) => isAudioArtifact(artifact)) || null,
+    [artifacts]
+  );
+  const latestPodcastMeta = useMemo(() => collectLatestPodcastMeta(messages), [messages]);
+  const artifactRail = useMemo(
+    () => artifacts.filter((artifact) => artifact !== featuredAudioArtifact).slice(0, 4),
+    [artifacts, featuredAudioArtifact]
+  );
   const manifestFields = Array.isArray(manifest.uiSchema) ? manifest.uiSchema : [];
 
   return (
@@ -249,9 +295,109 @@ export function GeneratedAppCanvas({
         <aside className="grid min-h-full grid-rows-[auto_1fr_auto] px-5 py-5">
           <div className="rounded-[1.7rem] border border-white/10 bg-black/18 p-5">
             <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">{manifest.runtime.resultLabel}</div>
-            <div className="mt-4 space-y-3">
-              {artifacts.length > 0 ? (
-                artifacts.slice(0, 5).map((artifact) => (
+            <div className="mt-4 space-y-4">
+              {featuredAudioArtifact ? (
+                <div
+                  className="overflow-hidden rounded-[1.45rem] border border-white/10 p-4"
+                  style={{
+                    background: `linear-gradient(160deg, ${accentColor}16, rgba(255,255,255,0.03) 48%, rgba(0,0,0,0.18))`,
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-white/52">
+                        <Headphones size={13} />
+                        Master audio
+                      </div>
+                      <div className="mt-2 text-base font-semibold leading-tight text-white">
+                        {featuredAudioArtifact.name || 'Episode final'}
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-white/62">
+                        {latestPodcastMeta?.speakerNames
+                          ? `Duel ${latestPodcastMeta.speakerNames.toLowerCase()} mixe pour ecoute directe.`
+                          : 'Le rendu audio final est disponible ici avec ecoute immediate.'}
+                      </p>
+                    </div>
+                    <div
+                      className="inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-white/80"
+                      style={{ borderColor: `${accentColor}44`, background: `${accentColor}18` }}
+                    >
+                      audio
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {latestPodcastMeta?.speakerNames && (
+                      <span className="rounded-full border border-white/10 bg-black/18 px-3 py-2 text-xs text-white/72">
+                        {latestPodcastMeta.speakerNames}
+                      </span>
+                    )}
+                    {latestPodcastMeta?.speakerVoices && (
+                      <span className="rounded-full border border-white/10 bg-black/18 px-3 py-2 text-xs text-white/58">
+                        Voix: {latestPodcastMeta.speakerVoices}
+                      </span>
+                    )}
+                    {latestPodcastMeta?.mixStrategy && (
+                      <span className="rounded-full border border-white/10 bg-black/18 px-3 py-2 text-xs text-white/58">
+                        Mix: {latestPodcastMeta.mixStrategy}
+                      </span>
+                    )}
+                    {formatDurationLabel(latestPodcastMeta?.durationSeconds) && (
+                      <span className="rounded-full border border-white/10 bg-black/18 px-3 py-2 text-xs text-white/58">
+                        {formatDurationLabel(latestPodcastMeta?.durationSeconds)}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-4 rounded-[1.2rem] border border-white/10 bg-black/22 p-4">
+                    <div className="mb-4 flex items-end gap-1.5">
+                      {[0.22, 0.48, 0.34, 0.72, 0.55, 0.82, 0.38, 0.64, 0.28, 0.58, 0.42, 0.76].map((height, index) => (
+                        <span
+                          key={`wave-${index}`}
+                          className="block w-2 rounded-full"
+                          style={{
+                            height: `${26 + (height * 44)}px`,
+                            background: index % 3 === 0 ? accentColor : 'rgba(255,255,255,0.22)',
+                            opacity: index % 3 === 0 ? 0.94 : 0.8,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <audio controls preload="none" className="w-full" src={featuredAudioArtifact.url}>
+                      Votre navigateur ne supporte pas la lecture audio integree.
+                    </audio>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <a
+                      href={featuredAudioArtifact.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/[0.08]"
+                    >
+                      <ExternalLink size={14} />
+                      Ouvrir
+                    </a>
+                    <a
+                      href={featuredAudioArtifact.url}
+                      download
+                      className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-black/18 px-4 py-3 text-sm font-semibold text-white/84 transition-colors hover:bg-black/28"
+                    >
+                      <Download size={14} />
+                      Telecharger
+                    </a>
+                  </div>
+
+                  {latestPodcastMeta?.warning && (
+                    <div className="mt-4 rounded-[1rem] border border-amber-300/14 bg-amber-300/[0.08] px-3 py-3 text-xs leading-5 text-amber-50/82">
+                      {latestPodcastMeta.warning}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {artifactRail.length > 0 ? (
+                artifactRail.map((artifact) => (
                   <a
                     key={`${artifact.type}-${artifact.url}`}
                     href={artifact.url}
@@ -263,7 +409,9 @@ export function GeneratedAppCanvas({
                     <span className="shrink-0 text-[11px] uppercase tracking-[0.16em] text-white/42">{artifact.type}</span>
                   </a>
                 ))
-              ) : (
+              ) : null}
+
+              {artifacts.length === 0 && (
                 <div className="rounded-[1.15rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm leading-6 text-white/44">
                   {manifest.runtime.emptyStateLabel}
                 </div>

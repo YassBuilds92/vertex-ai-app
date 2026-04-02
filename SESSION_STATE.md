@@ -1,5 +1,63 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (duel audio generated app + clarification initiale + host audio premium)
+- Besoin traite:
+  - l'utilisateur confirme que `Produire maintenant` sort bien quelque chose sur `IA Duel Podcast`, mais releve 2 defauts majeurs:
+    - la presentation audio est laide / trop plate
+    - le fond produit est faux: il veut 2 IA qui debattent, pas une chronique solo
+  - il demande aussi une phase de clarification initiale type "choix recommandes + autre direction" avant generation
+- Cause racine confirmee:
+  - une app `podcast` n'etait pas assez specialisee quand son besoin reel etait `debat`
+  - le manifest pouvait garder un schema generique et le runtime pouvait laisser `create_podcast_episode` partir sans speakers ni camps explicites
+  - le host generated app affichait encore les artefacts audio comme une liste brute, sans mise en scene de master final
+- Correctifs appliques:
+  - `server/lib/generated-apps.ts`
+    - ajout de helpers semantiques pour reconnaitre l'intention `debat/duel`
+    - specialisation du manifest generated app en schema contradictoire:
+      - `topic`
+      - `stance_a`
+      - `stance_b`
+      - `debate_frame`
+      - `duration`
+    - enrichissement des capabilities et du `systemInstruction` pour interdire la chronique solo
+  - `api/index.ts`
+    - ajout de helpers runtime `isDebateGeneratedApp()` + `buildDebatePodcastRuntimeDefaults()`
+    - `applyRuntimeMediaToolDefaults()` accepte maintenant `runtimeApp` + `runtimeAppFormValues`
+    - pour `create_podcast_episode`, injection automatique d'un vrai brief de duel, de la duree et de 2 speakers si l'app est un debat
+    - meta outil enrichie avec `speakerMode`, `speakerNames`, `speakerVoices`
+  - `src/App.tsx`
+    - le prompt de lancement generated app renforce explicitement l'interdiction de la chronique solo pour les apps de debat
+  - `shared/generated-app-sdk.tsx`
+    - ajout d'un featured artifact audio `Master audio`
+    - lecteur embarque, waveform decoratif, chips de meta, actions `Ouvrir` / `Telecharger`
+  - `src/components/AgentsHub.tsx`
+    - ajout d'une premiere couche de clarification avant la creation generated app
+    - choix recommandes + voie libre `Autre direction`
+- Tests / validations effectues:
+  - `npm run lint` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+  - validation visuelle locale via harness Vite:
+    - `generated-app-host-debate-apr02-vite.png` valide la nouvelle carte audio
+    - `cowork-apps-creation-apr02-vite.png` valide le harness creation, mais pas encore la vraie clarification utilisateur
+- Fichiers modifies:
+  - `api/index.ts`
+  - `server/lib/generated-apps.ts`
+  - `shared/generated-app-sdk.tsx`
+  - `src/App.tsx`
+  - `src/components/AgentsHub.tsx`
+  - `test-cowork-loop.ts`
+- Limites restantes:
+  - pas de redeploiement dans cette session
+  - pas de run authentifie complet rejoue dans la vraie app
+  - la capture clarification reste partielle: le code est la, mais l'UI reelle connectee reste a confirmer
+- Intention exacte:
+  - faire en sorte qu'une app generee "debat audio" soit specialisee jusqu'au bout:
+    - creation mieux cadree
+    - runtime reellement duo
+    - sortie audio lisible comme un vrai master final
+
 ## Mise a jour complementaire - 2026-04-02 (generated apps podcast / les modeles configures doivent devenir des defaults reels d'outils)
 - Besoin traite:
   - l'utilisateur signale qu'en cliquant sur `Produire maintenant` dans une generated app podcast, le chargement semble tourner dans le vide puis ne rien livrer

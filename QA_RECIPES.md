@@ -1,5 +1,27 @@
 # QA RECIPES
 
+## Generated Apps - debat audio / clarification / master final
+- Objectif:
+  - verifier qu'une app `duel/debat` ne retombe plus sur une chronique solo
+  - verifier que la creation force une clarification avant generation
+  - verifier que le host met bien en avant le `Master audio`
+- Scenario cible:
+  - creer ou regenir `IA Duel Podcast`
+  - brief type: `je veux deux IA qui debattent vraiment`
+- Etapes manuelles:
+  - ouvrir `Cowork Apps`
+  - lancer une creation `Podcast`
+  - verifier qu'une couche de clarification apparait avant generation
+  - choisir `Duel contradictoire` ou saisir `Autre direction`
+  - generer l'app puis l'ouvrir
+  - remplir `topic`, `stance_a`, `stance_b`, `debate_frame`, `duration`
+  - cliquer `Produire maintenant`
+- Attendus:
+  - le formulaire generated app expose bien les champs de debat, pas seulement `topic/tone/duration`
+  - l'audio final est presente dans une carte `Master audio`
+  - la meta du host montre au moins les 2 speakers ou le mode duo
+  - l'audio entendu est bien un vrai face-a-face a 2 voix
+
 ## Generated Apps - flux critique
 - Objectif:
   - verifier le lifecycle reel `spec -> source -> native preview -> optional bundle -> publish`

@@ -1,5 +1,45 @@
 # DECISIONS
 
+## 2026-04-02 - Une generated app de debat ne doit pas rester un podcast generique
+- Statut: adopte localement
+- Contexte: `IA Duel Podcast` etait bien classee comme app audio/podcast, mais rien n'obligeait vraiment le manifest ni le runtime a rester dans un vrai mode debat contradictoire. Le resultat pouvait donc glisser vers une chronique solo.
+- Decision:
+  - detecter l'intention `debat/duel` des la sanitation du manifest
+  - specialiser a la fois l'UI, les capacites et la consigne runtime
+  - injecter des defaults duo dans `create_podcast_episode` quand l'app est un duel
+- Pourquoi:
+  - le type `podcast` seul est trop large et ne suffit pas a garantir la promesse produit "deux IA qui debattent"
+  - la specialisation doit vivre dans les donnees, pas seulement dans le wording marketing
+- Consequence:
+  - `server/lib/generated-apps.ts` et `api/index.ts` portent maintenant une branche produit explicite pour les generated apps de debat
+  - une app duel peut se regenerer avec un vrai schema contradictoire et un runtime duo par defaut
+
+## 2026-04-02 - La creation generated app doit poser une clarification initiale avant de lancer Cowork
+- Statut: adopte localement
+- Contexte: le besoin utilisateur n'est pas toujours totalement specifie dans le premier brief. Sans clarification, Cowork peut fabriquer une app correcte techniquement mais mal cadree produitement.
+- Decision:
+  - inserer une premiere couche de clarification dans `Cowork Apps` avec 2-3 options concretes, une recommandation expliquee et une voie `Autre direction`
+  - n'envoyer la creation reelle qu'apres cette validation utilisateur
+- Pourquoi:
+  - rapproche l'experience de travail de celle d'un bon binome produit/tech
+  - reduit les drafts "a cote du besoin" sans figer le systeme en wizard trop lourd
+- Consequence:
+  - `src/components/AgentsHub.tsx` gere maintenant un etat de clarification avant generation
+  - les prompts de creation generes sont enrichis par le choix ou la direction libre de l'utilisateur
+
+## 2026-04-02 - Le livrable audio principal d'une generated app doit etre mis en avant comme un master, pas comme un attachment anonyme
+- Statut: adopte localement
+- Contexte: la liste d'artefacts brute rendait l'audio final peu lisible et peu desirable, surtout pour une app premium type podcast/debat.
+- Decision:
+  - promouvoir le dernier artefact audio comme `Master audio`
+  - exposer ses metas de speakers/mix/duree dans une carte dediee avec lecteur et actions explicites
+- Pourquoi:
+  - renforce la lisibilite produit
+  - transforme un resultat technique en sortie editoriale assumee
+- Consequence:
+  - `shared/generated-app-sdk.tsx` calcule un `featuredAudioArtifact`
+  - les metas podcast remontees par `api/index.ts` sont maintenant visibles dans le host
+
 ## 2026-04-02 - Une generated app doit imposer ses defaults media via le runtime, pas seulement les suggerer
 - Statut: adopte localement
 - Contexte: une generated app podcast pouvait afficher `ttsModel: gemini-2.5-flash-tts` dans son host, tout en executant `create_podcast_episode` avec le default global `gemini-2.5-pro-tts` si le modele n'explicitait pas `ttsModel` dans l'appel outil.

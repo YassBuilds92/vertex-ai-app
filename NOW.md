@@ -1,40 +1,40 @@
 # NOW
 
 ## Objectif actuel
-- Revalider le flux generated app podcast apres patch runtime:
-  - confirmer en UI authentifiee que `Produire maintenant` sort bien un `Master final`
-  - verifier qu'une app podcast respecte ses modeles declares (`modelProfile`) et sa vraie allowlist outillee
-  - decider ensuite si le patch local doit etre deploye
+- Revalider puis deployer le correctif `IA Duel Podcast`:
+  - confirmer qu'une generated app de duel sort bien un vrai debat audio a 2 voix
+  - verifier en UI authentifiee que `Produire maintenant` remplit bien un `Master audio` esthetique
+  - confirmer que la creation d'app passe bien par une clarification initiale avant generation
 
 ## Blocage actuel
-- Pas de panne backend prod confirmee sur le flux generated app podcast:
-  - `POST /api/generated-apps/create/stream` en prod a bien cree une app `IA Duel Podcast`
-  - `POST /api/cowork` en prod a bien produit puis publie un master audio
-- Reste un ecart entre le code local et la prod:
-  - avant patch local, une generated app pouvait annoncer `gemini-2.5-flash-tts` mais executer `create_podcast_episode` en `gemini-2.5-pro-tts` si le modele n'explicitait pas `ttsModel`
-  - le sanitiseur de manifests pouvait aussi laisser passer des outils parasites comme `write_file` pour une app podcast
+- Le correctif est valide localement, mais pas encore prouve dans la vraie app connectee:
+  - pas de run prod/authentifie rejoue de bout en bout apres ces patches
+  - la clarification initiale a ete validee au code, mais pas encore capturee proprement dans l'UI reelle
+  - les apps deja creees avant regeneration peuvent encore conserver une structure trop generique tant qu'elles ne sont pas regenerees
 
 ## Prochaine action exacte
-- Rejouer en navigateur authentifie:
-  - `ouvrir IA Duel Podcast -> Produire maintenant -> verifier que le Master final se remplit`
-  - confirmer que l'app utilise bien les modeles/outils attendus apres redeploiement eventuel
-- Si la verification UI doit toucher la prod, redeployer d'abord le patch local courant
+- Redeployer le patch courant puis rejouer:
+  - `Cowork Apps -> creation app podcast/debat -> validation de la clarification recommandee`
+  - `ouvrir IA Duel Podcast -> Produire maintenant -> verifier duo vocal + carte audio + lecteur`
+  - confirmer que les `tool_result.meta` exposent bien les 2 speakers et la strategie de mix
 
 ## Fichiers chauds
 - `api/index.ts`
 - `server/lib/generated-apps.ts`
+- `shared/generated-app-sdk.tsx`
+- `src/App.tsx`
+- `src/components/AgentsHub.tsx`
 - `test-cowork-loop.ts`
-- `test-generated-app-manifest.ts`
 - `COWORK.md`
 - `SESSION_STATE.md`
-- `BUGS_GRAVEYARD.md`
+- `QA_RECIPES.md`
 
 ## Validations restantes
-- Verifier le rendu UI reel du host generated app avec session authentifiee.
-- Verifier en conditions reelles que les apps podcast regenerees n'embarquent plus d'outils parasites.
-- Redéployer si l'objectif est de corriger le comportement prod observe par l'utilisateur.
+- Rejouer un vrai run authentifie `IA Duel Podcast` apres deploy.
+- Capturer visuellement la clarification initiale dans `Cowork Apps`.
+- Verifier qu'une app de duel regeneree embarque bien le schema `topic + stance_a + stance_b + debate_frame + duration`.
 
 ## Risques immediats
-- Tant que le patch local n'est pas deploye, la prod garde encore l'ancien comportement sur les defaults outilles.
-- Les apps podcast deja creees avant regeneration peuvent conserver une allowlist plus large que souhaitee.
-- L'UI authentifiee reelle n'a pas encore ete revalidee visuellement a cause du blocage Playwright MCP sur cette machine.
+- Tant que le patch local n'est pas deploye, la prod peut encore retomber sur un rendu solo-chronique.
+- Une generated app de debat deja persistÃ©e peut demander une regeneration pour profiter pleinement du schema specialise.
+- La validation visuelle finale reste partielle tant que le host reeel connecte n'a pas ete rejoue.

@@ -96,6 +96,49 @@ const baseResearch = {
 }
 
 {
+  const runtimeApp = {
+    name: 'IA Duel Podcast',
+    slug: 'ia-duel-podcast',
+    tagline: 'Deux IA, un sujet, une joute verbale.',
+    summary: 'Confronte deux positions en audio.',
+    mission: 'Faire debattre deux IA entre elles.',
+    whenToUse: 'Quand il faut un vrai duel audio.',
+    outputKind: 'podcast',
+    starterPrompt: 'Lance un duel audio.',
+    systemInstruction: 'Tu es une app duel audio.',
+    uiSchema: [
+      { id: 'topic', label: 'Motion du debat', type: 'textarea' },
+      { id: 'stance_a', label: 'Camp A', type: 'text' },
+      { id: 'stance_b', label: 'Camp B', type: 'text' },
+    ],
+    modelProfile: {
+      textModel: 'gemini-3.1-flash-lite-preview',
+      ttsModel: 'gemini-2.5-flash-tts',
+      musicModel: 'lyria-002',
+    },
+  };
+
+  const duelArgs = applyRuntimeMediaToolDefaults('create_podcast_episode', {
+    brief: 'Debat sur la trinite.',
+  }, runtimeApp as any, {
+    topic: 'Debat sur la trinite',
+    stance_a: 'Defenseur de la trinite',
+    stance_b: 'Critique unitarien',
+    duration: '4',
+  });
+
+  assert.equal(duelArgs.ttsModel, 'gemini-2.5-flash-tts');
+  assert.equal(duelArgs.musicModel, 'lyria-002');
+  assert.ok(Array.isArray(duelArgs.speakers));
+  const duelSpeakers = duelArgs.speakers as Array<{ name: string }>;
+  assert.equal(duelSpeakers.length, 2);
+  assert.equal(duelSpeakers[0].name, 'Defenseur de la trinite');
+  assert.equal(duelSpeakers[1].name, 'Critique unitarien');
+  assert.equal(duelArgs.approxDurationSeconds, 240);
+  assert.match(String(duelArgs.brief || ''), /vrai debat oral/i);
+}
+
+{
   const hubAgents = [
     sanitizeHubAgentRecord({
       id: 'news-premium-01',

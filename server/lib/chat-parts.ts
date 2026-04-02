@@ -7,9 +7,16 @@ import { tryExtractGcsUriFromUrl } from './storage.js';
 import { log } from './logger.js';
 
 type ModelPart =
-  | { text: string }
-  | { inlineData: { mimeType: string; data: string } }
-  | { fileData: { mimeType: string; fileUri: string } };
+  {
+    text?: string;
+    inlineData?: { mimeType: string; data: string };
+    fileData?: { mimeType: string; fileUri: string };
+    videoMetadata?: {
+      startOffset?: string;
+      endOffset?: string;
+      fps?: number;
+    };
+  };
 
 const MAX_REMOTE_BINARY_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 const MAX_REMOTE_TEXT_ATTACHMENT_BYTES = 2 * 1024 * 1024;
@@ -40,6 +47,10 @@ function stripDataUrlPrefix(value?: string) {
 
 function normalizeMimeType(value?: string) {
   return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }
 
 function looksLikeHttpUrl(value?: string) {
@@ -95,6 +106,63 @@ function resolveStorageUri(attachment: ApiAttachmentPayload) {
   return tryExtractGcsUriFromUrl(attachment.url) || '';
 }
 
+function formatDurationSeconds(value: number) {
+  const rounded = Math.round(value * 1000) / 1000;
+  return `${rounded.toFixed(3).replace(/\.?0+$/, '')}s`;
+}
+
+function buildVideoMetadataFromAttachment(attachment: ApiAttachmentPayload) {
+  const raw = attachment.videoMetadata;
+  if (!raw) return undefined;
+
+  const startOffsetSeconds = isFiniteNumber(raw.startOffsetSeconds) && raw.startOffsetSeconds >= 0
+    ? raw.startOffsetSeconds
+    : undefined;
+  const endOffsetSeconds = isFiniteNumber(raw.endOffsetSeconds) && raw.endOffsetSeconds >= 0
+    ? raw.endOffsetSeconds
+    : undefined;
+  const fps = isFiniteNumber(raw.fps) && raw.fps > 0 && raw.fps <= 24
+    ? Math.round(raw.fps * 1000) / 1000
+    : undefined;
+
+  if (
+    startOffsetSeconds !== undefined
+    && endOffsetSeconds !== undefined
+    && endOffsetSeconds <= startOffsetSeconds
+  ) {
+    log.warn('Ignoring invalid videoMetadata endOffset <= startOffset', {
+      attachmentName: attachment.name,
+      startOffsetSeconds,
+      endOffsetSeconds,
+    });
+  }
+
+  const videoMetadata = {
+    startOffset: startOffsetSeconds !== undefined ? formatDurationSeconds(startOffsetSeconds) : undefined,
+    endOffset: (
+      endOffsetSeconds !== undefined
+      && (startOffsetSeconds === undefined || endOffsetSeconds > startOffsetSeconds)
+    )
+      ? formatDurationSeconds(endOffsetSeconds)
+      : undefined,
+    fps,
+  };
+
+  return Object.values(videoMetadata).some((value) => value !== undefined)
+    ? videoMetadata
+    : undefined;
+}
+
+function attachVideoMetadata(part: ModelPart, attachment: ApiAttachmentPayload): ModelPart {
+  const videoMetadata = buildVideoMetadataFromAttachment(attachment);
+  if (!videoMetadata) return part;
+  if (!part.fileData && !part.inlineData) return part;
+  return {
+    ...part,
+    videoMetadata,
+  };
+}
+
 function isInlineFriendlyMimeType(mimeType: string) {
   return mimeType.startsWith('image/')
     || mimeType.startsWith('audio/')
@@ -119,6 +187,7 @@ function clipText(value: string, max = MAX_TEXT_ATTACHMENT_CHARS) {
 }
 
 function buildFallbackAttachmentText(attachment: ApiAttachmentPayload) {
+  const videoMetadata = buildVideoMetadataFromAttachment(attachment);
   const labelByType: Record<ApiAttachmentPayload['type'], string> = {
     image: 'Image jointe',
     video: 'Video jointe',
@@ -133,6 +202,9 @@ function buildFallbackAttachmentText(attachment: ApiAttachmentPayload) {
     attachment.mimeType ? `Type: ${attachment.mimeType}` : null,
     attachment.storageUri ? `Storage: ${attachment.storageUri}` : null,
     attachment.url ? `URL: ${attachment.url}` : null,
+    videoMetadata?.startOffset ? `Debut video: ${videoMetadata.startOffset}` : null,
+    videoMetadata?.endOffset ? `Fin video: ${videoMetadata.endOffset}` : null,
+    typeof videoMetadata?.fps === 'number' ? `FPS: ${videoMetadata.fps}` : null,
   ].filter(Boolean).join('\n');
 }
 
@@ -242,14 +314,21 @@ export async function resolveAttachmentToModelParts(attachment: ApiAttachmentPay
   const storageUri = resolveStorageUri(attachment);
 
   if (attachment.type === 'youtube' || looksLikeYouTubeUrl(attachment.url)) {
+    if (attachment.url && looksLikeHttpUrl(attachment.url)) {
+      return [attachVideoMetadata({
+        fileData: {
+          mimeType: mimeType.startsWith('video/') ? mimeType : 'video/mp4',
+          fileUri: attachment.url,
+        },
+      }, attachment)];
+    }
+
     const title = await resolveYoutubeTitle(attachment);
-    return [{
-      text: [
-        'Lien YouTube partage.',
-        title ? `Titre: ${title}` : null,
-        attachment.url ? `URL: ${attachment.url}` : null,
-      ].filter(Boolean).join('\n'),
-    }];
+    return [{ text: [
+      'Lien YouTube partage.',
+      title ? `Titre: ${title}` : null,
+      attachment.url ? `URL: ${attachment.url}` : null,
+    ].filter(Boolean).join('\n') }];
   }
 
   if (mimeType && isTextMimeType(mimeType)) {
@@ -273,16 +352,18 @@ export async function resolveAttachmentToModelParts(attachment: ApiAttachmentPay
   }
 
   if (storageUri && mimeType && isCloudFileDataMimeType(mimeType)) {
-    return [{ fileData: { mimeType, fileUri: storageUri } }];
+    return [attachVideoMetadata({ fileData: { mimeType, fileUri: storageUri } }, attachment)];
   }
 
   if (base64 && mimeType && isInlineFriendlyMimeType(mimeType)) {
-    return [{ inlineData: { mimeType, data: base64 } }];
+    return [attachVideoMetadata({ inlineData: { mimeType, data: base64 } }, attachment)];
   }
 
   if (attachment.url && looksLikeHttpUrl(attachment.url) && mimeType && isInlineFriendlyMimeType(mimeType)) {
     try {
-      return [{ inlineData: await fetchRemoteInlineData(attachment.url, mimeType) }];
+      return [attachVideoMetadata({
+        inlineData: await fetchRemoteInlineData(attachment.url, mimeType),
+      }, attachment)];
     } catch (error) {
       log.warn('Attachment inline fetch failed, falling back to text context', {
         url: attachment.url,
@@ -308,14 +389,25 @@ export async function resolveApiPartsToModelParts(parts: ApiMessagePartPayload[]
     }
 
     if (part.fileData) {
-      if (looksLikeHttpUrl(part.fileData.fileUri)) {
+      if (looksLikeHttpUrl(part.fileData.fileUri) && looksLikeYouTubeUrl(part.fileData.fileUri)) {
+        modelParts.push({
+          fileData: {
+            mimeType: part.fileData.mimeType || 'video/mp4',
+            fileUri: part.fileData.fileUri,
+          },
+          ...(part.videoMetadata ? { videoMetadata: part.videoMetadata } : {}),
+        });
+      } else if (looksLikeHttpUrl(part.fileData.fileUri)) {
         modelParts.push(...await resolveAttachmentToModelParts({
           type: looksLikeYouTubeUrl(part.fileData.fileUri) ? 'youtube' : 'document',
           url: part.fileData.fileUri,
           mimeType: part.fileData.mimeType,
         }));
       } else {
-        modelParts.push({ fileData: part.fileData });
+        modelParts.push({
+          fileData: part.fileData,
+          ...(part.videoMetadata ? { videoMetadata: part.videoMetadata } : {}),
+        });
       }
     }
 

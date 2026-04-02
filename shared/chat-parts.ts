@@ -1,5 +1,11 @@
 export type ApiAttachmentType = 'image' | 'video' | 'audio' | 'document' | 'youtube';
 
+export interface ApiAttachmentVideoMetadata {
+  startOffsetSeconds?: number;
+  endOffsetSeconds?: number;
+  fps?: number;
+}
+
 export interface ApiAttachmentPayload {
   type: ApiAttachmentType;
   url?: string;
@@ -8,6 +14,7 @@ export interface ApiAttachmentPayload {
   name?: string;
   base64?: string;
   thumbnail?: string;
+  videoMetadata?: ApiAttachmentVideoMetadata;
 }
 
 export interface ApiMessagePartPayload {
@@ -19,6 +26,11 @@ export interface ApiMessagePartPayload {
   fileData?: {
     mimeType: string;
     fileUri: string;
+  };
+  videoMetadata?: {
+    startOffset?: string;
+    endOffset?: string;
+    fps?: number;
   };
   attachment?: ApiAttachmentPayload;
 }

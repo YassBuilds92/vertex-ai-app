@@ -11,6 +11,12 @@ export type AppMode = 'chat' | 'image' | 'video' | 'audio' | 'cowork';
 
 export type AttachmentType = 'image' | 'video' | 'audio' | 'document' | 'youtube';
 
+export interface AttachmentVideoMetadata {
+  startOffsetSeconds?: number;
+  endOffsetSeconds?: number;
+  fps?: number;
+}
+
 export interface Attachment {
   id: string;
   type: AttachmentType;
@@ -21,6 +27,7 @@ export interface Attachment {
   name?: string;
   base64?: string;
   thumbnail?: string;
+  videoMetadata?: AttachmentVideoMetadata;
 }
 
 export interface Message {

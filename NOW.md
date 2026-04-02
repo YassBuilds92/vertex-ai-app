@@ -1,34 +1,37 @@
 # NOW
 
 ## Objectif actuel
-- Valider en vrai run connecte la nouvelle ingestion fichiers chat/Cowork:
-  - video = contenu lisible, pas seulement titre/URL
-  - PDF/image/audio = toujours OK
-  - documents texte (`txt`, `md`, `csv`, `json`, etc.) = contenu relu par le modele
+- Valider en vrai run connecte/deploye la nouvelle ingestion YouTube native dans chat/Cowork:
+  - lien YouTube = contenu video reel, pas seulement titre/URL
+  - reglages `debut / fin / FPS` = bien appliques et conserves
+  - uploads video/PDF/image/audio/texte deja corriges = toujours OK
 
 ## Blocage actuel
-- Le correctif est valide localement en TypeScript/tests, mais pas encore rejoue dans l'app authentifiee/deployee.
+- Le correctif YouTube natif est valide localement en TypeScript/tests + captures UI, mais pas encore rejoue dans l'app authentifiee/deployee.
 
 ## Prochaine action exacte
 - Redeployer puis rejouer une matrice manuelle:
-  - chat + video MP4
-  - Cowork + video MP4
-  - chat + PDF
-  - chat + TXT/JSON/CSV
+  - chat + URL YouTube simple
+  - chat + URL YouTube avec `40s -> 80s`, `5 FPS`
+  - Cowork + URL YouTube avec les memes reglages
+  - follow-up sur un message YouTube deja persiste
+  - revalidation rapide des uploads MP4/PDF/TXT
 
 ## Fichiers chauds
-- `src/App.tsx`
 - `server/lib/chat-parts.ts`
-- `server/lib/storage.ts`
+- `src/components/ChatInput.tsx`
+- `src/components/AttachmentGallery.tsx`
 - `server/routes/standard.ts`
-- `api/index.ts`
 - `verify-chat-parts.ts`
+- `tmp/youtube-preview.tsx`
 
 ## Validations restantes
-- Rejouer les uploads reels dans l'UI connectee.
-- Verifier qu'un ancien message video deja persiste est bien rehydrate via `gs://`.
+- Rejouer YouTube natif dans l'UI connectee/deployee.
+- Verifier qu'un message YouTube deja persiste garde bien sa plage `debut / fin / FPS`.
+- Confirmer en vrai run si plusieurs URLs YouTube dans un meme contexte restent acceptables par l'endpoint cible.
 - Confirmer qu'aucun type supporte ne retombe sur le simple fallback `Nom + URL`.
 
 ## Risques immediats
 - Les fichiers texte tres volumineux restent tronques volontairement dans le contexte modele.
 - Les formats binaires non supportes par Gemini (ex: Office natif non parse localement) tombent encore sur un fallback descriptif.
+- La doc Vertex sur les URLs YouTube est plus restrictive que l'UI Google AI Studio sur certains cas; le multi-YouTube par requete reste a verifier en pratique.

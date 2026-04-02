@@ -23,6 +23,7 @@ export function buildApiAttachmentPayload(attachment: Attachment): ApiAttachment
     name: attachment.name,
     base64: stripDataUrlPrefix(attachment.base64),
     thumbnail: attachment.thumbnail,
+    videoMetadata: attachment.videoMetadata,
   };
 }
 

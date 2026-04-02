@@ -1,5 +1,25 @@
 # DECISIONS
 
+## 2026-04-02 - Les liens YouTube passent nativement par `fileData.fileUri` avec `videoMetadata`
+- Statut: adopte localement
+- Contexte: apres la correction `gs://` pour les fichiers uploadees, les liens YouTube restaient encore reduits a un texte `Titre + URL`. L'utilisateur veut explicitement le comportement de Google AI Studio, qui traite YouTube comme une vraie entree video et expose des reglages `debut / fin / FPS`.
+- Decision:
+  - stocker les reglages YouTube sur l'attachment lui-meme via `videoMetadata`
+  - construire cote backend une vraie part Gemini:
+    - `fileData.fileUri = url YouTube`
+    - `fileData.mimeType = video/mp4`
+    - `videoMetadata.startOffset|endOffset|fps`
+  - ne garder le fallback texte que si l'URL est absente ou invalide
+- Pourquoi:
+  - aligne l'app sur la voie native documentee par Google au lieu d'un contexte textuel appauvri
+  - permet enfin au modele de raisonner sur les frames et le contenu reel de la video
+  - garde une persistance claire des reglages utilisateur entre chat et Cowork
+- Consequence:
+  - `server/lib/chat-parts.ts` porte maintenant la conversion native YouTube
+  - `src/components/ChatInput.tsx` expose un modal de reglages video
+  - `src/components/AttachmentGallery.tsx` rend visibles ces reglages sur la carte persistente
+  - `verify-chat-parts.ts` couvre ce contrat
+
 ## 2026-04-02 - Les pieces jointes persistentes gardent 2 adresses: URL signee pour l'UI, `gs://` pour le modele
 - Statut: adopte localement
 - Contexte: une video uploadee dans le chat ou dans Cowork arrivait bien en GCS, mais le backend essayait ensuite de la relire via l'URL signee HTTP. Pour les videos un peu lourdes, cela finissait en fallback texte (`Nom + URL`) et Gemini ne voyait plus le contenu reel. Les documents texte non-PDF etaient egalement sous-traites.

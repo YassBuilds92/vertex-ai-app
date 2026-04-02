@@ -9,6 +9,33 @@
 - Cout
 - Sources officielles
 
+## 2026-04-02 - URLs YouTube natives Gemini via `fileData.fileUri` + `videoMetadata`
+- Statut: retenu pour chat/Cowork
+- Date de verification: 2026-04-02
+- Technologie: Gemini / Vertex AI video input depuis une URL YouTube
+- Choix:
+  - utiliser directement l'URL YouTube en `fileData.fileUri`
+  - porter `startOffset`, `endOffset` et `fps` via `videoMetadata`
+  - garder `title + thumbnail` seulement pour l'UX, pas comme voie principale pour le modele
+- Pourquoi:
+  - c'est la voie native officiellement documentee par Google pour l'analyse video YouTube
+  - evite un faux fallback pauvre `Titre + URL`
+  - ne demande ni download serveur de YouTube ni pipeline de transcodage supplementaire
+- Alternatives evaluees:
+  - conserver le fallback texte `Titre + URL`
+    - Ecartee: ne donne pas une vraie entree video au modele
+  - telecharger/transcoder la video YouTube cote serveur
+    - Ecartee: plus lourde, plus fragile et inutile tant que la voie native officielle existe
+  - essayer de convertir le lien en upload GCS
+    - Ecartee: complexifie inutilement le flux et s'eloigne du contrat Google AI Studio
+- Cout:
+  - aucun cout de dependance supplementaire
+  - cout modele Vertex AI/Gemini habituel
+- Sources officielles:
+  - [Video understanding](https://ai.google.dev/gemini-api/docs/video-understanding)
+  - [Use a YouTube video URL with Gemini](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/samples/googlegenaisdk-textgen-with-youtube-video)
+  - [GenerateContent model reference / fileData](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference#fileData)
+
 ## 2026-04-01 - `esbuild` pour bundler les generated apps cote serveur
 - Statut: retenu pour le lifecycle preview/publish
 - Date de verification: 2026-04-01

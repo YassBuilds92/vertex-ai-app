@@ -32,6 +32,48 @@ function getDownloadName(attachment: Attachment, fallback: string) {
   return attachment.name || fallback;
 }
 
+function formatTimeOffset(seconds?: number) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+    return null;
+  }
+
+  const rounded = Math.round(seconds * 1000) / 1000;
+  if (!Number.isInteger(rounded)) {
+    return `${rounded.toFixed(3).replace(/\.?0+$/, '')}s`;
+  }
+
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainderSeconds = rounded % 60;
+
+  if (hours > 0) {
+    return `${hours}h${minutes > 0 ? `${minutes}m` : ''}${remainderSeconds > 0 ? `${remainderSeconds}s` : ''}`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m${remainderSeconds > 0 ? `${remainderSeconds}s` : ''}`;
+  }
+  return `${remainderSeconds}s`;
+}
+
+function getVideoMetadataSummary(attachment: Attachment) {
+  const videoMetadata = attachment.videoMetadata;
+  if (!videoMetadata) return null;
+
+  const segments = [
+    formatTimeOffset(videoMetadata.startOffsetSeconds)
+      ? `Debut ${formatTimeOffset(videoMetadata.startOffsetSeconds)}`
+      : null,
+    formatTimeOffset(videoMetadata.endOffsetSeconds)
+      ? `Fin ${formatTimeOffset(videoMetadata.endOffsetSeconds)}`
+      : null,
+    typeof videoMetadata.fps === 'number'
+      ? `${videoMetadata.fps} FPS`
+      : null,
+  ].filter(Boolean);
+
+  return segments.length > 0 ? segments.join(' · ') : null;
+}
+
 export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
   attachments,
   setSelectedImage,
@@ -195,6 +237,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
         }
 
         if (attachment.type === 'youtube') {
+          const videoMetadataSummary = getVideoMetadataSummary(attachment);
           return (
             <motion.a
               key={key}
@@ -208,13 +251,35 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
                 cardWidthClass,
               )}
             >
-              <div className="mb-3 flex items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-500/15 text-red-300">
-                  <Youtube size={18} />
+              {attachment.thumbnail && (
+                <div className="relative mb-4 overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/30">
+                  <img
+                    src={attachment.thumbnail}
+                    alt={attachment.name || 'Lien YouTube'}
+                    className="aspect-video w-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/78 via-black/10 to-transparent" />
+                  <div className="absolute inset-0 flex items-center justify-center text-white">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-500/92 shadow-[0_24px_42px_-26px_rgba(239,68,68,0.95)]">
+                      <Youtube size={22} />
+                    </div>
+                  </div>
                 </div>
+              )}
+              <div className="mb-3 flex items-start gap-3">
+                {!attachment.thumbnail && (
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-500/15 text-red-300">
+                    <Youtube size={18} />
+                  </div>
+                )}
                 <div className="min-w-0">
                   <div className="line-clamp-2 text-sm font-medium text-[var(--app-text)]">{attachment.name || 'Lien YouTube'}</div>
                   <div className="mt-1 text-[11px] text-[var(--app-text-muted)]">{getAttachmentMeta(attachment)}</div>
+                  {videoMetadataSummary && (
+                    <div className="mt-2 text-[11px] leading-relaxed text-red-100/82">
+                      {videoMetadataSummary}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 text-[12px] text-red-200/90">

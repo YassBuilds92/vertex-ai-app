@@ -1,5 +1,41 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-02 - Les liens YouTube deviennent enfin des videos natives dans chat et Cowork
+- Retour produit:
+  - l'utilisateur veut le meme comportement que Google AI Studio quand il colle une video YouTube:
+    - vrai contenu video interprete par Gemini
+    - reglages `Start Time`, `End Time`, `FPS`
+  - il refuse explicitement un fallback `Titre + URL`
+- Cause racine confirmee:
+  - apres la correction des uploads GCS, le code YouTube restait encore sur un simple contexte texte dans `server/lib/chat-parts.ts`
+  - aucune structure persistente ne gardait une plage video ou un FPS
+- Changement applique:
+  - `src/types.ts` / `shared/chat-parts.ts` / `server/lib/schemas.ts`
+    - ajout de `videoMetadata` sur les attachments
+  - `server/lib/chat-parts.ts`
+    - un `youtube` est maintenant converti en vraie part `fileData.fileUri`
+    - `videoMetadata` est injecte avec `startOffset`, `endOffset`, `fps`
+  - `src/components/ChatInput.tsx`
+    - ajout d'un modal `Video settings`
+    - support des formats `1m10s`, `70s`, `01:10`
+    - vignette YouTube enrichie + resume des reglages
+  - `src/components/AttachmentGallery.tsx`
+    - carte persistente YouTube avec thumbnail + resume `debut / fin / FPS`
+  - `server/routes/standard.ts`
+    - `/api/metadata` renvoie maintenant `title + thumbnail`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx verify-chat-parts.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - captures locales:
+    - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-card-apr02.png`
+    - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-modal-apr02.png`
+    - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-modal-mobile-apr02-fixed3.png`
+- Etat produit:
+  - localement, YouTube n'est plus un bricolage texte
+  - il reste a rejouer le flux authentifie/deploye sur un vrai run utilisateur
+
 ## Mise a jour 2026-04-02 - Les pieces jointes Cowork gardent enfin une vraie voie modele pour les fichiers uploadees
 - Retour produit:
   - l'utilisateur signale qu'une video envoyee dans le chat et dans Cowork n'est lue qu'a travers son titre

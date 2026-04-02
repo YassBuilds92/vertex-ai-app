@@ -1,5 +1,36 @@
 # BUGS GRAVEYARD
 
+## 2026-04-02 - Les liens YouTube etaient encore lus comme du texte au lieu d'une vraie video
+- Statut: corrige localement, a revalider dans l'app connectee/deployee
+- Symptome:
+  - un lien YouTube colle dans `chat` ou `cowork` etait traite comme `Titre + URL`
+  - Gemini ne recevait pas une vraie entree video native, donc pas d'analyse frame/video comparable a Google AI Studio
+  - aucun reglage `debut / fin / FPS` n'etait disponible ou persiste
+- Tentatives:
+  - verification du chemin upload GCS deja corrige pour les fichiers locaux
+  - audit du branchement YouTube dans `server/lib/chat-parts.ts`
+  - reverification de la doc officielle Gemini/Vertex pour l'usage natif des URLs YouTube
+- Cause racine:
+  - le bug initial des uploads video etait corrige, mais la branche `youtube` du resoluteur backend etait restee en fallback texte historique
+  - la structure `Attachment` ne portait aucun `videoMetadata`
+  - l'UI n'avait pas de modal pour le cadrage video
+- Resolution:
+  - ajout de `videoMetadata` sur les attachments frontend/backend
+  - conversion YouTube en vraie part native `{ fileData, videoMetadata }` dans `server/lib/chat-parts.ts`
+  - enrichment de `/api/metadata` avec `thumbnail`
+  - modal `Video settings` dans `src/components/ChatInput.tsx`
+  - carte persistente YouTube enrichie dans `src/components/AttachmentGallery.tsx`
+  - fix responsive mobile du modal pour rendre les actions visibles
+- Preuve:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx verify-chat-parts.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - captures locales:
+    - `youtube-preview-card-apr02.png`
+    - `youtube-preview-modal-apr02.png`
+    - `youtube-preview-modal-mobile-apr02-fixed3.png`
+
 ## 2026-04-02 - Video upload lue comme un simple titre dans chat et Cowork
 - Statut: corrige localement, a revalider dans l'app connectee/deployee
 - Symptome:

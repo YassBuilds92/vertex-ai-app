@@ -37,6 +37,39 @@ function createUploadFileName(prefix: string, extension: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExtension}`;
 }
 
+function extractYouTubeVideoId(url: string) {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+
+    if (hostname.includes('youtu.be')) {
+      const candidate = pathname.split('/').filter(Boolean)[0];
+      return candidate || null;
+    }
+
+    if (hostname.includes('youtube.com')) {
+      const watchId = parsed.searchParams.get('v');
+      if (watchId) return watchId;
+
+      const segments = pathname.split('/').filter(Boolean);
+      const index = segments.findIndex((segment) => ['shorts', 'live', 'embed'].includes(segment));
+      if (index >= 0 && segments[index + 1]) {
+        return segments[index + 1];
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getYouTubeThumbnailUrl(url: string) {
+  const videoId = extractYouTubeVideoId(url);
+  return videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : undefined;
+}
+
 function writeSseEvent(res: Response, event: string, data: unknown) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -336,6 +369,7 @@ export function registerStandardApiRoutes(app: Express) {
       if (!url) return res.status(400).json({ error: 'URL manquante' });
 
       let title = 'Video YouTube';
+      let thumbnail = getYouTubeThumbnailUrl(url);
 
       if (/^(https?:\/\/)?((www|m)\.)?(youtube\.com|youtu\.be)\//i.test(url)) {
         const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
@@ -348,6 +382,9 @@ export function registerStandardApiRoutes(app: Express) {
           if (payload && typeof payload.title === 'string' && payload.title.trim()) {
             title = payload.title.trim();
           }
+          if (payload && typeof payload.thumbnail_url === 'string' && payload.thumbnail_url.trim()) {
+            thumbnail = payload.thumbnail_url.trim();
+          }
         }
       }
 
@@ -355,11 +392,15 @@ export function registerStandardApiRoutes(app: Express) {
         const response = await fetch(url);
         const html = await response.text();
         const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+        const thumbnailMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i);
         title = titleMatch ? titleMatch[1] : 'Video YouTube';
         title = title.replace(/ - YouTube$/i, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+        if (!thumbnail && thumbnailMatch?.[1]) {
+          thumbnail = thumbnailMatch[1];
+        }
       }
 
-      res.json({ title });
+      res.json({ title, thumbnail });
     } catch (error) {
       log.error('Metadata fetch error', error);
       res.status(500).json({ error: 'Failed to fetch metadata' });

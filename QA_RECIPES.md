@@ -1,5 +1,36 @@
 # QA RECIPES
 
+## YouTube natif - chat et Cowork
+- Objectif:
+  - verifier qu'un lien YouTube est maintenant traite comme une vraie video Gemini, pas comme un simple titre
+  - verifier que les reglages `debut / fin / FPS` restent visibles et persistents
+- Scenarios cibles:
+  - URL YouTube simple sans cadrage
+  - URL YouTube avec `Start Time = 40s`, `End Time = 1m20s`, `FPS = 5`
+  - follow-up apres persistance (`resume ce passage`, `decris les frames visibles`)
+- Etapes manuelles:
+  - ouvrir `chat & raisonnement`
+  - coller une URL YouTube
+  - ouvrir `Video settings` depuis la vignette
+  - enregistrer un cadrage `40s -> 1m20s`, `5 FPS`
+  - envoyer une consigne explicite de lecture (`decris ce passage`, `liste les elements visuels a l'ecran`)
+  - rejouer la meme sequence dans `Cowork`
+  - faire ensuite un follow-up sur le meme thread sans recoller la video
+- Attendus:
+  - la reponse parle du contenu reel de la video
+  - la carte persistente affiche encore `debut / fin / FPS`
+  - le modal mobile garde ses boutons visibles
+  - aucun fallback `Titre + URL` sur le chemin normal
+- Validation code:
+  - `npm run lint`
+  - `npm run build`
+  - `npx tsx verify-chat-parts.ts`
+  - `npx tsx test-cowork-loop.ts`
+- Captures de reference locales:
+  - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-card-apr02.png`
+  - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-modal-apr02.png`
+  - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-modal-mobile-apr02-fixed3.png`
+
 ## Pieces jointes - chat et Cowork
 - Objectif:
   - verifier qu'une video uploadee reste vraiment lisible par Gemini en `chat` et en `cowork`

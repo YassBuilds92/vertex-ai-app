@@ -1,5 +1,78 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (YouTube natif comme Google AI Studio, avec plage video et FPS)
+- Besoin traite:
+  - l'utilisateur veut que les liens YouTube soient interpretes comme dans Google AI Studio, pas comme un bricolage `titre + lien`
+  - il montre aussi l'UI AI Studio de reglages video (`Start Time`, `End Time`, `FPS`) et demande le meme comportement
+- Verification officielle faite:
+  - doc Google AI / Gemini reverifiee
+  - confirmation que Gemini accepte une URL YouTube native en `fileData.fileUri`
+  - confirmation que `videoMetadata.startOffset`, `endOffset` et `fps` sont supportes pour cadrer l'analyse
+- Cause racine confirmee:
+  - apres le correctif `gs://` pour les fichiers uploadees, le chemin YouTube restait encore en fallback texte dans `server/lib/chat-parts.ts`
+  - la piece jointe YouTube n'avait aucun champ pour conserver une plage video ou un FPS
+  - l'UI ne montrait qu'une carte lien sans modal de parametrage
+- Correctifs appliques:
+  - contrat partage:
+    - `src/types.ts`
+    - `shared/chat-parts.ts`
+    - `server/lib/schemas.ts`
+    - ajout de `videoMetadata` (`startOffsetSeconds`, `endOffsetSeconds`, `fps`) sur les attachments
+  - serialisation/persistance:
+    - `src/utils/chat-parts.ts`
+    - `src/utils/cowork.ts`
+    - propagation et sanitation de `videoMetadata`
+  - backend:
+    - `server/lib/chat-parts.ts`
+      - un attachment `youtube` devient maintenant une vraie part native:
+        - `fileData.fileUri = https://www.youtube.com/...`
+        - `fileData.mimeType = video/mp4`
+        - `videoMetadata` derive depuis les reglages UI
+      - les videos fichier/GCS peuvent aussi porter `videoMetadata` si on l'ajoute plus tard
+    - `server/routes/standard.ts`
+      - `/api/metadata` renvoie maintenant `title + thumbnail`
+  - frontend:
+    - `src/components/ChatInput.tsx`
+      - la piece jointe YouTube garde maintenant un vrai `thumbnail`
+      - ajout d'un modal `Video settings`
+      - champs:
+        - `Start Time`
+        - `End Time`
+        - `FPS`
+      - formats acceptes:
+        - `1m10s`
+        - `70s`
+        - `01:10`
+      - validation:
+        - temps invalides refuses
+        - `end > start`
+        - `0 < fps <= 24`
+      - fix responsive mobile: footer du modal rendu visible au premier ecran
+    - `src/components/AttachmentGallery.tsx`
+      - la carte YouTube persistente affiche aussi la vignette et le resume `debut / fin / FPS`
+  - validation code:
+    - `verify-chat-parts.ts`
+      - couvre maintenant le cas YouTube natif + `videoMetadata`
+      - couvre aussi la persistance de `videoMetadata` dans l'historique
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx verify-chat-parts.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - captures Edge headless locales:
+    - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-card-apr02.png`
+    - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-modal-apr02.png`
+    - `C:\Users\Yassine\AppData\Local\Temp\youtube-preview-modal-mobile-apr02-fixed3.png`
+- Harness ajoute:
+  - `tmp/youtube-preview.html`
+  - `tmp/youtube-preview.tsx`
+- Limites restantes:
+  - pas encore de run authentifie/deploye sur un vrai lien YouTube dans l'app finale
+  - pas encore de preuve pratique sur un contexte contenant plusieurs URLs YouTube a la fois
+- Intention exacte:
+  - aligner enfin la voie YouTube sur une vraie entree multimodale Gemini
+  - garder l'UI et la persistance assez riches pour que l'utilisateur voie et reouvre son cadrage video
+
 ## Mise a jour complementaire - 2026-04-02 (pieces jointes video/texte enfin lisibles dans chat + Cowork)
 - Besoin traite:
   - l'utilisateur remonte qu'une video envoyee n'est lue qu'a travers son titre dans `chat` et dans `cowork`

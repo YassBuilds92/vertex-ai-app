@@ -166,6 +166,11 @@ const AttachmentPayloadSchema = z.object({
   name: z.string().optional(),
   base64: z.string().optional(),
   thumbnail: z.string().optional(),
+  videoMetadata: z.object({
+    startOffsetSeconds: z.number().min(0).optional(),
+    endOffsetSeconds: z.number().min(0).optional(),
+    fps: z.number().gt(0).max(24).optional(),
+  }).optional(),
 });
 
 const ChatPartSchema = z.object({
@@ -177,6 +182,11 @@ const ChatPartSchema = z.object({
   fileData: z.object({
     mimeType: z.string(),
     fileUri: z.string(),
+  }).optional(),
+  videoMetadata: z.object({
+    startOffset: z.string().optional(),
+    endOffset: z.string().optional(),
+    fps: z.number().gt(0).max(24).optional(),
   }).optional(),
   attachment: AttachmentPayloadSchema.optional(),
 });

@@ -8,6 +8,39 @@ type Message = import('./src/types.ts').Message;
 {
   const contents = await buildModelContentsFromRequest({
     history: [],
+    message: 'Analyse cette video YouTube.',
+    attachments: [
+      {
+        type: 'youtube',
+        url: 'https://www.youtube.com/watch?v=9hE5-98ZeCg',
+        mimeType: 'video/mp4',
+        name: 'Video YouTube',
+        videoMetadata: {
+          startOffsetSeconds: 40,
+          endOffsetSeconds: 80,
+          fps: 5,
+        },
+      },
+    ],
+  });
+
+  assert.equal(contents.length, 1);
+  assert.deepEqual(contents[0]?.parts[1], {
+    fileData: {
+      mimeType: 'video/mp4',
+      fileUri: 'https://www.youtube.com/watch?v=9hE5-98ZeCg',
+    },
+    videoMetadata: {
+      startOffset: '40s',
+      endOffset: '80s',
+      fps: 5,
+    },
+  });
+}
+
+{
+  const contents = await buildModelContentsFromRequest({
+    history: [],
     message: 'Analyse cette video.',
     attachments: [
       {
@@ -114,6 +147,37 @@ type Message = import('./src/types.ts').Message;
 
   const history = buildApiHistoryFromMessages([historyMessage]);
   assert.equal(history[0]?.parts[1]?.attachment?.storageUri, 'gs://videosss92/uploaded/history-video.mp4');
+}
+
+{
+  const historyMessage: Message = {
+    id: 'msg-youtube-1',
+    role: 'user',
+    content: 'Voici une video YouTube',
+    createdAt: Date.now(),
+    attachments: [
+      {
+        id: 'att-youtube-1',
+        type: 'youtube',
+        url: 'https://www.youtube.com/watch?v=9hE5-98ZeCg',
+        mimeType: 'video/mp4',
+        name: 'Demo YouTube',
+        thumbnail: 'https://i.ytimg.com/vi/9hE5-98ZeCg/hqdefault.jpg',
+        videoMetadata: {
+          startOffsetSeconds: 15,
+          endOffsetSeconds: 45,
+          fps: 2,
+        },
+      },
+    ],
+  };
+
+  const history = buildApiHistoryFromMessages([historyMessage]);
+  assert.deepEqual(history[0]?.parts[1]?.attachment?.videoMetadata, {
+    startOffsetSeconds: 15,
+    endOffsetSeconds: 45,
+    fps: 2,
+  });
 }
 
 console.log('verify-chat-parts: OK');

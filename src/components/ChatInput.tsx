@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Plus, Send, ImageIcon, Film, Mic, Paperclip, X, Music, FileText, Youtube, ChevronRight, Square 
+  Plus, Send, ImageIcon, Film, Mic, Paperclip, X, Music, FileText, Youtube, ChevronRight, Square, SlidersHorizontal
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { Attachment, AttachmentType } from '../types';
+import { Attachment, AttachmentVideoMetadata } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -16,6 +16,122 @@ const formatTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+function extractYouTubeVideoId(url?: string) {
+  if (!url) return null;
+
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+
+    if (hostname.includes('youtu.be')) {
+      return pathname.split('/').filter(Boolean)[0] || null;
+    }
+
+    if (hostname.includes('youtube.com')) {
+      const watchId = parsed.searchParams.get('v');
+      if (watchId) return watchId;
+
+      const segments = pathname.split('/').filter(Boolean);
+      const index = segments.findIndex((segment) => ['shorts', 'live', 'embed'].includes(segment));
+      if (index >= 0 && segments[index + 1]) {
+        return segments[index + 1];
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function buildYouTubeThumbnailUrl(url?: string) {
+  const videoId = extractYouTubeVideoId(url);
+  return videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : undefined;
+}
+
+function parseTimeOffsetInput(value: string): number | null {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+
+  if (/^\d{1,2}:\d{1,2}(?::\d{1,2}(?:\.\d+)?)?$/.test(trimmed)) {
+    const parts = trimmed.split(':').map(Number);
+    if (parts.some((part) => !Number.isFinite(part))) return null;
+    if (parts.length === 2) {
+      return (parts[0] * 60) + parts[1];
+    }
+    return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+  }
+
+  const unitRegex = /(\d+(?:\.\d+)?)(h|m|s)/g;
+  let consumed = '';
+  let total = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = unitRegex.exec(trimmed)) !== null) {
+    consumed += match[0];
+    const numericValue = Number(match[1]);
+    if (!Number.isFinite(numericValue)) return null;
+    const unit = match[2];
+    total += unit === 'h' ? numericValue * 3600 : unit === 'm' ? numericValue * 60 : numericValue;
+  }
+
+  return consumed === trimmed ? total : null;
+}
+
+function formatTimeOffsetInput(seconds?: number) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+    return '';
+  }
+
+  const rounded = Math.round(seconds * 1000) / 1000;
+  if (!Number.isInteger(rounded)) {
+    return `${rounded.toFixed(3).replace(/\.?0+$/, '')}s`;
+  }
+
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainderSeconds = rounded % 60;
+
+  if (hours > 0) {
+    return `${hours}h${minutes > 0 ? `${minutes}m` : ''}${remainderSeconds > 0 ? `${remainderSeconds}s` : ''}`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m${remainderSeconds > 0 ? `${remainderSeconds}s` : ''}`;
+  }
+  return `${remainderSeconds}s`;
+}
+
+function buildVideoMetadataSummary(videoMetadata?: AttachmentVideoMetadata) {
+  if (!videoMetadata) return null;
+
+  const segments = [
+    typeof videoMetadata.startOffsetSeconds === 'number'
+      ? `Debut ${formatTimeOffsetInput(videoMetadata.startOffsetSeconds)}`
+      : null,
+    typeof videoMetadata.endOffsetSeconds === 'number'
+      ? `Fin ${formatTimeOffsetInput(videoMetadata.endOffsetSeconds)}`
+      : null,
+    typeof videoMetadata.fps === 'number'
+      ? `${videoMetadata.fps} FPS`
+      : null,
+  ].filter(Boolean);
+
+  return segments.length > 0 ? segments.join(' · ') : null;
+}
+
+type YouTubeSettingsDraft = {
+  attachmentId: string;
+  startInput: string;
+  endInput: string;
+  fpsInput: string;
+  error: string | null;
 };
 
 interface ChatInputProps {
@@ -35,19 +151,113 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSend, onStop, isLoading, isRecording, recordingTime, onToggleRecording, processFiles, pendingAttachments, setPendingAttachments, setSelectedImage 
 }) => {
   const [text, setText] = useState('');
+  const [youtubeSettingsDraft, setYoutubeSettingsDraft] = useState<YouTubeSettingsDraft | null>(null);
   const { configs, activeMode, theme } = useStore();
   const config = configs[activeMode];
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const youtubeSettingsAttachment = youtubeSettingsDraft
+    ? pendingAttachments.find((attachment) => attachment.id === youtubeSettingsDraft.attachmentId)
+    : null;
 
   const handleSendClick = () => {
     if ((!text.trim() && pendingAttachments.length === 0) || isLoading) return;
     onSend(text);
     setText('');
     setPendingAttachments([]);
+    setYoutubeSettingsDraft(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+  };
+
+  useEffect(() => {
+    if (!youtubeSettingsDraft) return;
+    const attachmentStillExists = pendingAttachments.some(
+      (attachment) => attachment.id === youtubeSettingsDraft.attachmentId
+    );
+    if (!attachmentStillExists) {
+      setYoutubeSettingsDraft(null);
+    }
+  }, [pendingAttachments, youtubeSettingsDraft]);
+
+  const openYouTubeSettings = (attachment: Attachment) => {
+    setYoutubeSettingsDraft({
+      attachmentId: attachment.id,
+      startInput: formatTimeOffsetInput(attachment.videoMetadata?.startOffsetSeconds),
+      endInput: formatTimeOffsetInput(attachment.videoMetadata?.endOffsetSeconds),
+      fpsInput: typeof attachment.videoMetadata?.fps === 'number' ? String(attachment.videoMetadata.fps) : '',
+      error: null,
+    });
+  };
+
+  const saveYouTubeSettings = () => {
+    if (!youtubeSettingsDraft) return;
+
+    const startText = youtubeSettingsDraft.startInput.trim();
+    const endText = youtubeSettingsDraft.endInput.trim();
+    const fpsText = youtubeSettingsDraft.fpsInput.trim();
+
+    const startOffsetSeconds = startText ? parseTimeOffsetInput(startText) : null;
+    if (startText && startOffsetSeconds === null) {
+      setYoutubeSettingsDraft((prev) => prev ? {
+        ...prev,
+        error: 'Le debut doit etre un temps valide, par exemple 1m10s ou 01:10.',
+      } : prev);
+      return;
+    }
+
+    const endOffsetSeconds = endText ? parseTimeOffsetInput(endText) : null;
+    if (endText && endOffsetSeconds === null) {
+      setYoutubeSettingsDraft((prev) => prev ? {
+        ...prev,
+        error: 'La fin doit etre un temps valide, par exemple 2m30s ou 02:30.',
+      } : prev);
+      return;
+    }
+
+    const fps = fpsText ? Number(fpsText) : undefined;
+    if (fpsText && (!Number.isFinite(fps) || fps <= 0 || fps > 24)) {
+      setYoutubeSettingsDraft((prev) => prev ? {
+        ...prev,
+        error: 'Le FPS doit etre un nombre entre 0 et 24.',
+      } : prev);
+      return;
+    }
+
+    if (
+      typeof startOffsetSeconds === 'number'
+      && typeof endOffsetSeconds === 'number'
+      && endOffsetSeconds <= startOffsetSeconds
+    ) {
+      setYoutubeSettingsDraft((prev) => prev ? {
+        ...prev,
+        error: 'La fin doit etre apres le debut.',
+      } : prev);
+      return;
+    }
+
+    const nextVideoMetadata: AttachmentVideoMetadata | undefined =
+      typeof startOffsetSeconds === 'number'
+      || typeof endOffsetSeconds === 'number'
+      || typeof fps === 'number'
+        ? {
+            ...(typeof startOffsetSeconds === 'number' ? { startOffsetSeconds } : {}),
+            ...(typeof endOffsetSeconds === 'number' ? { endOffsetSeconds } : {}),
+            ...(typeof fps === 'number' ? { fps } : {}),
+          }
+        : undefined;
+
+    setPendingAttachments((prev) => prev.map((attachment) => (
+      attachment.id === youtubeSettingsDraft.attachmentId
+        ? {
+            ...attachment,
+            mimeType: attachment.mimeType || 'video/mp4',
+            videoMetadata: nextVideoMetadata,
+          }
+        : attachment
+    )));
+    setYoutubeSettingsDraft(null);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -72,16 +282,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               id,
               type: 'youtube',
               url: url,
-              name: `Chargement du titre...`
+              name: `Chargement du titre...`,
+              mimeType: 'video/mp4',
+              thumbnail: buildYouTubeThumbnailUrl(url),
             }]);
 
             // Fetch real title from backend
             fetch(`/api/metadata?url=${encodeURIComponent(url)}`)
               .then(res => res.json())
               .then(data => {
-                if (data.title) {
+                if (data.title || data.thumbnail) {
                   setPendingAttachments(prev => prev.map(a => 
-                    a.id === id ? { ...a, name: data.title } : a
+                    a.id === id ? {
+                      ...a,
+                      name: data.title || a.name,
+                      thumbnail: data.thumbnail || a.thumbnail,
+                    } : a
                   ));
                 }
               })
@@ -175,19 +391,53 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                           <FileText size={24} />
                         </div>
                       ) : att.type === 'youtube' ? (
-                        <div className="w-full h-full flex items-center justify-center text-red-500 bg-red-500/10">
-                          <Youtube size={24} />
-                        </div>
+                        att.thumbnail ? (
+                          <>
+                            <img
+                              src={att.thumbnail}
+                              alt={att.name || 'Video YouTube'}
+                              className="h-full w-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+                            <div className="absolute inset-0 flex items-center justify-center text-white/95">
+                              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/90 shadow-[0_18px_36px_-22px_rgba(239,68,68,0.95)]">
+                                <Youtube size={22} />
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-red-500 bg-red-500/10">
+                            <Youtube size={24} />
+                          </div>
+                        )
                       ) : null}
                       
                       {/* Badge Type */}
                       <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[9px] font-bold uppercase tracking-wider text-white/90">
                         {att.type}
                       </div>
+                      {att.type === 'youtube' && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openYouTubeSettings(att);
+                          }}
+                          className="absolute left-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/90 backdrop-blur-md opacity-0 transition-opacity group-hover/att:opacity-100"
+                          title="Regler la plage video"
+                        >
+                          <SlidersHorizontal size={13} />
+                        </button>
+                      )}
                     </div>
                     
                     <div className="px-1 pb-1">
                       <span className="block truncate text-[10px] font-medium text-[var(--app-text)]/90">{att.name}</span>
+                      {buildVideoMetadataSummary(att.videoMetadata) && (
+                        <span className="mt-1 block line-clamp-2 text-[9px] leading-relaxed text-[var(--app-text-muted)]/80">
+                          {buildVideoMetadataSummary(att.videoMetadata)}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -272,6 +522,157 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {youtubeSettingsDraft && youtubeSettingsAttachment && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-start justify-center overflow-y-auto bg-black/72 p-4 backdrop-blur-md md:items-center"
+            onClick={() => setYoutubeSettingsDraft(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+              onClick={(event) => event.stopPropagation()}
+              className="studio-panel-strong my-auto flex max-h-[calc(100vh-4.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] border border-[var(--app-border)] bg-[var(--app-surface-strong)]/95 shadow-[0_36px_90px_-36px_rgba(0,0,0,0.85)] md:max-h-[calc(100vh-2rem)]"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-[var(--app-border)] px-4 py-4 md:px-6 md:py-5">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-red-300/90">
+                    Video settings
+                  </div>
+                  <h3 className="mt-2 line-clamp-2 text-xl font-semibold text-[var(--app-text)]">
+                    {youtubeSettingsAttachment.name || 'Lien YouTube'}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--app-text-muted)]">
+                    Regle la portion analysee par Gemini exactement comme une entree video native.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setYoutubeSettingsDraft(null)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                  title="Fermer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="grid gap-4 px-4 py-4 md:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)] md:gap-6 md:px-6 md:py-6">
+                  <div className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-black/30">
+                    {youtubeSettingsAttachment.thumbnail ? (
+                      <div className="relative aspect-video">
+                        <img
+                          src={youtubeSettingsAttachment.thumbnail}
+                          alt={youtubeSettingsAttachment.name || 'Video YouTube'}
+                          className="h-full w-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/5 to-transparent" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-red-500/92 shadow-[0_28px_48px_-28px_rgba(239,68,68,0.95)]">
+                            <Youtube size={34} className="text-white" />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex aspect-video items-center justify-center bg-red-500/10 text-red-300">
+                        <Youtube size={34} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-[var(--app-text)]">
+                        Start Time
+                      </span>
+                      <input
+                        type="text"
+                        value={youtubeSettingsDraft.startInput}
+                        onChange={(event) => setYoutubeSettingsDraft((prev) => prev ? {
+                          ...prev,
+                          startInput: event.target.value,
+                          error: null,
+                        } : prev)}
+                        placeholder="e.g., 1m10s"
+                        className="studio-input h-12"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-[var(--app-text)]">
+                        End Time
+                      </span>
+                      <input
+                        type="text"
+                        value={youtubeSettingsDraft.endInput}
+                        onChange={(event) => setYoutubeSettingsDraft((prev) => prev ? {
+                          ...prev,
+                          endInput: event.target.value,
+                          error: null,
+                        } : prev)}
+                        placeholder="e.g., 2m30s"
+                        className="studio-input h-12"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-[var(--app-text)]">
+                        FPS (frames per second)
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={youtubeSettingsDraft.fpsInput}
+                        onChange={(event) => setYoutubeSettingsDraft((prev) => prev ? {
+                          ...prev,
+                          fpsInput: event.target.value,
+                          error: null,
+                        } : prev)}
+                        placeholder="Defaults to 1 FPS"
+                        className="studio-input h-12"
+                      />
+                    </label>
+
+                    <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-xs leading-relaxed text-[var(--app-text-muted)]">
+                      Formats acceptes: <span className="text-[var(--app-text)]">1m10s</span>, <span className="text-[var(--app-text)]">70s</span>, <span className="text-[var(--app-text)]">01:10</span>.
+                      Laisse vide pour analyser toute la video.
+                    </div>
+
+                    {youtubeSettingsDraft.error && (
+                      <div className="rounded-[1.15rem] border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                        {youtubeSettingsDraft.error}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-[var(--app-border)] px-4 py-4 md:px-6 md:py-5">
+                <button
+                  type="button"
+                  onClick={() => setYoutubeSettingsDraft(null)}
+                  className="inline-flex items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveYouTubeSettings}
+                  className="inline-flex items-center justify-center rounded-2xl border border-[var(--app-border-strong)] bg-[linear-gradient(135deg,rgba(129,236,255,0.95),rgba(68,196,255,0.78))] px-4 py-2.5 text-sm font-semibold text-[#041018] shadow-[0_20px_48px_-24px_rgba(68,196,255,0.7)]"
+                >
+                  Save
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

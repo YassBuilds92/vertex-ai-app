@@ -1181,3 +1181,35 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
 - Limites restantes:
   - pas encore de script builder visuel multi-speaker complet dans l'UI standard type AI Studio
   - le fallback sans `ffmpeg` reste moins fin que le chemin masterise complet
+
+## Mise a jour 2026-04-02 - `Cowork Apps` passe d'une scene hero serree a un vrai gestionnaire d'apps
+- Retour produit:
+  - l'utilisateur juge la home trop serree et trop bavarde
+  - il veut une metaphore type tablette/gestionnaire d'applications:
+    - toutes les apps visibles
+    - une grande preview de l'app selectionnee
+    - une petite zone de chat en bas
+    - Cowork qui clarifie la vision avant de generer l'app
+  - il insiste aussi sur un point produit:
+    - chaque app doit avoir une interface propre a elle
+    - surtout pas des formes/labels generiques repetes
+- Changement applique:
+  - `src/components/AgentsHub.tsx`
+    - suppression de l'ancienne hero scene et du labo lateral verbeux
+    - nouvelle bibliotheque d'apps a gauche en tiles type app manager
+    - preview centrale grand format de l'interface de l'app selectionnee
+    - rail droit recentre sur le cap Cowork, la clarification et la creation live
+    - nouveau composer bas pleine largeur pour decrire une idee ou repondre a une clarification
+    - la preview d'app en cours de creation peut prendre la place centrale pendant le run
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless:
+    - `tmp/cowork-store-desktop-apr02.png`
+    - `tmp/cowork-store-mobile-apr02.png`
+    - `tmp/cowork-creation-desktop-apr02.png`
+    - `tmp/cowork-creation-mobile-apr02.png`
+- Etat produit:
+  - le desktop respire nettement mieux et ressemble enfin a un launcher/store d'apps
+  - la creation est plus lisible comme conversation de cadrage
+  - la validation reelle sur donnees/auth utilisateur reste encore a faire

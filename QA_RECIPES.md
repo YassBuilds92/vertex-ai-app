@@ -231,6 +231,28 @@
   - aucun faux pourcentage ni fausse barre de progression
 - GeneratedAppHost:
   - badge `preview native` visible
+
+## Cowork Apps - home type gestionnaire d'apps
+- Objectif:
+  - verifier que la home ressemble a un vrai gestionnaire d'apps, pas a une hero page trop serree
+  - verifier que le composer bas reste lisible et qu'il exprime bien la clarification Cowork
+- Etapes manuelles:
+  - ouvrir `http://127.0.0.1:4173/tmp/cowork-apps-preview.html?view=store`
+  - verifier la bibliotheque d'apps en tiles a gauche
+  - verifier la grande preview centrale de l'app selectionnee
+  - verifier le rail droit `Cap produit` ou `Cowork en direct`
+  - verifier la barre de creation basse sur toute la largeur
+  - ouvrir aussi `?view=creation` pour confirmer que la creation live garde la meme composition
+- Attendus:
+  - plus de grand hero bavard ni de panneau lateral envahissant
+  - sensation visuelle de "tablette / app manager"
+  - chaque app semble avoir sa propre interface grace a la preview centrale
+  - la creation se lit comme un chat de cadrage, pas comme un wizard
+- Captures de reference locales:
+  - `tmp/cowork-store-desktop-apr02.png`
+  - `tmp/cowork-store-mobile-apr02.png`
+  - `tmp/cowork-creation-desktop-apr02.png`
+  - `tmp/cowork-creation-mobile-apr02.png`
   - badge bundle coherent avec le cas (`ready`, `skipped` ou `failed`)
   - le panneau diagnostic n'apparait que sur vrai echec bundle
   - l'app native reste rendue dessous meme si le bundle est saute ou en echec

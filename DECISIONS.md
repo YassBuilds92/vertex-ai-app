@@ -622,6 +622,24 @@
   - meilleur equilibre entre inteligibilite de la voix et presence musicale
   - alignement plus fort avec les references Apple/Auphonic
 - Consequence:
+
+## 2026-04-02 - `Cowork Apps` devient un gestionnaire d'apps avec composer bas, pas une hero scene textuelle
+- Statut: adopte localement
+- Contexte: le layout precedent restait trop serre et trop editorial. L'utilisateur a reformule une vision beaucoup plus nette: un ecran type tablette/app manager avec les apps visibles, une grande preview de l'app choisie, puis une petite zone de chat en bas ou Cowork clarifie le besoin avant de generer.
+- Decision:
+  - remplacer la hero textuelle de `src/components/AgentsHub.tsx` par une composition en 3 zones:
+    - bibliotheque d'apps compacte a gauche
+    - preview centrale de l'interface propre a l'app
+    - rail droit reserve au cap produit et a la clarification/live creation
+  - deplacer la creation d'app dans un composer bas pleine largeur, plus proche d'un chatbot de cadrage
+  - garder les suggestions d'idees et la clarification, mais en version beaucoup plus compacte
+- Pourquoi:
+  - colle au modele mental "gestionnaire d'applications" plutot qu'a une landing page dans l'app
+  - montre mieux que chaque app a sa propre interface
+  - rend la clarification Cowork visible sans parasiter toute la scene
+- Consequence:
+  - `src/components/AgentsHub.tsx` porte maintenant un layout app manager + preview + composer
+  - les validations visuelles doivent se faire sur `tmp/cowork-apps-preview.html` en vues `store` et `creation`
   - nouvelle courbe de mix dans `server/lib/media-generation.ts`
   - cible de master autour de `-16` avec true peak borne
   - fallback WAV conserve mais avec un bed plus audible qu'avant

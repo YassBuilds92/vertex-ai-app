@@ -2099,3 +2099,47 @@
   - `npm run build` : OK
   - smoke test reel `generatePodcastEpisode()` sur un brief d'actu charge en noms propres : OK (`ffmpeg`, MP3)
   - smoke test reel sans `ffmpeg` dans le `PATH` : OK (`wav-fallback`, WAV final au lieu d'un crash)
+
+## Mise a jour complementaire - 2026-04-02 (home Cowork Apps reframee en gestionnaire d'apps + chat bas)
+- Nouveau besoin:
+  - l'utilisateur juge la home Cowork trop serree, trop textuelle et pas assez fidele a sa vision
+  - il veut une metaphore type tablette/gestionnaire d'applications:
+    - toutes les apps visibles
+    - une vraie preview d'interface propre a l'app selectionnee
+    - une petite zone de chat en bas pour decrire une idee
+    - Cowork doit clarifier la vision avant generation, pas pousser un wizard generique
+- Correctif applique:
+  - `src/components/AgentsHub.tsx`
+    - suppression de l'ancienne scene hero + labo lateral trop bavarde
+    - nouvelle composition en 3 zones:
+      - bibliotheque d'apps a gauche sous forme de tiles type app manager
+      - preview centrale grand format de l'interface de l'app selectionnee
+      - rail droit consacre au cap produit/clarification/live creation
+    - nouvelle barre de creation basse sur toute la largeur:
+      - prompt libre
+      - reponse de clarification si Cowork attend un retour
+      - suggestions d'idees discretes
+    - la creation preview reste visible dans la preview centrale quand une app est en train d'emerger
+    - les actions d'ouverture d'app sont gardees mais compactees pour ne plus casser la respiration
+- Validation effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless locales via `tmp/cowork-apps-preview.html`:
+    - `tmp/cowork-store-desktop-apr02.png`
+    - `tmp/cowork-store-mobile-apr02.png`
+    - `tmp/cowork-creation-desktop-apr02.png`
+    - `tmp/cowork-creation-mobile-apr02.png`
+- Fichiers modifies:
+  - `src/components/AgentsHub.tsx`
+  - `NOW.md`
+  - `SESSION_STATE.md`
+  - `DECISIONS.md`
+  - `COWORK.md`
+  - `QA_RECIPES.md`
+- Intention exacte:
+  - faire de `Cowork Apps` un vrai store/launcher d'apps avec une sensation "autre app dans l'app"
+  - reduire radicalement le texte inutile
+  - montrer visuellement que chaque app a sa propre interface et que Cowork clarifie d'abord le besoin avant de generer
+- Limites restantes:
+  - la validation reelle sur donnees/auth utilisateur reste a faire
+  - sur mobile, la bibliotheque passe vite sous la ligne de flottaison si le store grossit ou si le clavier prend beaucoup d'espace

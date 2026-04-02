@@ -1,5 +1,35 @@
 # DECISIONS
 
+## 2026-04-02 - L'etat d'accueil doit court-circuiter completement la pile messages
+- Statut: adopte localement
+- Contexte: le shell pouvait rester vide tant que l'accueil premium et la pile messages/virtualizer etaient encore evalues ensemble sur une session sans vrai contenu.
+- Decision:
+  - quand il n'y a ni conversation rendable ni historique actif sur la surface, `App` rend uniquement l'ecran d'accueil
+  - la virtualisation et les composants de messages ne sont plus evalues dans ce cas
+- Pourquoi:
+  - l'entree produit doit etre deterministe et visible
+  - l'etat vide ne doit dependre d'aucune subtilite de rendu de la timeline
+- Consequence:
+  - `src/App.tsx` short-circuite explicitement la pile messages
+  - `src/components/StudioEmptyState.tsx` devient une vraie scene canonique pour le premier ecran
+
+## 2026-04-02 - Les surfaces secondaires sortent du bundle critique
+- Statut: adopte localement
+- Contexte: le bundle principal etait devenu trop lourd pour le premier chargement du shell, surtout avec les surfaces Cowork/generated apps importees systematiquement.
+- Decision:
+  - charger a la demande:
+    - `AgentsHub`
+    - `AgentWorkspacePanel`
+    - `NasheedStudioWorkspace`
+    - `GeneratedAppHost`
+    - `SystemInstructionGallery`
+- Pourquoi:
+  - le shell doit afficher vite son entree principale
+  - ces surfaces n'ont pas a peser sur le premier paint tant qu'elles ne sont pas ouvertes
+- Consequence:
+  - `main` Vite descend d'environ `928 kB` a `816 kB` minifies
+  - le warning chunk reste present, mais la dette est sensiblement reduite
+
 ## 2026-04-02 - Une generated app se definit par transcript, planner et source, pas par un wizard local
 - Statut: adopte localement
 - Contexte: le hub `Cowork Apps` imposait encore une structure produit locale avant generation, ce qui contredisait le besoin utilisateur d'apps vraiment auto-definies.

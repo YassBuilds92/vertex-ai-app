@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { 
   MessageSquare, Plus, Send, 
   Bot, User, Database, Image as ImageIcon, 
@@ -20,10 +20,6 @@ import { SidebarLeft } from './components/SidebarLeft';
 import { SidebarRight } from './components/SidebarRight';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
-import { AgentsHub } from './components/AgentsHub';
-import { AgentWorkspacePanel } from './components/AgentWorkspacePanel';
-import { GeneratedAppHost } from './components/GeneratedAppHost';
-import { NasheedStudioWorkspace } from './components/NasheedStudioWorkspace';
 import { StudioEmptyState } from './components/StudioEmptyState';
 import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -73,6 +69,52 @@ import { resolveAgentStudioKind } from './utils/agentStudio';
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+const AgentWorkspacePanel = React.lazy(async () => {
+  const module = await import('./components/AgentWorkspacePanel');
+  return { default: module.AgentWorkspacePanel };
+});
+
+const AgentsHub = React.lazy(async () => {
+  const module = await import('./components/AgentsHub');
+  return { default: module.AgentsHub };
+});
+
+const GeneratedAppHost = React.lazy(async () => {
+  const module = await import('./components/GeneratedAppHost');
+  return { default: module.GeneratedAppHost };
+});
+
+const NasheedStudioWorkspace = React.lazy(async () => {
+  const module = await import('./components/NasheedStudioWorkspace');
+  return { default: module.NasheedStudioWorkspace };
+});
+
+const StudioSurfaceFallback: React.FC<{ label: string }> = ({ label }) => (
+  <div className="studio-panel-strong flex min-h-[18rem] w-full items-center justify-center rounded-[2rem] border border-[var(--app-border)] bg-[var(--app-surface-strong)]/90 px-6 py-8 text-center">
+    <div className="flex flex-col items-center gap-3">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-accent)]">
+        <Loader2 size={18} className="animate-spin" />
+      </div>
+      <div className="text-sm font-medium text-[var(--app-text)]">{label}</div>
+      <div className="text-xs uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
+        chargement progressif
+      </div>
+    </div>
+  </div>
+);
+
+const hasRenderableMessage = (message: Message) =>
+  Boolean(
+    message.content?.trim()
+    || message.thoughts?.trim()
+    || message.audio
+    || message.video
+    || (Array.isArray(message.images) && message.images.length > 0)
+    || (Array.isArray(message.thoughtImages) && message.thoughtImages.length > 0)
+    || (Array.isArray(message.attachments) && message.attachments.length > 0)
+    || (Array.isArray(message.activity) && message.activity.length > 0)
+  );
 
 const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as accès à des outils pour accomplir des tâches complexes. Analyse, propose et exécute.";
 const createClientMessageId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -505,7 +547,20 @@ export default function App() {
     [displayedMessages, hiddenMessagesCount]
   );
 
-  const shouldShowEmptyState = !activeAgentWorkspace && !activeGeneratedAppWorkspace && displayedMessages.length === 0 && !isLoading && !refiningStatus;
+  const hasRenderableConversation = React.useMemo(
+    () => displayedMessages.some(hasRenderableMessage),
+    [displayedMessages]
+  );
+  const hasStandardSessionHistoryForMode = React.useMemo(
+    () => sessions.some((session) => session.mode === activeMode && session.sessionKind === 'standard'),
+    [activeMode, sessions]
+  );
+  const shouldShowEmptyState = !activeAgentWorkspace
+    && !activeGeneratedAppWorkspace
+    && !hasRenderableConversation
+    && !isLoading
+    && !refiningStatus
+    && (activeSessionId === 'local-new' || !hasStandardSessionHistoryForMode);
   const shouldRenderMessageEndSpacer = displayedMessages.length > 0 || isLoading || Boolean(refiningStatus);
 
   const activeModeLabel = {
@@ -2634,26 +2689,28 @@ export default function App() {
   if (isDedicatedAgentStudioView && activeAgentWorkspace && activeAgentStudioKind === 'nasheed') {
     return (
       <>
-        <NasheedStudioWorkspace
-          agent={activeAgentWorkspace.agent}
-          formValues={activeAgentWorkspace.formValues}
-          messages={displayedMessages}
-          isRunning={isLoading}
-          onFieldChange={(fieldId, value) => {
-            void updateAgentWorkspaceValues({
-              ...activeAgentWorkspace.formValues,
-              [fieldId]: value,
-            });
-          }}
-          onRunAgent={() => rerunActiveAgentWorkspace()}
-          onAskCowork={(request) => requestCoworkAgentEdit(
-            activeAgentWorkspace.agent,
-            request,
-            activeAgentWorkspace.formValues
-          )}
-          onBackToHub={openCoworkAppsHome}
-          setSelectedImage={setSelectedImage}
-        />
+        <Suspense fallback={<div className="flex h-[100dvh] w-full items-center justify-center bg-[var(--app-bg)] px-6"><StudioSurfaceFallback label="Ouverture du studio nasheed..." /></div>}>
+          <NasheedStudioWorkspace
+            agent={activeAgentWorkspace.agent}
+            formValues={activeAgentWorkspace.formValues}
+            messages={displayedMessages}
+            isRunning={isLoading}
+            onFieldChange={(fieldId, value) => {
+              void updateAgentWorkspaceValues({
+                ...activeAgentWorkspace.formValues,
+                [fieldId]: value,
+              });
+            }}
+            onRunAgent={() => rerunActiveAgentWorkspace()}
+            onAskCowork={(request) => requestCoworkAgentEdit(
+              activeAgentWorkspace.agent,
+              request,
+              activeAgentWorkspace.formValues
+            )}
+            onBackToHub={openCoworkAppsHome}
+            setSelectedImage={setSelectedImage}
+          />
+        </Suspense>
         {selectedImage && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 p-4 backdrop-blur-xl" onClick={() => setSelectedImage(null)}>
             <img src={selectedImage} className="max-h-full max-w-full rounded-[2rem] border border-white/10 shadow-[0_30px_80px_-28px_rgba(0,0,0,0.9)]" />
@@ -2665,27 +2722,29 @@ export default function App() {
 
   if (activeGeneratedAppWorkspace) {
     return (
-      <GeneratedAppHost
-        manifest={activeGeneratedAppWorkspace.app}
-        formValues={activeGeneratedAppWorkspace.formValues}
-        messages={displayedMessages}
-        isRunning={isLoading}
-        isPublishing={isPublishingGeneratedApp}
-        onFieldChange={(fieldId, value) => {
-          void updateGeneratedAppWorkspaceValues({
-            ...activeGeneratedAppWorkspace.formValues,
-            [fieldId]: value,
-          });
-        }}
-        onRunApp={() => rerunActiveGeneratedAppWorkspace()}
-        onPublishApp={() => publishActiveGeneratedAppWorkspace()}
-        onAskCowork={(request) => requestCoworkGeneratedAppEdit(
-          activeGeneratedAppWorkspace.app,
-          request,
-          activeGeneratedAppWorkspace.formValues
-        )}
-        onBackToHub={openCoworkAppsHome}
-      />
+      <Suspense fallback={<div className="flex h-[100dvh] w-full items-center justify-center bg-[var(--app-bg)] px-6"><StudioSurfaceFallback label="Ouverture de l'app autonome..." /></div>}>
+        <GeneratedAppHost
+          manifest={activeGeneratedAppWorkspace.app}
+          formValues={activeGeneratedAppWorkspace.formValues}
+          messages={displayedMessages}
+          isRunning={isLoading}
+          isPublishing={isPublishingGeneratedApp}
+          onFieldChange={(fieldId, value) => {
+            void updateGeneratedAppWorkspaceValues({
+              ...activeGeneratedAppWorkspace.formValues,
+              [fieldId]: value,
+            });
+          }}
+          onRunApp={() => rerunActiveGeneratedAppWorkspace()}
+          onPublishApp={() => publishActiveGeneratedAppWorkspace()}
+          onAskCowork={(request) => requestCoworkGeneratedAppEdit(
+            activeGeneratedAppWorkspace.app,
+            request,
+            activeGeneratedAppWorkspace.formValues
+          )}
+          onBackToHub={openCoworkAppsHome}
+        />
+      </Suspense>
     );
   }
 
@@ -2913,18 +2972,22 @@ export default function App() {
             </main>
           ) : (
             <>
-              <AgentsHub
-                isOpen={showAgentsHub}
-                agents={coworkStoreAgents}
-                isCreating={isCreatingAgent}
-                creationRun={generatedAppCreationRun}
-                isRunningAgent={isRunningHubAgent || isLoading}
-                latestCreatedAgent={latestCreatedStorePreview}
-                warningMessage={agentsWarning}
-                onClose={() => setShowAgentsHub(false)}
-                onCreateAgent={handleCreateAgent}
-                onRunAgent={handleRunAgentFromHub}
-              />
+              {showAgentsHub && (
+                <Suspense fallback={<div className="absolute inset-0 z-[90] flex items-center justify-center bg-[rgba(var(--app-bg-rgb),0.84)] px-6 backdrop-blur-xl"><StudioSurfaceFallback label="Ouverture de Cowork Apps..." /></div>}>
+                  <AgentsHub
+                    isOpen={showAgentsHub}
+                    agents={coworkStoreAgents}
+                    isCreating={isCreatingAgent}
+                    creationRun={generatedAppCreationRun}
+                    isRunningAgent={isRunningHubAgent || isLoading}
+                    latestCreatedAgent={latestCreatedStorePreview}
+                    warningMessage={agentsWarning}
+                    onClose={() => setShowAgentsHub(false)}
+                    onCreateAgent={handleCreateAgent}
+                    onRunAgent={handleRunAgentFromHub}
+                  />
+                </Suspense>
+              )}
 
               <main
                 ref={parentRef}
@@ -2942,24 +3005,28 @@ export default function App() {
                     onOpenAgentsHub={activeMode === 'cowork' ? () => setShowAgentsHub(true) : undefined}
                   />
                 )}
+                {!shouldShowEmptyState && (
+                  <>
                 {activeAgentWorkspace && (
-                  <AgentWorkspacePanel
-                    agent={activeAgentWorkspace.agent}
-                    formValues={activeAgentWorkspace.formValues}
-                    isRunning={isLoading}
-                    onFieldChange={(fieldId, value) => {
-                      void updateAgentWorkspaceValues({
-                        ...activeAgentWorkspace.formValues,
-                        [fieldId]: value,
-                      });
-                    }}
-                    onRunAgent={() => rerunActiveAgentWorkspace()}
-                    onAskCowork={(request) => requestCoworkAgentEdit(
-                      activeAgentWorkspace.agent,
-                      request,
-                      activeAgentWorkspace.formValues
-                    )}
-                  />
+                  <Suspense fallback={<div className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 lg:px-10"><StudioSurfaceFallback label="Preparation de l'espace agent..." /></div>}>
+                    <AgentWorkspacePanel
+                      agent={activeAgentWorkspace.agent}
+                      formValues={activeAgentWorkspace.formValues}
+                      isRunning={isLoading}
+                      onFieldChange={(fieldId, value) => {
+                        void updateAgentWorkspaceValues({
+                          ...activeAgentWorkspace.formValues,
+                          [fieldId]: value,
+                        });
+                      }}
+                      onRunAgent={() => rerunActiveAgentWorkspace()}
+                      onAskCowork={(request) => requestCoworkAgentEdit(
+                        activeAgentWorkspace.agent,
+                        request,
+                        activeAgentWorkspace.formValues
+                      )}
+                    />
+                  </Suspense>
                 )}
                 {hiddenMessagesCount > 0 && (
                   <div className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 lg:px-10">
@@ -3055,6 +3122,8 @@ export default function App() {
                 )}
                 {shouldRenderMessageEndSpacer && (
                   <div ref={messagesEndRef} className="h-32 sm:h-40" />
+                )}
+                  </>
                 )}
               </main>
 

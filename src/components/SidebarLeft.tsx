@@ -7,6 +7,7 @@ import {
   LogOut,
   MessageSquare,
   Mic,
+  Plus,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -31,6 +32,14 @@ const modeConfig = {
   video: { icon: Film, label: 'Génération Vidéo' },
   audio: { icon: Mic, label: 'Text-to-Speech' },
 } as const;
+
+const modeCreateLabel: Record<AppMode, string> = {
+  chat: 'Nouveau chat',
+  cowork: 'Nouvelle mission',
+  image: 'Nouvelle image',
+  video: 'Nouvelle scene',
+  audio: 'Nouvelle voix',
+};
 
 interface SidebarLeftProps {
   user: any;
@@ -166,6 +175,14 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             <X size={16} />
           </button>
         </div>
+
+        <button
+          onClick={onNewChat}
+          className="studio-button-primary studio-glow mb-4 flex w-full items-center justify-center gap-2.5 rounded-[1.25rem] px-4 py-3 text-[13px] font-semibold"
+        >
+          <Plus size={15} />
+          {modeCreateLabel[activeMode]}
+        </button>
       </div>
 
       <div className="relative shrink-0 px-4 pb-1">

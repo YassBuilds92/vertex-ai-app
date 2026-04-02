@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, useMemo, useState } from 'react';
 import {
   Check,
   ChevronDown,
@@ -28,7 +28,11 @@ import {
 import { db, auth } from '../firebase';
 import { useStore } from '../store/useStore';
 import { ChatSession } from '../types';
-import { SystemInstructionGallery } from './SystemInstructionGallery';
+
+const SystemInstructionGallery = React.lazy(async () => {
+  const module = await import('./SystemInstructionGallery');
+  return { default: module.SystemInstructionGallery };
+});
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -627,13 +631,23 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
             transition={{ type: 'spring', damping: 28, stiffness: 220 } as const}
             className="absolute inset-0 z-[80] border-l border-white/10 bg-[var(--app-bg)]/95 shadow-2xl backdrop-blur-3xl"
           >
-            <SystemInstructionGallery
-              onClose={() => setShowGallery(false)}
-              onSelect={(prompt) => {
-                setConfig({ systemInstruction: prompt });
-                updateSessionInstruction(prompt);
-              }}
-            />
+            <Suspense fallback={
+              <div className="flex h-full items-center justify-center px-6">
+                <div className="studio-panel flex w-full max-w-sm flex-col items-center gap-3 rounded-[2rem] px-6 py-8 text-center">
+                  <RotateCcw size={18} className="animate-spin text-[var(--app-accent)]" />
+                  <div className="text-sm font-medium text-[var(--app-text)]">Chargement de la galerie...</div>
+                  <div className="text-xs uppercase tracking-[0.22em] text-[var(--app-text-muted)]">prompts systeme</div>
+                </div>
+              </div>
+            }>
+              <SystemInstructionGallery
+                onClose={() => setShowGallery(false)}
+                onSelect={(prompt) => {
+                  setConfig({ systemInstruction: prompt });
+                  updateSessionInstruction(prompt);
+                }}
+              />
+            </Suspense>
           </motion.div>
         )}
       </AnimatePresence>

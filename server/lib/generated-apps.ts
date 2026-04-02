@@ -272,40 +272,6 @@ function clipText(value: unknown, max = 280): string {
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
-function normalizeGeneratedAppSemanticText(value: unknown): string {
-  return clipText(value, 4000)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
-
-function buildGeneratedAppSemanticHaystack(values: unknown[]): string {
-  return values
-    .map((value) => {
-      if (Array.isArray(value)) {
-        return buildGeneratedAppSemanticHaystack(value);
-      }
-      if (value && typeof value === 'object') {
-        return buildGeneratedAppSemanticHaystack(Object.values(value as Record<string, unknown>));
-      }
-      return normalizeGeneratedAppSemanticText(value);
-    })
-    .filter(Boolean)
-    .join(' ');
-}
-
-function isDebatePodcastIntent(...values: unknown[]): boolean {
-  const haystack = buildGeneratedAppSemanticHaystack(values);
-  if (!haystack) return false;
-
-  const hasDebateLexicon = /\b(debat|debate|duel|joute|controverse|contradiction|opposition|opposes?|affrontement|versus|vs|pour contre|pour\/contre|dialectique)\b/.test(haystack);
-  const hasDualActors = /\b(deux|2|duo|double|two)\b/.test(haystack)
-    && /\b(ia|ai|voix|intervenants?|speakers?|agents?|personas?|positions?|perspectives?|points? de vue)\b/.test(haystack);
-  const hasAudioFrame = /\b(podcast|audio|voix|speaker|narration|conversation|dialogue|interview)\b/.test(haystack);
-
-  return hasDebateLexicon || (hasDualActors && hasAudioFrame);
-}
-
 function uniqueStrings(values: unknown, max = 8): string[] {
   if (!Array.isArray(values)) return [];
   const seen = new Set<string>();
@@ -357,28 +323,11 @@ function defaultFields(): GeneratedAppFieldSchema[] {
   ];
 }
 
-function deriveLegacyOutputKind(
-  rawOutputKind: unknown,
-  modalities: string[],
-  toolAllowList: string[]
-): GeneratedAppOutputKind {
-  const explicit = typeof rawOutputKind === 'string' && ['pdf', 'html', 'music', 'podcast', 'code', 'research', 'automation', 'image'].includes(rawOutputKind)
-    ? rawOutputKind as GeneratedAppOutputKind
-    : null;
-  if (explicit) return explicit;
-
-  const modalityHaystack = modalities.map((value) => normalizeGeneratedAppSemanticText(value)).join(' ');
-  const toolSet = new Set(toolAllowList);
-
-  if (toolSet.has('create_pdf')) return 'pdf';
-  if (toolSet.has('create_podcast_episode') || (toolSet.has('generate_tts_audio') && /\b(audio|voice|voix|spoken|dialogue|podcast)\b/.test(modalityHaystack))) return 'podcast';
-  if (toolSet.has('generate_music_audio') && /\b(audio|music|musique|sound|son)\b/.test(modalityHaystack)) return 'music';
-  if (toolSet.has('generate_image_asset') && /\b(image|visual|visuel|illustration)\b/.test(modalityHaystack)) return 'image';
-  if (/\b(web|html|site|landing|interface)\b/.test(modalityHaystack)) return 'html';
-  if (toolSet.has('write_file') || toolSet.has('execute_script')) {
-    return /\b(code|plugin|script|automation|workflow)\b/.test(modalityHaystack) ? 'code' : 'automation';
-  }
-  return 'research';
+function sanitizeLegacyOutputKind(rawOutputKind: unknown): GeneratedAppOutputKind {
+  const explicit = typeof rawOutputKind === 'string' ? rawOutputKind.trim() : '';
+  return ['pdf', 'html', 'music', 'podcast', 'code', 'research', 'automation', 'image'].includes(explicit)
+    ? explicit as GeneratedAppOutputKind
+    : 'research';
 }
 
 function sanitizeJsonValue(value: unknown, depth = 0): GeneratedAppJsonValue | undefined {
@@ -412,27 +361,10 @@ function sanitizeJsonValue(value: unknown, depth = 0): GeneratedAppJsonValue | u
   return undefined;
 }
 
-function sanitizeModalities(
-  input: unknown,
-  options: { rawOutputKind?: unknown; toolAllowList?: string[] } = {}
-): string[] {
+function sanitizeModalities(input: unknown): string[] {
   const explicit = uniqueStrings(input, 8);
   if (explicit.length > 0) return explicit;
-
-  const derived = new Set<string>();
-  const rawOutputKind = typeof options.rawOutputKind === 'string' ? options.rawOutputKind : '';
-  const toolSet = new Set(options.toolAllowList || []);
-
-  if (rawOutputKind === 'pdf' || toolSet.has('create_pdf')) derived.add('document');
-  if (rawOutputKind === 'html') derived.add('web');
-  if (rawOutputKind === 'code') derived.add('code');
-  if (rawOutputKind === 'automation') derived.add('workflow');
-  if (rawOutputKind === 'image' || toolSet.has('generate_image_asset')) derived.add('image');
-  if (rawOutputKind === 'music' || toolSet.has('generate_music_audio')) derived.add('audio');
-  if (rawOutputKind === 'podcast' || toolSet.has('generate_tts_audio') || toolSet.has('create_podcast_episode')) derived.add('audio');
-  if (rawOutputKind === 'research' || toolSet.has('web_search') || toolSet.has('web_fetch')) derived.add('text');
-
-  return Array.from(derived);
+  return ['text'];
 }
 
 function sanitizeIdentity(input: unknown, fallbackMission: string): GeneratedAppIdentity {
@@ -473,10 +405,7 @@ function sanitizeToolDefaults(input: unknown): GeneratedAppRuntimeToolDefaults {
   return Object.fromEntries(entries);
 }
 
-function sanitizeFields(
-  input: unknown,
-  _outputKind?: GeneratedAppOutputKind
-): GeneratedAppFieldSchema[] {
+function sanitizeFields(input: unknown): GeneratedAppFieldSchema[] {
   if (!Array.isArray(input)) return defaultFields();
 
   const fields: GeneratedAppFieldSchema[] = [];
@@ -538,32 +467,27 @@ function sanitizeToolAllowList(
 }
 
 function sanitizeModelProfile(
-  input: unknown,
-  options: { modalities: string[]; toolAllowList: string[] }
+  input: unknown
 ): GeneratedAppModelProfile {
   const source = input && typeof input === 'object' ? input as Record<string, unknown> : {};
   const pickModel = (value: unknown, library: readonly string[], fallback: string) => {
     const text = typeof value === 'string' ? value.trim() : '';
     return library.includes(text) ? text : fallback;
   };
-  const modalityHaystack = options.modalities.map((value) => normalizeGeneratedAppSemanticText(value)).join(' ');
-  const toolSet = new Set(options.toolAllowList);
+  const pickOptionalModel = (value: unknown, library: readonly string[]) => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return library.includes(text) ? text : undefined;
+  };
   const reasoningLevel = ['minimal', 'low', 'medium', 'high'].includes(String(source.reasoningLevel || ''))
     ? String(source.reasoningLevel) as GeneratedAppModelProfile['reasoningLevel']
-    : toolSet.has('execute_script') || /\b(code|research|analyse|reasoning)\b/.test(modalityHaystack) ? 'high' : 'medium';
+    : 'medium';
 
   return {
-    textModel: pickModel(source.textModel, TEXT_MODELS, toolSet.has('execute_script') || /\b(code|research|analyse|reasoning)\b/.test(modalityHaystack) ? 'gemini-3.1-pro-preview' : 'gemini-3.1-flash-lite-preview'),
+    textModel: pickModel(source.textModel, TEXT_MODELS, 'gemini-3.1-flash-lite-preview'),
     reasoningLevel,
-    imageModel: toolSet.has('generate_image_asset') || /\b(image|visual|visuel|web|html)\b/.test(modalityHaystack)
-      ? pickModel(source.imageModel, IMAGE_MODELS, DEFAULT_IMAGE_MODEL)
-      : undefined,
-    musicModel: toolSet.has('generate_music_audio') || toolSet.has('create_podcast_episode')
-      ? pickModel(source.musicModel, MUSIC_MODELS, DEFAULT_LYRIA_MODEL)
-      : undefined,
-    ttsModel: toolSet.has('generate_tts_audio') || toolSet.has('create_podcast_episode')
-      ? pickModel(source.ttsModel, TTS_MODELS, DEFAULT_TTS_MODEL)
-      : undefined,
+    imageModel: pickOptionalModel(source.imageModel, IMAGE_MODELS),
+    musicModel: pickOptionalModel(source.musicModel, MUSIC_MODELS),
+    ttsModel: pickOptionalModel(source.ttsModel, TTS_MODELS),
     videoModel: undefined,
   };
 }
@@ -599,12 +523,9 @@ function sanitizeDefinition(raw: unknown, brief: string, source: 'manual' | 'cow
   const slug = slugify(String(input.slug || name));
   const runtime = sanitizeRuntime(input.runtime);
   const toolAllowList = sanitizeToolAllowList(input.toolAllowList, runtime.toolDefaults);
-  const modalities = sanitizeModalities(input.modalities, {
-    rawOutputKind: input.outputKind,
-    toolAllowList,
-  });
-  const outputKind = deriveLegacyOutputKind(input.outputKind, modalities, toolAllowList);
-  const uiSchema = sanitizeFields(input.uiSchema, outputKind);
+  const modalities = sanitizeModalities(input.modalities);
+  const outputKind = sanitizeLegacyOutputKind(input.outputKind);
+  const uiSchema = sanitizeFields(input.uiSchema);
   const requestedCapabilities = uniqueStrings(input.capabilities, 6);
   const fallbackCapabilities = ['Cadre vite la mission', 'Agit avec une vraie autonomie', 'Expose un resultat publiable'];
   const capabilities = requestedCapabilities.length > 0
@@ -629,7 +550,7 @@ function sanitizeDefinition(raw: unknown, brief: string, source: 'manual' | 'cow
     uiSchema,
     toolAllowList,
     capabilities,
-    modelProfile: sanitizeModelProfile(input.modelProfile, { modalities, toolAllowList }),
+    modelProfile: sanitizeModelProfile(input.modelProfile),
     visualDirection: sanitizeVisualDirection(input.visualDirection),
     runtime,
     createdBy: source,

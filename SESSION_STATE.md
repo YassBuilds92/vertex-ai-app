@@ -1,5 +1,59 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (audit shell + autonomie backend + allègement critique)
+- Besoin traite:
+  - l'utilisateur demande un audit complet esthetique / frontend / backend
+  - correction prioritaire du shell vide, des rails d'autonomie restants et du poids du bundle critique
+- Constats confirmes:
+  - la sidebar gauche n'offrait plus de geste clair pour demarrer une nouvelle session
+  - le centre du shell pouvait rester vide visuellement sur l'etat d'accueil tant que le rendu des messages etait evalue en parallele
+  - il restait encore des rails backend `outputKindHint` / specialisations familiales dans la creation d'agents/apps
+  - le bundle principal restait trop lourd pour le premier chargement
+- Correctifs appliques:
+  - `src/components/SidebarLeft.tsx`
+    - retour d'un CTA visible `Nouveau ...` adapte au mode actif
+  - `src/components/StudioEmptyState.tsx`
+    - refonte en vraie scene d'accueil premium desktop/mobile
+    - suppression de l'animation `motion` pour rendre l'etat vide deterministe
+  - `src/App.tsx`
+    - short-circuit explicite de l'etat vide pour ne plus evaluer la pile messages/virtualizer quand le shell doit juste accueillir
+    - detection plus robuste d'une conversation reellement rendable
+    - lazy loading des surfaces lourdes:
+      - `AgentsHub`
+      - `AgentWorkspacePanel`
+      - `NasheedStudioWorkspace`
+      - `GeneratedAppHost`
+  - `src/components/SidebarRight.tsx`
+    - lazy loading de `SystemInstructionGallery`
+  - `server/lib/generated-apps.ts`
+    - sanitation backend rendue plus neutre:
+      - plus de derive forte par famille pour `modalities`
+      - `outputKind` seulement sanitize legacy
+      - `modelProfile` n'invente plus de specialisation implicite depuis les outils/modalites
+  - `api/index.ts`
+    - suppression de `outputKindHint` sur `create_agent_blueprint`
+    - retrait de `outputKind` du prompt de sous-mission d'agent
+- Validation locale:
+  - `npm run lint` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+  - captures Edge headless locales:
+    - `tmp/audit-desktop-after4.png`
+    - `tmp/audit-mobile-after4.png`
+- Impact mesure:
+  - le shell vide est redevenu visible et actionnable sur desktop/mobile
+  - le chunk principal Vite est descendu d'environ `928 kB` a `816 kB` minifie
+  - les surfaces Cowork/generated app sortent davantage du chemin critique initial
+- Limites restantes:
+  - pas encore de validation authentifiee/deployee de cette passe
+  - le chunk principal reste encore au-dessus du warning Vite
+- Intention exacte:
+  - rendre le shell accueillant et immediat
+  - finir de retirer les rails backend qui contredisaient la promesse d'autonomie
+  - garder la prochaine passe concentree sur la validation reelle connectee et, si besoin, une seconde passe perf
+
 ## Mise a jour complementaire - 2026-04-02 (Cowork Apps auto-definies, clarification libre et runtime generic)
 - Besoin traite:
   - l'utilisateur refuse un hub qui dirige Cowork via des options produit (`podcast`, `duel`, etc.)

@@ -1,5 +1,41 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-02 - Le shell principal redevient une vraie entree produit, et l'autonomie backend est nettoyee
+- Retour produit:
+  - l'utilisateur ne veut ni un centre vide ni des rails caches qui continuent a orienter Cowork ou les apps qu'il genere
+  - il veut un shell plus premium, plus actionnable, et une autonomie plus franche cote backend
+- Changement applique:
+  - `src/components/SidebarLeft.tsx`
+    - retour d'un vrai CTA `Nouveau ...` par mode
+  - `src/components/StudioEmptyState.tsx`
+    - accueil vide refondu en scene plus editoriale et lisible
+    - rendu simplifie sans dependance a `motion` pour cet ecran
+  - `src/App.tsx`
+    - le shell vide short-circuite maintenant la pile messages/virtualizer
+    - lazy loading des surfaces lourdes (`AgentsHub`, workspaces specialises, `GeneratedAppHost`)
+  - `src/components/SidebarRight.tsx`
+    - galerie systeme chargee a la demande
+  - `server/lib/generated-apps.ts`
+    - sanitation plus neutre:
+      - `outputKind` = tag legacy sanitize
+      - `modalities` = fallback neutre
+      - `modelProfile` n'invente plus de specialisation familiale
+  - `api/index.ts`
+    - suppression de `outputKindHint` encore present sur `create_agent_blueprint`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+  - captures shell:
+    - `tmp/audit-desktop-after4.png`
+    - `tmp/audit-mobile-after4.png`
+- Etat produit:
+  - l'entree vide redevient claire sur desktop et mobile
+  - le shell charge mieux, avec un chunk principal reduit mais encore perfectible
+  - prochaine etape critique: verification reelle dans l'app connectee apres deploy
+
 ## Mise a jour 2026-04-02 - Cowork Apps deviennent vraiment auto-definies
 - Retour produit:
   - l'utilisateur ne veut plus d'un hub qui guide Cowork via des listes d'options ou des types d'app pre-decides

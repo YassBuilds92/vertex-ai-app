@@ -1,5 +1,25 @@
 # QA RECIPES
 
+## Shell principal - accueil vide
+- Objectif:
+  - verifier que le shell d'accueil reste visible, utile et respirant avant toute conversation
+  - verifier que la sidebar gauche propose un vrai geste `Nouveau ...`
+  - verifier que le rendu tient sur desktop et mobile
+- Etapes manuelles:
+  - ouvrir `http://127.0.0.1:3000`
+  - attendre la fin du chargement auth shell
+  - verifier que le centre affiche l'ecran d'accueil premium au lieu d'un simple fond vide
+  - verifier la presence du CTA `Nouveau ...` dans la sidebar gauche
+  - verifier sur mobile que l'accueil reste lisible sans sidebar ouverte
+- Attendus:
+  - hero central visible
+  - suggestions rapides presentes
+  - aucun centre noir silencieux
+  - le shell reste actionnable meme sans historique
+- Captures de reference locales:
+  - `tmp/audit-desktop-after4.png`
+  - `tmp/audit-mobile-after4.png`
+
 ## Generated Apps - flux auto-defini
 - Objectif:
   - verifier qu'aucun wizard local ne force de type d'app avant generation

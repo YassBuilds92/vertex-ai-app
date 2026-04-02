@@ -6339,24 +6339,18 @@ app.post('/api/cowork', async (req, res) => {
         parameters: {
           type: "object",
           properties: {
-            brief: { type: "string", description: "Mission exacte du futur agent specialise." },
-            outputKindHint: { type: "string", description: "Type de livrable prefere si connu: pdf, html, music, podcast, code, research, automation." }
+            brief: { type: "string", description: "Mission exacte du futur agent specialise." }
           },
           required: ["brief"]
         },
         execute: async ({
-          brief,
-          outputKindHint
+          brief
         }: {
           brief: string;
-          outputKindHint?: string;
         }) => {
-          const effectiveBrief = [brief, outputKindHint ? `Format prefere: ${outputKindHint}.` : null]
-            .filter(Boolean)
-            .join('\n');
           const blueprint = sanitizeAgentBlueprint(
-            await generateAgentBlueprintFromBrief(effectiveBrief, 'cowork'),
-            effectiveBrief
+            await generateAgentBlueprintFromBrief(brief, 'cowork'),
+            brief
           );
 
           return {
@@ -6529,7 +6523,7 @@ app.post('/api/cowork', async (req, res) => {
               : null,
           ].filter(Boolean).join('\n');
           const delegatedPrompt = [
-            `Agent du hub: ${selectedAgent.name} (${selectedAgent.outputKind})`,
+            `Agent du hub: ${selectedAgent.name}`,
             `Mission du blueprint: ${selectedAgent.mission}`,
             `Quand l'utiliser: ${selectedAgent.whenToUse}`,
             selectedAgent.starterPrompt ? `Starter prompt: ${selectedAgent.starterPrompt}` : null,

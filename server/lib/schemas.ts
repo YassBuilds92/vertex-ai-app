@@ -11,8 +11,20 @@ export const AgentCreateSchema = z.object({
 });
 
 export const GeneratedAppCreateSchema = z.object({
-  brief: z.string(),
+  brief: z.string().optional(),
+  transcript: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string(),
+    kind: z.enum(['brief', 'clarification', 'answer', 'info']).optional(),
+  })).optional(),
   source: z.enum(['manual', 'cowork']).optional(),
+}).refine((value) => {
+  const brief = typeof value.brief === 'string' ? value.brief.trim() : '';
+  const transcriptHasUserTurn = Array.isArray(value.transcript)
+    && value.transcript.some((turn) => turn.role === 'user' && turn.content.trim().length > 0);
+  return brief.length > 0 || transcriptHasUserTurn;
+}, {
+  message: "Le flux de creation d'app attend au moins un brief ou un transcript utilisateur.",
 });
 
 const AgentFieldSchema = z.object({
@@ -43,11 +55,30 @@ const GeneratedAppVisualDirectionSchema = z.object({
   secondaryFont: z.string().optional(),
 });
 
+const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValueSchema),
+    z.record(z.string(), JsonValueSchema),
+  ])
+);
+
+const GeneratedAppIdentitySchema = z.object({
+  mission: z.string(),
+  posture: z.string(),
+  successCriteria: z.array(z.string()),
+});
+
 const GeneratedAppRuntimeDefinitionSchema = z.object({
   primaryActionLabel: z.string(),
   resultLabel: z.string(),
   emptyStateLabel: z.string().optional(),
   editHint: z.string().optional(),
+  toolDefaults: z.record(z.string(), z.record(z.string(), JsonValueSchema)).optional(),
+  renderMode: z.enum(['bundle_primary', 'manifest_fallback']).optional(),
 });
 
 const GeneratedAppVersionSchema = z.object({
@@ -76,6 +107,8 @@ export const GeneratedAppManifestSchema = z.object({
   mission: z.string(),
   whenToUse: z.string(),
   outputKind: z.enum(['pdf', 'html', 'music', 'podcast', 'code', 'research', 'automation', 'image']),
+  modalities: z.array(z.string()).optional(),
+  identity: GeneratedAppIdentitySchema.optional(),
   starterPrompt: z.string(),
   systemInstruction: z.string(),
   uiSchema: z.array(AgentFieldSchema),
@@ -92,6 +125,7 @@ export const GeneratedAppManifestSchema = z.object({
   updatedAt: z.number(),
   draftVersion: GeneratedAppVersionSchema,
   publishedVersion: GeneratedAppVersionSchema.optional(),
+  generationMode: z.enum(['legacy_manifest', 'autonomous_component']).optional(),
 });
 
 const HubAgentSchema = z.object({

@@ -1,5 +1,66 @@
 # DECISIONS
 
+## 2026-04-02 - Une generated app se definit par transcript, planner et source, pas par un wizard local
+- Statut: adopte localement
+- Contexte: le hub `Cowork Apps` imposait encore une structure produit locale avant generation, ce qui contredisait le besoin utilisateur d'apps vraiment auto-definies.
+- Decision:
+  - retirer les cartes/types de creation du hub
+  - laisser l'utilisateur envoyer un brief libre
+  - laisser Cowork poser lui-meme une clarification conversationnelle si necessaire
+  - faire produire ensuite par Cowork le contrat complet de l'app et sa source TSX
+- Pourquoi:
+  - la bonne intelligence doit vivre dans Cowork, pas dans un wizard frontend
+  - cela permet des apps hybrides ou inattendues sans forcer l'utilisateur a rentrer dans une taxonomie locale
+- Consequence:
+  - `src/components/AgentsHub.tsx` ne dirige plus la creation via des options
+  - `server/lib/generated-apps.ts` opere maintenant en `transcript -> planner -> source`
+  - `server/routes/standard.ts` et `src/App.tsx` supportent un vrai cycle de clarification SSE
+
+## 2026-04-02 - `outputKind` devient un champ de compatibilite legacy, pas une autorite produit
+- Statut: adopte localement
+- Contexte: les generated apps etaient encore partiellement pilotees par des familles produit (`podcast`, `debate`, etc.), ce qui redonnait au backend un role de directeur creatif.
+- Decision:
+  - garder `outputKind` seulement comme derive/fallback de compatibilite store et historique
+  - faire porter l'intention reelle par:
+    - `identity`
+    - `modalities`
+    - `uiSchema`
+    - `runtime.toolDefaults`
+    - la source TSX generee
+- Pourquoi:
+  - une app peut etre hybride, evolutive ou non classable proprement dans une famille unique
+  - la specialisation doit venir du manifest complet et du composant genere, pas d'une etiquette reductrice
+- Consequence:
+  - `server/lib/generated-apps.ts` sanitise de facon neutre
+  - `api/index.ts` n'utilise plus `outputKindHint` pour `create_generated_app`
+  - les prompts frontend/runtime n'injectent plus `Type de sortie attendu`
+
+## 2026-04-02 - Les defaults d'outils appartiennent au manifest via `runtime.toolDefaults`
+- Statut: adopte localement
+- Contexte: l'ancien helper media injectait des comportements specialises cote backend a partir de branches produit. Cela fuyait encore une logique "famille d'app" au lieu d'une logique "app souveraine".
+- Decision:
+  - remplacer `applyRuntimeMediaToolDefaults()` par `applyRuntimeToolDefaults()`
+  - merger generiquement les arguments outils avec `manifest.runtime.toolDefaults`, puis appliquer seulement les fallbacks de modeles autorises
+- Pourquoi:
+  - le comportement runtime doit etre declare par l'app elle-meme
+  - le backend doit rester un mergeur et un garde-fou, pas un auteur de comportement cache
+- Consequence:
+  - `test-cowork-loop.ts` couvre maintenant l'interpolation et le merge generique
+  - une app peut declarer ses propres defaults pour audio, image ou autres modalites sans ajouter une nouvelle branche backend
+
+## 2026-04-02 - Le composant genere devient le rendu principal, le host natif devient un fallback
+- Statut: adopte localement
+- Contexte: tant que le canvas natif restait le chemin principal, les generated apps restaient produitement des manifests rendus par un host, plus que de vraies apps auto-definies.
+- Decision:
+  - preferer le composant genere des qu'il est pret et que l'app est en mode autonome
+  - conserver le canvas natif uniquement comme filet de securite legacy / erreur bundle
+- Pourquoi:
+  - respecte mieux la promesse "Cowork genere une vraie app"
+  - garde une migration douce sans casser les apps deja creees
+- Consequence:
+  - `src/components/GeneratedAppHost.tsx` distingue maintenant `autonomous_component` et `legacy_manifest`
+  - les anciennes apps restent ouvrables, les nouvelles prennent le chemin principal le plus autonome possible
+
 ## 2026-04-02 - Une generated app de debat ne doit pas rester un podcast generique
 - Statut: adopte localement
 - Contexte: `IA Duel Podcast` etait bien classee comme app audio/podcast, mais rien n'obligeait vraiment le manifest ni le runtime a rester dans un vrai mode debat contradictoire. Le resultat pouvait donc glisser vers une chronique solo.

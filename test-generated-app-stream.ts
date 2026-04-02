@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { Response } from 'express';
 
-import { sanitizeGeneratedAppManifest } from './server/lib/generated-apps.ts';
+import { sanitizeGeneratedAppManifest, type GeneratedAppCreationTranscriptTurn } from './server/lib/generated-apps.ts';
 import { streamGeneratedAppCreation } from './server/routes/standard.ts';
 
 class FakeSseResponse {
@@ -152,7 +152,11 @@ await streamGeneratedAppCreation({
       timestamp: 5,
     });
 
-    return manifest;
+    return {
+      status: 'completed',
+      transcript: [{ role: 'user', content: 'Construis une app stream test.', kind: 'brief' }],
+      manifest,
+    };
   },
 });
 
@@ -174,5 +178,50 @@ assert.equal(manifestEvent?.data.manifest.id, manifest.id);
 const doneEvent = events.find((event) => event.event === 'done');
 assert(doneEvent, 'Le flux doit se terminer par done.');
 assert.equal(doneEvent?.data.manifestId, manifest.id);
+
+const clarificationResponse = new FakeSseResponse();
+
+await streamGeneratedAppCreation({
+  res: clarificationResponse as unknown as Response,
+  brief: 'Fais-moi une app tres libre.',
+  source: 'manual',
+  createManifest: async (_brief, _source, options) => {
+    const transcript: GeneratedAppCreationTranscriptTurn[] = [{ role: 'user', content: 'Fais-moi une app tres libre.', kind: 'brief' }];
+    await options?.onProgress?.({
+      phase: 'brief_validated',
+      label: 'Brief verrouille et pret pour la spec.',
+      timestamp: 10,
+      transcript,
+    });
+    await options?.onProgress?.({
+      phase: 'clarification_requested',
+      label: 'Quel resultat principal veux-tu voir apparaitre dans l app ?',
+      timestamp: 11,
+      transcript: [
+        ...transcript,
+        { role: 'assistant', content: 'Quel resultat principal veux-tu voir apparaitre dans l app ?', kind: 'clarification' },
+      ],
+      clarificationQuestion: 'Quel resultat principal veux-tu voir apparaitre dans l app ?',
+    });
+
+    return {
+      status: 'clarification_requested',
+      question: 'Quel resultat principal veux-tu voir apparaitre dans l app ?',
+      transcript: [
+        ...transcript,
+        { role: 'assistant', content: 'Quel resultat principal veux-tu voir apparaitre dans l app ?', kind: 'clarification' },
+      ],
+    };
+  },
+});
+
+const clarificationEvents = parseEvents(clarificationResponse.body);
+const clarificationEvent = clarificationEvents.find((event) => event.event === 'generated_app_clarification');
+assert(clarificationEvent, 'Le flux doit exposer une clarification conversationnelle quand le planner en demande une.');
+assert.equal(clarificationEvent?.data.question, 'Quel resultat principal veux-tu voir apparaitre dans l app ?');
+
+const clarificationDoneEvent = clarificationEvents.find((event) => event.event === 'done');
+assert(clarificationDoneEvent, 'Le flux de clarification doit aussi se terminer proprement.');
+assert.equal(clarificationDoneEvent?.data.status, 'clarification_requested');
 
 console.log('test-generated-app-stream: OK');

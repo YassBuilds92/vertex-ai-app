@@ -14,6 +14,8 @@ import { uploadToGCS } from './storage.js';
 export type GeneratedAppStatus = 'draft' | 'published' | 'failed';
 export type GeneratedAppOutputKind = 'pdf' | 'html' | 'music' | 'podcast' | 'code' | 'research' | 'automation' | 'image';
 export type GeneratedAppFieldType = 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'url';
+export type GeneratedAppJsonPrimitive = string | number | boolean | null;
+export type GeneratedAppJsonValue = GeneratedAppJsonPrimitive | GeneratedAppJsonValue[] | { [key: string]: GeneratedAppJsonValue };
 
 export type GeneratedAppFieldSchema = {
   id: string;
@@ -34,6 +36,14 @@ export type GeneratedAppModelProfile = {
   videoModel?: string;
 };
 
+export type GeneratedAppIdentity = {
+  mission: string;
+  posture: string;
+  successCriteria: string[];
+};
+
+export type GeneratedAppRuntimeToolDefaults = Record<string, Record<string, GeneratedAppJsonValue>>;
+
 export type GeneratedAppVisualDirection = {
   thesis: string;
   mood: string;
@@ -48,17 +58,27 @@ export type GeneratedAppRuntimeDefinition = {
   resultLabel: string;
   emptyStateLabel?: string;
   editHint?: string;
+  toolDefaults?: GeneratedAppRuntimeToolDefaults;
+  renderMode?: 'bundle_primary' | 'manifest_fallback';
 };
 
 export type GeneratedAppBundleStatus = 'ready' | 'failed' | 'skipped';
 export type GeneratedAppCreationPhase =
   | 'brief_validated'
+  | 'clarification_requested'
+  | 'clarification_resolved'
   | 'spec_ready'
   | 'source_ready'
   | 'bundle_ready'
   | 'bundle_skipped'
   | 'bundle_failed'
   | 'manifest_ready';
+
+export type GeneratedAppCreationTranscriptTurn = {
+  role: 'user' | 'assistant';
+  content: string;
+  kind?: 'brief' | 'clarification' | 'answer' | 'info';
+};
 
 export type GeneratedAppVersion = {
   id: string;
@@ -86,6 +106,8 @@ export type GeneratedAppManifest = {
   mission: string;
   whenToUse: string;
   outputKind: GeneratedAppOutputKind;
+  modalities: string[];
+  identity: GeneratedAppIdentity;
   starterPrompt: string;
   systemInstruction: string;
   uiSchema: GeneratedAppFieldSchema[];
@@ -102,6 +124,7 @@ export type GeneratedAppManifest = {
   updatedAt: number;
   draftVersion: GeneratedAppVersion;
   publishedVersion?: GeneratedAppVersion;
+  generationMode?: 'legacy_manifest' | 'autonomous_component';
 };
 
 export type GeneratedAppManifestPreview = Pick<
@@ -113,6 +136,8 @@ export type GeneratedAppManifestPreview = Pick<
   | 'mission'
   | 'whenToUse'
   | 'outputKind'
+  | 'modalities'
+  | 'identity'
   | 'uiSchema'
   | 'toolAllowList'
   | 'capabilities'
@@ -126,6 +151,8 @@ export type GeneratedAppCreationProgressEvent = {
   manifestPreview?: GeneratedAppManifestPreview;
   sourceCode?: string;
   buildLog?: string;
+  transcript?: GeneratedAppCreationTranscriptTurn[];
+  clarificationQuestion?: string;
   timestamp: number;
 };
 
@@ -135,8 +162,35 @@ type DraftDefinition = Omit<
 >;
 
 type GeneratedAppCreationProgressHandler = (event: GeneratedAppCreationProgressEvent) => void | Promise<void>;
-type GeneratedAppDefinitionBuilder = (brief: string, source: 'manual' | 'cowork') => Promise<DraftDefinition>;
+type GeneratedAppPlannerBuilder = (
+  transcript: GeneratedAppCreationTranscriptTurn[],
+  source: 'manual' | 'cowork'
+) => Promise<GeneratedAppPlannerDecision>;
 type GeneratedAppVersionBuilder = (sourceCode: string, slug: string) => Promise<GeneratedAppVersion>;
+type GeneratedAppSourceBuilder = (definition: DraftDefinition) => Promise<string>;
+type GeneratedAppPlannerDecision =
+  | {
+      status: 'needs_clarification';
+      question: string;
+      transcript: GeneratedAppCreationTranscriptTurn[];
+    }
+  | {
+      status: 'ready';
+      definition: DraftDefinition;
+      transcript: GeneratedAppCreationTranscriptTurn[];
+      clarificationResolved: boolean;
+    };
+type GeneratedAppCreationResult =
+  | {
+      status: 'clarification_requested';
+      transcript: GeneratedAppCreationTranscriptTurn[];
+      question: string;
+    }
+  | {
+      status: 'completed';
+      transcript: GeneratedAppCreationTranscriptTurn[];
+      manifest: GeneratedAppManifest;
+    };
 
 const GENERATED_APP_MODEL = 'gemini-3.1-flash-lite-preview';
 const GENERATED_APP_BUILD_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -163,42 +217,44 @@ const TOOL_LIBRARY = [
 ] as const;
 type GeneratedAppToolName = typeof TOOL_LIBRARY[number];
 
-const TOOL_ALLOWLIST_BY_OUTPUT_KIND: Record<GeneratedAppOutputKind, readonly GeneratedAppToolName[]> = {
-  image: ['generate_image_asset', 'release_file'],
-  music: ['generate_music_audio', 'generate_image_asset', 'release_file'],
-  podcast: ['web_search', 'web_fetch', 'generate_image_asset', 'generate_tts_audio', 'generate_music_audio', 'create_podcast_episode', 'release_file'],
-  html: ['web_search', 'web_fetch', 'generate_image_asset', 'read_file', 'write_file', 'list_files', 'list_recursive', 'execute_script', 'release_file'],
-  code: ['web_search', 'web_fetch', 'read_file', 'write_file', 'list_files', 'list_recursive', 'execute_script', 'release_file'],
-  pdf: ['web_search', 'web_fetch', 'begin_pdf_draft', 'append_to_draft', 'revise_pdf_draft', 'get_pdf_draft', 'review_pdf_draft', 'create_pdf', 'release_file'],
-  automation: ['web_search', 'web_fetch', 'read_file', 'write_file', 'list_files', 'list_recursive', 'execute_script', 'release_file'],
-  research: ['web_search', 'web_fetch', 'read_file', 'write_file', 'list_files', 'list_recursive', 'release_file'],
-};
-
-const REQUIRED_TOOLS_BY_OUTPUT_KIND: Partial<Record<GeneratedAppOutputKind, readonly GeneratedAppToolName[]>> = {
-  image: ['generate_image_asset', 'release_file'],
-  music: ['generate_music_audio', 'release_file'],
-  podcast: ['create_podcast_episode', 'release_file'],
-  pdf: ['create_pdf', 'release_file'],
-};
-
 const TEXT_MODELS = ['gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview'] as const;
 const IMAGE_MODELS = [DEFAULT_IMAGE_MODEL] as const;
 const MUSIC_MODELS = [DEFAULT_LYRIA_MODEL, 'lyria-3-pro-preview', 'lyria-3-clip-preview', 'lyria-002'] as const;
 const TTS_MODELS = [DEFAULT_TTS_MODEL, 'gemini-2.5-pro-tts', 'gemini-2.5-flash-tts'] as const;
 
-const SPEC_PROMPT = `Retourne UNIQUEMENT un JSON valide pour une app experte Cowork.
-Champs obligatoires: name, slug, tagline, summary, mission, whenToUse, outputKind, starterPrompt, systemInstruction, toolAllowList, capabilities, uiSchema, modelProfile, visualDirection, runtime.
-outputKind autorise: pdf | html | music | podcast | code | research | automation | image.
+const PLANNER_PROMPT = `Retourne UNIQUEMENT un JSON valide pour la prochaine etape de creation d'une app experte Cowork.
+Deux sorties possibles:
+1. {"status":"needs_clarification","question":"..."}
+2. {"status":"ready","definition":{...}}
+Quand le brief est encore trop ambigu pour construire une bonne app, pose UNE question utile et concrete en langage naturel. N'invente pas de liste d'options produit.
+Quand le cadre est suffisant, retourne definition complete.
+Champs obligatoires dans definition: name, slug, tagline, summary, mission, whenToUse, outputKind, modalities, identity, starterPrompt, systemInstruction, toolAllowList, capabilities, uiSchema, modelProfile, visualDirection, runtime.
+outputKind autorise pour compatibilite store: pdf | html | music | podcast | code | research | automation | image.
 Outils autorises: ${TOOL_LIBRARY.join(', ')}.
 Modeles texte: ${TEXT_MODELS.join(', ')}.
 Modeles image: ${IMAGE_MODELS.join(', ')}.
 Modeles musique: ${MUSIC_MODELS.join(', ')}.
 Modeles TTS: ${TTS_MODELS.join(', ')}.
-3 a 6 champs UI max. Ecris en francais. App deployable sans chatbox generique.`;
+3 a 8 champs UI max. Ecris en francais. L'app peut etre hybride. outputKind est seulement un tag legacy pour le store, pas une contrainte de conception.
+runtime.toolDefaults doit encoder les defaults utiles par outil quand l'app en a besoin.`;
 
 const REVISION_PROMPT = `Retourne UNIQUEMENT un JSON valide pour mettre a jour une app experte Cowork existante.
-Conserve l'identite utile de l'app. Mets a jour interface, prompt, outils et modelProfile selon la demande.
-3 a 6 champs UI max. Ecris en francais.`;
+Conserve l'identite utile de l'app. Mets a jour interface, prompt, outils, modalities, identity, runtime.toolDefaults et modelProfile selon la demande.
+3 a 8 champs UI max. Ecris en francais.`;
+
+const SOURCE_GENERATOR_PROMPT = `Retourne UNIQUEMENT du code TSX valide.
+Genere un composant React exporte par defaut pour une generated app Cowork.
+Contraintes strictes:
+- importe seulement React depuis 'react'
+- aucun autre import
+- composant self-contained
+- utilise les props suivantes si utiles: manifest, featureDeck, formValues, isRunning, messages, onFieldChange, onRun, onPublish, canPublish, onAskCowork
+- l'interface doit etre differente du host legacy manifeste autant que possible
+- conserve une experience premium, lisible et exploitable
+- respecte les champs du manifest sans supposer un outputKind rigide
+- n'utilise pas de markdown fences ni d'explications
+- utilise des styles inline ou des objets JS simples
+- si l'app est media-rich, mets en avant les artefacts deja presents dans messages`;
 
 function slugify(value: string): string {
   return value
@@ -280,19 +336,6 @@ function extractJsonObject(raw: string): Record<string, unknown> {
   }
 }
 
-function inferOutputKind(brief: string): GeneratedAppOutputKind {
-  const lowered = brief.toLowerCase();
-  if (/\b(pokemon|carte|card|collector|illustration|sprite|cover|visuel)\b/.test(lowered)) return 'image';
-  if (/\b(nasheed|music|musique|lyria|song|beat|instrumental|refrain)\b/.test(lowered)) return 'music';
-  if (/\b(podcast|narration|voice|voix|tts|interview|audio)\b/.test(lowered)) return 'podcast';
-  if (isDebatePodcastIntent(brief) && /\b(type d'application cible:\s*podcast|podcast|audio|voix)\b/.test(lowered)) return 'podcast';
-  if (/\b(site|landing|web|html)\b/.test(lowered)) return 'html';
-  if (/\b(code|prototype|plugin|script)\b/.test(lowered)) return 'code';
-  if (/\b(pdf|rapport|memo|document)\b/.test(lowered)) return 'pdf';
-  if (/\b(auto|automation|routine|workflow)\b/.test(lowered)) return 'automation';
-  return 'research';
-}
-
 function normalizeFieldType(value: unknown): GeneratedAppFieldType {
   switch (typeof value === 'string' ? value.toLowerCase().trim() : '') {
     case 'textarea':
@@ -306,57 +349,135 @@ function normalizeFieldType(value: unknown): GeneratedAppFieldType {
   }
 }
 
-function defaultFields(
-  outputKind: GeneratedAppOutputKind,
-  options: { debatePodcast?: boolean } = {}
-): GeneratedAppFieldSchema[] {
-  if (outputKind === 'music') {
-    return [
-      { id: 'theme', label: 'Theme', type: 'textarea', placeholder: 'Message central du nasheed', helpText: 'La mission poetique et spirituelle.', required: true },
-      { id: 'mood', label: 'Ambiance', type: 'select', helpText: 'Couleur emotionnelle.', options: ['Apaisant', 'Solennel', 'Ascendant', 'Meditatif'] },
-      { id: 'structure', label: 'Structure', type: 'select', helpText: 'Architecture du morceau.', options: ['Intro + couplet + refrain', 'Hook court', 'Nasheed complet'] },
-    ];
-  }
-
-  if (outputKind === 'image') {
-    return [
-      { id: 'subject', label: 'Sujet', type: 'text', placeholder: 'Creature ou carte', helpText: 'Element central du visuel.', required: true },
-      { id: 'artDirection', label: 'Direction artistique', type: 'textarea', placeholder: 'Palette, style, energie...', helpText: 'Look final attendu.', required: true },
-      { id: 'rarity', label: 'Rarete', type: 'select', helpText: 'Prestige du rendu.', options: ['Common', 'Rare', 'Epic', 'Legendary'] },
-    ];
-  }
-
-  if (outputKind === 'podcast' && options.debatePodcast) {
-    return [
-      { id: 'topic', label: 'Motion du debat', type: 'textarea', placeholder: 'Proposition precise a confronter', helpText: 'La question centrale du duel audio.', required: true },
-      { id: 'stance_a', label: 'Camp A', type: 'text', placeholder: 'Position ou personnage 1', helpText: 'Perspective initiale du premier intervenant.', required: true },
-      { id: 'stance_b', label: 'Camp B', type: 'text', placeholder: 'Position ou personnage 2', helpText: 'Perspective opposee du second intervenant.', required: true },
-      { id: 'debate_frame', label: 'Cadre', type: 'select', helpText: 'Forme de l affrontement oratoire.', options: ['Debat frontal', 'Pour / contre', 'Sceptique / defenseur', 'Moderateur + contradiction'] },
-      { id: 'duration', label: 'Duree', type: 'number', placeholder: '6', helpText: 'Minutes approximatives du duel.' },
-    ];
-  }
-
-  if (outputKind === 'podcast') {
-    return [
-      { id: 'topic', label: 'Sujet', type: 'textarea', placeholder: 'Angle editorial ou histoire', helpText: 'Le coeur de l episode.', required: true },
-      { id: 'tone', label: 'Ton', type: 'select', helpText: 'Style narratif.', options: ['Calme', 'Editorial', 'Dramatique', 'Conversationnel'] },
-      { id: 'duration', label: 'Duree', type: 'number', placeholder: '8', helpText: 'Minutes approximatives.' },
-    ];
-  }
-
+function defaultFields(): GeneratedAppFieldSchema[] {
   return [
-    { id: 'brief', label: 'Mission', type: 'textarea', placeholder: 'Decris la demande', helpText: 'Le besoin central a executer.', required: true },
-    { id: 'tone', label: 'Ton', type: 'text', placeholder: 'Direct, premium, pedagogique...', helpText: 'Regle le style du rendu.' },
-    { id: 'format', label: 'Format', type: 'text', placeholder: 'Rapport, page, prototype...', helpText: 'Type de livrable vise.' },
+    { id: 'brief', label: 'Brief', type: 'textarea', placeholder: 'Decris ici la mission exacte.', helpText: "Le coeur de la demande transmis a l'app.", required: true },
+    { id: 'goal', label: 'Resultat vise', type: 'text', placeholder: 'Le rendu ideal a produire', helpText: 'Le resultat attendu quand il faut le preciser.' },
+    { id: 'constraints', label: 'Contraintes', type: 'textarea', placeholder: 'Ton, format, limites, angle, style...', helpText: 'Les limites ou preferences a respecter.' },
   ];
+}
+
+function deriveLegacyOutputKind(
+  rawOutputKind: unknown,
+  modalities: string[],
+  toolAllowList: string[]
+): GeneratedAppOutputKind {
+  const explicit = typeof rawOutputKind === 'string' && ['pdf', 'html', 'music', 'podcast', 'code', 'research', 'automation', 'image'].includes(rawOutputKind)
+    ? rawOutputKind as GeneratedAppOutputKind
+    : null;
+  if (explicit) return explicit;
+
+  const modalityHaystack = modalities.map((value) => normalizeGeneratedAppSemanticText(value)).join(' ');
+  const toolSet = new Set(toolAllowList);
+
+  if (toolSet.has('create_pdf')) return 'pdf';
+  if (toolSet.has('create_podcast_episode') || (toolSet.has('generate_tts_audio') && /\b(audio|voice|voix|spoken|dialogue|podcast)\b/.test(modalityHaystack))) return 'podcast';
+  if (toolSet.has('generate_music_audio') && /\b(audio|music|musique|sound|son)\b/.test(modalityHaystack)) return 'music';
+  if (toolSet.has('generate_image_asset') && /\b(image|visual|visuel|illustration)\b/.test(modalityHaystack)) return 'image';
+  if (/\b(web|html|site|landing|interface)\b/.test(modalityHaystack)) return 'html';
+  if (toolSet.has('write_file') || toolSet.has('execute_script')) {
+    return /\b(code|plugin|script|automation|workflow)\b/.test(modalityHaystack) ? 'code' : 'automation';
+  }
+  return 'research';
+}
+
+function sanitizeJsonValue(value: unknown, depth = 0): GeneratedAppJsonValue | undefined {
+  if (depth > 4) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'string') {
+    const clipped = clipText(value, 220);
+    return clipped.length > 0 ? clipped : undefined;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    const next = value
+      .slice(0, 8)
+      .map((item) => sanitizeJsonValue(item, depth + 1))
+      .filter((item): item is GeneratedAppJsonValue => item !== undefined);
+    return next;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .slice(0, 16)
+      .map(([key, nested]) => {
+        const normalized = sanitizeJsonValue(nested, depth + 1);
+        return normalized === undefined ? null : [clipText(key, 80), normalized] as const;
+      })
+      .filter((entry): entry is readonly [string, GeneratedAppJsonValue] => Boolean(entry?.[0]));
+    return Object.fromEntries(entries);
+  }
+  return undefined;
+}
+
+function sanitizeModalities(
+  input: unknown,
+  options: { rawOutputKind?: unknown; toolAllowList?: string[] } = {}
+): string[] {
+  const explicit = uniqueStrings(input, 8);
+  if (explicit.length > 0) return explicit;
+
+  const derived = new Set<string>();
+  const rawOutputKind = typeof options.rawOutputKind === 'string' ? options.rawOutputKind : '';
+  const toolSet = new Set(options.toolAllowList || []);
+
+  if (rawOutputKind === 'pdf' || toolSet.has('create_pdf')) derived.add('document');
+  if (rawOutputKind === 'html') derived.add('web');
+  if (rawOutputKind === 'code') derived.add('code');
+  if (rawOutputKind === 'automation') derived.add('workflow');
+  if (rawOutputKind === 'image' || toolSet.has('generate_image_asset')) derived.add('image');
+  if (rawOutputKind === 'music' || toolSet.has('generate_music_audio')) derived.add('audio');
+  if (rawOutputKind === 'podcast' || toolSet.has('generate_tts_audio') || toolSet.has('create_podcast_episode')) derived.add('audio');
+  if (rawOutputKind === 'research' || toolSet.has('web_search') || toolSet.has('web_fetch')) derived.add('text');
+
+  return Array.from(derived);
+}
+
+function sanitizeIdentity(input: unknown, fallbackMission: string): GeneratedAppIdentity {
+  const source = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const successCriteria = uniqueStrings(source.successCriteria, 5);
+  return {
+    mission: clipText(source.mission, 220) || fallbackMission,
+    posture: clipText(source.posture, 180) || 'Expert autonome, net, honnête et orienté résultat.',
+    successCriteria: successCriteria.length > 0
+      ? successCriteria
+      : [
+          'Comprend vite le besoin réel',
+          'Choisit une stratégie adaptée sans wizard imposé',
+          'Livre un résultat exploitable et assumé',
+        ],
+  };
+}
+
+function sanitizeToolDefaults(input: unknown): GeneratedAppRuntimeToolDefaults {
+  if (!input || typeof input !== 'object') return {};
+  const entries = Object.entries(input as Record<string, unknown>)
+    .map(([toolName, rawDefaults]) => {
+      const normalizedToolName = clipText(toolName, 80);
+      if (!TOOL_LIBRARY.includes(normalizedToolName as GeneratedAppToolName)) return null;
+      if (!rawDefaults || typeof rawDefaults !== 'object' || Array.isArray(rawDefaults)) return null;
+      const sanitizedEntries = Object.entries(rawDefaults as Record<string, unknown>)
+        .slice(0, 24)
+        .map(([key, value]) => {
+          const normalizedValue = sanitizeJsonValue(value);
+          if (normalizedValue === undefined) return null;
+          return [clipText(key, 80), normalizedValue] as const;
+        })
+        .filter((entry): entry is readonly [string, GeneratedAppJsonValue] => Boolean(entry?.[0]));
+      if (sanitizedEntries.length === 0) return null;
+      return [normalizedToolName, Object.fromEntries(sanitizedEntries)] as const;
+    })
+    .filter((entry): entry is readonly [string, Record<string, GeneratedAppJsonValue>] => Boolean(entry));
+  return Object.fromEntries(entries);
 }
 
 function sanitizeFields(
   input: unknown,
-  outputKind: GeneratedAppOutputKind,
-  options: { debatePodcast?: boolean } = {}
+  _outputKind?: GeneratedAppOutputKind
 ): GeneratedAppFieldSchema[] {
-  if (!Array.isArray(input)) return defaultFields(outputKind, options);
+  if (!Array.isArray(input)) return defaultFields();
 
   const fields: GeneratedAppFieldSchema[] = [];
   for (const rawField of input) {
@@ -383,15 +504,7 @@ function sanitizeFields(
     if (fields.length >= 6) break;
   }
 
-  return fields.length > 0 ? fields : defaultFields(outputKind, options);
-}
-
-function hasDebateStructuredUi(fields: GeneratedAppFieldSchema[]): boolean {
-  return fields.some((field) =>
-    /\b(camp|stance|position|contre|perspective|point_de_vue|point de vue|duel|debat|motion)\b/.test(
-      normalizeGeneratedAppSemanticText(`${field.id} ${field.label} ${field.helpText || ''}`)
-    )
-  );
+  return fields.length > 0 ? fields : defaultFields();
 }
 
 function mergeCapabilityDeck(primary: string[], secondary: string[], max = 6): string[] {
@@ -411,180 +524,118 @@ function mergeCapabilityDeck(primary: string[], secondary: string[], max = 6): s
   return merged;
 }
 
-function buildSpecializedSystemInstruction(
-  baseInstruction: string,
-  options: { debatePodcast?: boolean }
-): string {
-  if (!options.debatePodcast) return clipText(baseInstruction, 5000) || baseInstruction;
-
-  return clipText([
-    baseInstruction,
-    '### EXIGENCE DUEL AUDIO',
-    "- Cette app ne doit pas livrer une chronique solo quand la mission parle de duel, debat ou confrontation d'idees.",
-    "- Le rendu final vise un vrai face-a-face entre deux voix IA nettement distinctes, avec theses opposees, objections, rebuttals et breve synthese finale.",
-    "- Quand tu appelles `create_podcast_episode`, prepare toujours un duo a 2 intervenants avec des positions clairement antagonistes et des styles de jeu contrastes.",
-    "- Si les champs Camp A / Camp B sont vides, deduis toi-meme deux perspectives solides et opposees a partir du sujet.",
-    "- Sur les sujets sensibles, expose les arguments proprement, sans caricature ni ton cheap.",
-  ].join('\n'), 5000);
-}
-
-function sanitizeToolAllowList(input: unknown, outputKind: GeneratedAppOutputKind): string[] {
-  const allowedForKind = new Set<GeneratedAppToolName>(TOOL_ALLOWLIST_BY_OUTPUT_KIND[outputKind]);
-  const requested = uniqueStrings(input, 12)
-    .filter((tool): tool is GeneratedAppToolName => TOOL_LIBRARY.includes(tool as GeneratedAppToolName))
-    .filter((tool) => allowedForKind.has(tool));
-  const required = REQUIRED_TOOLS_BY_OUTPUT_KIND[outputKind] || [];
-  const curated = Array.from(new Set<GeneratedAppToolName>([...required, ...requested]));
-
+function sanitizeToolAllowList(
+  input: unknown,
+  runtimeToolDefaults: GeneratedAppRuntimeToolDefaults = {}
+): string[] {
+  const requested = uniqueStrings(input, 18)
+    .filter((tool): tool is GeneratedAppToolName => TOOL_LIBRARY.includes(tool as GeneratedAppToolName));
+  const hintedTools = Object.keys(runtimeToolDefaults)
+    .filter((tool): tool is GeneratedAppToolName => TOOL_LIBRARY.includes(tool as GeneratedAppToolName));
+  const curated = Array.from(new Set<GeneratedAppToolName>([...requested, ...hintedTools]));
   if (curated.length > 0) return curated;
-  if (outputKind === 'music') return ['generate_music_audio', 'generate_image_asset', 'release_file'];
-  if (outputKind === 'podcast') return ['web_search', 'web_fetch', 'create_podcast_episode', 'release_file'];
-  if (outputKind === 'image') return ['generate_image_asset', 'release_file'];
-  if (outputKind === 'pdf') return ['web_search', 'web_fetch', 'begin_pdf_draft', 'append_to_draft', 'review_pdf_draft', 'create_pdf', 'release_file'];
-  return ['web_search', 'web_fetch'];
+  return ['web_search', 'web_fetch', 'release_file'];
 }
 
-function sanitizeModelProfile(input: unknown, outputKind: GeneratedAppOutputKind): GeneratedAppModelProfile {
+function sanitizeModelProfile(
+  input: unknown,
+  options: { modalities: string[]; toolAllowList: string[] }
+): GeneratedAppModelProfile {
   const source = input && typeof input === 'object' ? input as Record<string, unknown> : {};
   const pickModel = (value: unknown, library: readonly string[], fallback: string) => {
     const text = typeof value === 'string' ? value.trim() : '';
     return library.includes(text) ? text : fallback;
   };
+  const modalityHaystack = options.modalities.map((value) => normalizeGeneratedAppSemanticText(value)).join(' ');
+  const toolSet = new Set(options.toolAllowList);
   const reasoningLevel = ['minimal', 'low', 'medium', 'high'].includes(String(source.reasoningLevel || ''))
     ? String(source.reasoningLevel) as GeneratedAppModelProfile['reasoningLevel']
-    : outputKind === 'code' || outputKind === 'research' ? 'high' : 'medium';
+    : toolSet.has('execute_script') || /\b(code|research|analyse|reasoning)\b/.test(modalityHaystack) ? 'high' : 'medium';
 
   return {
-    textModel: pickModel(source.textModel, TEXT_MODELS, outputKind === 'code' || outputKind === 'research' ? 'gemini-3.1-pro-preview' : 'gemini-3.1-flash-lite-preview'),
+    textModel: pickModel(source.textModel, TEXT_MODELS, toolSet.has('execute_script') || /\b(code|research|analyse|reasoning)\b/.test(modalityHaystack) ? 'gemini-3.1-pro-preview' : 'gemini-3.1-flash-lite-preview'),
     reasoningLevel,
-    imageModel: outputKind === 'image' || outputKind === 'music' || outputKind === 'html'
+    imageModel: toolSet.has('generate_image_asset') || /\b(image|visual|visuel|web|html)\b/.test(modalityHaystack)
       ? pickModel(source.imageModel, IMAGE_MODELS, DEFAULT_IMAGE_MODEL)
       : undefined,
-    musicModel: outputKind === 'music'
-      ? pickModel(source.musicModel, MUSIC_MODELS, 'lyria-3-pro-preview')
+    musicModel: toolSet.has('generate_music_audio') || toolSet.has('create_podcast_episode')
+      ? pickModel(source.musicModel, MUSIC_MODELS, DEFAULT_LYRIA_MODEL)
       : undefined,
-    ttsModel: outputKind === 'podcast'
+    ttsModel: toolSet.has('generate_tts_audio') || toolSet.has('create_podcast_episode')
       ? pickModel(source.ttsModel, TTS_MODELS, DEFAULT_TTS_MODEL)
       : undefined,
     videoModel: undefined,
   };
 }
 
-function sanitizeVisualDirection(input: unknown, outputKind: GeneratedAppOutputKind): GeneratedAppVisualDirection {
+function sanitizeVisualDirection(input: unknown): GeneratedAppVisualDirection {
   const source = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-  const accents: Record<GeneratedAppOutputKind, string> = {
-    image: '#ff7a18',
-    music: '#d9ff74',
-    podcast: '#ffd166',
-    html: '#5bd6ff',
-    code: '#7df9c1',
-    pdf: '#ff8a6d',
-    automation: '#89f0d0',
-    research: '#8bb8ff',
-  };
-
   return {
     thesis: clipText(source.thesis, 180) || 'Une interface forte, frontale et concentree sur un geste principal.',
     mood: clipText(source.mood, 60) || 'premium concentre',
-    accentColor: /^#([0-9a-f]{6})$/i.test(String(source.accentColor || '').trim()) ? String(source.accentColor).trim() : accents[outputKind],
+    accentColor: /^#([0-9a-f]{6})$/i.test(String(source.accentColor || '').trim()) ? String(source.accentColor).trim() : '#7dd3fc',
     surfaceTone: clipText(source.surfaceTone, 120) || 'surfaces denses, halo controle, contraste net',
     primaryFont: clipText(source.primaryFont, 80) || 'Sora',
     secondaryFont: clipText(source.secondaryFont, 80) || 'IBM Plex Sans',
   };
 }
 
-function sanitizeRuntime(input: unknown, outputKind: GeneratedAppOutputKind): GeneratedAppRuntimeDefinition {
+function sanitizeRuntime(input: unknown): GeneratedAppRuntimeDefinition {
   const source = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-  const actionByKind: Record<GeneratedAppOutputKind, string> = {
-    image: 'Generer maintenant',
-    music: 'Composer maintenant',
-    podcast: 'Produire maintenant',
-    html: 'Construire maintenant',
-    code: 'Builder maintenant',
-    pdf: 'Rediger maintenant',
-    automation: 'Lancer le flow',
-    research: 'Analyser maintenant',
-  };
-  const resultByKind: Record<GeneratedAppOutputKind, string> = {
-    image: 'Sorties visuelles',
-    music: 'Sorties recentes',
-    podcast: 'Master final',
-    html: 'Preview live',
-    code: 'Builds et versions',
-    pdf: 'Livrables',
-    automation: 'Executions recentes',
-    research: 'Resultats',
-  };
-
   return {
-    primaryActionLabel: clipText(source.primaryActionLabel, 52) || actionByKind[outputKind],
-    resultLabel: clipText(source.resultLabel, 60) || resultByKind[outputKind],
+    primaryActionLabel: clipText(source.primaryActionLabel, 52) || 'Lancer maintenant',
+    resultLabel: clipText(source.resultLabel, 60) || 'Resultats',
     emptyStateLabel: clipText(source.emptyStateLabel, 180) || 'Le prochain run doit sortir ici avec son artefact principal et ses variantes utiles.',
     editHint: clipText(source.editHint, 220) || "Decris ici l'evolution voulue. Cowork regenerera une nouvelle draft sans casser la version publiee.",
+    toolDefaults: sanitizeToolDefaults(source.toolDefaults),
+    renderMode: source.renderMode === 'manifest_fallback' ? 'manifest_fallback' : 'bundle_primary',
   };
 }
 
 function sanitizeDefinition(raw: unknown, brief: string, source: 'manual' | 'cowork'): DraftDefinition {
   const input = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-  const outputKind = (typeof input.outputKind === 'string' && ['pdf', 'html', 'music', 'podcast', 'code', 'research', 'automation', 'image'].includes(input.outputKind))
-    ? input.outputKind as GeneratedAppOutputKind
-    : inferOutputKind(brief);
-  const debatePodcast = outputKind === 'podcast' && isDebatePodcastIntent(
-    brief,
-    input.name,
-    input.slug,
-    input.tagline,
-    input.summary,
-    input.mission,
-    input.whenToUse,
-    input.starterPrompt,
-    input.systemInstruction,
-    input.sourcePrompt,
-    input.uiSchema,
-  );
+  const fallbackMission = clipText(input.mission, 320) || clipText(brief, 320) || 'Accomplir une mission experte avec une interface nette.';
   const name = clipText(input.name, 52) || 'Cowork Expert App';
   const slug = slugify(String(input.slug || name));
-  const sanitizedFields = sanitizeFields(input.uiSchema, outputKind, { debatePodcast });
-  const uiSchema = debatePodcast && !hasDebateStructuredUi(sanitizedFields)
-    ? defaultFields(outputKind, { debatePodcast: true })
-    : sanitizedFields;
+  const runtime = sanitizeRuntime(input.runtime);
+  const toolAllowList = sanitizeToolAllowList(input.toolAllowList, runtime.toolDefaults);
+  const modalities = sanitizeModalities(input.modalities, {
+    rawOutputKind: input.outputKind,
+    toolAllowList,
+  });
+  const outputKind = deriveLegacyOutputKind(input.outputKind, modalities, toolAllowList);
+  const uiSchema = sanitizeFields(input.uiSchema, outputKind);
   const requestedCapabilities = uniqueStrings(input.capabilities, 6);
-  const fallbackCapabilities = ['Cadre vite la mission', 'Lance une action experte', 'Expose un resultat publiable'];
-  const capabilities = debatePodcast
-    ? mergeCapabilityDeck(
-        [
-          'Cadre un vrai duel contradictoire',
-          'Fait parler deux voix nettement distinctes',
-          'Produit un master audio de debat pret a publier',
-          'Peut sourcer les angles si le sujet le demande',
-        ],
-        requestedCapabilities.length > 0 ? requestedCapabilities : fallbackCapabilities,
-      )
-    : (requestedCapabilities.length > 0 ? requestedCapabilities : fallbackCapabilities);
-  const systemInstruction = buildSpecializedSystemInstruction(
-    clipText(input.systemInstruction, 5000) || `Tu es ${name}, une app experte concue par Cowork. Tu livres un resultat net, specialise et honnete.`,
-    { debatePodcast }
-  );
+  const fallbackCapabilities = ['Cadre vite la mission', 'Agit avec une vraie autonomie', 'Expose un resultat publiable'];
+  const capabilities = requestedCapabilities.length > 0
+    ? mergeCapabilityDeck(requestedCapabilities, fallbackCapabilities)
+    : fallbackCapabilities;
+  const identity = sanitizeIdentity(input.identity, fallbackMission);
+  const systemInstruction = clipText(input.systemInstruction, 5000)
+    || `Tu es ${name}, une app experte concue par Cowork. Mission: ${identity.mission} Posture: ${identity.posture}`;
 
   return {
     name,
     slug,
     tagline: clipText(input.tagline, 92) || 'App experte generee par Cowork',
     summary: clipText(input.summary, 220) || clipText(brief, 220) || 'App experte prete a lancer.',
-    mission: clipText(input.mission, 320) || clipText(brief, 320) || `Accomplir la mission: ${name}.`,
+    mission: fallbackMission,
     whenToUse: clipText(input.whenToUse, 220) || `Utilise cette app quand le besoin principal tourne autour de ${name.toLowerCase()}.`,
     outputKind,
+    modalities,
+    identity,
     starterPrompt: clipText(input.starterPrompt, 420) || `Prends en charge cette mission dans ${name}.`,
     systemInstruction,
     uiSchema,
-    toolAllowList: sanitizeToolAllowList(input.toolAllowList, outputKind),
+    toolAllowList,
     capabilities,
-    modelProfile: sanitizeModelProfile(input.modelProfile, outputKind),
-    visualDirection: sanitizeVisualDirection(input.visualDirection, outputKind),
-    runtime: sanitizeRuntime(input.runtime, outputKind),
+    modelProfile: sanitizeModelProfile(input.modelProfile, { modalities, toolAllowList }),
+    visualDirection: sanitizeVisualDirection(input.visualDirection),
+    runtime,
     createdBy: source,
     sourcePrompt: clipText(input.sourcePrompt || brief, 1500) || undefined,
     sourceSessionId: clipText(input.sourceSessionId, 120) || undefined,
+    generationMode: input.generationMode === 'legacy_manifest' ? 'legacy_manifest' : 'autonomous_component',
   };
 }
 
@@ -605,6 +656,8 @@ function buildManifestPreview(definition: DraftDefinition): GeneratedAppManifest
     mission: definition.mission,
     whenToUse: definition.whenToUse,
     outputKind: definition.outputKind,
+    modalities: definition.modalities,
+    identity: definition.identity,
     uiSchema: definition.uiSchema,
     toolAllowList: definition.toolAllowList,
     capabilities: definition.capabilities,
@@ -617,6 +670,51 @@ function validateGeneratedAppBrief(brief: string) {
   const cleanedBrief = clipText(brief, 2200);
   if (!cleanedBrief) throw new Error("Le brief de generation d'app est vide.");
   return cleanedBrief;
+}
+
+function normalizeCreationTranscript(
+  transcript?: GeneratedAppCreationTranscriptTurn[],
+  brief?: string
+): GeneratedAppCreationTranscriptTurn[] {
+  const normalizedTranscript = Array.isArray(transcript)
+    ? transcript
+        .map((turn): GeneratedAppCreationTranscriptTurn => ({
+          role: turn.role === 'assistant' ? 'assistant' : 'user',
+          content: clipText(turn.content, 2200),
+          kind: turn.kind,
+        }))
+        .filter((turn) => turn.content.length > 0)
+        .slice(-12)
+    : [];
+
+  if (normalizedTranscript.some((turn) => turn.role === 'user' && turn.content.trim().length > 0)) {
+    return normalizedTranscript;
+  }
+
+  if (typeof brief === 'string' && brief.trim().length > 0) {
+    return [{
+      role: 'user',
+      content: validateGeneratedAppBrief(brief),
+      kind: 'brief',
+    }];
+  }
+
+  throw new Error("Le flux de creation d'app attend au moins un brief ou un transcript utilisateur.");
+}
+
+function transcriptToPrompt(transcript: GeneratedAppCreationTranscriptTurn[]): string {
+  return transcript
+    .map((turn, index) => `${index + 1}. ${turn.role === 'assistant' ? 'Cowork' : 'Utilisateur'}: ${turn.content}`)
+    .join('\n');
+}
+
+function extractTsxSource(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error('Aucun code TSX exploitable retourne.');
+  }
+  const fenced = trimmed.match(/```(?:tsx|ts|jsx|js)?\s*([\s\S]*?)```/i);
+  return (fenced?.[1] || trimmed).trim();
 }
 
 async function emitGeneratedAppProgress(
@@ -646,7 +744,13 @@ function collectArtifacts(messages) {
     .flatMap((message) => Array.isArray(message.attachments) ? message.attachments : [])
     .slice()
     .reverse()
-    .slice(0, 5);
+    .slice(0, 6);
+}
+
+function collectToolDefaults(manifest) {
+  const runtime = manifest?.runtime && typeof manifest.runtime === 'object' ? manifest.runtime : {};
+  const defaults = runtime?.toolDefaults && typeof runtime.toolDefaults === 'object' ? runtime.toolDefaults : {};
+  return Object.entries(defaults).slice(0, 4);
 }
 
 export default function GeneratedCoworkApp(props) {
@@ -654,23 +758,27 @@ export default function GeneratedCoworkApp(props) {
   const accentColor = manifest?.visualDirection?.accentColor || '#7dd3fc';
   const fields = Array.isArray(manifest?.uiSchema) ? manifest.uiSchema : [];
   const artifacts = collectArtifacts(props?.messages);
+  const toolDefaults = collectToolDefaults(manifest);
+  const identity = manifest?.identity || embeddedManifest.identity;
+  const modalities = Array.isArray(manifest?.modalities) ? manifest.modalities : embeddedManifest.modalities;
+  const headline = identity?.mission || manifest?.mission || embeddedManifest.mission;
 
   return (
     <div
       style={{
         minHeight: '100%',
-        padding: '24px',
-        borderRadius: '28px',
+        padding: '28px',
+        borderRadius: '32px',
         border: '1px solid rgba(255,255,255,0.1)',
-        background: 'linear-gradient(180deg, rgba(8,12,20,0.98), rgba(6,11,18,0.98))',
+        background: 'radial-gradient(circle at 12% 12%, rgba(125,211,252,0.16), transparent 28%), radial-gradient(circle at 82% 14%, rgba(255,255,255,0.08), transparent 18%), linear-gradient(180deg, rgba(8,12,20,0.98), rgba(6,11,18,0.98))',
         color: 'white',
-        fontFamily: 'Inter, system-ui, sans-serif',
+        fontFamily: manifest?.visualDirection?.primaryFont || 'Sora, system-ui, sans-serif',
       }}
     >
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '16px' }}>
         <div>
           <div style={{ fontSize: '11px', letterSpacing: '0.24em', textTransform: 'uppercase', opacity: 0.42 }}>
-            {(manifest?.outputKind || 'app')} preview bundle
+            {(manifest?.outputKind || 'app')} · composant autonome
           </div>
           <h1 style={{ margin: '12px 0 0', fontSize: '32px', lineHeight: 1, letterSpacing: '-0.04em' }}>
             {manifest?.name || embeddedManifest.name}
@@ -692,24 +800,27 @@ export default function GeneratedCoworkApp(props) {
             opacity: 0.8,
           }}
         >
-          bundle check
+          bundle primary
         </div>
       </div>
 
-      <div style={{ marginTop: '24px', display: 'grid', gap: '18px', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(280px, 0.9fr)' }}>
+      <div style={{ marginTop: '26px', display: 'grid', gap: '18px', gridTemplateColumns: 'minmax(0, 1.15fr) minmax(320px, 0.85fr)' }}>
         <section
           style={{
             borderRadius: '22px',
             border: '1px solid rgba(255,255,255,0.1)',
             background: 'rgba(255,255,255,0.04)',
-            padding: '18px',
+            padding: '22px',
           }}
         >
           <div style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.42 }}>
-            Direction
+            Identité
+          </div>
+          <div style={{ marginTop: '12px', fontSize: '22px', fontWeight: 700, lineHeight: 1.12, letterSpacing: '-0.04em' }}>
+            {headline}
           </div>
           <p style={{ marginTop: '12px', fontSize: '14px', lineHeight: 1.8, opacity: 0.78 }}>
-            {manifest?.mission || embeddedManifest.mission}
+            {identity?.posture || manifest?.summary || embeddedManifest.summary}
           </p>
           <div style={{ marginTop: '18px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             {featureDeck.map((item) => (
@@ -726,11 +837,58 @@ export default function GeneratedCoworkApp(props) {
                 {item}
               </span>
             ))}
+            {Array.isArray(modalities) ? modalities.slice(0, 4).map((item) => (
+              <span
+                key={item}
+                style={{
+                  borderRadius: '999px',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  opacity: 0.7,
+                  background: 'rgba(255,255,255,0.03)',
+                }}
+              >
+                {item}
+              </span>
+            )) : null}
           </div>
 
-          <div style={{ marginTop: '22px' }}>
+          <div style={{ marginTop: '24px', display: 'grid', gap: '14px', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}>
+            <div style={{ borderRadius: '18px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', padding: '16px' }}>
+              <div style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.42 }}>
+                Critères de réussite
+              </div>
+              <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
+                {(Array.isArray(identity?.successCriteria) ? identity.successCriteria : []).slice(0, 4).map((item) => (
+                  <div key={item} style={{ fontSize: '13px', lineHeight: 1.6, opacity: 0.82 }}>
+                    • {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ borderRadius: '18px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', padding: '16px' }}>
+              <div style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.42 }}>
+                Defaults outils
+              </div>
+              <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
+                {toolDefaults.length > 0 ? toolDefaults.map(([toolName, args]) => (
+                  <div key={toolName} style={{ fontSize: '13px', lineHeight: 1.6, opacity: 0.78 }}>
+                    <div style={{ fontWeight: 700 }}>{toolName}</div>
+                    <div style={{ opacity: 0.62 }}>{Object.keys(args).join(', ') || 'aucun argument par défaut'}</div>
+                  </div>
+                )) : (
+                  <div style={{ fontSize: '13px', opacity: 0.58 }}>
+                    Aucun default outil explicite.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '24px' }}>
             <div style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.42 }}>
-              Champs
+              Interface opérable
             </div>
             <div style={{ marginTop: '12px', display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
               {fields.length > 0 ? fields.map((field) => (
@@ -747,10 +905,15 @@ export default function GeneratedCoworkApp(props) {
                   <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.6 }}>
                     {field.type}{field.required ? ' - requis' : ''}
                   </div>
+                  {field.helpText ? (
+                    <div style={{ marginTop: '8px', fontSize: '12px', lineHeight: 1.6, opacity: 0.52 }}>
+                      {field.helpText}
+                    </div>
+                  ) : null}
                 </div>
               )) : (
                 <div style={{ fontSize: '13px', opacity: 0.58 }}>
-                  Aucun champ configure pour cette app.
+                  Aucun champ configuré pour cette app.
                 </div>
               )}
             </div>
@@ -766,7 +929,7 @@ export default function GeneratedCoworkApp(props) {
           }}
         >
           <div style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.42 }}>
-            Resultats
+            Résultats
           </div>
           <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
             {artifacts.length > 0 ? artifacts.map((artifact, index) => (
@@ -918,23 +1081,89 @@ export async function buildGeneratedAppVersion(sourceCode: string, slug: string)
   }
 }
 
-async function generateDefinitionFromBrief(brief: string, source: 'manual' | 'cowork'): Promise<DraftDefinition> {
-  const cleanedBrief = validateGeneratedAppBrief(brief);
-
+async function generateDefinitionPlanFromTranscript(
+  transcript: GeneratedAppCreationTranscriptTurn[],
+  source: 'manual' | 'cowork'
+): Promise<GeneratedAppPlannerDecision> {
   const ai = createGoogleAI(GENERATED_APP_MODEL);
   const result = await retryWithBackoff(() => ai.models.generateContent({
     model: GENERATED_APP_MODEL,
-    contents: [{ role: 'user', parts: [{ text: cleanedBrief }] }],
+    contents: [{ role: 'user', parts: [{ text: transcriptToPrompt(transcript) }] }],
     config: {
-      systemInstruction: SPEC_PROMPT,
-      temperature: 0.3,
+      systemInstruction: PLANNER_PROMPT,
+      temperature: 0.28,
       topP: 0.95,
       maxOutputTokens: 4096,
       responseMimeType: 'text/plain',
     },
   }));
 
-  return sanitizeDefinition(extractJsonObject(result.text || ''), cleanedBrief, source);
+  const parsed = extractJsonObject(result.text || '');
+  const status = typeof parsed.status === 'string' ? parsed.status.trim().toLowerCase() : '';
+  if (status === 'needs_clarification') {
+    const question = clipText(parsed.question, 420);
+    if (!question) {
+      throw new Error("Le planner de generated app a retourne une clarification vide.");
+    }
+    return {
+      status: 'needs_clarification',
+      question,
+      transcript: [...transcript, { role: 'assistant', content: question, kind: 'clarification' }],
+    };
+  }
+
+  const definition = sanitizeDefinition(parsed.definition || parsed, transcriptToPrompt(transcript), source);
+  const clarificationResolved = transcript.some((turn) => turn.role === 'assistant' && turn.kind === 'clarification');
+  return {
+    status: 'ready',
+    definition: {
+      ...definition,
+      generationMode: 'autonomous_component',
+    },
+    transcript,
+    clarificationResolved,
+  };
+}
+
+async function generateSourceFromDefinition(definition: DraftDefinition): Promise<string> {
+  const ai = createGoogleAI(GENERATED_APP_MODEL);
+  const prompt = [
+    'Manifest de l app a rendre en TSX:',
+    JSON.stringify({
+      name: definition.name,
+      tagline: definition.tagline,
+      summary: definition.summary,
+      mission: definition.mission,
+      whenToUse: definition.whenToUse,
+      outputKind: definition.outputKind,
+      modalities: definition.modalities,
+      identity: definition.identity,
+      starterPrompt: definition.starterPrompt,
+      systemInstruction: definition.systemInstruction,
+      uiSchema: definition.uiSchema,
+      toolAllowList: definition.toolAllowList,
+      capabilities: definition.capabilities,
+      modelProfile: definition.modelProfile,
+      visualDirection: definition.visualDirection,
+      runtime: definition.runtime,
+    }, null, 2),
+    '',
+    "Retourne uniquement le composant TSX final.",
+  ].join('\n');
+
+  const result = await retryWithBackoff(() => ai.models.generateContent({
+    model: GENERATED_APP_MODEL,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      systemInstruction: SOURCE_GENERATOR_PROMPT,
+      temperature: 0.32,
+      topP: 0.95,
+      maxOutputTokens: 8192,
+      responseMimeType: 'text/plain',
+    },
+  }));
+
+  return extractTsxSource(result.text || '');
 }
 
 async function generateRevision(existing: GeneratedAppManifest, changeRequest: string): Promise<DraftDefinition> {
@@ -1013,6 +1242,22 @@ function materializeManifest(
   };
 }
 
+function detectManifestGenerationMode(input: Record<string, unknown>): 'legacy_manifest' | 'autonomous_component' {
+  if (input.generationMode === 'legacy_manifest') return 'legacy_manifest';
+  if (input.generationMode === 'autonomous_component') return 'autonomous_component';
+
+  const hasAutonomousContract = Array.isArray(input.modalities)
+    || Boolean(input.identity && typeof input.identity === 'object')
+    || Boolean(
+      input.runtime
+      && typeof input.runtime === 'object'
+      && !Array.isArray(input.runtime)
+      && 'toolDefaults' in input.runtime
+    );
+
+  return hasAutonomousContract ? 'autonomous_component' : 'legacy_manifest';
+}
+
 function sanitizeVersion(raw: unknown, slug: string): GeneratedAppVersion {
   const input = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   const sourceCode = typeof input.sourceCode === 'string' ? input.sourceCode : '';
@@ -1054,10 +1299,12 @@ export function sanitizeGeneratedAppManifest(raw: unknown): GeneratedAppManifest
   if (!raw || typeof raw !== 'object') return null;
   const input = raw as Record<string, unknown>;
   const definition = sanitizeDefinition(input, clipText(input.sourcePrompt || input.mission || input.summary, 1500), input.createdBy === 'manual' ? 'manual' : 'cowork');
+  const generationMode = detectManifestGenerationMode(input);
   const draftVersion = sanitizeVersion(input.draftVersion, definition.slug);
   const publishedVersion = input.publishedVersion ? sanitizeVersion(input.publishedVersion, definition.slug) : undefined;
   return {
     ...definition,
+    generationMode,
     id: clipText(input.id, 160) || `${definition.slug}-${Date.now().toString(36)}`,
     status: publishedVersion && publishedVersion.id === draftVersion.id ? 'published' : 'draft',
     createdBy: input.createdBy === 'manual' ? 'manual' : 'cowork',
@@ -1075,34 +1322,74 @@ export async function createGeneratedAppFromBriefWithProgress(
   source: 'manual' | 'cowork' = 'manual',
   options?: {
     onProgress?: GeneratedAppCreationProgressHandler;
-    generateDefinition?: GeneratedAppDefinitionBuilder;
+    transcript?: GeneratedAppCreationTranscriptTurn[];
+    planDefinition?: GeneratedAppPlannerBuilder;
     buildVersion?: GeneratedAppVersionBuilder;
+    generateSource?: GeneratedAppSourceBuilder;
   }
-): Promise<GeneratedAppManifest> {
-  const cleanedBrief = validateGeneratedAppBrief(brief);
+): Promise<GeneratedAppCreationResult> {
+  const cleanedBrief = brief.trim();
+  const transcript = normalizeCreationTranscript(options?.transcript, cleanedBrief);
   const onProgress = options?.onProgress;
-  const generateDefinition = options?.generateDefinition || generateDefinitionFromBrief;
+  const planDefinition = options?.planDefinition || generateDefinitionPlanFromTranscript;
   const buildVersion = options?.buildVersion || buildGeneratedAppVersion;
+  const generateSource = options?.generateSource || generateSourceFromDefinition;
+  const sourcePrompt = clipText(transcriptToPrompt(transcript), 1500);
 
   await emitGeneratedAppProgress(onProgress, {
     phase: 'brief_validated',
     label: 'Brief verrouille et pret pour la spec.',
+    transcript,
   });
 
-  const definition = await generateDefinition(cleanedBrief, source);
+  const planningDecision = await planDefinition(transcript, source);
+  if (planningDecision.status === 'needs_clarification') {
+    await emitGeneratedAppProgress(onProgress, {
+      phase: 'clarification_requested',
+      label: planningDecision.question,
+      transcript: planningDecision.transcript,
+      clarificationQuestion: planningDecision.question,
+    });
+    return {
+      status: 'clarification_requested',
+      transcript: planningDecision.transcript,
+      question: planningDecision.question,
+    };
+  }
+
+  const definition = planningDecision.definition;
   const manifestPreview = buildManifestPreview(definition);
+
+  if (planningDecision.clarificationResolved) {
+    await emitGeneratedAppProgress(onProgress, {
+      phase: 'clarification_resolved',
+      label: 'Clarification integree, Cowork repart sur la generation complete.',
+      manifestPreview,
+      transcript: planningDecision.transcript,
+    });
+  }
+
   await emitGeneratedAppProgress(onProgress, {
     phase: 'spec_ready',
     label: `Spec experte prete pour ${definition.name}.`,
     manifestPreview,
+    transcript: planningDecision.transcript,
   });
 
-  const sourceCode = renderGeneratedAppSource(definition);
+  let sourceCode: string;
+  try {
+    sourceCode = await generateSource(definition);
+  } catch (error) {
+    const cleanError = parseApiError(error);
+    log.warn('Generated app source generation fallback active', { slug: definition.slug, error: cleanError });
+    sourceCode = renderGeneratedAppSource(definition);
+  }
   await emitGeneratedAppProgress(onProgress, {
     phase: 'source_ready',
     label: 'Source TSX generee pour la draft.',
     manifestPreview,
     sourceCode,
+    transcript: planningDecision.transcript,
   });
 
   const draftVersion = await buildVersion(sourceCode, definition.slug);
@@ -1127,11 +1414,12 @@ export async function createGeneratedAppFromBriefWithProgress(
     manifestPreview,
     sourceCode,
     buildLog: draftVersion.buildLog,
+    transcript: planningDecision.transcript,
   });
 
   const manifest = materializeManifest(definition, draftVersion, {
     createdBy: source,
-    sourcePrompt: clipText(cleanedBrief, 1500),
+    sourcePrompt,
   });
 
   await emitGeneratedAppProgress(onProgress, {
@@ -1140,14 +1428,23 @@ export async function createGeneratedAppFromBriefWithProgress(
     manifestPreview,
     sourceCode,
     buildLog: draftVersion.buildLog,
+    transcript: planningDecision.transcript,
   });
 
-  return manifest;
+  return {
+    status: 'completed',
+    transcript: planningDecision.transcript,
+    manifest,
+  };
 }
 
 export async function createGeneratedAppFromBrief(brief: string, source: 'manual' | 'cowork' = 'manual'): Promise<GeneratedAppManifest> {
   try {
-    return await createGeneratedAppFromBriefWithProgress(brief, source);
+    const result = await createGeneratedAppFromBriefWithProgress(brief, source);
+    if (result.status !== 'completed') {
+      throw new Error(`La creation d'app demande encore une clarification: ${result.question}`);
+    }
+    return result.manifest;
   } catch (error) {
     const cleanError = parseApiError(error);
     log.error('Generated app creation failed', cleanError);
@@ -1158,15 +1455,15 @@ export async function createGeneratedAppFromBrief(brief: string, source: 'manual
 export async function reviseGeneratedApp(existing: GeneratedAppManifest, changeRequest: string): Promise<GeneratedAppManifest> {
   try {
     const definition = await generateRevision(existing, changeRequest);
-    const draftVersion = await buildGeneratedAppVersion(
-      renderGeneratedAppSource({
-        ...definition,
-        createdBy: existing.createdBy,
-        sourcePrompt: clipText(changeRequest, 1500) || existing.sourcePrompt,
-        sourceSessionId: existing.sourceSessionId,
-      }),
-      existing.slug || definition.slug
-    );
+    let sourceCode: string;
+    try {
+      sourceCode = await generateSourceFromDefinition(definition);
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.warn('Generated app revision source fallback active', { slug: existing.slug || definition.slug, error: cleanError });
+      sourceCode = renderGeneratedAppSource(definition);
+    }
+    const draftVersion = await buildGeneratedAppVersion(sourceCode, existing.slug || definition.slug);
 
     return materializeManifest({
       ...definition,

@@ -25,7 +25,7 @@ import { AgentWorkspacePanel } from './components/AgentWorkspacePanel';
 import { GeneratedAppHost } from './components/GeneratedAppHost';
 import { NasheedStudioWorkspace } from './components/NasheedStudioWorkspace';
 import { StudioEmptyState } from './components/StudioEmptyState';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppManifest } from './types';
+import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -131,34 +131,6 @@ const adaptGeneratedAppToStudioAgent = (app: GeneratedAppManifest): StudioAgent 
   };
 };
 
-const normalizeGeneratedAppSemanticText = (value: unknown) =>
-  String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-const isLikelyDebateGeneratedApp = (app: GeneratedAppManifest) => {
-  if (app.outputKind !== 'podcast') return false;
-  const haystack = [
-    app.name,
-    app.slug,
-    app.tagline,
-    app.summary,
-    app.mission,
-    app.whenToUse,
-    app.starterPrompt,
-    app.systemInstruction,
-    app.sourcePrompt,
-    ...app.uiSchema.flatMap((field) => [field.id, field.label, field.helpText, field.placeholder]),
-  ]
-    .map(normalizeGeneratedAppSemanticText)
-    .filter(Boolean)
-    .join(' ');
-
-  return /\b(debat|debate|duel|joute|controverse|contradiction|versus|vs)\b/.test(haystack)
-    || (/\b(deux|2|duo)\b/.test(haystack) && /\b(ia|ai|voix|intervenants?|speakers?|positions?)\b/.test(haystack));
-};
-
 const formatAgentFormValues = (agent: StudioAgent, values: AgentFormValues) =>
   Object.entries(buildAgentRuntimeFormValues(agent, values))
     .filter(([, value]) => typeof value === 'boolean' || String(value).trim().length > 0)
@@ -170,16 +142,10 @@ const formatAgentFormValues = (agent: StudioAgent, values: AgentFormValues) =>
 
 const buildAgentLaunchPrompt = (agent: StudioAgent, values: AgentFormValues) => {
   const formattedValues = formatAgentFormValues(agent, values);
-  const hasExplicitMusicEngine = agent.uiSchema.some((field) => /moteur|lyria|modele|model|engine/i.test(`${field.id} ${field.label}`));
-  const nasheedRuntimeHint = resolveAgentStudioKind(agent) === 'nasheed' && !hasExplicitMusicEngine
-    ? "Orientation moteur:\n- modele musical prefere: lyria-3-pro-preview\n- si l'utilisateur veut surtout un extrait court ou un premier brouillon rapide, lyria-3-clip-preview est acceptable."
-    : '';
 
   return [
     agent.starterPrompt || `Prends en charge la mission de ${agent.name}.`,
     formattedValues.length > 0 ? `Parametres de l'interface:\n${formattedValues.join('\n')}` : '',
-    nasheedRuntimeHint,
-    `Type de sortie attendu: ${agent.outputKind}.`,
   ].filter(Boolean).join('\n\n');
 };
 
@@ -190,15 +156,18 @@ const buildGeneratedAppLaunchPrompt = (app: GeneratedAppManifest, values: AgentF
       const fieldLabel = app.uiSchema.find(field => field.id === fieldId)?.label || fieldId;
       return `- ${fieldLabel}: ${typeof value === 'boolean' ? (value ? 'oui' : 'non') : String(value).trim()}`;
     });
-  const debateHint = isLikelyDebateGeneratedApp(app)
-    ? "Mode attendu: vrai debat oral a deux voix IA opposees, avec repliques, objections, rebuttals et synthese finale. Interdit de livrer une chronique solo."
-    : '';
+  const identityBlock = [
+    app.identity?.mission ? `Mission: ${app.identity.mission}` : '',
+    app.identity?.posture ? `Posture: ${app.identity.posture}` : '',
+    Array.isArray(app.identity?.successCriteria) && app.identity.successCriteria.length > 0
+      ? `Criteres de reussite:\n${app.identity.successCriteria.map((item) => `- ${item}`).join('\n')}`
+      : '',
+  ].filter(Boolean).join('\n');
 
   return [
     app.starterPrompt || `Prends en charge la mission de ${app.name}.`,
+    identityBlock,
     formattedValues.length > 0 ? `Parametres de l'interface:\n${formattedValues.join('\n')}` : '',
-    debateHint,
-    `Type de sortie attendu: ${app.outputKind}.`,
   ].filter(Boolean).join('\n\n');
 };
 
@@ -220,6 +189,8 @@ const buildGeneratedAppRemotePayload = (manifest: GeneratedAppManifest): Generat
 
 const GENERATED_APP_CREATION_PHASES: GeneratedAppCreationEvent['phase'][] = [
   'brief_validated',
+  'clarification_requested',
+  'clarification_resolved',
   'spec_ready',
   'source_ready',
   'bundle_ready',
@@ -242,18 +213,43 @@ const isGeneratedAppManifestEnvelope = (value: unknown): value is { manifest: Ge
   return Boolean(input.manifest && typeof input.manifest === 'object');
 };
 
+const isGeneratedAppClarificationEnvelope = (
+  value: unknown
+): value is { question: string; transcript?: GeneratedAppCreationTranscriptTurn[] } => {
+  if (!value || typeof value !== 'object') return false;
+  const input = value as Record<string, unknown>;
+  return typeof input.question === 'string';
+};
+
 const applyGeneratedAppCreationEvent = (
   current: GeneratedAppCreationRun | null,
   event: GeneratedAppCreationEvent
-): GeneratedAppCreationRun => ({
-  status: 'running',
-  startedAt: current?.startedAt || event.timestamp || Date.now(),
-  phases: [...(current?.phases || []), event],
-  manifestPreview: event.manifestPreview || current?.manifestPreview,
-  sourceCode: event.sourceCode || current?.sourceCode,
-  buildLog: event.buildLog || current?.buildLog,
-  manifest: current?.manifest,
-});
+): GeneratedAppCreationRun => {
+  const awaitingClarification = event.phase === 'clarification_requested'
+    ? true
+    : event.phase === 'clarification_resolved'
+      ? false
+      : current?.awaitingClarification || false;
+
+  const clarificationQuestion = event.phase === 'clarification_requested'
+    ? (event.clarificationQuestion || event.label)
+    : event.phase === 'clarification_resolved'
+      ? undefined
+      : current?.clarificationQuestion;
+
+  return {
+    status: 'running',
+    startedAt: current?.startedAt || event.timestamp || Date.now(),
+    phases: [...(current?.phases || []), event],
+    manifestPreview: event.manifestPreview || current?.manifestPreview,
+    sourceCode: event.sourceCode || current?.sourceCode,
+    buildLog: event.buildLog || current?.buildLog,
+    manifest: current?.manifest,
+    transcript: event.transcript || current?.transcript,
+    awaitingClarification,
+    clarificationQuestion,
+  };
+};
 
 const isScrolledNearBottom = (element: HTMLElement, threshold = AUTO_SCROLL_BOTTOM_THRESHOLD) =>
   element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
@@ -978,24 +974,35 @@ export default function App() {
     }
   }, []);
 
-  const handleCreateAgent = useCallback(async (brief: string) => {
+  const handleCreateAgent = useCallback(async (
+    payload: { brief?: string; transcript?: GeneratedAppCreationTranscriptTurn[] }
+  ): Promise<{ status: 'clarification_requested' | 'completed'; manifest?: GeneratedAppManifest } | null> => {
     if (!user || isCreatingAgent) return null;
 
-    const cleanedBrief = brief.trim();
-    if (!cleanedBrief) return null;
+    const cleanedBrief = typeof payload.brief === 'string' ? payload.brief.trim() : '';
+    const requestTranscript = Array.isArray(payload.transcript) ? payload.transcript : undefined;
+    if (!cleanedBrief && (!requestTranscript || requestTranscript.length === 0)) return null;
 
     setIsCreatingAgent(true);
-    setGeneratedAppCreationRun({
+    setGeneratedAppCreationRun(prev => ({
       status: 'running',
-      startedAt: Date.now(),
-      phases: [],
-    });
+      startedAt: prev?.startedAt || Date.now(),
+      phases: requestTranscript ? (prev?.phases || []) : [],
+      manifestPreview: requestTranscript ? prev?.manifestPreview : undefined,
+      sourceCode: requestTranscript ? prev?.sourceCode : undefined,
+      buildLog: requestTranscript ? prev?.buildLog : undefined,
+      manifest: requestTranscript ? prev?.manifest : undefined,
+      transcript: requestTranscript || prev?.transcript,
+      awaitingClarification: false,
+      clarificationQuestion: undefined,
+    }));
     try {
       const response = await fetch('/api/generated-apps/create/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           brief: cleanedBrief,
+          transcript: requestTranscript,
           source: 'manual',
         }),
       });
@@ -1015,6 +1022,7 @@ export default function App() {
       let pendingEvent = 'message';
       let pendingData: string[] = [];
       let finalManifest: GeneratedAppManifest | null = null;
+      let finalClarification: { question: string; transcript?: GeneratedAppCreationTranscriptTurn[] } | null = null;
       let streamError: string | null = null;
 
       const flushSseChunk = async () => {
@@ -1041,6 +1049,23 @@ export default function App() {
 
         if (nextEvent === 'generated_app_manifest' && isGeneratedAppManifestEnvelope(data)) {
           finalManifest = normalizeGeneratedApp(data.manifest);
+          return;
+        }
+
+        if (nextEvent === 'generated_app_clarification' && isGeneratedAppClarificationEnvelope(data)) {
+          finalClarification = data;
+          setGeneratedAppCreationRun(prev => ({
+            status: 'running',
+            startedAt: prev?.startedAt || Date.now(),
+            phases: prev?.phases || [],
+            manifestPreview: prev?.manifestPreview,
+            sourceCode: prev?.sourceCode,
+            buildLog: prev?.buildLog,
+            manifest: prev?.manifest,
+            transcript: data.transcript || prev?.transcript,
+            awaitingClarification: true,
+            clarificationQuestion: data.question,
+          }));
           return;
         }
 
@@ -1097,6 +1122,23 @@ export default function App() {
         throw new Error(streamError);
       }
 
+      if (finalClarification) {
+        setGeneratedAppCreationRun(prev => ({
+          status: 'completed',
+          startedAt: prev?.startedAt || Date.now(),
+          completedAt: Date.now(),
+          phases: prev?.phases || [],
+          manifestPreview: prev?.manifestPreview,
+          sourceCode: prev?.sourceCode,
+          buildLog: prev?.buildLog,
+          manifest: prev?.manifest,
+          transcript: finalClarification?.transcript || prev?.transcript,
+          awaitingClarification: true,
+          clarificationQuestion: finalClarification.question,
+        }));
+        return { status: 'clarification_requested' };
+      }
+
       if (!finalManifest) {
         throw new Error("Le flux de creation s'est termine sans manifest.");
       }
@@ -1104,7 +1146,7 @@ export default function App() {
       const persistedManifest = await persistGeneratedAppManifest({
         ...finalManifest,
         createdBy: 'manual',
-        sourcePrompt: cleanedBrief,
+        sourcePrompt: cleanedBrief || finalManifest.sourcePrompt,
         sourceSessionId: activeSessionId && activeSessionId !== 'local-new' ? activeSessionId : undefined,
       }, {
         openHub: true,
@@ -1119,9 +1161,12 @@ export default function App() {
         sourceCode: prev?.sourceCode,
         buildLog: prev?.buildLog,
         manifest: persistedManifest || finalManifest || undefined,
+        transcript: prev?.transcript,
+        awaitingClarification: false,
+        clarificationQuestion: undefined,
       }));
 
-      return persistedManifest;
+      return { status: 'completed', manifest: persistedManifest || finalManifest };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setGeneratedAppCreationRun(prev => ({
@@ -1133,6 +1178,9 @@ export default function App() {
         sourceCode: prev?.sourceCode,
         buildLog: prev?.buildLog,
         manifest: prev?.manifest,
+        transcript: prev?.transcript,
+        awaitingClarification: false,
+        clarificationQuestion: undefined,
         error: message,
       }));
       return null;

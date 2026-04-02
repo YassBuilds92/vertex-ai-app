@@ -131,6 +131,9 @@ export interface StudioAgent extends AgentBlueprint {
 
 export type AgentFormValues = Record<string, string | boolean>;
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
 export interface AgentWorkspaceState {
   agent: StudioAgent;
   formValues: AgentFormValues;
@@ -139,6 +142,14 @@ export interface AgentWorkspaceState {
 
 export type GeneratedAppStatus = 'draft' | 'published' | 'failed';
 export type GeneratedAppOutputKind = AgentOutputKind;
+
+export interface GeneratedAppIdentity {
+  mission: string;
+  posture: string;
+  successCriteria: string[];
+}
+
+export type GeneratedAppRuntimeToolDefaults = Record<string, Record<string, JsonValue>>;
 
 export interface GeneratedAppModelProfile {
   textModel: string;
@@ -163,6 +174,8 @@ export interface GeneratedAppRuntimeDefinition {
   resultLabel: string;
   emptyStateLabel?: string;
   editHint?: string;
+  toolDefaults?: GeneratedAppRuntimeToolDefaults;
+  renderMode?: 'bundle_primary' | 'manifest_fallback';
 }
 
 export interface GeneratedAppVersion {
@@ -191,6 +204,8 @@ export interface GeneratedAppManifest {
   mission: string;
   whenToUse: string;
   outputKind: GeneratedAppOutputKind;
+  modalities: string[];
+  identity: GeneratedAppIdentity;
   starterPrompt: string;
   systemInstruction: string;
   uiSchema: AgentFieldSchema[];
@@ -207,16 +222,25 @@ export interface GeneratedAppManifest {
   updatedAt: number;
   draftVersion: GeneratedAppVersion;
   publishedVersion?: GeneratedAppVersion;
+  generationMode?: 'legacy_manifest' | 'autonomous_component';
 }
 
 export type GeneratedAppCreationPhase =
   | 'brief_validated'
+  | 'clarification_requested'
+  | 'clarification_resolved'
   | 'spec_ready'
   | 'source_ready'
   | 'bundle_ready'
   | 'bundle_skipped'
   | 'bundle_failed'
   | 'manifest_ready';
+
+export interface GeneratedAppCreationTranscriptTurn {
+  role: 'user' | 'assistant';
+  content: string;
+  kind?: 'brief' | 'clarification' | 'answer' | 'info';
+}
 
 export type GeneratedAppManifestPreview = Pick<
   GeneratedAppManifest,
@@ -227,6 +251,8 @@ export type GeneratedAppManifestPreview = Pick<
   | 'mission'
   | 'whenToUse'
   | 'outputKind'
+  | 'modalities'
+  | 'identity'
   | 'uiSchema'
   | 'toolAllowList'
   | 'capabilities'
@@ -240,6 +266,8 @@ export interface GeneratedAppCreationEvent {
   manifestPreview?: GeneratedAppManifestPreview;
   sourceCode?: string;
   buildLog?: string;
+  transcript?: GeneratedAppCreationTranscriptTurn[];
+  clarificationQuestion?: string;
   timestamp?: number;
 }
 
@@ -253,6 +281,9 @@ export interface GeneratedAppCreationRun {
   buildLog?: string;
   manifest?: GeneratedAppManifest;
   error?: string;
+  transcript?: GeneratedAppCreationTranscriptTurn[];
+  awaitingClarification?: boolean;
+  clarificationQuestion?: string;
 }
 
 export interface GeneratedAppWorkspaceState {

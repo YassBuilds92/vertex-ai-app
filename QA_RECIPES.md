@@ -1,5 +1,38 @@
 # QA RECIPES
 
+## Generated Apps - flux auto-defini
+- Objectif:
+  - verifier qu'aucun wizard local ne force de type d'app avant generation
+  - verifier qu'un brief libre peut produire une app hybride
+  - verifier qu'un brief ambigu declenche une clarification conversationnelle libre
+  - verifier que le composant genere est bien le rendu principal des apps nouvelles
+- Scenarios cibles:
+  - brief hybride: `une app qui peut faire debat, extrait audio, cover et fiche`
+  - brief ambigu: `je veux une app forte pour travailler une idee complexe`
+  - reouverture d'une ancienne generated app creee avant ce chantier
+- Etapes manuelles:
+  - ouvrir `Cowork Apps`
+  - verifier qu'il n'y a plus de cartes `podcast`, `musique`, `duel`, etc. a choisir avant creation
+  - saisir le brief hybride librement
+  - verifier que Cowork peut soit generer directement, soit poser une question libre en langage naturel
+  - si une question apparait, repondre dans le meme hub sans quitter la creation
+  - ouvrir l'app creee
+  - verifier que son interface et sa mission reflÃ¨tent le brief, y compris si plusieurs modalites sont melangees
+  - verifier qu'une ancienne app s'ouvre encore sans casse, meme si elle tombe sur le fallback legacy
+- Attendus:
+  - aucun libelle du type `Type d'application cible`, `Direction validee` ou `Type de sortie attendu`
+  - la clarification visible vient de Cowork lui-meme, pas d'une liste de choix locale
+  - l'app nouvelle charge d'abord son composant genere si disponible
+  - le fallback natif n'apparait qu'en cas legacy / skip / echec
+  - les defaults runtime observes correspondent au `manifest.runtime.toolDefaults` de l'app
+
+## Validation code - flux auto-defini
+- `npm run lint`
+- `npx tsx test-generated-app-stream.ts`
+- `npx tsx test-generated-app-manifest.ts`
+- `npx tsx test-cowork-loop.ts`
+- `npm run build`
+
 ## Generated Apps - debat audio / clarification / master final
 - Objectif:
   - verifier qu'une app `duel/debat` ne retombe plus sur une chronique solo

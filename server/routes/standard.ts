@@ -51,12 +51,14 @@ type GeneratedAppStreamBuilder = (
 export async function streamGeneratedAppCreation(options: {
   res: Response;
   brief: string;
+  transcript?: Parameters<typeof createGeneratedAppFromBriefWithProgress>[2]['transcript'];
   source?: 'manual' | 'cowork';
   createManifest?: GeneratedAppStreamBuilder;
 }) {
   const {
     res,
     brief,
+    transcript,
     source = 'manual',
     createManifest = createGeneratedAppFromBriefWithProgress,
   } = options;
@@ -84,12 +86,22 @@ export async function streamGeneratedAppCreation(options: {
   };
 
   try {
-    const manifest = await createManifest(brief, source, {
+    const result = await createManifest(brief, source, {
+      transcript,
       onProgress: (progress) => emit('generated_app_creation', progress),
     });
 
-    emit('generated_app_manifest', { manifest });
-    emit('done', { ok: true, manifestId: manifest.id });
+    if (result.status === 'clarification_requested') {
+      emit('generated_app_clarification', {
+        question: result.question,
+        transcript: result.transcript,
+      });
+      emit('done', { ok: true, status: 'clarification_requested' });
+      return;
+    }
+
+    emit('generated_app_manifest', { manifest: result.manifest });
+    emit('done', { ok: true, manifestId: result.manifest.id, status: 'completed' });
   } catch (error) {
     emit('error', {
       message: parseApiError(error),
@@ -276,22 +288,24 @@ export function registerStandardApiRoutes(app: Express) {
 
   app.post('/api/generated-apps/create', async (req, res) => {
     try {
-      const { brief, source } = GeneratedAppCreateSchema.parse(req.body);
+      const { brief = '', source } = GeneratedAppCreateSchema.parse(req.body);
       const manifest = await createGeneratedAppFromBrief(brief, source || 'manual');
       res.json({ manifest });
     } catch (error) {
       const cleanError = parseApiError(error);
       log.error('Generated app create error', cleanError);
-      res.status(500).json({ error: 'Generated app create failed', message: "Echec de creation d'app", details: cleanError });
+      const status = /demande encore une clarification/i.test(cleanError) ? 409 : 500;
+      res.status(status).json({ error: 'Generated app create failed', message: "Echec de creation d'app", details: cleanError });
     }
   });
 
   app.post('/api/generated-apps/create/stream', async (req, res) => {
     try {
-      const { brief, source } = GeneratedAppCreateSchema.parse(req.body);
+      const { brief = '', transcript, source } = GeneratedAppCreateSchema.parse(req.body);
       await streamGeneratedAppCreation({
         res,
         brief,
+        transcript,
         source: source || 'manual',
       });
     } catch (error) {
@@ -304,7 +318,7 @@ export function registerStandardApiRoutes(app: Express) {
   app.post('/api/generated-apps/publish', async (req, res) => {
     try {
       const { manifest } = GeneratedAppPublishSchema.parse(req.body);
-      const publishedManifest = publishGeneratedApp(manifest);
+      const publishedManifest = publishGeneratedApp(manifest as Parameters<typeof publishGeneratedApp>[0]);
       res.json({ manifest: publishedManifest });
     } catch (error) {
       const cleanError = parseApiError(error);

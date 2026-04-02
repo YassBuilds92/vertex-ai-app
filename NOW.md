@@ -1,40 +1,43 @@
 # NOW
 
 ## Objectif actuel
-- Revalider puis deployer le correctif `IA Duel Podcast`:
-  - confirmer qu'une generated app de duel sort bien un vrai debat audio a 2 voix
-  - verifier en UI authentifiee que `Produire maintenant` remplit bien un `Master audio` esthetique
-  - confirmer que la creation d'app passe bien par une clarification initiale avant generation
+- Valider en environnement authentifie puis deploye le nouveau flux `Cowork Apps` auto-defini:
+  - brief libre
+  - clarification conversationnelle si besoin
+  - generation d'une app qui definit elle-meme son interface, son identite et ses defaults outils
 
 ## Blocage actuel
-- Le correctif est valide localement, mais pas encore prouve dans la vraie app connectee:
-  - pas de run prod/authentifie rejoue de bout en bout apres ces patches
-  - la clarification initiale a ete validee au code, mais pas encore capturee proprement dans l'UI reelle
-  - les apps deja creees avant regeneration peuvent encore conserver une structure trop generique tant qu'elles ne sont pas regenerees
+- Le chantier est valide localement, mais pas encore rejoue dans la vraie app connectee apres deploy:
+  - pas encore de preuve authentifiee du flux `brief libre -> question Cowork -> app creee`
+  - pas encore de verification terrain qu'un brief hybride ne subit aucun choix force
+  - les anciennes apps peuvent encore s'ouvrir en mode fallback legacy tant qu'elles ne sont pas regenerees
 
 ## Prochaine action exacte
-- Redeployer le patch courant puis rejouer:
-  - `Cowork Apps -> creation app podcast/debat -> validation de la clarification recommandee`
-  - `ouvrir IA Duel Podcast -> Produire maintenant -> verifier duo vocal + carte audio + lecteur`
-  - confirmer que les `tool_result.meta` exposent bien les 2 speakers et la strategie de mix
+- Redeployer puis rejouer 3 parcours reels:
+  - creation avec brief hybride libre: `une app qui peut faire debat, extrait audio, cover et fiche`
+  - creation avec brief ambigu pour verifier la question libre de Cowork puis la reprise apres reponse
+  - ouverture d'une ancienne generated app pour confirmer la migration douce `legacy -> fallback`, sans casse
 
 ## Fichiers chauds
-- `api/index.ts`
 - `server/lib/generated-apps.ts`
-- `shared/generated-app-sdk.tsx`
+- `server/lib/schemas.ts`
+- `server/routes/standard.ts`
+- `api/index.ts`
 - `src/App.tsx`
 - `src/components/AgentsHub.tsx`
+- `src/components/GeneratedAppHost.tsx`
+- `src/types.ts`
+- `test-generated-app-stream.ts`
+- `test-generated-app-manifest.ts`
 - `test-cowork-loop.ts`
-- `COWORK.md`
-- `SESSION_STATE.md`
-- `QA_RECIPES.md`
 
 ## Validations restantes
-- Rejouer un vrai run authentifie `IA Duel Podcast` apres deploy.
-- Capturer visuellement la clarification initiale dans `Cowork Apps`.
-- Verifier qu'une app de duel regeneree embarque bien le schema `topic + stance_a + stance_b + debate_frame + duration`.
+- Rejouer un vrai run authentifie `Cowork Apps` apres deploy.
+- Verifier visuellement l'absence totale d'options forcees dans le hub.
+- Verifier qu'une app nouvelle ouvre bien d'abord son composant genere, puis le fallback seulement si bundle/source indisponible.
+- Confirmer que `manifest.runtime.toolDefaults` pilote bien le run reel dans l'app connectee.
 
 ## Risques immediats
-- Tant que le patch local n'est pas deploye, la prod peut encore retomber sur un rendu solo-chronique.
-- Une generated app de debat deja persistÃ©e peut demander une regeneration pour profiter pleinement du schema specialise.
-- La validation visuelle finale reste partielle tant que le host reeel connecte n'a pas ete rejoue.
+- Tant que le patch n'est pas deploye, la prod peut encore garder des rails produit trop directifs.
+- Une ancienne app regeneree avant ce chantier peut rester plus generique jusqu'a une nouvelle draft.
+- Le chemin `component primary` est valide localement, mais son comportement exact en contexte auth/store reel reste encore a prouver.

@@ -32,11 +32,13 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
 }) => {
   const [bundleLoadState, setBundleLoadState] = useState<'idle' | 'loading' | 'ready' | 'failed' | 'skipped'>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [GeneratedComponent, setGeneratedComponent] = useState<React.ComponentType<any> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     setLoadError(null);
+    setGeneratedComponent(null);
 
     if (
       manifest.draftVersion.bundleStatus === 'skipped'
@@ -51,8 +53,9 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
     setBundleLoadState('loading');
 
     void loadGeneratedAppComponent(manifest)
-      .then(() => {
+      .then((component) => {
         if (!cancelled) {
+          setGeneratedComponent(() => component);
           setBundleLoadState('ready');
         }
       })
@@ -80,6 +83,11 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
   }, [bundleLoadState, manifest.draftVersion.bundleStatus]);
   const diagnosticsMessage = loadError || (bundleStatus === 'failed' ? manifest.draftVersion.buildLog || null : null);
   const featureDeck = useMemo(() => manifest.capabilities.slice(0, 4), [manifest.capabilities]);
+  const shouldPreferGeneratedComponent = manifest.generationMode !== 'legacy_manifest'
+    && manifest.runtime.renderMode !== 'manifest_fallback'
+    && bundleStatus === 'ready'
+    && Boolean(GeneratedComponent);
+  const previewModeLabel = shouldPreferGeneratedComponent ? 'composant genere actif' : 'fallback manifest';
 
   return (
     <section className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-[#03070d] text-white">
@@ -132,7 +140,7 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
               bundle {bundleStatus}
             </span>
             <span className="rounded-full border border-cyan-300/14 bg-cyan-300/[0.08] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-cyan-50/84">
-              preview native
+              {previewModeLabel}
             </span>
             {manifest.publishedVersion && (
               <span className="rounded-full border border-emerald-300/18 bg-emerald-300/[0.08] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-emerald-50/84">
@@ -161,9 +169,13 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
                   <CheckCircle2 size={16} />
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-cyan-50">Preview native active</div>
+                  <div className="text-sm font-semibold text-cyan-50">
+                    {shouldPreferGeneratedComponent ? 'Composant genere actif' : 'Fallback manifeste actif'}
+                  </div>
                   <p className="mt-1 text-sm leading-6 text-cyan-50/72">
-                    Le host rend cette app directement depuis son manifest. Le bundle reste un diagnostic secondaire, sans bloquer l'ouverture ni la publication.
+                    {shouldPreferGeneratedComponent
+                      ? "Le host rend d'abord le composant TSX genere pour cette app. Si le bundle saute ou casse, le canvas manifeste reprend la main sans bloquer l'ouverture ni la publication."
+                      : "Le host utilise actuellement le canvas manifeste comme filet de securite. L'ouverture, l'edition et la publication restent pleinement disponibles."}
                   </p>
                 </div>
               </div>
@@ -225,18 +237,33 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
             </div>
           )}
 
-          <GeneratedAppCanvas
-            manifest={manifest}
-            featureDeck={featureDeck}
-            formValues={formValues}
-            isRunning={isRunning}
-            messages={messages}
-            onFieldChange={onFieldChange}
-            onRun={onRunApp}
-            onPublish={onPublishApp}
-            canPublish={canPublish}
-            onAskCowork={onAskCowork}
-          />
+          {shouldPreferGeneratedComponent && GeneratedComponent ? (
+            <GeneratedComponent
+              manifest={manifest}
+              featureDeck={featureDeck}
+              formValues={formValues}
+              isRunning={isRunning}
+              messages={messages}
+              onFieldChange={onFieldChange}
+              onRun={onRunApp}
+              onPublish={onPublishApp}
+              canPublish={canPublish}
+              onAskCowork={onAskCowork}
+            />
+          ) : (
+            <GeneratedAppCanvas
+              manifest={manifest}
+              featureDeck={featureDeck}
+              formValues={formValues}
+              isRunning={isRunning}
+              messages={messages}
+              onFieldChange={onFieldChange}
+              onRun={onRunApp}
+              onPublish={onPublishApp}
+              canPublish={canPublish}
+              onAskCowork={onAskCowork}
+            />
+          )}
         </div>
       </main>
     </section>

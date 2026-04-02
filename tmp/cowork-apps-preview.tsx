@@ -202,6 +202,12 @@ const duelPreviewManifest = {
   mission: 'Transformer un brief de duel en experience audio visible avec angles, rounds et livrables propres.',
   whenToUse: 'Quand tu veux un duel, un face-a-face ou un podcast compare sans repasser par un chat generique.',
   outputKind: 'podcast' as const,
+  modalities: ['audio', 'debate'],
+  identity: {
+    mission: 'Produire un duel audio lisible, tendu et publiable.',
+    posture: 'Studio contradictoire autonome, net et rapide.',
+    successCriteria: ['Clarifie vite le cadre', 'Monte un duo coherent', 'Livre un master final propre'],
+  },
   uiSchema: [
     { id: 'sujet', label: 'Sujet', type: 'textarea' as const, required: true, placeholder: 'Le duel a monter', helpText: 'Le theme, les camps et le niveau de tension.' },
     { id: 'format', label: 'Format', type: 'select' as const, options: ['Duel court', 'Comparatif', 'Round par round'], helpText: 'Choisis le tempo du face-a-face.' },
@@ -276,6 +282,8 @@ const generatedHostManifest: GeneratedAppManifest = {
   mission: duelPreviewManifest.mission,
   whenToUse: duelPreviewManifest.whenToUse,
   outputKind: 'podcast',
+  modalities: duelPreviewManifest.modalities,
+  identity: duelPreviewManifest.identity,
   starterPrompt: 'Cadre les camps, choisis le rythme, puis sors un duel audio pret a ecouter.',
   systemInstruction: 'Tu es DuelAudio, une app Cowork specialisee dans les duels audio et podcasts compares.',
   uiSchema: duelPreviewManifest.uiSchema,

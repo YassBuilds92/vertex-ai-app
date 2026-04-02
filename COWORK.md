@@ -1,5 +1,46 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-02 - Cowork Apps deviennent vraiment auto-definies
+- Retour produit:
+  - l'utilisateur ne veut plus d'un hub qui guide Cowork via des listes d'options ou des types d'app pre-decides
+  - il veut un flux ou:
+    - l'utilisateur ecrit librement
+    - Cowork decide seul s'il faut clarifier
+    - l'app generee definit elle-meme son interface, son identite et ses defaults runtime
+- Changement applique:
+  - `src/components/AgentsHub.tsx`
+    - suppression des cartes `type d'app`
+    - remplacement par un brief libre unique + reponse libre a une eventuelle question de Cowork
+  - `server/lib/generated-apps.ts`
+    - nouveau pipeline `transcript -> planner -> manifest -> source TSX`
+    - `modalities`, `identity`, `runtime.toolDefaults` et `generationMode` deviennent des elements natifs du contrat
+    - `outputKind` reste derive/legacy mais ne pilote plus la creation
+  - `server/routes/standard.ts`
+    - nouveaux events SSE:
+      - `generated_app_clarification`
+      - `clarification_requested`
+      - `clarification_resolved`
+  - `api/index.ts`
+    - suppression de `outputKindHint` pour `create_generated_app`
+    - merge runtime generic via `applyRuntimeToolDefaults()`
+  - `src/App.tsx`
+    - prompts de lancement nettoyes des hints produit locaux
+  - `src/components/GeneratedAppHost.tsx`
+    - le composant genere devient le chemin principal
+    - le host/canvas natif reste un fallback legacy/honnete
+- Validation locale:
+  - `npm run lint` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+- Etat produit:
+  - localement, Cowork Apps ne force plus de choix produit avant la generation
+  - la prochaine preuve critique est le run authentifie apres deploy:
+    - brief hybride libre
+    - clarification conversationnelle
+    - ouverture d'une app nouvelle et d'une app legacy
+
 ## Mise a jour 2026-04-02 - Les apps de duel audio deviennent vraiment des duels, et la creation demande enfin une direction avant de generer
 - Retour produit:
   - l'utilisateur signale que `IA Duel Podcast` produit bien un audio, mais que le rendu est peu esthetique et surtout pas fidele a la promesse "deux IA qui debattent"

@@ -29,7 +29,7 @@ const {
   requestIsCoworkMetaDiscussion,
   requestRequiresAbuseBlock,
   assessReadablePageRelevance,
-  applyRuntimeMediaToolDefaults,
+  applyRuntimeToolDefaults,
   searchWeb,
 } = __coworkLoopInternals;
 
@@ -70,13 +70,13 @@ const baseResearch = {
     },
   };
 
-  const defaultPodcastArgs = applyRuntimeMediaToolDefaults('create_podcast_episode', {
+  const defaultPodcastArgs = applyRuntimeToolDefaults('create_podcast_episode', {
     brief: 'Monte un duel audio.',
   }, runtimeApp as any);
   assert.equal(defaultPodcastArgs.ttsModel, 'gemini-2.5-flash-tts');
   assert.equal(defaultPodcastArgs.musicModel, 'lyria-3-pro-preview');
 
-  const explicitPodcastArgs = applyRuntimeMediaToolDefaults('create_podcast_episode', {
+  const explicitPodcastArgs = applyRuntimeToolDefaults('create_podcast_episode', {
     brief: 'Monte un duel audio.',
     ttsModel: 'gemini-2.5-pro-tts',
     musicModel: 'lyria-002',
@@ -84,12 +84,12 @@ const baseResearch = {
   assert.equal(explicitPodcastArgs.ttsModel, 'gemini-2.5-pro-tts');
   assert.equal(explicitPodcastArgs.musicModel, 'lyria-002');
 
-  const defaultTtsArgs = applyRuntimeMediaToolDefaults('generate_tts_audio', {
+  const defaultTtsArgs = applyRuntimeToolDefaults('generate_tts_audio', {
     text: 'Bonjour le monde.',
   }, runtimeApp as any);
   assert.equal(defaultTtsArgs.model, 'gemini-2.5-flash-tts');
 
-  const defaultImageArgs = applyRuntimeMediaToolDefaults('generate_image_asset', {
+  const defaultImageArgs = applyRuntimeToolDefaults('generate_image_asset', {
     prompt: 'Poster editorial.',
   }, runtimeApp as any);
   assert.equal(defaultImageArgs.model, 'imagen-3.0-generate-002');
@@ -116,11 +116,21 @@ const baseResearch = {
       ttsModel: 'gemini-2.5-flash-tts',
       musicModel: 'lyria-002',
     },
+    runtime: {
+      toolDefaults: {
+        create_podcast_episode: {
+          brief: 'Organise un vrai debat oral sur {{topic}} entre {{stance_a}} et {{stance_b}}.',
+          approxDurationSeconds: 240,
+          speakers: [
+            { name: '{{stance_a}}', voiceName: 'Kore' },
+            { name: '{{stance_b}}', voiceName: 'Puck' },
+          ],
+        },
+      },
+    },
   };
 
-  const duelArgs = applyRuntimeMediaToolDefaults('create_podcast_episode', {
-    brief: 'Debat sur la trinite.',
-  }, runtimeApp as any, {
+  const duelArgs = applyRuntimeToolDefaults('create_podcast_episode', {}, runtimeApp as any, {
     topic: 'Debat sur la trinite',
     stance_a: 'Defenseur de la trinite',
     stance_b: 'Critique unitarien',

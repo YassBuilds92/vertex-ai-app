@@ -1,5 +1,98 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (Cowork Apps auto-definies, clarification libre et runtime generic)
+- Besoin traite:
+  - l'utilisateur refuse un hub qui dirige Cowork via des options produit (`podcast`, `duel`, etc.)
+  - il veut que l'app puisse definir elle-meme:
+    - son interface
+    - sa logique d'execution
+    - son identite / mission
+    - ses defaults outils
+  - la seule limite voulue cote creation est l'imagination utilisateur, avec clarification libre si Cowork la juge necessaire
+- Cause racine confirmee:
+  - le flux generated app gardait encore des rails locaux ou backend:
+    - choix de type dans `AgentsHub`
+    - prompts frontend qui reinjectaient `Type de sortie attendu`
+    - heuristiques runtime centrees sur `outputKind`
+    - specialisations backend trop familiales
+- Correctifs appliques:
+  - `src/types.ts`
+    - ajout de `GeneratedAppIdentity`
+    - ajout de `modalities`
+    - ajout de `runtime.toolDefaults`
+    - ajout de `generationMode`
+    - ajout des tours de transcript de creation et des nouveaux phases `clarification_requested` / `clarification_resolved`
+  - `server/lib/schemas.ts`
+    - `GeneratedAppCreateSchema` accepte maintenant `brief` libre ou `transcript`
+    - schemas ajoutes pour `identity`, JSON runtime defaults, `generationMode`, `renderMode`
+  - `server/lib/generated-apps.ts`
+    - pipeline remplace par:
+      - planner sur transcript libre
+      - generation de source TSX autonome
+    - sanitation rendue neutre:
+      - `outputKind` derive seulement pour compatibilite legacy
+      - plus de familles produit autoritaires pour definir l'app
+    - `createGeneratedAppFromBriefWithProgress()` peut maintenant:
+      - demander une clarification libre
+      - reprendre sur transcript
+      - produire manifest + source autonome
+  - `server/routes/standard.ts`
+    - SSE `generated_app_clarification`
+    - `done.status` peut valoir `clarification_requested` ou `completed`
+    - route create accepte `transcript`
+  - `api/index.ts`
+    - suppression de `outputKindHint` sur `create_generated_app`
+    - suppression des nudges `Type de sortie attendu`
+    - `applyRuntimeMediaToolDefaults()` remplace par `applyRuntimeToolDefaults()`
+    - merge runtime base sur `manifest.runtime.toolDefaults` + `formValues`
+  - `src/App.tsx`
+    - prompts de lancement nettoyes des hints locaux `debateHint`, `nasheedRuntimeHint`, `Type de sortie attendu`
+    - nouveau flux creation SSE avec transcript + clarification conversationnelle
+  - `src/components/AgentsHub.tsx`
+    - suppression des cartes/options de type d'app
+    - un seul brief libre
+    - reponse libre a la question de clarification de Cowork
+    - historique conversationnel visible dans le hub
+  - `src/components/GeneratedAppHost.tsx`
+    - composant genere = chemin principal
+    - canvas/host natif = fallback honnete
+    - compatibilite legacy preservee via `generationMode`
+  - tests:
+    - `test-generated-app-stream.ts` couvre le flux clarification
+    - `test-generated-app-manifest.ts` couvre `modalities`, `identity`, `runtime.toolDefaults`, `generationMode`
+    - `test-cowork-loop.ts` couvre le merge runtime generique
+- Tests / validations effectues:
+  - `npm run lint` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+- Fichiers modifies:
+  - `src/types.ts`
+  - `server/lib/schemas.ts`
+  - `server/lib/generated-apps.ts`
+  - `server/routes/standard.ts`
+  - `api/index.ts`
+  - `src/App.tsx`
+  - `src/components/AgentsHub.tsx`
+  - `src/components/GeneratedAppHost.tsx`
+  - `test-generated-app-stream.ts`
+  - `test-generated-app-manifest.ts`
+  - `test-cowork-loop.ts`
+  - `tmp/cowork-apps-preview.tsx`
+- Limites restantes:
+  - pas encore de run authentifie bout a bout apres deploy
+  - pas encore de preuve visuelle in-app qu'un brief hybride traverse bien le hub sans aucun choix force
+  - les anciennes apps persistent en mode legacy/fallback jusqu'a regeneration si elles ont ete creees avant ce contrat
+- Intention exacte:
+  - faire de Cowork un createur d'apps qui se definissent elles-memes
+  - releguer le backend a son vrai role:
+    - safety
+    - validation
+    - fallback
+    - compatibilite legacy
+  - ne plus injecter localement une vision produit que Cowork devrait decider lui-meme
+
 ## Mise a jour complementaire - 2026-04-02 (duel audio generated app + clarification initiale + host audio premium)
 - Besoin traite:
   - l'utilisateur confirme que `Produire maintenant` sort bien quelque chose sur `IA Duel Podcast`, mais releve 2 defauts majeurs:

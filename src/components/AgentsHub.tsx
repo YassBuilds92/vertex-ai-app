@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { GeneratedAppCreationRun, StudioAgent } from '../types';
+import { GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, StudioAgent } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import {
@@ -73,100 +73,10 @@ function getAgentQuickActionLabel(agent: Pick<StudioAgent, 'outputKind'>) {
   return getAgentAppMeta(agent).actionLabel;
 }
 
-const CREATION_TYPES = ['Podcast', 'Musique', 'Creature', 'Carte', 'Analyse', 'Autre'];
-
-type CreationClarificationOption = {
-  id: string;
-  label: string;
-  description: string;
-  prompt: string;
-  why: string;
-  recommended?: boolean;
-};
-
-type CreationClarification = {
-  question: string;
-  helpText: string;
-  options: CreationClarificationOption[];
-  recommendedId: string;
-};
-
-function normalizeCreationIntent(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
-
-function buildCreationClarification(creationType: string, brief: string): CreationClarification | null {
-  const normalized = normalizeCreationIntent(brief);
-  if (!normalized.trim()) return null;
-
-  const wantsDebate = /\b(debat|debate|duel|joute|controverse|affrontement|versus|vs)\b/.test(normalized)
-    || (/\b(deux|2|duo)\b/.test(normalized) && /\b(ia|ai|voix|intervenants?|speakers?)\b/.test(normalized));
-
-  if (creationType === 'Podcast') {
-    return {
-      question: 'Quel format audio veux-tu vraiment fabriquer avant la generation ?',
-      helpText: 'Choisir la direction maintenant evite que Cowork parte sur une forme d app trop generique.',
-      recommendedId: wantsDebate ? 'duel' : 'conversation',
-      options: [
-        {
-          id: 'duel',
-          label: 'Duel contradictoire',
-          description: 'Deux voix IA defendront des positions opposees avec objections, rebuttals et synthese finale.',
-          prompt: "Orientation produit: l'app doit organiser un vrai debat audio entre deux IA/personas distincts. Elle doit faire parler deux voix opposees, avec theses, contre-arguments, repliques et synthese finale. Interdit de retomber en chronique solo.",
-          why: "Recommande car ce cadrage empeche la derive vers un podcast mono-voix et colle a une promesse de debat reel.",
-          recommended: wantsDebate,
-        },
-        {
-          id: 'conversation',
-          label: 'Conversation editoriale',
-          description: 'Deux voix explorent ensemble le sujet, mais sans opposition frontale systematique.',
-          prompt: "Orientation produit: l'app doit produire un duo editorial fluide et pedagogique, avec deux voix complementaires qui explorent un sujet ensemble plutot que de s'affronter frontalement.",
-          why: "Utile si tu veux un duo vivant mais moins conflictuel, plus magazine que duel.",
-          recommended: !wantsDebate,
-        },
-        {
-          id: 'chronique',
-          label: 'Chronique solo',
-          description: 'Une seule voix structure le sujet en capsule ou en editorial audio.',
-          prompt: "Orientation produit: l'app peut rester une chronique audio solo, avec une seule voix, un angle net et un master final propre.",
-          why: "A garder seulement si tu veux volontairement un format monologue ou capsule solo.",
-        },
-      ],
-    };
-  }
-
-  return {
-    question: 'Avant generation, quel niveau de cadrage veux-tu donner a cette app ?',
-    helpText: 'Cette etape sert a verrouiller la forme du produit avant que Cowork n ecrive le systeme, l interface et les outils.',
-    recommendedId: 'focused',
-    options: [
-      {
-        id: 'focused',
-        label: 'Atelier focal',
-        description: 'Une app resserree autour d un geste principal, avec peu de friction et un resultat tres net.',
-        prompt: "Orientation produit: construis une app tres focalisee sur un geste principal, avec une interface dense mais simple et un livrable final immediatement exploitable.",
-        why: "Recommande si tu veux une app claire, rapide a comprendre et difficile a diluer.",
-        recommended: true,
-      },
-      {
-        id: 'expert',
-        label: 'Expert autonome',
-        description: 'Une app plus libre, capable de cadrer le besoin et de prendre quelques decisions a ta place.',
-        prompt: "Orientation produit: construis une app experte autonome qui peut cadrer le besoin, choisir une strategie utile et produire un resultat plus ambitieux sans interface bavarde.",
-        why: "Utile si tu veux donner plus de latitude au moteur et a la logique backend de l app.",
-      },
-      {
-        id: 'control-room',
-        label: 'Control room',
-        description: 'Une app plus outillee, avec plusieurs reglages visibles et une posture de studio ou cockpit.',
-        prompt: "Orientation produit: construis une app type studio/cockpit avec plusieurs reglages visibles, un espace de pilotage clair et des sorties bien exposees.",
-        why: "Interessant quand l utilisateur veut piloter finement le rendu ou comparer plusieurs variantes.",
-      },
-    ],
-  };
+function getCreationTurnLabel(turn: GeneratedAppCreationTranscriptTurn) {
+  if (turn.role === 'assistant') return 'Cowork';
+  if (turn.kind === 'answer') return 'Votre reponse';
+  return 'Votre brief';
 }
 
 function buildCreationPreviewAgent(run: GeneratedAppCreationRun | null): StudioAgent | null {
@@ -203,7 +113,9 @@ interface AgentsHubProps {
   latestCreatedAgent?: StudioAgent | null;
   warningMessage?: string | null;
   onClose: () => void;
-  onCreateAgent: (brief: string) => Promise<unknown> | void;
+  onCreateAgent: (
+    payload: { brief?: string; transcript?: GeneratedAppCreationTranscriptTurn[] }
+  ) => Promise<{ status: 'clarification_requested' | 'completed'; manifest?: unknown } | null> | void;
   onRunAgent: (agent: StudioAgent, values: Record<string, string | boolean>) => Promise<unknown> | void;
 }
 
@@ -220,11 +132,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
   onRunAgent,
 }) => {
   const [brief, setBrief] = useState('');
-  const [creationNotes, setCreationNotes] = useState('');
-  const [creationType, setCreationType] = useState(CREATION_TYPES[0]);
-  const [creationClarification, setCreationClarification] = useState<CreationClarification | null>(null);
-  const [selectedClarificationId, setSelectedClarificationId] = useState<string | null>(null);
-  const [customClarification, setCustomClarification] = useState('');
+  const [clarificationReply, setClarificationReply] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -244,10 +152,10 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
   }, []);
 
   useEffect(() => {
-    setCreationClarification(null);
-    setSelectedClarificationId(null);
-    setCustomClarification('');
-  }, [brief, creationNotes, creationType]);
+    if (!creationRun?.awaitingClarification) {
+      setClarificationReply('');
+    }
+  }, [creationRun?.awaitingClarification]);
 
   const filteredAgents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -340,6 +248,8 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
   const pageColumnsClass = getHubPageColumns(pageSize);
   const hasSearchResults = filteredAgents.length > 0;
   const hasCreationRun = Boolean(creationRun);
+  const creationTranscript = creationRun?.transcript || [];
+  const isAwaitingClarification = Boolean(creationRun?.awaitingClarification);
   const creationPreviewAgent = useMemo(() => buildCreationPreviewAgent(creationRun || null), [creationRun]);
   const creationSourceSnippet = useMemo(() => {
     const source = creationRun?.sourceCode?.trim();
@@ -354,40 +264,30 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
 
   const submit = async () => {
     const cleanedBrief = brief.trim();
-    const cleanedNotes = creationNotes.trim();
-    if (!cleanedBrief || isCreating) return;
+    if (isCreating) return;
 
-    if (!creationClarification) {
-      const clarification = buildCreationClarification(
-        creationType,
-        [cleanedBrief, cleanedNotes].filter(Boolean).join('\n')
-      );
-      if (clarification) {
-        setCreationClarification(clarification);
-        setSelectedClarificationId(clarification.recommendedId);
-        return;
+    if (isAwaitingClarification && creationTranscript.length > 0) {
+      const cleanedReply = clarificationReply.trim();
+      if (!cleanedReply) return;
+      const result = await onCreateAgent({
+        transcript: [
+          ...creationTranscript,
+          { role: 'user', content: cleanedReply, kind: 'answer' },
+        ],
+      });
+      setClarificationReply('');
+      if (result && 'status' in result && result.status === 'completed') {
+        setBrief('');
       }
+      return;
     }
 
-    const selectedOption = creationClarification?.options.find((option) => option.id === selectedClarificationId);
-    const cleanedCustomClarification = customClarification.trim();
+    if (!cleanedBrief) return;
 
-    const assembledPrompt = [
-      `Type d'application cible: ${creationType}`,
-      cleanedBrief,
-      cleanedNotes ? `Structure, fonctionnalites ou design:\n${cleanedNotes}` : '',
-      selectedOption ? `Direction validee avant generation:\n${selectedOption.prompt}` : '',
-      cleanedCustomClarification ? `Autre direction imposee par l'utilisateur:\n${cleanedCustomClarification}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-
-    await onCreateAgent(assembledPrompt);
-    setBrief('');
-    setCreationNotes('');
-    setCreationClarification(null);
-    setSelectedClarificationId(null);
-    setCustomClarification('');
+    const result = await onCreateAgent({ brief: cleanedBrief });
+    if (result && 'status' in result && result.status === 'completed') {
+      setBrief('');
+    }
   };
 
   const launchAgent = async (agent: StudioAgent) => {
@@ -767,71 +667,49 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     <div className="space-y-4">
                       <label className="block">
                         <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
-                          {hasCreationRun ? 'Nouvelle vision' : 'Vision'}
+                          {isAwaitingClarification ? 'Brief d origine' : hasCreationRun ? 'Nouvelle vision' : 'Vision'}
                         </span>
                         <textarea
                           value={brief}
                           onChange={(event) => setBrief(event.target.value)}
                           rows={hasCreationRun ? 2 : isShortViewport ? 3 : 4}
-                          placeholder="Ex: un studio podcast qui cherche, ecrit, narre et livre un master final."
+                          placeholder="Ex: une app hybride qui peut debattre, produire un extrait audio, generer une cover et sortir une fiche claire."
                           className={cn(
                             'w-full resize-none rounded-[1.35rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30',
                             hasCreationRun ? 'min-h-[4.6rem]' : isShortViewport ? 'min-h-[6rem]' : 'min-h-[7.4rem]'
                           )}
+                          disabled={isAwaitingClarification}
                         />
                       </label>
 
-                      {!hasCreationRun && (
-                        <>
-                          <label className="block">
-                            <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
-                              Contraintes
-                            </span>
-                            <textarea
-                              value={creationNotes}
-                              onChange={(event) => setCreationNotes(event.target.value)}
-                              rows={isShortViewport ? 2 : 3}
-                              placeholder="Fonctions, ton, design, livrable, moteurs ou limites."
-                              className={cn(
-                                'w-full resize-none rounded-[1.35rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30',
-                                isShortViewport ? 'min-h-[4.3rem]' : 'min-h-[5.5rem]'
-                              )}
-                            />
-                          </label>
-
-                          <label className="block">
-                            <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
-                              Type d'application
-                            </span>
-                            <select
-                              value={creationType}
-                              onChange={(event) => setCreationType(event.target.value)}
-                              className="h-12 w-full rounded-[1.1rem] border border-white/8 bg-white/[0.03] px-4 text-sm text-white outline-none transition-colors focus:border-cyan-300/30"
-                            >
-                              {CREATION_TYPES.map((type) => (
-                                <option key={type} value={type} className="bg-[#0a1018]">
-                                  {type}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </>
+                      {isAwaitingClarification && (
+                        <label className="block">
+                          <span className="mb-2 block text-[11px] uppercase tracking-[0.2em] text-white/40">
+                            Reponse a Cowork
+                          </span>
+                          <textarea
+                            value={clarificationReply}
+                            onChange={(event) => setClarificationReply(event.target.value)}
+                            rows={isShortViewport ? 3 : 4}
+                            placeholder="Reponds librement. Cowork reprendra ensuite la generation avec cet echange."
+                            className={cn(
+                              'w-full resize-none rounded-[1.35rem] border border-cyan-300/16 bg-cyan-300/[0.05] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/34',
+                              isShortViewport ? 'min-h-[5rem]' : 'min-h-[6rem]'
+                            )}
+                          />
+                        </label>
                       )}
 
                       <button
                         type="submit"
                         disabled={
                           isCreating
-                          || !brief.trim()
-                          || (Boolean(creationClarification) && !selectedClarificationId)
-                          || (selectedClarificationId === 'other' && !customClarification.trim())
+                          || (isAwaitingClarification ? !clarificationReply.trim() : !brief.trim())
                         }
                         className={cn(
                           'flex h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-all',
                           isCreating
-                          || !brief.trim()
-                          || (Boolean(creationClarification) && !selectedClarificationId)
-                          || (selectedClarificationId === 'other' && !customClarification.trim())
+                          || (isAwaitingClarification ? !clarificationReply.trim() : !brief.trim())
                             ? 'cursor-not-allowed bg-white/8 text-white/35'
                             : 'bg-[linear-gradient(180deg,rgba(232,240,255,0.92),rgba(174,188,214,0.9))] text-[#07121d] hover:-translate-y-[1px]'
                         )}
@@ -844,8 +722,8 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                         ) : (
                           <>
                             <Sparkles size={16} />
-                            {creationClarification
-                              ? 'Valider et generer l app'
+                            {isAwaitingClarification
+                              ? 'Repondre et reprendre'
                               : hasCreationRun
                                 ? 'Lancer une autre app'
                                 : "Lancer l'assistant co-createur"}
@@ -855,7 +733,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     </div>
                   </form>
 
-                  {creationClarification && (
+                  {creationTranscript.length > 0 && (
                     <div className="mt-5 rounded-[1.7rem] border border-cyan-300/12 bg-cyan-300/[0.05] p-4">
                       <div className="flex items-start gap-3">
                         <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-[1rem] border border-cyan-300/16 bg-cyan-300/[0.08] text-cyan-100">
@@ -863,71 +741,34 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                         </div>
                         <div className="min-w-0">
                           <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/68">
-                            Cadrage avant generation
+                            Clarification conversationnelle
                           </div>
                           <div className="mt-2 text-sm font-semibold text-white">
-                            {creationClarification.question}
+                            {creationRun?.clarificationQuestion || 'Cowork recadre l app en langage naturel.'}
                           </div>
                           <p className="mt-2 text-sm leading-6 text-white/62">
-                            {creationClarification.helpText}
+                            Aucun wizard n est impose ici. Cowork pose sa question librement, puis reprend la generation avec votre reponse.
                           </p>
                         </div>
                       </div>
 
                       <div className="mt-4 space-y-3">
-                        {creationClarification.options.map((option) => {
-                          const isSelected = selectedClarificationId === option.id;
-                          return (
-                            <button
-                              key={option.id}
-                              type="button"
-                              onClick={() => setSelectedClarificationId(option.id)}
-                              className={cn(
-                                'w-full rounded-[1.35rem] border px-4 py-4 text-left transition-all',
-                                isSelected
-                                  ? 'border-cyan-300/34 bg-cyan-300/[0.12]'
-                                  : 'border-white/10 bg-black/18 hover:border-white/18 hover:bg-white/[0.04]'
-                              )}
-                            >
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-semibold text-white">{option.label}</span>
-                                {option.recommended && (
-                                  <span className="rounded-full border border-cyan-300/26 bg-cyan-300/[0.12] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-cyan-50/86">
-                                    recommande
-                                  </span>
-                                )}
-                              </div>
-                              <p className="mt-2 text-sm leading-6 text-white/66">{option.description}</p>
-                              <p className="mt-2 text-xs leading-5 text-white/46">{option.why}</p>
-                            </button>
-                          );
-                        })}
-
-                        <button
-                          type="button"
-                          onClick={() => setSelectedClarificationId('other')}
-                          className={cn(
-                            'w-full rounded-[1.35rem] border px-4 py-4 text-left transition-all',
-                            selectedClarificationId === 'other'
-                              ? 'border-cyan-300/34 bg-cyan-300/[0.12]'
-                              : 'border-white/10 bg-black/18 hover:border-white/18 hover:bg-white/[0.04]'
-                          )}
-                        >
-                          <div className="text-sm font-semibold text-white">Autre direction</div>
-                          <p className="mt-2 text-sm leading-6 text-white/66">
-                            Imposer une forme d app qui n est pas dans les trois directions proposees.
-                          </p>
-                        </button>
-
-                        {selectedClarificationId === 'other' && (
-                          <textarea
-                            value={customClarification}
-                            onChange={(event) => setCustomClarification(event.target.value)}
-                            rows={3}
-                            placeholder="Decris exactement la direction produit a imposer avant la generation."
-                            className="w-full resize-none rounded-[1.3rem] border border-white/10 bg-black/22 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-white/28 focus:border-cyan-300/30"
-                          />
-                        )}
+                        {creationTranscript.map((turn, index) => (
+                          <div
+                            key={`${turn.role}-${turn.kind || 'info'}-${index}`}
+                            className={cn(
+                              'rounded-[1.35rem] border px-4 py-4',
+                              turn.role === 'assistant'
+                                ? 'border-cyan-300/20 bg-cyan-300/[0.09]'
+                                : 'border-white/10 bg-black/18'
+                            )}
+                          >
+                            <div className="text-[11px] uppercase tracking-[0.18em] text-white/42">
+                              {getCreationTurnLabel(turn)}
+                            </div>
+                            <p className="mt-2 text-sm leading-6 text-white/78">{turn.content}</p>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -940,25 +781,29 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                             Creation visible
                           </div>
                           <div className="mt-1 text-sm font-semibold text-white">
-                            {creationRun.status === 'completed'
-                              ? 'App prête dans le studio'
-                              : creationRun.status === 'failed'
-                                ? 'Creation interrompue'
-                                : latestCreationPhase?.label || 'Cowork construit la draft'}
+                            {creationRun.awaitingClarification
+                              ? creationRun.clarificationQuestion || 'Cowork attend une precision avant de generer l app.'
+                              : creationRun.status === 'completed'
+                                ? 'App prete dans le studio'
+                                : creationRun.status === 'failed'
+                                  ? 'Creation interrompue'
+                                  : latestCreationPhase?.label || 'Cowork construit la draft'}
                           </div>
                         </div>
                         <span
                           className={cn(
                             'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] uppercase tracking-[0.18em]',
-                            creationRun.status === 'completed'
-                              ? 'border-emerald-300/18 bg-emerald-300/[0.08] text-emerald-50/84'
-                              : creationRun.status === 'failed'
-                                ? 'border-rose-300/18 bg-rose-300/[0.08] text-rose-50/84'
-                                : 'border-cyan-300/16 bg-cyan-300/[0.08] text-cyan-50/84'
+                            creationRun.awaitingClarification
+                              ? 'border-cyan-300/18 bg-cyan-300/[0.08] text-cyan-50/84'
+                              : creationRun.status === 'completed'
+                                ? 'border-emerald-300/18 bg-emerald-300/[0.08] text-emerald-50/84'
+                                : creationRun.status === 'failed'
+                                  ? 'border-rose-300/18 bg-rose-300/[0.08] text-rose-50/84'
+                                  : 'border-cyan-300/16 bg-cyan-300/[0.08] text-cyan-50/84'
                           )}
                         >
                           {creationRun.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                          {creationRun.status}
+                          {creationRun.awaitingClarification ? 'clarification' : creationRun.status}
                         </span>
                       </div>
 
@@ -1040,7 +885,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                         </div>
                       )}
 
-                      {creationRun.status === 'completed' && latestCreatedAgent && (
+                      {creationRun.status === 'completed' && !creationRun.awaitingClarification && latestCreatedAgent && (
                         <button
                           type="button"
                           onClick={() => void launchAgent(latestCreatedAgent)}

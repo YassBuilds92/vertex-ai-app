@@ -797,6 +797,44 @@ function buildGeneratedAppRuntimeSystemInstruction(
   ].filter(Boolean).join('\n');
 }
 
+type RuntimeModelAwareToolName =
+  | 'generate_image_asset'
+  | 'generate_tts_audio'
+  | 'generate_music_audio'
+  | 'create_podcast_episode';
+
+function applyRuntimeMediaToolDefaults<T extends Record<string, unknown> | undefined>(
+  toolName: RuntimeModelAwareToolName,
+  args: T,
+  runtimeApp?: GeneratedAppManifest | null
+): (T extends undefined ? Record<string, unknown> : T) & Record<string, unknown> {
+  const nextArgs = { ...(args || {}) } as Record<string, unknown>;
+  const modelProfile = runtimeApp?.modelProfile;
+  if (!modelProfile) {
+    return nextArgs as (T extends undefined ? Record<string, unknown> : T) & Record<string, unknown>;
+  }
+
+  if (toolName === 'generate_image_asset' && !nextArgs.model && modelProfile.imageModel) {
+    nextArgs.model = modelProfile.imageModel;
+  }
+  if (toolName === 'generate_tts_audio' && !nextArgs.model && modelProfile.ttsModel) {
+    nextArgs.model = modelProfile.ttsModel;
+  }
+  if (toolName === 'generate_music_audio' && !nextArgs.model && modelProfile.musicModel) {
+    nextArgs.model = modelProfile.musicModel;
+  }
+  if (toolName === 'create_podcast_episode') {
+    if (!nextArgs.ttsModel && modelProfile.ttsModel) {
+      nextArgs.ttsModel = modelProfile.ttsModel;
+    }
+    if (!nextArgs.musicModel && modelProfile.musicModel) {
+      nextArgs.musicModel = modelProfile.musicModel;
+    }
+  }
+
+  return nextArgs as (T extends undefined ? Record<string, unknown> : T) & Record<string, unknown>;
+}
+
 function buildCreativeSingleTurnSystemInstruction(
   userInstruction?: string,
   runtime?: { originalMessage?: string; requestClock?: RequestClock }
@@ -1079,6 +1117,7 @@ export const __coworkLoopInternals = {
   requestIsCoworkMetaDiscussion,
   requestRequiresAbuseBlock,
   assessReadablePageRelevance,
+  applyRuntimeMediaToolDefaults,
   searchWeb,
 };
 
@@ -5484,6 +5523,10 @@ app.post('/api/cowork', async (req, res) => {
         ) as Record<string, string | boolean>
       : undefined;
     const executionMode = classifyCoworkExecutionMode(message, history);
+    const withRuntimeToolDefaults = <T extends Record<string, unknown> | undefined>(
+      toolName: RuntimeModelAwareToolName,
+      args: T
+    ) => applyRuntimeMediaToolDefaults(toolName, args, runtimeApp);
 
     if (requestRequiresAbuseBlock(message)) {
       const runMeta = createEmptyCoworkRunMeta();
@@ -5585,37 +5628,41 @@ app.post('/api/cowork', async (req, res) => {
         };
       }
       if (toolName === 'generate_image_asset') {
+        const effectiveArgs = withRuntimeToolDefaults('generate_image_asset', args);
         return {
-          prompt: clipText(args?.prompt || '', 140),
-          model: clipText(args?.model || DEFAULT_IMAGE_MODEL, 48),
-          filename: clipText(args?.filename || '', 80),
+          prompt: clipText(effectiveArgs?.prompt || '', 140),
+          model: clipText(effectiveArgs?.model || DEFAULT_IMAGE_MODEL, 48),
+          filename: clipText(effectiveArgs?.filename || '', 80),
         };
       }
       if (toolName === 'generate_tts_audio') {
+        const effectiveArgs = withRuntimeToolDefaults('generate_tts_audio', args);
         return {
-          text: clipText(args?.text || args?.prompt || '', 140),
-          model: clipText(args?.model || DEFAULT_TTS_MODEL, 48),
-          voice: clipText(args?.voice || '', 32),
-          filename: clipText(args?.filename || '', 80),
+          text: clipText(effectiveArgs?.text || effectiveArgs?.prompt || '', 140),
+          model: clipText(effectiveArgs?.model || DEFAULT_TTS_MODEL, 48),
+          voice: clipText(effectiveArgs?.voice || '', 32),
+          filename: clipText(effectiveArgs?.filename || '', 80),
         };
       }
       if (toolName === 'generate_music_audio') {
+        const effectiveArgs = withRuntimeToolDefaults('generate_music_audio', args);
         return {
-          prompt: clipText(args?.prompt || '', 140),
-          model: clipText(args?.model || DEFAULT_LYRIA_MODEL, 48),
-          filename: clipText(args?.filename || '', 80),
-          sampleCount: Number(args?.sampleCount || 0),
+          prompt: clipText(effectiveArgs?.prompt || '', 140),
+          model: clipText(effectiveArgs?.model || DEFAULT_LYRIA_MODEL, 48),
+          filename: clipText(effectiveArgs?.filename || '', 80),
+          sampleCount: Number(effectiveArgs?.sampleCount || 0),
         };
       }
       if (toolName === 'create_podcast_episode') {
+        const effectiveArgs = withRuntimeToolDefaults('create_podcast_episode', args);
         return {
-          title: clipText(args?.title || '', 120),
-          brief: clipText(args?.brief || args?.script || '', 140),
-          ttsModel: clipText(args?.ttsModel || DEFAULT_PODCAST_TTS_MODEL, 48),
-          musicModel: clipText(args?.musicModel || DEFAULT_LYRIA_MODEL, 48),
-          voice: clipText(args?.voice || '', 32),
-          outputExtension: clipText(args?.outputExtension || 'mp3', 8),
-          filename: clipText(args?.filename || '', 80),
+          title: clipText(effectiveArgs?.title || '', 120),
+          brief: clipText(effectiveArgs?.brief || effectiveArgs?.script || '', 140),
+          ttsModel: clipText(effectiveArgs?.ttsModel || DEFAULT_PODCAST_TTS_MODEL, 48),
+          musicModel: clipText(effectiveArgs?.musicModel || DEFAULT_LYRIA_MODEL, 48),
+          voice: clipText(effectiveArgs?.voice || '', 32),
+          outputExtension: clipText(effectiveArgs?.outputExtension || 'mp3', 8),
+          filename: clipText(effectiveArgs?.filename || '', 80),
         };
       }
       if (toolName === 'begin_pdf_draft') {
@@ -6745,17 +6792,32 @@ app.post('/api/cowork', async (req, res) => {
           safetySetting?: string;
           thinkingLevel?: string;
         }) => {
-          const artifact = await generateImageBinary({
+          const effectiveArgs = withRuntimeToolDefaults('generate_image_asset', {
             prompt,
             model,
+            filename,
             aspectRatio,
             imageSize,
             numberOfImages,
             personGeneration,
             safetySetting,
-            thinkingLevel
+            thinkingLevel,
           });
-          const outputPath = buildGeneratedArtifactPath('cowork-image', artifact.fileExtension, filename);
+          const artifact = await generateImageBinary({
+            prompt: String(effectiveArgs.prompt || ''),
+            model: typeof effectiveArgs.model === 'string' ? effectiveArgs.model : undefined,
+            aspectRatio: typeof effectiveArgs.aspectRatio === 'string' ? effectiveArgs.aspectRatio : undefined,
+            imageSize: typeof effectiveArgs.imageSize === 'string' ? effectiveArgs.imageSize : undefined,
+            numberOfImages: typeof effectiveArgs.numberOfImages === 'number' ? effectiveArgs.numberOfImages : undefined,
+            personGeneration: typeof effectiveArgs.personGeneration === 'string' ? effectiveArgs.personGeneration : undefined,
+            safetySetting: typeof effectiveArgs.safetySetting === 'string' ? effectiveArgs.safetySetting : undefined,
+            thinkingLevel: typeof effectiveArgs.thinkingLevel === 'string' ? effectiveArgs.thinkingLevel : undefined,
+          });
+          const outputPath = buildGeneratedArtifactPath(
+            'cowork-image',
+            artifact.fileExtension,
+            typeof effectiveArgs.filename === 'string' ? effectiveArgs.filename : undefined
+          );
           fs.writeFileSync(outputPath, artifact.buffer);
           return {
             success: true,
@@ -6812,30 +6874,48 @@ app.post('/api/cowork', async (req, res) => {
           languageCode?: string;
           filename?: string;
         }) => {
-          const hasDuo = Array.isArray(speakers) && speakers.length > 0;
+          const effectiveArgs = withRuntimeToolDefaults('generate_tts_audio', {
+            text,
+            model,
+            voice,
+            styleInstructions,
+            speakers,
+            languageCode,
+            filename,
+          });
+          const effectiveText = String(effectiveArgs.text || '');
+          const effectiveStyleInstructions = typeof effectiveArgs.styleInstructions === 'string' ? effectiveArgs.styleInstructions : undefined;
+          const effectiveSpeakers = Array.isArray(effectiveArgs.speakers)
+            ? effectiveArgs.speakers as Array<{ name: string; voice?: string; styleInstructions?: string }>
+            : undefined;
+          const hasDuo = Array.isArray(effectiveSpeakers) && effectiveSpeakers.length > 0;
           const directedPrompt = hasDuo
             ? [
-                styleInstructions ? `Global style instructions: ${styleInstructions}.` : null,
+                effectiveStyleInstructions ? `Global style instructions: ${effectiveStyleInstructions}.` : null,
                 "Narrate the following two-speaker script exactly as written.",
                 "Make the two speakers clearly different in cadence, energy, and emotional contour.",
                 "Whenever a proper name or foreign-language term belongs to another writing system, keep it in that original script when it improves pronunciation.",
                 "Use exactly the provided speaker labels and do not add extra narration.",
                 "Script:",
-                text,
+                effectiveText,
               ].filter(Boolean).join('\n')
             : [
-                styleInstructions ? `Style instructions: ${styleInstructions}.` : null,
+                effectiveStyleInstructions ? `Style instructions: ${effectiveStyleInstructions}.` : null,
                 "Whenever a proper name or foreign-language term belongs to another writing system, keep it in that original script when it improves pronunciation.",
-                text,
+                effectiveText,
               ].filter(Boolean).join('\n\n');
           const artifact = await generateGeminiTtsBinary({
             prompt: directedPrompt,
-            model,
-            voice,
-            speakers,
-            languageCode
+            model: typeof effectiveArgs.model === 'string' ? effectiveArgs.model : undefined,
+            voice: typeof effectiveArgs.voice === 'string' ? effectiveArgs.voice : undefined,
+            speakers: effectiveSpeakers,
+            languageCode: typeof effectiveArgs.languageCode === 'string' ? effectiveArgs.languageCode : undefined,
           });
-          const outputPath = buildGeneratedArtifactPath('cowork-tts', artifact.fileExtension, filename);
+          const outputPath = buildGeneratedArtifactPath(
+            'cowork-tts',
+            artifact.fileExtension,
+            typeof effectiveArgs.filename === 'string' ? effectiveArgs.filename : undefined
+          );
           fs.writeFileSync(outputPath, artifact.buffer);
           return {
             success: true,
@@ -6885,15 +6965,24 @@ app.post('/api/cowork', async (req, res) => {
           location?: string;
           filename?: string;
         }) => {
+          const effectiveArgs = withRuntimeToolDefaults('generate_music_audio', {
+            prompt,
+            model,
+            negativePrompt,
+            seed,
+            sampleCount,
+            location,
+            filename,
+          });
           let artifact: Awaited<ReturnType<typeof generateLyriaBinary>>;
           try {
             artifact = await generateLyriaBinary({
-              prompt,
-              model,
-              negativePrompt,
-              seed,
-              sampleCount,
-              location
+              prompt: String(effectiveArgs.prompt || ''),
+              model: typeof effectiveArgs.model === 'string' ? effectiveArgs.model : undefined,
+              negativePrompt: typeof effectiveArgs.negativePrompt === 'string' ? effectiveArgs.negativePrompt : undefined,
+              seed: typeof effectiveArgs.seed === 'number' ? effectiveArgs.seed : undefined,
+              sampleCount: typeof effectiveArgs.sampleCount === 'number' ? effectiveArgs.sampleCount : undefined,
+              location: typeof effectiveArgs.location === 'string' ? effectiveArgs.location : undefined,
             });
           } catch (error) {
             if (isLyriaPolicyBlockedError(error)) {
@@ -6907,7 +6996,11 @@ app.post('/api/cowork', async (req, res) => {
             }
             throw error;
           }
-          const outputPath = buildGeneratedArtifactPath('cowork-music', artifact.fileExtension, filename);
+          const outputPath = buildGeneratedArtifactPath(
+            'cowork-music',
+            artifact.fileExtension,
+            typeof effectiveArgs.filename === 'string' ? effectiveArgs.filename : undefined
+          );
           fs.writeFileSync(outputPath, artifact.buffer);
           return {
             success: true,
@@ -7006,22 +7099,7 @@ app.post('/api/cowork', async (req, res) => {
           outputExtension?: 'mp3' | 'wav';
           filename?: string;
         }) => {
-          if (!String(brief || '').trim() && !String(script || '').trim()) {
-            return {
-              success: false,
-              recoverable: true,
-              error: "Fournis au moins un `brief` ou un `script` pour creer le podcast."
-            };
-          }
-          if (Array.isArray(speakers) && speakers.length > 0 && speakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
-            return {
-              success: false,
-              recoverable: true,
-              error: `Le mode podcast multi-speaker Gemini exige exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants. Utilise soit 1 narrateur, soit 2 speakers exacts.`
-            };
-          }
-
-          const episode = await generatePodcastEpisode({
+          const effectiveArgs = withRuntimeToolDefaults('create_podcast_episode', {
             brief,
             script,
             title,
@@ -7042,16 +7120,63 @@ app.post('/api/cowork', async (req, res) => {
             musicVolume,
             approxDurationSeconds,
             outputExtension,
+            filename,
           });
+          const effectiveBrief = typeof effectiveArgs.brief === 'string' ? effectiveArgs.brief : '';
+          const effectiveScript = typeof effectiveArgs.script === 'string' ? effectiveArgs.script : '';
+          const effectiveSpeakers = Array.isArray(effectiveArgs.speakers)
+            ? effectiveArgs.speakers as Array<{ name: string; voice?: string; styleInstructions?: string }>
+            : undefined;
 
-          const outputPath = buildGeneratedArtifactPath('cowork-podcast', episode.finalArtifact.fileExtension, filename);
+          if (!effectiveBrief.trim() && !effectiveScript.trim()) {
+            return {
+              success: false,
+              recoverable: true,
+              error: "Fournis au moins un `brief` ou un `script` pour creer le podcast."
+            };
+          }
+          if (Array.isArray(effectiveSpeakers) && effectiveSpeakers.length > 0 && effectiveSpeakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
+            return {
+              success: false,
+              recoverable: true,
+              error: `Le mode podcast multi-speaker Gemini exige exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants. Utilise soit 1 narrateur, soit 2 speakers exacts.`
+            };
+          }
+
+          const episode = await generatePodcastEpisode({
+            brief: typeof effectiveArgs.brief === 'string' ? effectiveArgs.brief : undefined,
+            script: typeof effectiveArgs.script === 'string' ? effectiveArgs.script : undefined,
+            title: typeof effectiveArgs.title === 'string' ? effectiveArgs.title : undefined,
+            hostStyle: typeof effectiveArgs.hostStyle === 'string' ? effectiveArgs.hostStyle : undefined,
+            styleInstructions: typeof effectiveArgs.styleInstructions === 'string' ? effectiveArgs.styleInstructions : undefined,
+            voice: typeof effectiveArgs.voice === 'string' ? effectiveArgs.voice : undefined,
+            speakers: effectiveSpeakers,
+            languageCode: typeof effectiveArgs.languageCode === 'string' ? effectiveArgs.languageCode : undefined,
+            ttsModel: typeof effectiveArgs.ttsModel === 'string' ? effectiveArgs.ttsModel : undefined,
+            musicPrompt: typeof effectiveArgs.musicPrompt === 'string' ? effectiveArgs.musicPrompt : undefined,
+            musicModel: typeof effectiveArgs.musicModel === 'string' ? effectiveArgs.musicModel : undefined,
+            negativeMusicPrompt: typeof effectiveArgs.negativeMusicPrompt === 'string' ? effectiveArgs.negativeMusicPrompt : undefined,
+            musicSeed: typeof effectiveArgs.musicSeed === 'number' ? effectiveArgs.musicSeed : undefined,
+            musicSampleCount: typeof effectiveArgs.musicSampleCount === 'number' ? effectiveArgs.musicSampleCount : undefined,
+            musicLocation: typeof effectiveArgs.musicLocation === 'string' ? effectiveArgs.musicLocation : undefined,
+            introSeconds: typeof effectiveArgs.introSeconds === 'number' ? effectiveArgs.introSeconds : undefined,
+            outroSeconds: typeof effectiveArgs.outroSeconds === 'number' ? effectiveArgs.outroSeconds : undefined,
+            musicVolume: typeof effectiveArgs.musicVolume === 'number' ? effectiveArgs.musicVolume : undefined,
+            approxDurationSeconds: typeof effectiveArgs.approxDurationSeconds === 'number' ? effectiveArgs.approxDurationSeconds : undefined,
+            outputExtension: effectiveArgs.outputExtension === 'wav' ? 'wav' : effectiveArgs.outputExtension === 'mp3' ? 'mp3' : undefined,
+          });
+          const outputPath = buildGeneratedArtifactPath(
+            'cowork-podcast',
+            episode.finalArtifact.fileExtension,
+            typeof effectiveArgs.filename === 'string' ? effectiveArgs.filename : undefined
+          );
           fs.writeFileSync(outputPath, episode.finalArtifact.buffer);
           return {
             success: true,
             path: outputPath,
             mimeType: episode.finalArtifact.mimeType,
-            ttsModel: ttsModel || DEFAULT_PODCAST_TTS_MODEL,
-            musicModel: musicModel || DEFAULT_LYRIA_MODEL,
+            ttsModel: (typeof effectiveArgs.ttsModel === 'string' ? effectiveArgs.ttsModel : undefined) || DEFAULT_PODCAST_TTS_MODEL,
+            musicModel: (typeof effectiveArgs.musicModel === 'string' ? effectiveArgs.musicModel : undefined) || DEFAULT_LYRIA_MODEL,
             voice: episode.voiceArtifact.metadata?.voice,
             speakerMode: episode.voiceArtifact.metadata?.speakerMode,
             speakerNames: episode.voiceArtifact.metadata?.speakerNames,

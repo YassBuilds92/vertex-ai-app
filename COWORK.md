@@ -1,5 +1,37 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-02 - Les generated apps doivent respecter leurs modeles reels et leurs outils specialises, pas seulement les afficher
+- Retour produit:
+  - l'utilisateur doute du flux `Produire maintenant` sur une app podcast (`IA Duel Podcast`) et demande si Cowork genere vraiment les bonnes apps avec les bons outils
+- Verification reelle:
+  - smoke prod `create/stream`:
+    - `IA Duel Podcast` est bien creee avec `brief_validated -> spec_ready -> source_ready -> bundle_skipped -> manifest_ready`
+  - smoke prod `/api/cowork` sur cette famille d'app:
+    - `create_podcast_episode` puis `release_file` reussissent
+    - un master audio signe est bien emis dans `released_file`
+  - conclusion produit:
+    - le backend prod sait reellement generer une app podcast puis sortir un livrable audio final
+- Defaut technique confirme:
+  - une generated app pouvait afficher `ttsModel: gemini-2.5-flash-tts` mais executer `create_podcast_episode` en `gemini-2.5-pro-tts` si Gemini n'explicitait pas `ttsModel`
+  - le sanitiseur de manifest pouvait aussi laisser une `toolAllowList` podcast trop large (`write_file`, etc.)
+- Changement applique localement:
+  - `server/lib/generated-apps.ts`
+    - allowlists d'outils curationnees par `outputKind`
+    - `podcast` force maintenant au minimum `create_podcast_episode` + `release_file`
+  - `api/index.ts`
+    - ajout de `applyRuntimeMediaToolDefaults()`
+    - les outils media prennent maintenant comme defaults les modeles de `app.modelProfile` si le modele n'a pas fourni l'argument lui-meme
+- Validation locale:
+  - `npm run lint` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - smoke serveur ephemere `:3001`:
+    - `create_podcast_episode` observe en `gemini-2.5-flash-tts`
+    - `release_file` succes avec MP3 signe
+- Etat produit:
+  - le flux backend est sain en prod, mais le patch de coherence runtime n'a pas ete deploye dans cette session
+  - prochaine verification utile: rejouer le vrai host authentifie puis deployer si l'objectif est de corriger la prod utilisateur
+
 ## Mise a jour 2026-04-02 - Le 500 global chat/Cowork venait d'une dependance serverless inutile au SDK frontend, maintenant retiree
 - Retour produit:
   - l'utilisateur voit un popup `Erreur d'envoi : Server returned 500` en chat et en Cowork

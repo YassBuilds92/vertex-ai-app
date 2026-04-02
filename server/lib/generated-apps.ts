@@ -161,6 +161,25 @@ const TOOL_LIBRARY = [
   'write_file',
   'execute_script',
 ] as const;
+type GeneratedAppToolName = typeof TOOL_LIBRARY[number];
+
+const TOOL_ALLOWLIST_BY_OUTPUT_KIND: Record<GeneratedAppOutputKind, readonly GeneratedAppToolName[]> = {
+  image: ['generate_image_asset', 'release_file'],
+  music: ['generate_music_audio', 'generate_image_asset', 'release_file'],
+  podcast: ['web_search', 'web_fetch', 'generate_image_asset', 'generate_tts_audio', 'generate_music_audio', 'create_podcast_episode', 'release_file'],
+  html: ['web_search', 'web_fetch', 'generate_image_asset', 'read_file', 'write_file', 'list_files', 'list_recursive', 'execute_script', 'release_file'],
+  code: ['web_search', 'web_fetch', 'read_file', 'write_file', 'list_files', 'list_recursive', 'execute_script', 'release_file'],
+  pdf: ['web_search', 'web_fetch', 'begin_pdf_draft', 'append_to_draft', 'revise_pdf_draft', 'get_pdf_draft', 'review_pdf_draft', 'create_pdf', 'release_file'],
+  automation: ['web_search', 'web_fetch', 'read_file', 'write_file', 'list_files', 'list_recursive', 'execute_script', 'release_file'],
+  research: ['web_search', 'web_fetch', 'read_file', 'write_file', 'list_files', 'list_recursive', 'release_file'],
+};
+
+const REQUIRED_TOOLS_BY_OUTPUT_KIND: Partial<Record<GeneratedAppOutputKind, readonly GeneratedAppToolName[]>> = {
+  image: ['generate_image_asset', 'release_file'],
+  music: ['generate_music_audio', 'release_file'],
+  podcast: ['create_podcast_episode', 'release_file'],
+  pdf: ['create_pdf', 'release_file'],
+};
 
 const TEXT_MODELS = ['gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview'] as const;
 const IMAGE_MODELS = [DEFAULT_IMAGE_MODEL] as const;
@@ -316,10 +335,14 @@ function sanitizeFields(input: unknown, outputKind: GeneratedAppOutputKind): Gen
 }
 
 function sanitizeToolAllowList(input: unknown, outputKind: GeneratedAppOutputKind): string[] {
-  const allowed = uniqueStrings(input, 12)
-    .filter((tool): tool is typeof TOOL_LIBRARY[number] => TOOL_LIBRARY.includes(tool as typeof TOOL_LIBRARY[number]));
+  const allowedForKind = new Set<GeneratedAppToolName>(TOOL_ALLOWLIST_BY_OUTPUT_KIND[outputKind]);
+  const requested = uniqueStrings(input, 12)
+    .filter((tool): tool is GeneratedAppToolName => TOOL_LIBRARY.includes(tool as GeneratedAppToolName))
+    .filter((tool) => allowedForKind.has(tool));
+  const required = REQUIRED_TOOLS_BY_OUTPUT_KIND[outputKind] || [];
+  const curated = Array.from(new Set<GeneratedAppToolName>([...required, ...requested]));
 
-  if (allowed.length > 0) return allowed;
+  if (curated.length > 0) return curated;
   if (outputKind === 'music') return ['generate_music_audio', 'generate_image_asset', 'release_file'];
   if (outputKind === 'podcast') return ['web_search', 'web_fetch', 'create_podcast_episode', 'release_file'];
   if (outputKind === 'image') return ['generate_image_asset', 'release_file'];

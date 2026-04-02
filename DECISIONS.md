@@ -1,5 +1,31 @@
 # DECISIONS
 
+## 2026-04-02 - Une generated app doit imposer ses defaults media via le runtime, pas seulement les suggerer
+- Statut: adopte localement
+- Contexte: une generated app podcast pouvait afficher `ttsModel: gemini-2.5-flash-tts` dans son host, tout en executant `create_podcast_episode` avec le default global `gemini-2.5-pro-tts` si le modele n'explicitait pas `ttsModel` dans l'appel outil.
+- Decision:
+  - injecter `modelProfile.imageModel|ttsModel|musicModel` comme vrais defaults techniques dans les outils media du runtime generated app
+  - ne plus se contenter de les mentionner dans `buildGeneratedAppRuntimeSystemInstruction()`
+- Pourquoi:
+  - une config visible mais non appliquee degrade la confiance produit
+  - cela aligne enfin l'identite de l'app, son host et son execution reelle
+- Consequence:
+  - `api/index.ts` applique maintenant `applyRuntimeMediaToolDefaults()` avant le meta/log et avant l'execution de `generate_image_asset`, `generate_tts_audio`, `generate_music_audio`, `create_podcast_episode`
+  - les tests Cowork couvrent explicitement ces defaults runtime
+
+## 2026-04-02 - Les generated apps doivent filtrer leurs outils par famille produit
+- Statut: adopte localement
+- Contexte: la creation d'apps intersectait seulement la `toolAllowList` avec la librairie globale. Une app `podcast` pouvait donc garder `write_file` ou d'autres outils peu coherents avec sa promesse produit.
+- Decision:
+  - introduire une allowlist d'outils par `outputKind`
+  - imposer des outils minimums pour certaines familles (`podcast` => `create_podcast_episode` + `release_file`, etc.)
+- Pourquoi:
+  - reduit les chemins d'execution parasites
+  - augmente les chances que l'app fasse naturellement le bon geste principal
+- Consequence:
+  - `server/lib/generated-apps.ts` filtre maintenant les outils podcast hors famille
+  - les manifests generated app restent specialises au niveau de l'UX et du runtime
+
 ## 2026-04-01 - Un bundle optionnel indisponible en environnement empaquete devient `skipped`, pas `failed`
 - Statut: adopte
 - Contexte: plusieurs drafts generated app remontaient un faux echec build avec `Could not resolve "./src/generated-app-sdk.tsx"` et `Could not resolve "react/jsx-runtime"`. Le rendu natif et la publication continuaient pourtant de fonctionner, donc le produit affichait une alarme rouge pour une capacite secondaire.

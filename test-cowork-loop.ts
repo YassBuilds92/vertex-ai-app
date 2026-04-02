@@ -29,6 +29,7 @@ const {
   requestIsCoworkMetaDiscussion,
   requestRequiresAbuseBlock,
   assessReadablePageRelevance,
+  applyRuntimeMediaToolDefaults,
   searchWeb,
 } = __coworkLoopInternals;
 
@@ -58,6 +59,41 @@ const baseResearch = {
   musicCatalogCompleted: false,
   musicCatalogCoverage: null,
 };
+
+{
+  const runtimeApp = {
+    modelProfile: {
+      textModel: 'gemini-3.1-flash-lite-preview',
+      ttsModel: 'gemini-2.5-flash-tts',
+      musicModel: 'lyria-3-pro-preview',
+      imageModel: 'imagen-3.0-generate-002',
+    },
+  };
+
+  const defaultPodcastArgs = applyRuntimeMediaToolDefaults('create_podcast_episode', {
+    brief: 'Monte un duel audio.',
+  }, runtimeApp as any);
+  assert.equal(defaultPodcastArgs.ttsModel, 'gemini-2.5-flash-tts');
+  assert.equal(defaultPodcastArgs.musicModel, 'lyria-3-pro-preview');
+
+  const explicitPodcastArgs = applyRuntimeMediaToolDefaults('create_podcast_episode', {
+    brief: 'Monte un duel audio.',
+    ttsModel: 'gemini-2.5-pro-tts',
+    musicModel: 'lyria-002',
+  }, runtimeApp as any);
+  assert.equal(explicitPodcastArgs.ttsModel, 'gemini-2.5-pro-tts');
+  assert.equal(explicitPodcastArgs.musicModel, 'lyria-002');
+
+  const defaultTtsArgs = applyRuntimeMediaToolDefaults('generate_tts_audio', {
+    text: 'Bonjour le monde.',
+  }, runtimeApp as any);
+  assert.equal(defaultTtsArgs.model, 'gemini-2.5-flash-tts');
+
+  const defaultImageArgs = applyRuntimeMediaToolDefaults('generate_image_asset', {
+    prompt: 'Poster editorial.',
+  }, runtimeApp as any);
+  assert.equal(defaultImageArgs.model, 'imagen-3.0-generate-002');
+}
 
 {
   const hubAgents = [

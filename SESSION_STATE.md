@@ -1,5 +1,55 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (generated apps podcast / les modeles configures doivent devenir des defaults reels d'outils)
+- Besoin traite:
+  - l'utilisateur signale qu'en cliquant sur `Produire maintenant` dans une generated app podcast, le chargement semble tourner dans le vide puis ne rien livrer
+  - il demande aussi si Cowork genere vraiment les apps avec les bons outils
+- Investigation reelle:
+  - smoke prod direct `POST https://vertex-ai-app-pearl.vercel.app/api/generated-apps/create/stream`:
+    - phases observees: `brief_validated -> spec_ready -> source_ready -> bundle_skipped -> manifest_ready`
+    - le manifest cree pour `IA Duel Podcast` est bien de type `podcast`
+  - smoke prod direct `POST /api/cowork` avec cette generated app:
+    - `create_podcast_episode` puis `release_file` executes avec succes
+    - un evenement `released_file` est bien emis avec URL signee audio
+    - conclusion: le backend prod sait reellement creer et publier une app podcast, puis produire un master final
+  - en revanche, l'audit du code a revele 2 incoherences locales:
+    - `server/lib/generated-apps.ts` acceptait une `toolAllowList` podcast trop large, pouvant laisser passer des outils parasites comme `write_file`
+    - `api/index.ts` n'utilisait `modelProfile.ttsModel|musicModel|imageModel` que comme hint prompt; si le modele n'explicitait pas l'argument d'outil, les outils media retombaient silencieusement sur leurs defaults globaux
+- Cause racine confirmee:
+  - la generated app etait bien specialisee produitement, mais sa configuration runtime n'etait pas pleinement contraignante
+  - resultat concret observe en smoke:
+    - une app creee avec `ttsModel: gemini-2.5-flash-tts` pouvait quand meme lancer `create_podcast_episode` en `gemini-2.5-pro-tts`
+- Correctifs appliques:
+  - `server/lib/generated-apps.ts`
+    - ajout d'une curation des outils par `outputKind`
+    - pour `podcast`, `create_podcast_episode` + `release_file` deviennent des outils obligatoires
+    - les outils parasites hors famille (ex: `write_file`) sont filtres a la sanitisation
+  - `api/index.ts`
+    - ajout du helper `applyRuntimeMediaToolDefaults()`
+    - injection des defaults `modelProfile` d'une generated app dans:
+      - `generate_image_asset`
+      - `generate_tts_audio`
+      - `generate_music_audio`
+      - `create_podcast_episode`
+    - le meta/log des appels d'outils reflète aussi maintenant les modeles effectifs
+  - tests:
+    - `test-cowork-loop.ts` couvre les defaults runtime des outils media
+    - `test-generated-app-manifest.ts` couvre l'ecartement de `write_file` sur une app podcast
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - smoke serveur local ephemere sur `:3001`:
+    - `create_podcast_episode` finit par reussir
+    - le `ttsModel` effectif observe est maintenant bien `gemini-2.5-flash-tts`
+    - `release_file` publie bien un MP3 signe
+- Limites restantes:
+  - le patch a ete valide localement, pas deploye en production dans cette session
+  - la vraie UI authentifiee n'a pas ete rejouee visuellement ici a cause du blocage Playwright MCP Windows
+  - le symptome exact de l'utilisateur n'a donc pas ete reproduit pixel pour pixel, mais le flux backend prod a ete prouve et le principal ecart de configuration runtime a ete corrige localement
+- Intention exacte:
+  - faire en sorte qu'une generated app ne soit pas seulement une belle coquille UI, mais qu'elle execute reellement les bons outils avec les bons modeles
+
 ## Mise a jour complementaire - 2026-04-02 (prod Vercel / crash global de la function resolu)
 - Besoin traite:
   - l'utilisateur remonte un popup `Erreur d'envoi : Server returned 500` dans le chat standard et dans Cowork

@@ -1,5 +1,36 @@
 # BUGS GRAVEYARD
 
+## 2026-04-02 - Generated app podcast specialisee en UI, mais pas encore assez specialisee a l'execution
+- Statut: corrige localement, non deploye dans cette session
+- Symptome:
+  - l'utilisateur remonte que `Produire maintenant` peut sembler tourner longtemps puis ne rien montrer
+  - en audit backend, une app `IA Duel Podcast` creee avec `ttsModel: gemini-2.5-flash-tts` pouvait en pratique executer `create_podcast_episode` en `gemini-2.5-pro-tts`
+  - le manifest generated app pouvait aussi conserver une `toolAllowList` podcast avec des outils parasites comme `write_file`
+- Tentatives / preuves:
+  - smoke prod `create/stream` : l'app `IA Duel Podcast` est bien creee avec les phases attendues
+  - smoke prod `/api/cowork` : `create_podcast_episode` puis `release_file` reussissent, avec `released_file` audio final
+  - smoke local ephemere apres patch : l'outil `create_podcast_episode` utilise bien `gemini-2.5-flash-tts` quand l'app le declare
+- Cause racine:
+  - `server/lib/generated-apps.ts` ne filtrait les outils qu'au niveau de la librairie globale, pas par famille produit
+  - `api/index.ts` injectait `modelProfile.textModel` dans le tour modele, mais pas `modelProfile.ttsModel|musicModel|imageModel` dans les outils media eux-memes
+  - le modele devait donc penser tout seul a repasser ces arguments a chaque call; sinon les defaults globaux reprenaient la main
+- Resolution:
+  - `server/lib/generated-apps.ts`
+    - ajout d'une allowlist par `outputKind`
+    - outils obligatoires pour `podcast`: `create_podcast_episode`, `release_file`
+    - filtrage de `write_file` et des outils hors famille
+  - `api/index.ts`
+    - ajout de `applyRuntimeMediaToolDefaults()`
+    - application de ces defaults runtime a `generate_image_asset`, `generate_tts_audio`, `generate_music_audio`, `create_podcast_episode`
+  - tests:
+    - `npx tsx test-generated-app-manifest.ts`
+    - `npx tsx test-cowork-loop.ts`
+- Preuve:
+  - `npm run lint` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - smoke local `:3001` : `tool_result.meta.ttsModel = gemini-2.5-flash-tts`, puis `release_file` succes
+
 ## 2026-04-02 - Toute l'API prod Vercel casse au boot a cause d'une dependance serverless vers `generated-app-sdk`
 - Statut: resolu et redeploye en production
 - Symptome:

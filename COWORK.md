@@ -1,5 +1,34 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-02 - Les pieces jointes Cowork gardent enfin une vraie voie modele pour les fichiers uploadees
+- Retour produit:
+  - l'utilisateur signale qu'une video envoyee dans le chat et dans Cowork n'est lue qu'a travers son titre
+  - il demande aussi une verification du comportement sur les autres types de fichiers
+- Cause racine confirmee:
+  - l'UI stockait l'URL signee GCS, mais pas le `gs://` source
+  - `server/lib/chat-parts.ts` essayait ensuite de refetcher la piece jointe via HTTP et finissait parfois sur un fallback `Nom + URL`
+  - les documents texte hors PDF n'avaient pas de chemin de decode explicite
+- Changement applique:
+  - `src/types.ts` / `shared/chat-parts.ts`
+    - nouveau champ `storageUri` sur les attachments
+  - `server/lib/storage.ts`
+    - upload GCS retourne maintenant URL signee + `storageUri`
+    - helper d'extraction `gs://` depuis les URL signees existantes
+  - `server/routes/standard.ts` / `src/App.tsx`
+    - propagation de `storageUri` lors des uploads et des medias generes
+  - `server/lib/chat-parts.ts`
+    - `fileData` prefere pour image/audio/video/PDF via `gs://`
+    - decode explicite des documents texte (`txt`, `md`, `csv`, `json`, etc.)
+  - `api/index.ts`
+    - `release_file` remonte aussi `storageUri`, donc les livrables Cowork deviennent reouvrables par le modele au tour suivant
+- Validation locale:
+  - `npm run lint` : OK
+  - `npx tsx verify-chat-parts.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+- Etat produit:
+  - le correctif est pret localement pour chat et Cowork
+  - il reste a le rejouer en session authentifiee/deployee avec une vraie matrice de fichiers
+
 ## Mise a jour 2026-04-02 - Le shell principal redevient une vraie entree produit, et l'autonomie backend est nettoyee
 - Retour produit:
   - l'utilisateur ne veut ni un centre vide ni des rails caches qui continuent a orienter Cowork ou les apps qu'il genere

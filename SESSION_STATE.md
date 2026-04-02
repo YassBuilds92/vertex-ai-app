@@ -1,5 +1,54 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (pieces jointes video/texte enfin lisibles dans chat + Cowork)
+- Besoin traite:
+  - l'utilisateur remonte qu'une video envoyee n'est lue qu'a travers son titre dans `chat` et dans `cowork`
+  - il demande aussi une verification sur les autres types de fichiers
+- Cause racine confirmee:
+  - le pipeline d'upload gardait l'URL signee GCS pour l'UI, mais perdait le `gs://` utile a Vertex/Gemini
+  - `server/lib/chat-parts.ts` essayait ensuite de reconsommer video/audio/image/PDF via fetch HTTP/inline; pour les videos, cela pouvait finir en fallback `Nom + URL`
+  - les documents texte (`txt`, `md`, `csv`, `json`, etc.) n'avaient pas de voie de decode explicite
+- Correctifs appliques:
+  - `src/types.ts` / `shared/chat-parts.ts` / `server/lib/schemas.ts`
+    - ajout du champ `storageUri` sur les attachments
+  - `server/lib/storage.ts`
+    - nouvel upload enrichi `uploadToGCSWithMetadata()`
+    - helper `tryExtractGcsUriFromUrl()` pour rehydrater les anciens messages deja persistes
+  - `server/routes/standard.ts`
+    - `/api/upload`, `/api/generate-image`, `/api/generate-audio`, `/api/generate-music` renvoient maintenant aussi `storageUri`
+  - `src/App.tsx`
+    - les uploads utilisent `storageUri` et n'envoient plus la base64 au backend quand le fichier est deja en GCS
+    - les medias generes persistent eux aussi `storageUri`
+  - `server/lib/chat-parts.ts`
+    - prefere `fileData` `gs://...` pour image/audio/video/PDF
+    - decode le texte des fichiers `text/plain`, `text/markdown`, `csv`, `json`, `xml`, etc.
+  - `api/index.ts`
+    - `release_file` renvoie maintenant `storageUri`
+    - les attachments Cowork derives de `release_file` gardent donc une vraie voie modele
+- Validation locale:
+  - `npm run lint` : OK
+  - `npx tsx verify-chat-parts.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+- Fichiers modifies:
+  - `src/App.tsx`
+  - `src/types.ts`
+  - `src/utils/chat-parts.ts`
+  - `src/utils/cowork.ts`
+  - `shared/chat-parts.ts`
+  - `server/lib/chat-parts.ts`
+  - `server/lib/schemas.ts`
+  - `server/lib/storage.ts`
+  - `server/routes/standard.ts`
+  - `api/index.ts`
+  - `verify-chat-parts.ts`
+- Limites restantes:
+  - pas encore de preuve UI authentifiee/deployee
+  - les formats binaires exotiques non supportes par Gemini restent en fallback descriptif
+  - les gros fichiers texte sont volontairement tronques avant injection dans le contexte modele
+- Intention exacte:
+  - garder l'URL signee pour l'UX, mais redonner au modele une reference GCS stable
+  - faire en sorte qu'un upload video/document dans `chat` et `cowork` soit traite comme une vraie entree multimodale, pas comme un simple nom de fichier
+
 ## Mise a jour complementaire - 2026-04-02 (audit shell + autonomie backend + allègement critique)
 - Besoin traite:
   - l'utilisateur demande un audit complet esthetique / frontend / backend

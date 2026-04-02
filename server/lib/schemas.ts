@@ -161,6 +161,7 @@ const GeneratedAppRuntimeSchema = GeneratedAppManifestSchema.extend({
 const AttachmentPayloadSchema = z.object({
   type: z.enum(['image', 'video', 'audio', 'document', 'youtube']),
   url: z.string().optional(),
+  storageUri: z.string().optional(),
   mimeType: z.string().optional(),
   name: z.string().optional(),
   base64: z.string().optional(),

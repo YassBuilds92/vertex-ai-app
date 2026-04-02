@@ -3,6 +3,7 @@ import type {
   ApiHistoryMessagePayload,
   ApiMessagePartPayload,
 } from '../../shared/chat-parts.js';
+import { tryExtractGcsUriFromUrl } from './storage.js';
 import { log } from './logger.js';
 
 type ModelPart =
@@ -10,11 +11,25 @@ type ModelPart =
   | { inlineData: { mimeType: string; data: string } }
   | { fileData: { mimeType: string; fileUri: string } };
 
-const MAX_REMOTE_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+const MAX_REMOTE_BINARY_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+const MAX_REMOTE_TEXT_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+const MAX_TEXT_ATTACHMENT_CHARS = 120_000;
 const YOUTUBE_PLACEHOLDERS = new Set([
   'Chargement du titre...',
   'Video YouTube',
-  'Vidéo YouTube',
+  'VidÃ©o YouTube',
+]);
+const TEXT_MIME_TYPES = new Set([
+  'application/json',
+  'application/ld+json',
+  'application/xml',
+  'application/javascript',
+  'application/x-javascript',
+  'application/ecmascript',
+  'application/x-sh',
+  'application/yaml',
+  'application/x-yaml',
+  'application/toml',
 ]);
 
 function stripDataUrlPrefix(value?: string) {
@@ -44,7 +59,7 @@ function guessMimeTypeFromUrl(url?: string) {
   try {
     const pathname = new URL(url).pathname.toLowerCase();
     if (pathname.endsWith('.pdf')) return 'application/pdf';
-    if (/\.(png|jpg|jpeg|gif|webp|bmp|svg)$/.test(pathname)) {
+    if (/\.(png|jpg|jpeg|gif|webp|bmp|svg|avif)$/.test(pathname)) {
       const extension = pathname.split('.').pop();
       return extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
     }
@@ -55,6 +70,16 @@ function guessMimeTypeFromUrl(url?: string) {
     if (/\.(mp4|webm|mov|m4v)$/.test(pathname)) {
       return pathname.endsWith('.mov') ? 'video/quicktime' : `video/${pathname.split('.').pop()}`;
     }
+    if (pathname.endsWith('.txt')) return 'text/plain';
+    if (pathname.endsWith('.md') || pathname.endsWith('.markdown')) return 'text/markdown';
+    if (pathname.endsWith('.csv')) return 'text/csv';
+    if (pathname.endsWith('.tsv')) return 'text/tab-separated-values';
+    if (pathname.endsWith('.json') || pathname.endsWith('.ndjson')) return 'application/json';
+    if (pathname.endsWith('.xml')) return 'application/xml';
+    if (pathname.endsWith('.html') || pathname.endsWith('.htm')) return 'text/html';
+    if (/\.(js|jsx|ts|tsx|css|py|java|c|cpp|h|hpp|go|rs|sh|sql|log|ini|cfg|conf|toml|yaml|yml)$/.test(pathname)) {
+      return 'text/plain';
+    }
   } catch {
     return '';
   }
@@ -62,11 +87,35 @@ function guessMimeTypeFromUrl(url?: string) {
   return '';
 }
 
+function resolveStorageUri(attachment: ApiAttachmentPayload) {
+  const storageUri = String(attachment.storageUri || '').trim();
+  if (/^gs:\/\/[^/]+\/.+$/i.test(storageUri)) {
+    return storageUri;
+  }
+  return tryExtractGcsUriFromUrl(attachment.url) || '';
+}
+
 function isInlineFriendlyMimeType(mimeType: string) {
   return mimeType.startsWith('image/')
     || mimeType.startsWith('audio/')
     || mimeType.startsWith('video/')
     || mimeType === 'application/pdf';
+}
+
+function isCloudFileDataMimeType(mimeType: string) {
+  return mimeType.startsWith('image/')
+    || mimeType.startsWith('audio/')
+    || mimeType.startsWith('video/')
+    || mimeType === 'application/pdf';
+}
+
+function isTextMimeType(mimeType: string) {
+  return mimeType.startsWith('text/') || TEXT_MIME_TYPES.has(mimeType);
+}
+
+function clipText(value: string, max = MAX_TEXT_ATTACHMENT_CHARS) {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}\n...[tronque]`;
 }
 
 function buildFallbackAttachmentText(attachment: ApiAttachmentPayload) {
@@ -82,11 +131,12 @@ function buildFallbackAttachmentText(attachment: ApiAttachmentPayload) {
     labelByType[attachment.type] || 'Piece jointe',
     attachment.name ? `Nom: ${attachment.name}` : null,
     attachment.mimeType ? `Type: ${attachment.mimeType}` : null,
+    attachment.storageUri ? `Storage: ${attachment.storageUri}` : null,
     attachment.url ? `URL: ${attachment.url}` : null,
   ].filter(Boolean).join('\n');
 }
 
-async function fetchRemoteInlineData(url: string, fallbackMimeType?: string) {
+async function fetchRemoteAttachment(url: string, fallbackMimeType: string | undefined, maxBytes: number) {
   const response = await fetch(url, {
     redirect: 'follow',
     headers: {
@@ -100,19 +150,54 @@ async function fetchRemoteInlineData(url: string, fallbackMimeType?: string) {
 
   const contentLengthHeader = response.headers.get('content-length');
   const contentLength = Number(contentLengthHeader || 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_REMOTE_ATTACHMENT_BYTES) {
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new Error(`Attachment too large (${contentLength} bytes)`);
   }
 
-  const contentType = normalizeMimeType(response.headers.get('content-type') || fallbackMimeType || guessMimeTypeFromUrl(url));
+  const mimeType = normalizeMimeType(
+    response.headers.get('content-type') || fallbackMimeType || guessMimeTypeFromUrl(url),
+  );
   const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.byteLength > MAX_REMOTE_ATTACHMENT_BYTES) {
+  if (buffer.byteLength > maxBytes) {
     throw new Error(`Attachment too large (${buffer.byteLength} bytes)`);
   }
 
+  return { mimeType, buffer };
+}
+
+async function fetchRemoteInlineData(url: string, fallbackMimeType?: string) {
+  const remote = await fetchRemoteAttachment(url, fallbackMimeType, MAX_REMOTE_BINARY_ATTACHMENT_BYTES);
   return {
-    mimeType: contentType || normalizeMimeType(fallbackMimeType) || 'application/octet-stream',
-    data: buffer.toString('base64'),
+    mimeType: remote.mimeType || normalizeMimeType(fallbackMimeType) || 'application/octet-stream',
+    data: remote.buffer.toString('base64'),
+  };
+}
+
+function decodeBase64Attachment(base64?: string) {
+  const stripped = stripDataUrlPrefix(base64);
+  if (!stripped) return null;
+
+  try {
+    return Buffer.from(stripped, 'base64');
+  } catch {
+    return null;
+  }
+}
+
+function buildTextAttachmentPart(attachment: ApiAttachmentPayload, mimeType: string, text: string): ModelPart {
+  const normalizedText = text.replace(/\u0000/g, '').trim();
+  if (!normalizedText) {
+    return { text: buildFallbackAttachmentText(attachment) };
+  }
+
+  return {
+    text: [
+      'Document texte joint.',
+      attachment.name ? `Nom: ${attachment.name}` : null,
+      mimeType ? `Type: ${mimeType}` : null,
+      'Contenu:',
+      clipText(normalizedText),
+    ].filter(Boolean).join('\n'),
   };
 }
 
@@ -154,6 +239,7 @@ async function resolveYoutubeTitle(attachment: ApiAttachmentPayload) {
 export async function resolveAttachmentToModelParts(attachment: ApiAttachmentPayload): Promise<ModelPart[]> {
   const mimeType = normalizeMimeType(attachment.mimeType || guessMimeTypeFromUrl(attachment.url));
   const base64 = stripDataUrlPrefix(attachment.base64);
+  const storageUri = resolveStorageUri(attachment);
 
   if (attachment.type === 'youtube' || looksLikeYouTubeUrl(attachment.url)) {
     const title = await resolveYoutubeTitle(attachment);
@@ -164,6 +250,30 @@ export async function resolveAttachmentToModelParts(attachment: ApiAttachmentPay
         attachment.url ? `URL: ${attachment.url}` : null,
       ].filter(Boolean).join('\n'),
     }];
+  }
+
+  if (mimeType && isTextMimeType(mimeType)) {
+    const localBuffer = decodeBase64Attachment(base64);
+    if (localBuffer) {
+      return [buildTextAttachmentPart(attachment, mimeType, localBuffer.toString('utf8'))];
+    }
+
+    if (attachment.url && looksLikeHttpUrl(attachment.url)) {
+      try {
+        const remote = await fetchRemoteAttachment(attachment.url, mimeType, MAX_REMOTE_TEXT_ATTACHMENT_BYTES);
+        return [buildTextAttachmentPart(attachment, remote.mimeType || mimeType, remote.buffer.toString('utf8'))];
+      } catch (error) {
+        log.warn('Text attachment fetch failed, falling back to text context', {
+          url: attachment.url,
+          mimeType,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  if (storageUri && mimeType && isCloudFileDataMimeType(mimeType)) {
+    return [{ fileData: { mimeType, fileUri: storageUri } }];
   }
 
   if (base64 && mimeType && isInlineFriendlyMimeType(mimeType)) {

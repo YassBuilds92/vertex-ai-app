@@ -26,7 +26,7 @@ import {
   UploadSchema,
   VideoGenSchema,
 } from '../lib/schemas.js';
-import { getServiceAccountEmail, uploadToGCS } from '../lib/storage.js';
+import { getServiceAccountEmail, uploadToGCSWithMetadata } from '../lib/storage.js';
 import { buildModelContentsFromRequest } from '../lib/chat-parts.js';
 
 const REFINER_SYSTEM_PROMPT = `Optimise l'instruction systeme suivante pour un modele IA puissant. Sois concis.`;
@@ -171,9 +171,10 @@ export function registerStandardApiRoutes(app: Express) {
         thinkingLevel,
       });
       const fileName = createUploadFileName('generated-image', artifact.fileExtension);
-      const url = await uploadToGCS(artifact.buffer, fileName, artifact.mimeType);
+      const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
       res.json({
-        url,
+        url: uploaded.url,
+        storageUri: uploaded.storageUri,
         base64: `data:${artifact.mimeType};base64,${artifact.buffer.toString('base64')}`,
         mimeType: artifact.mimeType,
         model: artifact.model,
@@ -214,10 +215,11 @@ export function registerStandardApiRoutes(app: Express) {
         temperature,
       });
       const fileName = createUploadFileName('generated-audio', artifact.fileExtension);
-      const url = await uploadToGCS(artifact.buffer, fileName, artifact.mimeType);
+      const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
 
       res.json({
-        url,
+        url: uploaded.url,
+        storageUri: uploaded.storageUri,
         mimeType: artifact.mimeType,
         model: artifact.model,
         voice: artifact.metadata?.voice,
@@ -246,10 +248,11 @@ export function registerStandardApiRoutes(app: Express) {
         location,
       });
       const fileName = createUploadFileName('generated-music', artifact.fileExtension);
-      const url = await uploadToGCS(artifact.buffer, fileName, artifact.mimeType);
+      const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
 
       res.json({
-        url,
+        url: uploaded.url,
+        storageUri: uploaded.storageUri,
         mimeType: artifact.mimeType,
         model: artifact.model,
         location: artifact.metadata?.location,
@@ -369,9 +372,12 @@ export function registerStandardApiRoutes(app: Express) {
 
       const pureBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
       const buffer = Buffer.from(pureBase64, 'base64');
-      const url = await uploadToGCS(buffer, fileName, mimeType);
+      const uploaded = await uploadToGCSWithMetadata(buffer, fileName, mimeType);
 
-      res.json({ url });
+      res.json({
+        url: uploaded.url,
+        storageUri: uploaded.storageUri,
+      });
     } catch (error) {
       log.error('Upload error', error);
       res.status(500).json({ error: 'Upload failed', message: String(error) });

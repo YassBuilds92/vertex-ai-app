@@ -4,6 +4,13 @@ import { log } from './logger.js';
 
 const BUCKET_NAME = 'videosss92';
 
+export type UploadedGcsObject = {
+  url: string;
+  storageUri: string;
+  bucketName: string;
+  objectPath: string;
+};
+
 let gcpCredentials: any = null;
 let storage: Storage | null = null;
 let serviceAccountEmail: string | null = null;
@@ -27,10 +34,50 @@ export function getServiceAccountEmail() {
   return serviceAccountEmail;
 }
 
-export async function uploadToGCS(buffer: Buffer, fileName: string, contentType: string): Promise<string> {
-  if (!storage) throw new Error("Storage non configuré");
+function normalizeObjectPath(objectPath: string) {
+  return String(objectPath || '').replace(/^\/+/, '');
+}
+
+export function buildGcsUri(objectPath: string, bucketName = BUCKET_NAME) {
+  const normalizedPath = normalizeObjectPath(objectPath);
+  return normalizedPath ? `gs://${bucketName}/${normalizedPath}` : `gs://${bucketName}`;
+}
+
+export function tryExtractGcsUriFromUrl(url?: string | null): string | null {
+  if (!url) return null;
+
+  try {
+    const parsed = new URL(String(url));
+    const host = parsed.hostname.toLowerCase();
+    const pathname = decodeURIComponent(parsed.pathname || '');
+
+    if (host === 'storage.googleapis.com') {
+      const segments = pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+      if (segments.length >= 2) {
+        const [bucketName, ...objectPathSegments] = segments;
+        return buildGcsUri(objectPathSegments.join('/'), bucketName);
+      }
+    }
+
+    if (host.endsWith('.storage.googleapis.com')) {
+      const bucketName = host.slice(0, -'.storage.googleapis.com'.length);
+      const objectPath = pathname.replace(/^\/+/, '');
+      if (bucketName && objectPath) {
+        return buildGcsUri(objectPath, bucketName);
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+export async function uploadToGCSWithMetadata(buffer: Buffer, fileName: string, contentType: string): Promise<UploadedGcsObject> {
+  if (!storage) throw new Error('Storage non configure');
   const bucket = storage.bucket(BUCKET_NAME);
-  const file = bucket.file(`uploaded/${fileName}`);
+  const objectPath = normalizeObjectPath(`uploaded/${fileName}`);
+  const file = bucket.file(objectPath);
 
   await file.save(buffer, {
     metadata: { contentType },
@@ -41,5 +88,15 @@ export async function uploadToGCS(buffer: Buffer, fileName: string, contentType:
     expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
   });
 
-  return url;
+  return {
+    url,
+    storageUri: buildGcsUri(objectPath, BUCKET_NAME),
+    bucketName: BUCKET_NAME,
+    objectPath,
+  };
+}
+
+export async function uploadToGCS(buffer: Buffer, fileName: string, contentType: string): Promise<string> {
+  const uploaded = await uploadToGCSWithMetadata(buffer, fileName, contentType);
+  return uploaded.url;
 }

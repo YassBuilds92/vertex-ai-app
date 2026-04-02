@@ -18,6 +18,7 @@ export function buildApiAttachmentPayload(attachment: Attachment): ApiAttachment
   return {
     type: attachment.type,
     url: attachment.url,
+    storageUri: attachment.storageUri,
     mimeType: attachment.mimeType,
     name: attachment.name,
     base64: stripDataUrlPrefix(attachment.base64),

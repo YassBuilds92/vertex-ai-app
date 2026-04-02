@@ -1744,9 +1744,18 @@ export default function App() {
   }, [shouldVirtualizeMessages, rowVirtualizer, visibleMessages.length, streamingContent, streamingThoughts, isLoading, expandedThoughts]);
 
   // --- ATTACHMENTS HELPERS ---
-  const uploadAttachment = async (attachment: Attachment, userId: string, sessionId: string): Promise<string> => {
+  const uploadAttachment = async (
+    attachment: Attachment,
+    userId: string,
+    sessionId: string,
+  ): Promise<{ url: string; storageUri?: string }> => {
     // If it's already a URL (not base64), return it
-    if (attachment.url.startsWith('http') && !attachment.url.includes('base64')) return attachment.url;
+    if (attachment.url.startsWith('http') && !attachment.url.includes('base64')) {
+      return {
+        url: attachment.url,
+        storageUri: attachment.storageUri,
+      };
+    }
     
     try {
       let blob: Blob;
@@ -1770,7 +1779,10 @@ export default function App() {
           blob = new Blob([byteArray], { type: mimeType });
         }
       } else {
-        return attachment.url;
+        return {
+          url: attachment.url,
+          storageUri: attachment.storageUri,
+        };
       }
 
       const fileExt = attachment.mimeType?.split('/')[1] || 'png';
@@ -1789,8 +1801,8 @@ export default function App() {
       if (!response.ok) {
         throw new Error(`Erreur serveur lors de l'upload: ${response.statusText}`);
       }
-      const { url } = await response.json();
-      return url;
+      const { url, storageUri } = await response.json();
+      return { url, storageUri };
     } catch (e: any) {
       console.warn("Storage upload failed, attempting compression fallback:", e);
       
@@ -1799,7 +1811,7 @@ export default function App() {
         const sourceData = attachment.base64 || attachment.url;
         
         // If it's already small enough, just return it
-        if (sourceData.length < 800000) return sourceData;
+        if (sourceData.length < 800000) return { url: sourceData };
 
         // Otherwise, compress it
         console.info("Compressing image for Firestore storage...");
@@ -1811,7 +1823,7 @@ export default function App() {
         }
         
         if (compressed.length < 1048000) {
-           return compressed;
+           return { url: compressed };
         }
       }
 
@@ -1885,9 +1897,19 @@ export default function App() {
       const cleanAttachments: Attachment[] = [];
       for (const att of pendingAttachments) {
         const { file, ...rest } = att;
-        const uploadUrl = await uploadAttachment(att, user.uid, currentSessionId);
-        requestAttachments.push({ ...rest, url: uploadUrl });
-        cleanAttachments.push({ ...rest, url: uploadUrl, base64: undefined }); 
+        const uploaded = await uploadAttachment(att, user.uid, currentSessionId);
+        requestAttachments.push({
+          ...rest,
+          url: uploaded.url,
+          storageUri: uploaded.storageUri,
+          base64: uploaded.storageUri ? undefined : rest.base64,
+        });
+        cleanAttachments.push({
+          ...rest,
+          url: uploaded.url,
+          storageUri: uploaded.storageUri,
+          base64: undefined,
+        });
       }
 
       // --- PROMPT REFINEMENT ---
@@ -1964,7 +1986,13 @@ export default function App() {
           id: createClientMessageId('model'),
           role: 'model',
           content: "Image générée avec succès.",
-          attachments: [{ id: Date.now().toString(), type: 'image', url: generatedImageUrl, name: 'Image générée' }],
+          attachments: [{
+            id: Date.now().toString(),
+            type: 'image',
+            url: generatedImageUrl,
+            storageUri: data.storageUri,
+            name: 'Image générée',
+          }],
           createdAt: Date.now(),
         };
         const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
@@ -2018,6 +2046,7 @@ export default function App() {
             id: Date.now().toString(),
             type: 'audio',
             url: data.url,
+            storageUri: data.storageUri,
             mimeType: data.mimeType || 'audio/wav',
             name: 'Audio généré',
           }],
@@ -2252,7 +2281,13 @@ export default function App() {
           id: createClientMessageId('model'),
           role: 'model',
           content: "Vidéo générée avec succès.",
-          attachments: [{ id: Date.now().toString(), type: 'video', url: data.url, name: 'Vidéo générée' }],
+          attachments: [{
+            id: Date.now().toString(),
+            type: 'video',
+            url: data.url,
+            storageUri: data.storageUri,
+            name: 'Vidéo générée',
+          }],
           createdAt: Date.now(),
         };
         const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);

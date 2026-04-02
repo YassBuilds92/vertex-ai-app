@@ -1,5 +1,30 @@
 # QA RECIPES
 
+## Pieces jointes - chat et Cowork
+- Objectif:
+  - verifier qu'une video uploadee reste vraiment lisible par Gemini en `chat` et en `cowork`
+  - verifier que les types deja supportes (image, PDF, audio) ne regressent pas
+  - verifier que les documents texte (`txt`, `md`, `csv`, `json`) remontent leur contenu au modele
+- Scenarios cibles:
+  - MP4 court avec dialogue ou sous-titres visibles
+  - PDF texte simple
+  - TXT ou Markdown court
+  - JSON ou CSV court
+- Etapes manuelles:
+  - ouvrir `chat & raisonnement`
+  - envoyer chaque fichier avec une consigne explicite de lecture (`decris la video`, `recopie le titre du JSON`, etc.)
+  - rejouer la meme matrice dans `Cowork`
+  - reouvrir ensuite un ancien message avec video deja persiste pour tester la rehydratation historique
+- Attendus:
+  - video: la reponse parle du contenu reel, pas seulement du nom du fichier
+  - PDF/image/audio: comportement conserve
+  - TXT/MD/CSV/JSON: la reponse cite bien des champs/lignes issus du contenu
+  - pas de fallback pauvre `Nom + URL` pour les types supportes
+- Validation code:
+  - `npm run lint`
+  - `npx tsx verify-chat-parts.ts`
+  - `npx tsx test-cowork-loop.ts`
+
 ## Shell principal - accueil vide
 - Objectif:
   - verifier que le shell d'accueil reste visible, utile et respirant avant toute conversation

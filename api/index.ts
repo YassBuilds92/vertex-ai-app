@@ -78,7 +78,7 @@ import { buildModelContentsFromRequest } from '../server/lib/chat-parts.js';
 import { log } from '../server/lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from '../server/lib/path-utils.js';
 import { ChatSchema } from '../server/lib/schemas.js';
-import { uploadToGCS } from '../server/lib/storage.js';
+import { tryExtractGcsUriFromUrl, uploadToGCSWithMetadata } from '../server/lib/storage.js';
 import { registerApiErrorHandlers } from '../server/middleware/api-errors.js';
 import { registerSiteAuth } from '../server/middleware/auth.js';
 import { registerRequestHardening } from '../server/middleware/request-hardening.js';
@@ -982,6 +982,7 @@ function buildReleasedAttachmentPayload(input: {
   url?: unknown;
   path?: unknown;
   fileName?: unknown;
+  storageUri?: unknown;
   mimeType?: unknown;
   fileSizeBytes?: unknown;
   attachmentType?: unknown;
@@ -991,6 +992,7 @@ function buildReleasedAttachmentPayload(input: {
 
   const filePath = typeof input.path === 'string' ? input.path.trim() : '';
   const fileNameValue = typeof input.fileName === 'string' ? input.fileName.trim() : '';
+  const storageUriValue = typeof input.storageUri === 'string' ? input.storageUri.trim() : '';
   const mimeTypeValue = typeof input.mimeType === 'string' ? input.mimeType.trim() : '';
   const inferredMimeType = mimeTypeValue || (filePath ? getMimeType(filePath) : '');
   const inferredType = (
@@ -1013,6 +1015,7 @@ function buildReleasedAttachmentPayload(input: {
     id: `artifact-${createHash('sha1').update(`${filePath}|${url}`).digest('hex').slice(0, 12)}`,
     type: inferredType,
     url,
+    storageUri: storageUriValue || tryExtractGcsUriFromUrl(url) || undefined,
     mimeType: inferredMimeType || undefined,
     name,
     fileSizeBytes: Number(input.fileSizeBytes || 0) || undefined,
@@ -1039,6 +1042,7 @@ function extractReleasedAttachmentFromToolResult(toolName: string, args: any, ou
       url: output?.url,
       path: output?.path || args?.path,
       fileName: output?.fileName,
+      storageUri: output?.storageUri,
       mimeType: output?.mimeType,
       fileSizeBytes: output?.fileSizeBytes,
       attachmentType: output?.attachmentType,
@@ -1050,6 +1054,7 @@ function extractReleasedAttachmentFromToolResult(toolName: string, args: any, ou
       url: output?.releasedFile?.url,
       path: output?.releasedFile?.path || output?.createdArtifactPath,
       fileName: output?.releasedFile?.fileName,
+      storageUri: output?.releasedFile?.storageUri,
       mimeType: output?.releasedFile?.mimeType,
       fileSizeBytes: output?.releasedFile?.fileSizeBytes,
       attachmentType: output?.releasedFile?.attachmentType,
@@ -8152,10 +8157,11 @@ app.post('/api/cowork', async (req, res) => {
             path: filePath,
           });
           log.info(`Releasing file: ${filePath} (${mimeType})`);
-          const url = await uploadToGCS(buffer, fileName, mimeType);
+          const uploaded = await uploadToGCSWithMetadata(buffer, fileName, mimeType);
           return {
             success: true,
-            url,
+            url: uploaded.url,
+            storageUri: uploaded.storageUri,
             path: filePath,
             fileName,
             mimeType,

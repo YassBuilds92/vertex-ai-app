@@ -169,6 +169,7 @@ function sanitizeAttachment(attachment: Attachment): Attachment {
     id: attachment.id || `${attachment.type}-${attachment.url}`,
     type: attachment.type,
     url: attachment.url,
+    storageUri: attachment.storageUri,
     mimeType: attachment.mimeType,
     name: attachment.name,
     thumbnail: attachment.thumbnail,

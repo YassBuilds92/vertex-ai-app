@@ -1,5 +1,31 @@
 # BUGS GRAVEYARD
 
+## 2026-04-02 - Video upload lue comme un simple titre dans chat et Cowork
+- Statut: corrige localement, a revalider dans l'app connectee/deployee
+- Symptome:
+  - apres upload d'une video dans `chat` ou `cowork`, Gemini ne reagit qu'au nom/titre du fichier
+  - le contenu reel de la video n'est pas exploite
+  - les documents texte non-PDF (`txt`, `md`, `csv`, `json`) tombent eux aussi sur un contexte pauvre
+- Tentatives:
+  - audit du contrat frontend `attachments -> buildApiAttachmentPayloads()`
+  - audit du resoluteur backend `server/lib/chat-parts.ts`
+  - comparaison entre video, PDF, image, audio et documents texte
+- Cause racine:
+  - le frontend uploadait bien le fichier dans GCS, mais ne persistait que l'URL signee utile a l'UI
+  - ensuite, `server/lib/chat-parts.ts` essayait de relire les medias via fetch HTTP/inline, avec un chemin fragile pour les fichiers lourds
+  - quand ce fetch ne convenait pas, le fallback se reduisait a `Nom + URL`
+  - les documents texte n'avaient aucun chemin de decode explicite, contrairement au PDF
+- Resolution:
+  - ajout d'un champ `storageUri` (`gs://...`) sur les attachments frontend/backend
+  - `server/lib/storage.ts` et `server/routes/standard.ts` renvoient maintenant URL signee + `storageUri`
+  - `server/lib/chat-parts.ts` prefere `fileData` pour image/audio/video/PDF quand un `gs://` est disponible ou derivable
+  - les documents texte sont maintenant decodes en part `text`
+  - `api/index.ts` propage aussi `storageUri` sur `release_file` pour les livrables Cowork
+- Preuve:
+  - `npm run lint` : OK
+  - `npx tsx verify-chat-parts.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+
 ## 2026-04-02 - `IA Duel Podcast` faisait un faux podcast solo au lieu d'un vrai debat
 - Statut: corrige localement, non deploye dans cette session
 - Symptome:

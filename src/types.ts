@@ -16,6 +16,7 @@ export interface Attachment {
   type: AttachmentType;
   url: string; // base64 data URL, blob URL, or youtube URL
   file?: File; // Native file object for cleaner uploads
+  storageUri?: string;
   mimeType?: string;
   name?: string;
   base64?: string;

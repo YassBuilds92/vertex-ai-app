@@ -1,5 +1,20 @@
 # DECISIONS
 
+## 2026-04-02 - Les pieces jointes persistentes gardent 2 adresses: URL signee pour l'UI, `gs://` pour le modele
+- Statut: adopte localement
+- Contexte: une video uploadee dans le chat ou dans Cowork arrivait bien en GCS, mais le backend essayait ensuite de la relire via l'URL signee HTTP. Pour les videos un peu lourdes, cela finissait en fallback texte (`Nom + URL`) et Gemini ne voyait plus le contenu reel. Les documents texte non-PDF etaient egalement sous-traites.
+- Decision:
+  - stocker `storageUri` (`gs://bucket/object`) sur les attachments en plus de l'URL signee
+  - preferer `fileData` pour image/audio/video/PDF quand un `gs://` est disponible
+  - decoder explicitement les documents texte (`txt`, `md`, `csv`, `json`, etc.) en part `text`
+- Pourquoi:
+  - l'URL signee sert bien la preview/telechargement UI, mais c'est un mauvais contrat de relecture multimodale pour le modele
+  - `gs://` stabilise la rehydratation des anciens messages et evite le downgrade a un simple titre
+  - le texte brut gagne un rendu lisible sans dependre d'un parseur de fichier cote modele
+- Consequence:
+  - `src/App.tsx`, `shared/chat-parts.ts`, `server/lib/storage.ts`, `server/lib/chat-parts.ts` et `api/index.ts` portent maintenant ce double contrat
+  - les regressions de pieces jointes se valident via `verify-chat-parts.ts`
+
 ## 2026-04-02 - L'etat d'accueil doit court-circuiter completement la pile messages
 - Statut: adopte localement
 - Contexte: le shell pouvait rester vide tant que l'accueil premium et la pile messages/virtualizer etaient encore evalues ensemble sur une session sans vrai contenu.

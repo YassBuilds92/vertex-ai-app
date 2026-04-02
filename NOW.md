@@ -1,39 +1,40 @@
 # NOW
 
 ## Objectif actuel
-- Rejouer en conditions reelles la nouvelle passe media + Cowork:
-  - interface dediee `generation image`
-  - interface dediee `generation video`
-  - interface dediee `text-to-speech`
-  - nouveau mode `Lyria / musique`
-  - toggle Cowork `Utiliser les agents du Hub` desactive par defaut
+- Etendre et valider la refonte shell `three.js` sur les autres surfaces:
+  - hero vide beaucoup plus epure
+  - scene 3D editoriale lazy-load
+  - rails gauche/droit allegees
+  - reverification sur les modes `cowork`, `image`, `video`, `audio`, `lyria`
 
 ## Blocage actuel
-- La passe est validee localement en TypeScript/build + captures desktop/mobile via harness, mais pas encore rejouee dans l'app authentifiee avec de vrais runs Gemini/Cowork.
+- La nouvelle DA est validee localement sur le shell `chat` vide (desktop/mobile) en build + captures reelles, mais pas encore rejouee en session authentifiee ni sur les autres modes vides / avec contenu.
 
 ## Prochaine action exacte
-- Rejouer la passe en session reelle:
-  - ouvrir chaque mode media dans l'app connectee
-  - lancer au moins un run image, video, TTS et Lyria
-  - verifier que Cowork ne voit plus les outils/consignes hub quand le toggle agents est coupe
-  - reverifier desktop + mobile sur le domaine/auth reels
+- Rejouer la refonte en conditions reelles:
+  - ouvrir l'app connectee
+  - verifier `chat`, `cowork`, `image`, `video`, `audio`, `lyria` a vide
+  - verifier qu'une vraie conversation / un vrai resultat ne casse pas l'equilibre plus aerien du shell
+  - decider si la scene `three.js` reste reservee a l'accueil vide ou merite des echos sur d'autres surfaces
+  - surveiller le poids du chunk `StudioHeroScene` si la scene grossit encore
 
 ## Fichiers chauds
-- `src/components/SidebarRight.tsx`
+- `src/components/StudioHeroScene.tsx`
 - `src/components/StudioEmptyState.tsx`
-- `src/App.tsx`
-- `api/index.ts`
-- `tmp/media-modes-preview.tsx`
+- `src/index.css`
+- `src/components/SidebarRight.tsx`
+- `src/components/SidebarLeft.tsx`
 - `QA_RECIPES.md`
-- `COWORK.md`
+- `TECH_RADAR.md`
 - `DECISIONS.md`
 
 ## Validations restantes
-- Verifier le rendu reel des generations sur les 4 modes media.
-- Verifier que le toggle Cowork change bien le comportement runtime sur un vrai run.
-- Verifier que le panneau droit reste lisible sur mobile une fois les vrais champs/erreurs rendus.
+- Verifier les etats vides des autres modes apres refonte.
+- Verifier un shell authentifie avec historique reel.
+- Verifier que le panneau droit reste lisible quand les vrais reglages / erreurs sont rendus.
+- Verifier que la scene `three.js` ne degrade pas la fluidite percue sur laptop/mobile.
 
 ## Risques immediats
-- Le harness local valide la composition, pas encore le comportement complet des endpoints reels.
-- Le mode video garde une dette de validation runtime tant qu'un vrai run Veo n'a pas ete rejoue dans l'app.
-- Sans run reelle, on ne peut pas encore prouver visuellement qu'aucun outil hub n'est propose a Cowork quand le toggle reste coupe.
+- Le shell vide `chat` est valide, mais les autres modes n'ont pas encore leur passe visuelle reelle.
+- Le chunk lazy `StudioHeroScene` pese environ `505 kB` minifie: acceptable pour un hero charge a la demande, mais a surveiller.
+- Une vraie session avec messages/artefacts peut encore paraitre trop dense meme si l'accueil est enfin beaucoup plus calme.

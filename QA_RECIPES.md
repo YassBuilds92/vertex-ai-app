@@ -1,5 +1,35 @@
 # QA RECIPES
 
+## Shell principal - refonte hero `three.js`
+- Objectif:
+  - verifier que l'accueil vide est beaucoup plus epure et moins serre
+  - verifier que la scene `three.js` porte l'atmosphere sans casser la lisibilite
+  - verifier que le premier ecran reste lisible sur desktop et mobile
+- Validation code:
+  - `npm run lint`
+  - `npm run build`
+- Validation visuelle locale:
+  - ouvrir `http://127.0.0.1:3000`
+  - si Playwright MCP est indisponible, capturer avec Chrome/Edge headless:
+    - desktop:
+      - `C:\Program Files\Google\Chrome\Application\chrome.exe --headless=new --disable-gpu --hide-scrollbars --window-size=1440,1200 --screenshot="C:\Users\Yassine\OneDrive\Bureau\ai studio\tmp\refonte-home-desktop.png" --virtual-time-budget=6000 http://127.0.0.1:3000`
+    - mobile:
+      - `C:\Program Files\Google\Chrome\Application\chrome.exe --headless=new --disable-gpu --hide-scrollbars --window-size=430,932 --screenshot="C:\Users\Yassine\OneDrive\Bureau\ai studio\tmp\refonte-home-mobile.png" --virtual-time-budget=6000 http://127.0.0.1:3000`
+- Attendus:
+  - desktop:
+    - headline visible des le premier ecran
+    - sculpture `three.js` lisible sans tuer le contraste du titre
+    - accueil plus poster/editorial que dashboard
+  - mobile:
+    - le titre et le CTA restent visibles sans scroll
+    - la scene garde une presence claire sans pousser toute la copy hors ecran
+  - shell:
+    - labels de modes plus courts dans la sidebar gauche
+    - panneau droit toujours lisible malgre la refonte plus aerienne
+- Captures de reference locales:
+  - `tmp/refonte-home-desktop.png`
+  - `tmp/refonte-home-mobile.png`
+
 ## Modes media - validation locale des nouvelles surfaces
 - Objectif:
   - verifier que `image`, `video`, `text-to-speech` et `lyria` ont chacun une vraie surface differenciee

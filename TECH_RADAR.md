@@ -9,6 +9,36 @@
 - Cout
 - Sources officielles
 
+## 2026-04-02 - `three@0.183.2` en scene hero lazy-load pour le shell
+- Statut: retenu pour la refonte empty state
+- Date de verification: 2026-04-02
+- Technologie: `three`
+- Choix:
+  - ajouter `three@0.183.2`
+  - construire une scene hero en WebGL brut dans `src/components/StudioHeroScene.tsx`
+  - lazy-loader la scene depuis `StudioEmptyState`
+  - ne pas ajouter `react-three-fiber` dans ce lot
+- Pourquoi:
+  - la demande utilisateur exige explicitement `three.js`
+  - le besoin reel est une seule sculpture ambient / editoriale, pas une scene 3D a forte composition React
+  - `three` brut donne un meilleur ratio controle / simplicite pour ce cas et evite une dependance de plus
+  - verification npm locale:
+    - `npm view three version` => `0.183.2`
+    - `npm view three time.modified` => `2026-02-28T09:33:22.962Z`
+- Alternatives evaluees:
+  - `@react-three/fiber`
+    - Ecartee pour ce lot: solide et tres active (`npm view @react-three/fiber version` => `9.5.0`, `time.modified` => `2026-03-04T15:11:24.878Z`), mais surdimensionnee pour une seule scene hero et ajouterait une couche React supplementaire
+  - `ogl`
+    - Ecartee: plus minimaliste, mais moins alignee avec la demande explicite `three.js` et moins interessante ici que l'ecosysteme / la doc Three officielle
+- Cout:
+  - gratuit / open-source
+  - +1 dependance npm
+  - attention perf: chunk lazy `StudioHeroScene` ~ `505 kB` minifie dans la build locale actuelle
+- Sources officielles:
+  - [Three.js - Creating a scene](https://threejs.org/manual/en/creating-a-scene.html)
+  - [React Three Fiber - Introduction](https://r3f.docs.pmnd.rs/getting-started/introduction)
+  - [OGL](https://oframe.github.io/ogl/)
+
 ## 2026-04-02 - Modes media dedies avec defaults Google verifies
 - Statut: retenu pour les surfaces media du shell
 - Date de verification: 2026-04-02

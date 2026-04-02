@@ -1,5 +1,84 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (refonte hero `three.js`, shell plus epure, validation desktop/mobile)
+- Besoin traite:
+  - l'utilisateur veut une vraie refonte plus Awwwards:
+    - beaucoup moins de texte
+    - beaucoup plus d'air
+    - une presence `three.js`
+    - un shell moins serre et moins "dashboard"
+- Cause racine confirmee:
+  - l'ancien accueil vide empilait trop de copy, de cartes et de micro-sections
+  - la composition respirait mal, surtout avant meme d'avoir commence a travailler
+  - les rails lateraux restaient encore trop verbeuses pour une DA plus editoriale
+- Correctifs appliques:
+  - dependance / scene:
+    - `package.json`
+    - `package-lock.json`
+    - ajout de `three@0.183.2`
+    - nouveau composant `src/components/StudioHeroScene.tsx`
+      - scene WebGL brute `three`
+      - sculpture animee + halo + particules
+      - lazy load pour sortir le poids du chemin critique normal
+  - accueil vide:
+    - `src/components/StudioEmptyState.tsx`
+      - reecrit en hero editorial unique
+      - copy radicalement coupee
+      - CTA central + suggestions minimales
+      - metadata rail tres courte
+    - `src/index.css`
+      - nouveau fond plus calme et moins quadrille
+      - nouvelles classes `studio-empty-hero*`
+      - panneaux plus sobres
+      - responsive mobile dedie pour garder titre + CTA dans le premier ecran
+  - shell:
+    - `src/components/SidebarLeft.tsx`
+      - labels de modes raccourcis
+      - colonne legerement elargie
+      - branding plus compact
+    - `src/components/SidebarRight.tsx`
+      - copy des cartes mode raccourcie pour reduire la densite narrative
+  - documentation:
+    - `TECH_RADAR.md`
+    - `DECISIONS.md`
+    - `QA_RECIPES.md`
+    - `AI_LEARNINGS.md`
+    - `BUGS_GRAVEYARD.md`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Chrome headless reelles sur `http://127.0.0.1:3000`:
+    - `tmp/refonte-home-desktop.png`
+    - `tmp/refonte-home-mobile.png`
+- Bug rencontre pendant la validation:
+  - le hero mobile perdait toute sa copy en capture headless
+  - cause racine: reveal `motion` sur la copy critique
+  - correctif final: copy statique, animation gardee dans la scene `three.js`
+- Fichiers modifies:
+  - `package.json`
+  - `package-lock.json`
+  - `src/components/StudioHeroScene.tsx`
+  - `src/components/StudioEmptyState.tsx`
+  - `src/components/SidebarLeft.tsx`
+  - `src/components/SidebarRight.tsx`
+  - `src/index.css`
+  - `NOW.md`
+  - `SESSION_STATE.md`
+  - `AI_LEARNINGS.md`
+  - `BUGS_GRAVEYARD.md`
+  - `TECH_RADAR.md`
+  - `DECISIONS.md`
+  - `QA_RECIPES.md`
+- Limites restantes:
+  - validation visuelle reelle faite surtout sur le shell vide `chat`
+  - pas encore de replay visuel equivalent sur `cowork`, `image`, `video`, `audio`, `lyria`
+  - pas encore de validation authentifiee avec historique reel et vrais rendus media
+  - chunk lazy `StudioHeroScene` toujours lourd (~`505 kB` minifie)
+- Intention exacte:
+  - passer d'un accueil bavard a un poster vivant
+  - faire porter l'identite par une scene 3D et par l'espace negatif, pas par une accumulation de blocs
+  - garder la refonte simple a maintenir en restant sur `three` brut plutot que d'ouvrir une pile 3D plus grosse
+
 ## Mise a jour complementaire - 2026-04-02 (modes media dedies + mode Lyria + delegation hub opt-in dans Cowork)
 - Besoin traite:
   - l'utilisateur veut une interface propre et distincte pour:

@@ -1,5 +1,29 @@
 # BUGS GRAVEYARD
 
+## 2026-04-02 - Le hero `three.js` mobile perdait completement sa copy en validation headless
+- Statut: corrige localement, prevention documentee
+- Symptome:
+  - desktop OK avec headline + CTA visibles
+  - mobile headless: seule la scene `three.js` etait visible; plus de titre ni de CTA dans le premier ecran
+  - le bug etait trompeur, car la refonte semblait correcte a la lecture du code et sur certaines passes desktop
+- Tentatives:
+  - compacter la mise en page mobile (`padding-top`, hauteur de scene, min-height)
+  - deplacer / reduire la scene `three.js`
+  - supprimer les masques CSS de la scene
+- Cause racine:
+  - le probleme principal n'etait pas la grille mobile mais le reveal `motion` applique a la copy critique du hero
+  - en capture headless mobile etroite, la scene WebGL s'animait bien mais les wrappers `motion` du bloc texte pouvaient rester a leur etat initial, donc invisibles
+  - les ajustements de layout seuls ne pouvaient pas resoudre un texte qui ne se peignait pas
+- Resolution:
+  - retirer les wrappers `motion` du bloc hero dans `src/components/StudioEmptyState.tsx`
+  - garder l'animation dans la scene `three.js` et dans les hover CSS
+  - revalider ensuite avec:
+    - `tmp/refonte-home-desktop.png`
+    - `tmp/refonte-home-mobile.png`
+- Prevention:
+  - pour toute surface above-the-fold critique, ne pas dependre d'un reveal JS pour rendre visible la copy principale si la validation headless/mobile fait partie du workflow
+  - en cas d'ecran "beau mais vide", tester d'abord la suppression des reveals avant d'ajuster toute la grille
+
 ## 2026-04-02 - Faux screenshots des nouveaux modes media a cause du fallback SPA de `vite preview`
 - Statut: corrige localement, prevention documentee
 - Symptome:

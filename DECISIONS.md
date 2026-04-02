@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-04-02 - Le hero vide passe sur une scene `three.js` lazy-load, sans `react-three-fiber`
+- Statut: adopte localement
+- Contexte: l'utilisateur veut une vraie refonte plus Awwwards, plus epuree, avec beaucoup plus d'air et explicitement une presence `three.js`.
+- Decision:
+  - remplacer l'ancien empty state multi-sections par un hero editorial unique
+  - ajouter `src/components/StudioHeroScene.tsx` en `three` brut
+  - charger cette scene uniquement a la demande depuis `src/components/StudioEmptyState.tsx`
+  - garder `react-three-fiber` hors de ce lot
+- Pourquoi:
+  - la demande porte sur une seule grande scene d'ambiance, pas sur une app 3D composee de nombreux composants reactifs
+  - `three` seul ajoute une dependance de moins qu'un couple `three` + `react-three-fiber`
+  - le lazy load garde le cout hors du chemin critique des surfaces qui n'affichent pas l'accueil vide
+- Consequence:
+  - nouvel axe visuel porte par `src/components/StudioHeroScene.tsx`
+  - `src/components/StudioEmptyState.tsx` devient un hero court, tres peu texte, fortement guide par l'image
+  - dette assumee: le chunk lazy `StudioHeroScene` reste lourd et devra etre surveille si la scene s'etend
+
 ## 2026-04-02 - Cowork ne doit deleguer au Hub que sur opt-in explicite
 - Statut: adopte localement
 - Contexte: l'utilisateur signale que Cowork se mettait a utiliser le Hub Agents "par defaut" des qu'on lui demandait quelque chose. Cela brouille la promesse produit de Cowork comme runtime autonome generaliste.

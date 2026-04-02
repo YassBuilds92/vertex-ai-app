@@ -13,26 +13,27 @@ import {
   X,
 } from 'lucide-react';
 import { doc, deleteDoc } from 'firebase/firestore';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
 import { db, auth, OperationType, handleFirestoreError } from '../firebase';
 import { useStore } from '../store/useStore';
 import { AppMode, ChatSession } from '../types';
 import { clearCoworkSessionSnapshots } from '../utils/cowork';
 import { clearSessionSnapshots } from '../utils/sessionSnapshots';
 import { removeLocalSessionShell } from '../utils/sessionShells';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 const modeConfig = {
-  chat: { icon: MessageSquare, label: 'Chat & Raisonnement' },
-  cowork: { icon: BrainCircuit, label: 'Cowork (Autonome)' },
-  image: { icon: ImageIcon, label: "Génération d'Images" },
-  video: { icon: Film, label: 'Génération Vidéo' },
-  audio: { icon: Mic, label: 'Text-to-Speech' },
-  lyria: { icon: Music, label: 'Lyria / Musique' },
+  chat: { icon: MessageSquare, label: 'Chat' },
+  cowork: { icon: BrainCircuit, label: 'Cowork' },
+  image: { icon: ImageIcon, label: 'Images' },
+  video: { icon: Film, label: 'Video' },
+  audio: { icon: Mic, label: 'Voix' },
+  lyria: { icon: Music, label: 'Lyria' },
 } as const;
 
 const modeCreateLabel: Record<AppMode, string> = {
@@ -76,6 +77,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         .filter((session) => session.sessionKind === 'agent')
         .sort((a, b) => b.updatedAt - a.updatedAt)
     : [];
+
   const appSessions = activeMode === 'chat'
     ? sessions
         .filter((session) => session.sessionKind === 'generated_app')
@@ -83,13 +85,13 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
     : [];
 
   const renderSessionList = (items: ChatSession[], options?: { badgeLabel?: string }) => (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {items.map((session) => (
         <div key={session.id} className="group relative">
           <button
             onClick={() => setActiveSessionId(session.id, { remember: session.sessionKind !== 'agent' && session.sessionKind !== 'generated_app' })}
             className={cn(
-              'flex w-full items-center gap-2.5 rounded-[1.2rem] border px-3 py-2.5 text-left text-[13px] transition-all duration-200',
+              'flex w-full items-center gap-2.5 rounded-[1.25rem] border px-3 py-2.5 text-left text-[13px] transition-all duration-200',
               activeSessionId === session.id
                 ? 'border-[var(--app-border)] bg-white/[0.06] text-[var(--app-text)]'
                 : 'border-transparent text-[var(--app-text-muted)] hover:bg-white/[0.04] hover:text-[var(--app-text)]'
@@ -126,6 +128,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                     clearCoworkSessionSnapshots(user.uid, session.id);
                     clearSessionSnapshots(user.uid, session.id);
                     removeLocalSessionShell(user.uid, session.id);
+
                     if (activeSessionId === session.id) {
                       const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent' && item.sessionKind !== 'generated_app');
                       if (nextSession) setActiveSessionId(nextSession.id);
@@ -150,13 +153,13 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
   return (
     <aside
       className={cn(
-        'fixed md:relative z-50 flex h-full flex-col overflow-hidden border-r border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.88)] backdrop-blur-xl transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]',
+        'fixed md:relative z-50 flex h-full flex-col overflow-hidden border-r border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.86)] backdrop-blur-xl transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]',
         isLeftSidebarVisible
-          ? 'w-[304px] translate-x-0 opacity-100'
+          ? 'w-[320px] translate-x-0 opacity-100'
           : 'pointer-events-none w-0 -translate-x-full opacity-0 md:border-none'
       )}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(129,236,255,0.08),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_18%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(129,236,255,0.08),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_18%)]" />
 
       <div className="relative shrink-0 px-4 pt-3.5">
         <div className="mb-4 flex items-center justify-between">
@@ -166,7 +169,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             </div>
             <div>
               <h1 className="text-[15px] font-bold tracking-tight text-[var(--app-text)]">Studio Pro</h1>
-              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--app-text-muted)]">Gemini AI</p>
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--app-text-muted)]">Google stack</p>
             </div>
           </div>
 
@@ -181,7 +184,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
 
         <button
           onClick={onNewChat}
-          className="studio-button-primary studio-glow mb-4 flex w-full items-center justify-center gap-2.5 rounded-[1.25rem] px-4 py-3 text-[13px] font-semibold"
+          className="studio-button-primary studio-glow mb-4 flex w-full items-center justify-center gap-2.5 rounded-[1.35rem] px-4 py-3 text-[13px] font-semibold"
         >
           <Plus size={15} />
           {modeCreateLabel[activeMode]}
@@ -190,7 +193,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
 
       <div className="relative shrink-0 px-4 pb-1">
         <div className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">Modes</div>
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           {(Object.entries(modeConfig) as [AppMode, (typeof modeConfig)[AppMode]][]).map(([mode, conf]) => {
             const Icon = conf.icon;
             const isActive = activeMode === mode;
@@ -200,7 +203,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                 key={mode}
                 onClick={() => onModeChange(mode)}
                 className={cn(
-                  'studio-glow flex w-full cursor-pointer items-center gap-2.5 rounded-[1.15rem] border px-2.5 py-2 text-[12.5px] font-medium transition-all duration-200',
+                  'studio-glow flex w-full cursor-pointer items-center gap-2.5 rounded-[1.25rem] border px-3 py-2.5 text-[12.5px] font-medium transition-all duration-200',
                   isActive
                     ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-text)] shadow-[0_22px_40px_-30px_rgba(68,196,255,0.45)]'
                     : 'border-transparent text-[var(--app-text-muted)] hover:bg-white/[0.04] hover:text-[var(--app-text)]'
@@ -209,7 +212,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                 <div className="flex items-center gap-3">
                   <div
                     className={cn(
-                      'flex h-[1.875rem] w-[1.875rem] items-center justify-center rounded-[0.95rem] transition-all',
+                      'flex h-[1.95rem] w-[1.95rem] items-center justify-center rounded-[0.95rem] transition-all',
                       isActive ? 'border border-white/12 bg-white/[0.1]' : 'bg-white/[0.04]'
                     )}
                   >
@@ -223,7 +226,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         </div>
       </div>
 
-      <div className="relative mt-2 flex-1 min-h-0 overflow-y-auto px-3 pb-2">
+      <div className="relative mt-3 flex-1 min-h-0 overflow-y-auto px-3 pb-2">
         <div className="mb-2 flex items-center justify-between px-2">
           <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">Historique</div>
           <div className="rounded-full border border-[var(--app-border)] bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-[var(--app-text-muted)]">
@@ -238,7 +241,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                 {React.createElement(modeConfig[activeMode].icon, { size: 18, className: 'text-[var(--app-text-muted)]' })}
               </div>
               <p className="text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                Aucune conversation en <span className="font-medium text-[var(--app-text)]/78">{modeConfig[activeMode].label}</span>
+                Aucun fil en <span className="font-medium text-[var(--app-text)]/78">{modeConfig[activeMode].label}</span>
               </p>
             </div>
           )}
@@ -278,7 +281,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             <button
               onClick={() => auth.signOut()}
               className="flex h-10 w-10 items-center justify-center rounded-2xl text-[var(--app-text-muted)] transition-all hover:bg-red-500/10 hover:text-red-300"
-              title="Déconnexion"
+              title="Deconnexion"
             >
               <LogOut size={16} />
             </button>
@@ -292,7 +295,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
           <span className="font-medium">Vertex AI</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px]">{isVertexConfigured ? 'Connecté' : 'SDK'}</span>
+          <span className="text-[10px]">{isVertexConfigured ? 'Connecte' : 'SDK'}</span>
           <div
             className={cn(
               'h-2 w-2 rounded-full transition-colors',

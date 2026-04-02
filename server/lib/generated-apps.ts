@@ -1,7 +1,6 @@
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'node:url';
 import { build as buildEsbuild } from 'esbuild';
-import * as generatedAppSdkRuntime from '../../src/generated-app-sdk.tsx';
 import {
   isOptionalGeneratedAppBundleIssue,
   normalizeGeneratedAppBundleState,
@@ -11,8 +10,6 @@ import { DEFAULT_IMAGE_MODEL, DEFAULT_LYRIA_MODEL, DEFAULT_TTS_MODEL } from './m
 import { createGoogleAI, parseApiError, retryWithBackoff } from './google-genai.js';
 import { log } from './logger.js';
 import { uploadToGCS } from './storage.js';
-
-void generatedAppSdkRuntime;
 
 export type GeneratedAppStatus = 'draft' | 'published' | 'failed';
 export type GeneratedAppOutputKind = 'pdf' | 'html' | 'music' | 'podcast' | 'code' | 'research' | 'automation' | 'image';
@@ -487,25 +484,189 @@ export function renderGeneratedAppSource(definition: DraftDefinition): string {
   const featureDeck = JSON.stringify(definition.capabilities.slice(0, 4), null, 2);
 
   return `import React from 'react';
-import { GeneratedAppCanvas, type GeneratedAppComponentProps } from './src/generated-app-sdk.tsx';
 
 const embeddedManifest = ${embeddedManifest};
 const featureDeck = ${featureDeck};
 
-export default function GeneratedCoworkApp(props: GeneratedAppComponentProps) {
+function collectArtifacts(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .filter((message) => message && message.role === 'model')
+    .flatMap((message) => Array.isArray(message.attachments) ? message.attachments : [])
+    .slice()
+    .reverse()
+    .slice(0, 5);
+}
+
+export default function GeneratedCoworkApp(props) {
+  const manifest = props?.manifest || embeddedManifest;
+  const accentColor = manifest?.visualDirection?.accentColor || '#7dd3fc';
+  const fields = Array.isArray(manifest?.uiSchema) ? manifest.uiSchema : [];
+  const artifacts = collectArtifacts(props?.messages);
+
   return (
-    <GeneratedAppCanvas
-      manifest={props.manifest || embeddedManifest}
-      featureDeck={featureDeck}
-      formValues={props.formValues}
-      isRunning={props.isRunning}
-      messages={props.messages}
-      onFieldChange={props.onFieldChange}
-      onRun={props.onRun}
-      onPublish={props.onPublish}
-      canPublish={props.canPublish}
-      onAskCowork={props.onAskCowork}
-    />
+    <div
+      style={{
+        minHeight: '100%',
+        padding: '24px',
+        borderRadius: '28px',
+        border: '1px solid rgba(255,255,255,0.1)',
+        background: 'linear-gradient(180deg, rgba(8,12,20,0.98), rgba(6,11,18,0.98))',
+        color: 'white',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '16px' }}>
+        <div>
+          <div style={{ fontSize: '11px', letterSpacing: '0.24em', textTransform: 'uppercase', opacity: 0.42 }}>
+            {(manifest?.outputKind || 'app')} preview bundle
+          </div>
+          <h1 style={{ margin: '12px 0 0', fontSize: '32px', lineHeight: 1, letterSpacing: '-0.04em' }}>
+            {manifest?.name || embeddedManifest.name}
+          </h1>
+          <p style={{ marginTop: '12px', maxWidth: '720px', fontSize: '14px', lineHeight: 1.7, opacity: 0.7 }}>
+            {manifest?.tagline || embeddedManifest.tagline}
+          </p>
+        </div>
+        <div
+          style={{
+            alignSelf: 'flex-start',
+            padding: '10px 14px',
+            borderRadius: '999px',
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.04)',
+            fontSize: '11px',
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            opacity: 0.8,
+          }}
+        >
+          bundle check
+        </div>
+      </div>
+
+      <div style={{ marginTop: '24px', display: 'grid', gap: '18px', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(280px, 0.9fr)' }}>
+        <section
+          style={{
+            borderRadius: '22px',
+            border: '1px solid rgba(255,255,255,0.1)',
+            background: 'rgba(255,255,255,0.04)',
+            padding: '18px',
+          }}
+        >
+          <div style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.42 }}>
+            Direction
+          </div>
+          <p style={{ marginTop: '12px', fontSize: '14px', lineHeight: 1.8, opacity: 0.78 }}>
+            {manifest?.mission || embeddedManifest.mission}
+          </p>
+          <div style={{ marginTop: '18px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {featureDeck.map((item) => (
+              <span
+                key={item}
+                style={{
+                  borderRadius: '999px',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  opacity: 0.8,
+                }}
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+
+          <div style={{ marginTop: '22px' }}>
+            <div style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.42 }}>
+              Champs
+            </div>
+            <div style={{ marginTop: '12px', display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+              {fields.length > 0 ? fields.map((field) => (
+                <div
+                  key={field.id}
+                  style={{
+                    borderRadius: '16px',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    padding: '12px 14px',
+                    background: 'rgba(255,255,255,0.03)',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', fontWeight: 600 }}>{field.label}</div>
+                  <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.6 }}>
+                    {field.type}{field.required ? ' - requis' : ''}
+                  </div>
+                </div>
+              )) : (
+                <div style={{ fontSize: '13px', opacity: 0.58 }}>
+                  Aucun champ configure pour cette app.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <aside
+          style={{
+            borderRadius: '22px',
+            border: '1px solid rgba(255,255,255,0.1)',
+            background: 'rgba(255,255,255,0.03)',
+            padding: '18px',
+          }}
+        >
+          <div style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.42 }}>
+            Resultats
+          </div>
+          <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
+            {artifacts.length > 0 ? artifacts.map((artifact, index) => (
+              <div
+                key={artifact?.url || artifact?.name || index}
+                style={{
+                  borderRadius: '16px',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '12px 14px',
+                  background: 'rgba(255,255,255,0.03)',
+                }}
+              >
+                <div style={{ fontSize: '13px', fontWeight: 600 }}>
+                  {artifact?.name || artifact?.type || 'Artefact'}
+                </div>
+                <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.6 }}>
+                  {artifact?.type || 'fichier'}
+                </div>
+              </div>
+            )) : (
+              <div
+                style={{
+                  borderRadius: '16px',
+                  border: '1px dashed rgba(255,255,255,0.14)',
+                  padding: '16px',
+                  fontSize: '13px',
+                  lineHeight: 1.7,
+                  opacity: 0.58,
+                }}
+              >
+                {manifest?.runtime?.emptyStateLabel || 'Le prochain run affichera ses artefacts ici.'}
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              marginTop: '18px',
+              borderRadius: '18px',
+              padding: '14px 16px',
+              background: accentColor,
+              color: '#04111d',
+              fontSize: '13px',
+              fontWeight: 700,
+            }}
+          >
+            {manifest?.runtime?.primaryActionLabel || 'Lancer'}
+          </div>
+        </aside>
+      </div>
+    </div>
   );
 }
 

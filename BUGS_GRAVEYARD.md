@@ -1,5 +1,45 @@
 # BUGS GRAVEYARD
 
+## 2026-04-02 - Toute l'API prod Vercel casse au boot a cause d'une dependance serverless vers `generated-app-sdk`
+- Statut: resolu et redeploye en production
+- Symptome:
+  - popup frontend `Erreur d'envoi : Server returned 500` en `chat` et `cowork`
+  - badge Vertex AI en bas a gauche qui semble deconnecte
+  - `GET /api/status` renvoie `FUNCTION_INVOCATION_FAILED`
+- Logs / preuve:
+  - logs Vercel:
+    - premier crash: `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/var/task/src/generated-app-sdk.tsx' imported from /var/task/server/lib/generated-apps.js`
+    - second crash apres premier patch: `Cannot find module '/var/task/src/generated-app-sdk.js'`
+  - routes touchees:
+    - `/api/status`
+    - `/api/chat`
+    - `/api/cowork`
+    - `/api/upload`
+- Cause racine:
+  - `server/lib/generated-apps.ts` dependait encore d'un module frontend local `generated-app-sdk` uniquement pour builder le bundle diagnostique generated app
+  - selon le packaging Vercel de la function, ce module n'etait pas embarque sous le chemin attendu
+  - comme `api/index.ts` importe `server/lib/generated-apps.ts` au chargement, toute la function serverless plantait avant la moindre reponse HTTP
+- Resolution:
+  - `server/lib/generated-apps.ts`
+    - suppression de la dependance runtime au SDK frontend
+    - `renderGeneratedAppSource()` devient un composant React autonome, self-contained
+  - `shared/generated-app-sdk.tsx`
+    - garde le canvas natif partage avec le frontend via `src/generated-app-sdk.tsx`
+  - `shared/generated-app-bundle.ts`
+    - pattern de detection de skip elargi aux signatures legacy `.tsx` et `.js`
+  - `test-generated-app-bundle-state.ts`
+    - fixture alignee sur le nouveau chemin de diagnostic
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-bundle-state.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx vercel build` : OK
+- Validation prod:
+  - `GET https://vertex-ai-app-pearl.vercel.app/api/status` : 200
+  - `POST /api/chat` : 200
+  - `POST /api/cowork` : 200
+
 ## 2026-04-01 - Generated app en faux `bundle failed` alors que seul le bundle optionnel manque
 - Statut: corrige localement, a revalider dans la vraie app connectee
 - Symptome:

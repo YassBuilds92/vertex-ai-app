@@ -1,5 +1,46 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (prod Vercel / crash global de la function resolu)
+- Besoin traite:
+  - l'utilisateur remonte un popup `Erreur d'envoi : Server returned 500` dans le chat standard et dans Cowork
+  - le badge Vertex AI en sidebar donne l'impression que Vertex est deconnecte
+- Cause racine confirmee:
+  - les logs Vercel de `vertex-ai-app-pearl.vercel.app` montrent un crash au boot sur `generated-app-sdk`:
+    - premier etat: `Cannot find module '/var/task/src/generated-app-sdk.tsx'`
+    - premier redeploy trop etroit: `Cannot find module '/var/task/src/generated-app-sdk.js'`
+  - `api/index.ts` importe `server/lib/generated-apps.ts` au chargement
+  - la vraie cause n'etait pas seulement l'extension, mais la dependance serverless a un module frontend local utilise uniquement pour le bundle generated app diagnostique
+  - comme cette dependance vivait au chargement du module, toute la function serverless plantait avant meme la route `/api/status`
+- Correctifs appliques:
+  - `server/lib/generated-apps.ts`
+    - suppression de la dependance runtime a `generated-app-sdk`
+    - `renderGeneratedAppSource()` reecrit en composant React autonome et self-contained pour le bundle diagnostique
+  - `shared/generated-app-sdk.tsx` / `src/generated-app-sdk.tsx`
+    - le canvas natif reste cote frontend via un petit re-export stable
+  - `shared/generated-app-bundle.ts`
+    - detection `bundle skipped` rendue compatible avec les vieux logs `.tsx` et les nouveaux `.js`
+  - `test-generated-app-bundle-state.ts`
+    - fixture de regression alignee sur le nouveau chemin de diagnostic
+- Verification effectuee:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-bundle-state.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx vercel build` : OK
+  - inspection du bundle Vercel local:
+    - `.vercel/output/functions/api/index.func/server/lib/generated-apps.js` ne reference plus `generated-app-sdk`
+  - redeploy production effectue
+  - probes HTTP prod:
+    - `GET /api/status` : 200
+    - `POST /api/chat` : 200
+    - `POST /api/cowork` : 200
+- Limites restantes:
+  - il reste a verifier l'UI reelle apres refresh pour confirmer que le badge Vertex se recale bien et que les popups 500 ont disparu visuellement
+  - le flux generated app authentifie complet reste a rejouer maintenant que l'API prod boote a nouveau
+- Intention exacte:
+  - eliminer durablement le crash global au boot de la function prod
+  - sortir le bundle generated app diagnostique du chemin critique de survie de l'API
+
 ## Mise a jour complementaire - 2026-04-01 (bundle generated app reclasse en `skipped` quand seul l'environnement empaquete manque)
 - Besoin traite:
   - l'utilisateur voit encore des drafts generated app en faux echec bundle avec:

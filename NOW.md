@@ -1,57 +1,43 @@
 # NOW
 
 ## Objectif actuel
-- Revalider en conditions reelles le lifecycle generated app apres reclassement du bundle optionnel:
-  - creation SSE visible dans `Cowork Apps`
-  - ouverture native dans `GeneratedAppHost`
-  - bundle env-dependent reclasse en `skipped` au lieu de faux `failed`
-  - run
-  - publication de draft meme si aucun bundle n'est disponible
-  - evolution Cowork vers une nouvelle draft
+- Revalider a chaud le produit apres remise en ligne de l'API prod:
+  - confirmer dans l'UI reelle qu'un refresh retire bien le faux etat "Vertex deconnecte"
+  - confirmer qu'un envoi utilisateur normal en chat et Cowork passe sans popup 500
+  - reprendre ensuite la revalidation generated app authentifiee
 
 ## Blocage actuel
-- Pas de blocage code immediat:
-  - le backend streame maintenant `brief_validated -> spec_ready -> source_ready -> bundle_ready|bundle_skipped|bundle_failed -> manifest_ready`
-  - les erreurs d'environnement `generated-app-sdk/react-jsx-runtime` ne doivent plus rester en faux `bundle failed`
-  - le host ouvre toujours l'app via `GeneratedAppCanvas`
-  - la publication n'exige plus `bundleCode`
-- La vraie limite restante est produit/auth:
-  - le flux complet authentifie `create -> open -> run -> publish -> update draft` reste a observer sur une session reelle
-  - il faut confirmer qu'une ancienne draft stockee avec ce faux echec est maintenant rehydratee en `skipped` dans la vraie app
+- Plus de blocage prod immediat:
+  - `https://vertex-ai-app-pearl.vercel.app/api/status` renvoie a nouveau `200`
+  - `POST /api/chat` renvoie `200`
+  - `POST /api/cowork` renvoie `200`
+- Fix retenu:
+  - le bundle generated app ne depend plus d'un import runtime vers `generated-app-sdk`
+  - `server/lib/generated-apps.ts` genere maintenant un composant React autonome pour le bundle diagnostique
+  - le host produit continue d'utiliser le rendu natif canonique via `GeneratedAppCanvas`
 
 ## Prochaine action exacte
-- Rejouer dans la vraie app connectee:
-  - creer une generated app depuis `Cowork Apps`
-  - confirmer que la timeline SSE apparait et que le preview natif se materialise pendant la creation
-  - verifier qu'un environment skip remonte comme `bundle skipped` sans panneau rouge
-  - ouvrir l'app dans `GeneratedAppHost`
-  - lancer un run
-  - publier une draft avec `bundle skipped` ou `bundle failed`
-  - demander une evolution via Cowork et verifier qu'une nouvelle draft est creee sans ecraser la live
+- Recharger l'app en production et verifier a la main:
+  - badge Vertex AI reconnecte
+  - un message simple en chat
+  - un message simple en Cowork
+- Puis reprendre la verification generated app connectee:
+  - `create -> open -> run -> publish -> update draft`
 
 ## Fichiers chauds
 - `server/lib/generated-apps.ts`
-- `server/routes/standard.ts`
-- `src/App.tsx`
-- `src/components/AgentsHub.tsx`
-- `src/components/GeneratedAppHost.tsx`
+- `shared/generated-app-sdk.tsx`
+- `shared/generated-app-bundle.ts`
 - `src/generated-app-sdk.tsx`
-- `src/utils/generatedAppSnapshots.ts`
-- `tmp/cowork-apps-preview.tsx`
-- `test-generated-app-manifest.ts`
-- `test-generated-app-lifecycle.ts`
-- `test-generated-app-stream.ts`
-- `QA_RECIPES.md`
-- `DECISIONS.md`
+- `test-generated-app-bundle-state.ts`
 - `COWORK.md`
 - `SESSION_STATE.md`
+- `BUGS_GRAVEYARD.md`
 
 ## Validations restantes
-- Rejouer le flux authentifie complet dans la vraie app.
-- Observer un cas prod ou le bundle est saute a cause de l'environnement empaquete et confirmer que le host reste neutre/ouvrable/publishable.
-- Observer aussi un vrai echec bundle applicatif et confirmer que le host reste ouvrable/publishable.
-- Reconfirmer le rendu du host et de la creation visible avec des donnees Firestore/Gemini non simulees.
+- Verifier le rendu UI reel apres refresh navigateur.
+- Rejouer le flux authentifie complet generated app dans la vraie app.
 
 ## Risques immediats
-- Le vrai build prod peut encore produire d'autres erreurs de resolution non couvertes par le reclassement `skipped`.
-- Le preview natif est maintenant canonique; toute regression future qui rebloque le host sur le bundle serait une regression produit majeure.
+- Si une ancienne page garde une reponse `/api/status` en cache ou un state frontend stale, l'utilisateur peut devoir faire un hard refresh pour voir le badge se recaler.
+- Le flux generated app complet en session authentifiee reste la prochaine zone a revalider en conditions reelles.

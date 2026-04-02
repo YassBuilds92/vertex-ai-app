@@ -1,5 +1,34 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-02 - Le 500 global chat/Cowork venait d'une dependance serverless inutile au SDK frontend, maintenant retiree
+- Retour produit:
+  - l'utilisateur voit un popup `Erreur d'envoi : Server returned 500` en chat et en Cowork
+  - le badge Vertex AI parait deconnecte, ce qui suggere a tort un souci de credentials
+- Cause racine confirmee:
+  - les logs Vercel montrent deux crashes successifs sur `generated-app-sdk` (`.tsx` puis `.js`)
+  - `server/lib/generated-apps.ts` etait importe au boot par `api/index.ts`, donc toute la function prod tombait avant `/api/status`
+  - ce module frontend n'etait necessaire que pour le bundle generated app diagnostique, pas pour le rendu produit canonique
+- Changement applique:
+  - `server/lib/generated-apps.ts`
+    - suppression de toute dependance runtime au SDK frontend
+    - source bundlee generated app rendue autonome, self-contained
+  - `shared/generated-app-bundle.ts`
+    - support simultane des signatures d'erreur `.tsx` legacy et `.js` runtime
+  - `shared/generated-app-sdk.tsx`
+    - reste utilise par le host frontend natif via re-export `src/generated-app-sdk.tsx`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-generated-app-bundle-state.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx vercel build` : OK
+- Etat produit:
+  - le symptome "Vertex non connecte" etait bien un effet secondaire du crash global de la function API
+  - probes prod verifiees:
+    - `/api/status` : OK
+    - `/api/chat` : OK
+    - `/api/cowork` : OK
+  - prochaine verification utile: refresh UI reel puis reprendre la validation generated app authentifiee
 ## Mise a jour 2026-04-01 - Le faux `bundle failed` des generated apps devient un vrai `bundle skipped`
 - Retour produit:
   - certaines drafts generated app affichaient encore un echec rouge avec:

@@ -569,6 +569,7 @@ export default function App() {
     image: "Generation d'Images",
     video: 'Generation Video',
     audio: 'Text-to-Speech',
+    lyria: 'Lyria / Musique',
   }[activeMode];
   const activeModeCreateLabel = {
     chat: 'Nouveau chat',
@@ -576,6 +577,7 @@ export default function App() {
     image: 'Nouvelle image',
     video: 'Nouvelle video',
     audio: 'Nouvelle voix',
+    lyria: 'Nouveau morceau',
   }[activeMode];
 
   const activeSurfaceLabel = isAgentSession || isGeneratedAppSession
@@ -655,7 +657,7 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        const modes: AppMode[] = ['chat', 'cowork', 'image', 'video', 'audio'];
+        const modes: AppMode[] = ['chat', 'cowork', 'image', 'video', 'audio', 'lyria'];
         const next = modes[(modes.indexOf(activeMode) + 1) % modes.length];
         activateMode(next);
       }
@@ -1941,7 +1943,7 @@ export default function App() {
       }
 
       // In Image/Video mode, the refined instruction IS the prompt
-      const generationPrompt = (effectiveMode === 'image' || effectiveMode === 'video' || effectiveMode === 'audio') && refinedInstruction 
+      const generationPrompt = (effectiveMode === 'image' || effectiveMode === 'video' || effectiveMode === 'audio' || effectiveMode === 'lyria') && refinedInstruction 
         ? refinedInstruction 
         : finalPrompt;
 
@@ -2061,6 +2063,62 @@ export default function App() {
         return;
       }
 
+      if (effectiveMode === 'lyria') {
+        if (!overrideMessages) {
+          const userMessage: Message = {
+            id: createClientMessageId('msg'),
+            role: 'user',
+            content: finalPrompt,
+            createdAt: Date.now(),
+            attachments: cleanAttachments,
+            refinedInstruction,
+          };
+          setOptimisticMessages(prev => [...prev, userMessage]);
+          await persistSessionMessage(currentSessionId, userMessage);
+          setPendingAttachments([]);
+        }
+
+        const response = await fetch('/api/generate-music', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: generationPrompt,
+            model: effectiveConfig?.model || configs.lyria.model,
+            negativePrompt: effectiveConfig?.negativePrompt,
+            seed: effectiveConfig?.seed,
+            sampleCount: effectiveConfig?.sampleCount,
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.details || errData.message || 'Erreur generation musicale');
+        }
+
+        const data = await response.json();
+        const modelMessage: Message = {
+          id: createClientMessageId('model'),
+          role: 'model',
+          content: 'Piste Lyria generee avec succes.',
+          attachments: [{
+            id: Date.now().toString(),
+            type: 'audio',
+            url: data.url,
+            storageUri: data.storageUri,
+            mimeType: data.mimeType || 'audio/wav',
+            name: 'Piste Lyria generee',
+          }],
+          createdAt: Date.now(),
+        };
+        const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
+        if (!persistedModel) {
+          setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
+        }
+
+        setIsLoading(false);
+        return;
+      }
+
       if (isCoworkRun || isAgentRun || isGeneratedAppRun) {
         if (!overrideMessages) {
           const userMessage: Message = {
@@ -2124,7 +2182,7 @@ export default function App() {
               timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris',
               nowIso: new Date().toISOString(),
             },
-            hubAgents: agents,
+            hubAgents: isCoworkRun && effectiveConfig?.agentDelegationEnabled ? agents : undefined,
             generatedApps,
             agentRuntime,
             appRuntime,

@@ -1,5 +1,89 @@
 # SESSION STATE
 
+## Mise a jour complementaire - 2026-04-02 (modes media dedies + mode Lyria + delegation hub opt-in dans Cowork)
+- Besoin traite:
+  - l'utilisateur veut une interface propre et distincte pour:
+    - `generation d'image`
+    - `generation video`
+    - `text-to-speech`
+    - `Lyria / musique`
+  - il veut aussi pouvoir couper l'usage des agents du Hub dans Cowork via une case a cocher, desactivee par defaut
+- Cause racine confirmee:
+  - les modes media partageaient encore trop de copy / surface d'accueil generique
+  - `audio` melangeait TTS et musique alors que Lyria merite sa propre entree produit
+  - Cowork recevait encore le catalogue Hub + les outils de delegation des qu'il tournait en runtime normal, sans vrai opt-in utilisateur
+- Correctifs appliques:
+  - contrat / store:
+    - `src/types.ts`
+      - ajout de `lyria` dans `AppMode`
+      - ajout de `sampleCount` et `agentDelegationEnabled` dans `ModelConfig`
+    - `src/store/useStore.ts`
+      - config dediee `lyria`
+      - `cowork.agentDelegationEnabled = false` par defaut
+      - `lastSessionIdsByMode.lyria`
+  - runtime / transport:
+    - `src/App.tsx`
+      - branche complete `effectiveMode === 'lyria'` vers `/api/generate-music`
+      - placeholders/labels/create labels et cycle clavier mis a jour
+      - `hubAgents` n'est envoye a `/api/cowork` que si `config.agentDelegationEnabled === true`
+    - `api/index.ts`
+      - `buildCoworkSystemInstruction()` accepte `agentDelegationEnabled`
+      - si le toggle est coupe:
+        - pas de section `HUB AGENTS DISPONIBLES`
+        - pas de consignes de delegation
+        - les tools `create_agent_blueprint`, `update_agent_blueprint`, `run_hub_agent` sont filtres
+    - `server/lib/schemas.ts`
+      - `config.agentDelegationEnabled` accepte cote schema
+    - `src/utils/sessionRecovery.ts`
+      - rehydrate aussi `lyria`
+  - UI:
+    - `src/components/SidebarLeft.tsx`
+      - nouveau mode `Lyria / Musique`
+    - `src/components/ChatInput.tsx`
+      - placeholders dedies par mode
+    - `src/components/SidebarRight.tsx`
+      - cartes editoriales propres a `image`, `video`, `audio`, `lyria`
+      - section Cowork `Utiliser les agents du Hub`
+      - panneau Lyria avec `sampleCount`, `negativePrompt`, `seed`
+    - `src/components/StudioEmptyState.tsx`
+      - showcases distincts pour image, video, TTS et Lyria
+  - harness QA:
+    - `tmp/media-modes-preview.html`
+    - `tmp/media-modes-preview.tsx`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless reelles via serveur Vite source `:4174`:
+    - `tmp/qa2-image-mode-desktop.png`
+    - `tmp/qa2-video-mode-desktop.png`
+    - `tmp/qa2-audio-mode-desktop.png`
+    - `tmp/qa2-lyria-mode-desktop.png`
+    - `tmp/qa2-lyria-panel-desktop.png`
+    - `tmp/qa2-lyria-mode-mobile.png`
+    - `tmp/qa2-cowork-panel-desktop.png`
+    - `tmp/qa2-cowork-panel-mobile.png`
+- Fichiers modifies:
+  - `src/types.ts`
+  - `src/store/useStore.ts`
+  - `src/utils/sessionRecovery.ts`
+  - `server/lib/schemas.ts`
+  - `src/App.tsx`
+  - `api/index.ts`
+  - `src/components/SidebarLeft.tsx`
+  - `src/components/ChatInput.tsx`
+  - `src/components/SidebarRight.tsx`
+  - `src/components/StudioEmptyState.tsx`
+  - `tmp/media-modes-preview.html`
+  - `tmp/media-modes-preview.tsx`
+- Limites restantes:
+  - pas encore de run authentifie avec de vraies generations `image/video/tts/lyria`
+  - pas encore de preuve runtime in-app qu'un Cowork toggle `off` ne delegue jamais sur un run reel complet
+  - `vite preview` ne doit pas etre reutilise pour ce harness: il retombe sur la SPA principale
+- Intention exacte:
+  - donner a chaque surface media une vraie personnalite des la premiere seconde
+  - separer clairement `TTS` et `Lyria`
+  - rendre la delegation Hub dans Cowork explicite, visible et volontaire
+
 ## Mise a jour complementaire - 2026-04-02 (YouTube natif comme Google AI Studio, avec plage video et FPS)
 - Besoin traite:
   - l'utilisateur veut que les liens YouTube soient interpretes comme dans Google AI Studio, pas comme un bricolage `titre + lien`

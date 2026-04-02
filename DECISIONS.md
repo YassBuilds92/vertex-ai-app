@@ -1,5 +1,43 @@
 # DECISIONS
 
+## 2026-04-02 - Cowork ne doit deleguer au Hub que sur opt-in explicite
+- Statut: adopte localement
+- Contexte: l'utilisateur signale que Cowork se mettait a utiliser le Hub Agents "par defaut" des qu'on lui demandait quelque chose. Cela brouille la promesse produit de Cowork comme runtime autonome generaliste.
+- Decision:
+  - ajouter un toggle visible dans `SidebarRight`:
+    - `Utiliser les agents du Hub`
+  - laisser ce toggle desactive par defaut
+  - quand il est coupe:
+    - ne pas envoyer `hubAgents` au backend
+    - ne pas exposer les tools de delegation a Cowork
+    - ne pas injecter de consignes systeme sur le Hub
+- Pourquoi:
+  - la delegation doit etre un choix utilisateur, pas une surprise de runtime
+  - cela garde Cowork lisible quand on veut juste un run direct
+  - cela evite des bifurcations produit implicites difficiles a comprendre
+- Consequence:
+  - `src/App.tsx` gate maintenant `hubAgents`
+  - `api/index.ts` filtre la consigne et les tools hub selon `agentDelegationEnabled`
+  - le comportement par defaut de Cowork redevient non delegue
+
+## 2026-04-02 - Lyria devient un mode de premiere classe, separe du TTS
+- Statut: adopte localement
+- Contexte: la surface `audio` melangeait implicitement plusieurs intentions produit. Or `text-to-speech` et `generation musicale` n'ont ni les memes controles, ni la meme metaphore, ni la meme direction visuelle.
+- Decision:
+  - garder `audio` pour `text-to-speech`
+  - ajouter un mode dedie `lyria`
+  - donner a `lyria`:
+    - son entree sidebar
+    - sa propre copie
+    - ses propres reglages (`sampleCount`, `negativePrompt`, `seed`)
+    - sa propre restauration de session
+- Pourquoi:
+  - rend la navigation plus claire
+  - permet une DA et une UX plus justes pour la composition musicale
+  - evite de surcharger le mode TTS avec des reglages qui n'ont rien a y faire
+- Consequence:
+  - `src/types.ts`, `src/store/useStore.ts`, `src/App.tsx`, `SidebarLeft`, `SidebarRight`, `StudioEmptyState` et `sessionRecovery` portent maintenant un vrai chemin `lyria`
+
 ## 2026-04-02 - Les liens YouTube passent nativement par `fileData.fileUri` avec `videoMetadata`
 - Statut: adopte localement
 - Contexte: apres la correction `gs://` pour les fichiers uploadees, les liens YouTube restaient encore reduits a un texte `Titre + URL`. L'utilisateur veut explicitement le comportement de Google AI Studio, qui traite YouTube comme une vraie entree video et expose des reglages `debut / fin / FPS`.

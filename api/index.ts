@@ -551,9 +551,10 @@ function buildCoworkSystemInstruction(
   userInstruction?: string,
   capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true },
   runtime?: { originalMessage?: string; requestClock?: RequestClock; hubAgents?: HubAgentRecord[] },
-  behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean }
+  behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean; agentDelegationEnabled?: boolean }
 ): string {
   const requestClock = runtime?.requestClock;
+  const agentDelegationEnabled = Boolean(behavior?.agentDelegationEnabled);
   const hubAgentsSummary = Array.isArray(runtime?.hubAgents) && runtime.hubAgents.length > 0
     ? summarizeHubAgentsForPrompt(runtime.hubAgents, 8)
     : '';
@@ -602,9 +603,9 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
 - Outils disponibles:
   - 'create_generated_app' : concoit une vraie app experte deployable avec prompt systeme, UI, models, source TSX et bundle.
   - 'update_generated_app' : regenere une nouvelle draft d'une app experte existante sans casser la version publiee.
-  - 'create_agent_blueprint' : concoit un agent specialise reutilisable pour le Hub Agents.
-  - 'update_agent_blueprint' : met a jour un agent deja present dans le Hub Agents.
-  - 'run_hub_agent' : relance un agent deja present dans le Hub Agents comme vraie sous-mission.
+${agentDelegationEnabled
+  ? "  - 'create_agent_blueprint' : concoit un agent specialise reutilisable pour le Hub Agents.\n  - 'update_agent_blueprint' : met a jour un agent deja present dans le Hub Agents.\n  - 'run_hub_agent' : relance un agent deja present dans le Hub Agents comme vraie sous-mission.\n"
+  : "  - Le Hub Agents est desactive pour ce run: ne cree pas de blueprint agent et ne delegue aucune sous-mission via le Hub.\n"}
   - 'list_files', 'list_recursive', 'read_file', 'write_file'
   - 'generate_image_asset' : genere une image locale dans '/tmp/'.
   - 'generate_tts_audio' : synthese Gemini TTS vers un fichier audio local. Gere la voix seule, les style instructions, et aussi un duo a 2 intervenants si tu fournis exactement 2 speakers.
@@ -634,11 +635,11 @@ ${capabilities.executeScript ? "  - 'execute_script' : a reserver aux cas vraime
 6. Si une information recente reste insuffisamment sourcee, dis-le au lieu d'inventer.
 7. Si tu utilises 'review_pdf_draft' et qu'une signature t'est fournie, passe-la telle quelle dans 'create_pdf.reviewSignature'.
 8. Si tu dois faire plusieurs outils dans un meme tour, garde une mini-chaine coherente: lecture/recherche d'abord, mutation eventuelle en dernier.
-9. Si l'utilisateur veut un specialiste recurrent ou delegable, tu peux creer un agent pour le Hub puis l'annoncer clairement.
+9. ${agentDelegationEnabled ? "Si l'utilisateur veut un specialiste recurrent ou delegable, tu peux creer un agent pour le Hub puis l'annoncer clairement." : "Le Hub Agents est coupe pour cette mission. Traite la demande toi-meme ou cree une generated app si une vraie interface dediee est utile."}
 10. Si l'utilisateur veut une vraie app experte deployable avec UI dediee, prefere 'create_generated_app'.
 11. Si l'utilisateur veut modifier une app experte existante, prefere 'update_generated_app' pour regenerer une nouvelle draft.
-12. Si un agent du Hub correspond deja a la mission, prefere 'run_hub_agent' a la creation d'un nouveau blueprint.
-13. Si l'utilisateur veut corriger un agent existant du Hub, prefere 'update_agent_blueprint' a la creation d'un nouveau blueprint.
+12. ${agentDelegationEnabled ? "Si un agent du Hub correspond deja a la mission, prefere 'run_hub_agent' a la creation d'un nouveau blueprint." : "N'essaie pas de relancer un agent du Hub tant que l'option utilisateur reste desactivee."}
+13. ${agentDelegationEnabled ? "Si l'utilisateur veut corriger un agent existant du Hub, prefere 'update_agent_blueprint' a la creation d'un nouveau blueprint." : "N'essaie pas non plus de mettre a jour un agent du Hub quand cette option est coupee."}
 
 ### REPERES TEMPORELS
 ${requestClock
@@ -647,7 +648,7 @@ ${requestClock
 - Si une source parle d'une autre date, compare-la explicitement a ${requestClock.dateLabel}.`
   : "- Si la demande parle de 'today', 'aujourd'hui' ou 'latest', utilise la date courante exacte de l'environnement."}
 
-${hubAgentsSummary ? `### HUB AGENTS DISPONIBLES
+${agentDelegationEnabled && hubAgentsSummary ? `### HUB AGENTS DISPONIBLES
 - Tu peux les relancer avec 'run_hub_agent' en utilisant leur id, slug ou nom.
 ${hubAgentsSummary}
 ` : ''}
@@ -5573,7 +5574,8 @@ app.post('/api/cowork', async (req, res) => {
   try {
     const { message, sessionId, history, attachments, config, clientContext, hubAgents, generatedApps, agentRuntime, appRuntime } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
-    const availableHubAgents = Array.isArray(hubAgents)
+    const agentDelegationEnabled = !appRuntime && !agentRuntime && config.agentDelegationEnabled === true;
+    const availableHubAgents = agentDelegationEnabled && Array.isArray(hubAgents)
       ? hubAgents
           .map(sanitizeHubAgentRecord)
           .filter((agent): agent is HubAgentRecord => Boolean(agent))
@@ -9214,6 +9216,9 @@ app.post('/api/cowork', async (req, res) => {
 
     const visibleLocalTools = localTools.filter(tool => {
       if (tool.name.endsWith('_legacy_unused')) return false;
+      if (!agentDelegationEnabled && ['create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent'].includes(tool.name)) {
+        return false;
+      }
       if (!runtimeToolAllowList) return true;
       return runtimeToolAllowList.has(tool.name);
     });
@@ -9249,7 +9254,8 @@ app.post('/api/cowork', async (req, res) => {
               hubAgents: availableHubAgents,
             }, {
               executionMode,
-              debugReasoning: COWORK_DEBUG_REASONING
+              debugReasoning: COWORK_DEBUG_REASONING,
+              agentDelegationEnabled,
             })
     };
     const thinkingConfig = buildThinkingConfig(modelId, {

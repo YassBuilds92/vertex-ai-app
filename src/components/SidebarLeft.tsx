@@ -7,6 +7,7 @@ import {
   LogOut,
   MessageSquare,
   Mic,
+  Music,
   Plus,
   Sparkles,
   X,
@@ -31,6 +32,7 @@ const modeConfig = {
   image: { icon: ImageIcon, label: "Génération d'Images" },
   video: { icon: Film, label: 'Génération Vidéo' },
   audio: { icon: Mic, label: 'Text-to-Speech' },
+  lyria: { icon: Music, label: 'Lyria / Musique' },
 } as const;
 
 const modeCreateLabel: Record<AppMode, string> = {
@@ -39,6 +41,7 @@ const modeCreateLabel: Record<AppMode, string> = {
   image: 'Nouvelle image',
   video: 'Nouvelle scene',
   audio: 'Nouvelle voix',
+  lyria: 'Nouveau morceau',
 };
 
 interface SidebarLeftProps {

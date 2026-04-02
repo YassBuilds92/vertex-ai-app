@@ -251,6 +251,7 @@ export const ChatSchema = z.object({
     structuredOutputs: z.boolean().optional(),
     thinkingLevel: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
     maxThoughtTokens: z.number().optional(),
+    agentDelegationEnabled: z.boolean().optional(),
     presencePenalty: z.number().optional(),
     frequencyPenalty: z.number().optional(),
     responseMimeType: z.enum(['text/plain', 'application/json']).optional(),

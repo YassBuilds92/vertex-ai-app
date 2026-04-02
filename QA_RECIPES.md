@@ -1,5 +1,54 @@
 # QA RECIPES
 
+## Modes media - validation locale des nouvelles surfaces
+- Objectif:
+  - verifier que `image`, `video`, `text-to-speech` et `lyria` ont chacun une vraie surface differenciee
+  - verifier que le panneau droit Lyria expose bien ses reglages dedies
+- Harness:
+  - `tmp/media-modes-preview.html`
+  - `tmp/media-modes-preview.tsx`
+- Important:
+  - ne pas utiliser `vite preview` pour ce harness
+  - lancer un serveur Vite source:
+    - `npx vite --host 127.0.0.1 --port 4174`
+- URLs utiles:
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=empty`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=video&surface=empty`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=audio&surface=empty`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=lyria&surface=empty`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=lyria&surface=panel`
+- Attendus:
+  - chaque mode a sa propre hero copy et sa propre colonne de scene
+  - `audio` parle bien de voix / narration, pas de musique
+  - `lyria` parle bien de morceau / texture / energie
+  - le panneau Lyria montre `Variantes`, `Negative prompt` et `Seed`
+- Captures de reference locales:
+  - `tmp/qa2-image-mode-desktop.png`
+  - `tmp/qa2-video-mode-desktop.png`
+  - `tmp/qa2-audio-mode-desktop.png`
+  - `tmp/qa2-lyria-mode-desktop.png`
+  - `tmp/qa2-lyria-panel-desktop.png`
+  - `tmp/qa2-lyria-mode-mobile.png`
+
+## Cowork - toggle Hub Agents
+- Objectif:
+  - verifier que Cowork expose un toggle clair pour l'usage des agents du Hub
+  - verifier que ce toggle est desactive par defaut
+- Harness:
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=cowork&surface=panel`
+- Etapes manuelles:
+  - ouvrir le panneau droit en mode `cowork`
+  - verifier la section `Options Cowork`
+  - verifier la presence du toggle `Utiliser les agents du Hub`
+  - verifier que le toggle est coupe au premier rendu
+- Attendus:
+  - la section apparait uniquement en `cowork`
+  - la valeur initiale est `off`
+  - le texte d'aide explique bien que la delegation Hub est optionnelle
+- Captures de reference locales:
+  - `tmp/qa2-cowork-panel-desktop.png`
+  - `tmp/qa2-cowork-panel-mobile.png`
+
 ## YouTube natif - chat et Cowork
 - Objectif:
   - verifier qu'un lien YouTube est maintenant traite comme une vraie video Gemini, pas comme un simple titre

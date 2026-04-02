@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-export type AppMode = 'chat' | 'image' | 'video' | 'audio' | 'cowork';
+export type AppMode = 'chat' | 'image' | 'video' | 'audio' | 'lyria' | 'cowork';
 
 export type AttachmentType = 'image' | 'video' | 'audio' | 'document' | 'youtube';
 
@@ -335,6 +335,7 @@ export interface ModelConfig {
   thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high';
   seed?: number;
   negativePrompt?: string;
+  sampleCount?: number;
   numberOfImages?: number;
   aspectRatio?: '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '5:4' | '4:5' | '16:9' | '9:16' | '21:9' | '4:1' | '1:4' | '8:1' | '1:8';
   imageSize?: '512' | '1K' | '2K' | '4K';
@@ -353,6 +354,7 @@ export interface ModelConfig {
   personGeneration?: string;
   safetySetting?: string;
   videoDurationSeconds?: number;
+  agentDelegationEnabled?: boolean;
 }
 
 export interface CustomPrompt {

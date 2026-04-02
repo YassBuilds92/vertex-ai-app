@@ -30,8 +30,13 @@ function inferSessionMode(sessionId: string, messages: Message[]): AppMode {
   const modelAttachments = messages
     .filter((message) => message.role === 'model')
     .flatMap((message) => message.attachments || []);
+  const hasLyriaSignal = modelAttachments.some((attachment) => (
+    attachment.type === 'audio'
+      && /lyria|musique|music/i.test(`${attachment.name || ''} ${attachment.mimeType || ''}`)
+  )) || messages.some((message) => message.role === 'model' && /lyria/i.test(message.content || ''));
 
   if (modelAttachments.some((attachment) => attachment.type === 'video')) return 'video';
+  if (hasLyriaSignal) return 'lyria';
   if (modelAttachments.some((attachment) => attachment.type === 'audio')) return 'audio';
   if (modelAttachments.some((attachment) => attachment.type === 'image')) return 'image';
   return 'chat';
@@ -49,6 +54,7 @@ function inferRecoveredTitle(mode: AppMode, messages: Message[]) {
     image: 'Generation image restauree',
     video: 'Generation video restauree',
     audio: 'Generation audio restauree',
+    lyria: 'Generation Lyria restauree',
   };
 
   return fallbackTitles[mode];

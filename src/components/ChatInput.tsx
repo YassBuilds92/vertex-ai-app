@@ -154,6 +154,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [youtubeSettingsDraft, setYoutubeSettingsDraft] = useState<YouTubeSettingsDraft | null>(null);
   const { configs, activeMode, theme } = useStore();
   const config = configs[activeMode];
+  const placeholderByMode = {
+    chat: 'Envoyer un message…',
+    cowork: "Decris la mission, le livrable ou l'app a construire…",
+    image: 'Decris le cadre, la lumiere, la matiere et le ratio…',
+    video: 'Decris la scene, le mouvement, le format et la duree…',
+    audio: 'Colle le texte a lire et le ton souhaite…',
+    lyria: 'Decris le morceau, le tempo, l energie et les textures…',
+  } as const;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const youtubeSettingsAttachment = youtubeSettingsDraft
@@ -495,7 +503,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               }
             }}
             onPaste={handlePaste}
-            placeholder={isRecording ? "Enregistrement en cours…" : "Envoyer un message…"}
+            placeholder={isRecording ? "Enregistrement en cours…" : placeholderByMode[activeMode]}
             disabled={isRecording}
             className="w-full max-h-60 min-h-[48px] bg-transparent border-none focus:ring-0 resize-none py-3 px-2.5 text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/55 text-[15px] leading-7 outline-none disabled:opacity-50"
             rows={1}

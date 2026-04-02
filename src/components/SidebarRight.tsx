@@ -3,11 +3,16 @@ import {
   Check,
   ChevronDown,
   Code2,
+  Film,
   Globe,
   Brain,
+  Bot,
+  Image as ImageIcon,
   LayoutDashboard,
   Link2,
+  Mic,
   Moon,
+  Music,
   Palette,
   RotateCcw,
   Settings2,
@@ -57,6 +62,9 @@ const modelNameMap: Record<string, string> = {
   'gemini-2.5-flash-tts': 'Gemini Flash TTS',
   'gemini-2.5-flash-lite-preview-tts': 'Gemini Flash Lite TTS',
   'gemini-2.5-pro-tts': 'Gemini Pro TTS',
+  'lyria-002': 'Lyria 2',
+  'lyria-3-clip-preview': 'Lyria 3 Clip',
+  'lyria-3-pro-preview': 'Lyria 3 Pro',
 };
 
 const modelSubtitleByMode = {
@@ -65,6 +73,42 @@ const modelSubtitleByMode = {
   image: 'Generation d images',
   video: 'Generation video',
   audio: 'Synthese vocale',
+  lyria: 'Generation musicale',
+} as const;
+
+const modeStudioCards = {
+  image: {
+    eyebrow: 'Image direction',
+    title: 'Une surface plus nette pour composer le cadre, la matiere et les variantes.',
+    body: 'Le ratio, le nombre de sorties et la securite restent immediats sans transformer le rail droit en panneau technique.',
+    chips: ['Ratios rapides', 'Variantes 1-4', 'Personnes & securite'],
+    accentClassName: 'from-cyan-400/18 via-sky-400/10 to-transparent',
+    icon: ImageIcon,
+  },
+  video: {
+    eyebrow: 'Video lab',
+    title: 'Un point de depart plus cine pour regler format, duree et cadence visuelle.',
+    body: 'Le mode video garde ses choix clefs visibles, avec une composition plus proche d un storyboard que d un simple formulaire.',
+    chips: ['720p / 1080p', 'Portrait ou paysage', '4s / 6s / 8s'],
+    accentClassName: 'from-orange-300/18 via-amber-300/10 to-transparent',
+    icon: Film,
+  },
+  audio: {
+    eyebrow: 'Voice studio',
+    title: 'Une zone TTS plus calme pour choisir voix, langue et intention de jeu.',
+    body: 'La narration garde une vraie sensation de studio, avec les details Gemini TTS lisibles au premier coup d oeil.',
+    chips: ['Voix Gemini', 'Locale', 'Style instructions'],
+    accentClassName: 'from-rose-300/18 via-pink-300/10 to-transparent',
+    icon: Mic,
+  },
+  lyria: {
+    eyebrow: 'Lyria mode',
+    title: 'Un vrai studio musique pour decrire le morceau, la texture et le nombre de variantes.',
+    body: 'Le mode Lyria s appuie sur le pipeline deja present et expose enfin une entree dediee au bed, au clip ou a la texture musicale.',
+    chips: ['Lyria 2 stable', 'Negative prompt', 'Seed & variantes'],
+    accentClassName: 'from-emerald-300/18 via-teal-300/10 to-transparent',
+    icon: Music,
+  },
 } as const;
 
 interface SidebarRightProps {
@@ -100,6 +144,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
     { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', info: 'Image premium', modes: ['image'] },
     { id: 'gemini-2.5-flash-image', label: 'Nano Banana', info: 'Polyvalent et stable', modes: ['image'] },
     { id: 'veo-3.1-generate-001', label: 'Veo 3.1 Video', info: 'Video cine', modes: ['video'] },
+    { id: 'lyria-002', label: 'Lyria 2', info: 'Mode stable et robuste', modes: ['lyria'] },
+    { id: 'lyria-3-clip-preview', label: 'Lyria 3 Clip', info: 'Preview courte et nerveuse', modes: ['lyria'] },
+    { id: 'lyria-3-pro-preview', label: 'Lyria 3 Pro', info: 'Preview plus ambitieuse', modes: ['lyria'] },
     { id: 'gemini-2.5-flash-tts', label: 'Gemini Flash TTS', info: 'Rapide et naturel', modes: ['audio'] },
     { id: 'gemini-2.5-flash-lite-preview-tts', label: 'Gemini Flash Lite TTS', info: 'Eco et leger', modes: ['audio'] },
     { id: 'gemini-2.5-pro-tts', label: 'Gemini Pro TTS', info: 'Voix premium', modes: ['audio'] },
@@ -111,6 +158,10 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
   const audioSupportsMultiSpeaker = activeMode === 'audio'
     ? modelSupportsGeminiTtsMultiSpeaker(config?.model || '')
     : false;
+  const activeStudioCard = activeMode === 'image' || activeMode === 'video' || activeMode === 'audio' || activeMode === 'lyria'
+    ? modeStudioCards[activeMode]
+    : null;
+  const ActiveStudioCardIcon = activeStudioCard?.icon;
   const thinkingLevels = useMemo(() => {
     const levels = [
       { id: 'minimal', label: 'Eco' },
@@ -259,6 +310,35 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
             </button>
           </div>
 
+          {activeStudioCard && (
+            <div className="studio-panel overflow-hidden rounded-[1.8rem] p-0">
+              <div className={cn('relative border-b border-[var(--app-border)] p-4', `bg-[linear-gradient(135deg,rgba(255,255,255,0.04),transparent),radial-gradient(circle_at_top_left,var(--tw-gradient-stops))]`, activeStudioCard.accentClassName)}>
+                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_55%)]" />
+                <div className="relative z-10 flex items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-white/10 bg-white/[0.08] text-[var(--app-text)] shadow-[0_20px_44px_-28px_rgba(0,0,0,0.75)]">
+                    {ActiveStudioCardIcon && <ActiveStudioCardIcon size={18} />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-black uppercase tracking-[0.24em] text-[var(--app-text-muted)]">{activeStudioCard.eyebrow}</div>
+                    <div className="mt-2 text-[1.05rem] font-semibold leading-6 tracking-[-0.03em] text-[var(--app-text)]">
+                      {activeStudioCard.title}
+                    </div>
+                    <p className="mt-2 text-[12px] leading-6 text-[var(--app-text)]/64">
+                      {activeStudioCard.body}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-2 px-4 py-4">
+                {activeStudioCard.chips.map((chip) => (
+                  <div key={chip} className="rounded-[1.1rem] border border-[var(--app-border)] bg-white/[0.03] px-3.5 py-2.5 text-[12px] text-[var(--app-text)]/78">
+                    {chip}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="studio-panel rounded-[1.75rem] p-4">
             <div className="space-y-3">
               {renderSectionTitle('Modele de langage')}
@@ -321,6 +401,38 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
               </div>
             </div>
           </div>
+
+          {activeMode === 'cowork' && (
+            <div className="studio-panel rounded-[1.75rem] p-4 space-y-4">
+              {renderSectionTitle('Options Cowork')}
+              <button
+                onClick={() => setConfig({ agentDelegationEnabled: !Boolean(config.agentDelegationEnabled) })}
+                className={cn(
+                  'flex w-full items-start justify-between gap-4 rounded-[1.35rem] border px-4 py-4 text-left transition-colors',
+                  config.agentDelegationEnabled
+                    ? 'border-[var(--app-border-strong)] bg-[rgba(129,236,255,0.08)]'
+                    : 'border-[var(--app-border)] bg-white/[0.03] hover:border-[var(--app-border-strong)]',
+                )}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[13px] font-bold tracking-tight text-[var(--app-text)]">
+                    <Bot size={15} className={config.agentDelegationEnabled ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]'} />
+                    Utiliser les agents du Hub
+                  </div>
+                  <p className="mt-2 text-[11px] leading-6 text-[var(--app-text-muted)]">
+                    Laisse Cowork deleguer au Hub, creer un specialiste ou en relancer un existant. Par defaut cette option reste coupee.
+                  </p>
+                </div>
+                <div className={cn('relative mt-0.5 h-6 w-11 rounded-full transition-colors', config.agentDelegationEnabled ? 'bg-[var(--app-accent-soft)]' : 'bg-white/10')}>
+                  <motion.div
+                    animate={{ x: config.agentDelegationEnabled ? 23 : 2 }}
+                    className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm"
+                    transition={{ type: 'spring', damping: 20, stiffness: 300 } as const}
+                  />
+                </div>
+              </button>
+            </div>
+          )}
 
           {activeMode === 'image' && (
             <div className="studio-panel rounded-[1.75rem] p-4 space-y-5">
@@ -496,6 +608,57 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   {audioSupportsMultiSpeaker
                     ? 'Le modele audio choisi supporte le multi-speaker Gemini TTS a 2 intervenants.'
                     : 'Le modele audio choisi reste single-speaker. Pour un duo, bascule sur Gemini Flash TTS ou Gemini Pro TTS.'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeMode === 'lyria' && (
+            <div className="studio-panel rounded-[1.75rem] p-4 space-y-5">
+              {renderSectionTitle('Parametres Lyria')}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Variantes</span>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[1, 2, 3, 4].map((count) => (
+                      <button
+                        key={count}
+                        onClick={() => setConfig({ sampleCount: count })}
+                        className={cn(
+                          'rounded-xl border py-2 text-[11px] font-bold transition-colors',
+                          (config.sampleCount || 1) === count
+                            ? 'border-[var(--app-border-strong)] bg-[rgba(46,204,113,0.12)] text-emerald-200'
+                            : 'border-white/5 bg-white/5 text-[var(--app-text-muted)] hover:bg-white/10',
+                        )}
+                      >
+                        x{count}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="rounded-[1.1rem] border border-white/5 bg-white/[0.03] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                    `lyria-002` reste le choix robuste. Les variantes preview Lyria 3 restent utiles pour tester des rendus plus ambitieux.
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Negative prompt</span>
+                  <textarea
+                    value={config.negativePrompt || ''}
+                    onChange={(event) => setConfig({ negativePrompt: event.target.value })}
+                    placeholder="Ex: pas de voix, pas de batterie agressive, pas de rupture brutale."
+                    className="w-full min-h-24 resize-none rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Seed</span>
+                  <input
+                    type="number"
+                    value={typeof config.seed === 'number' ? config.seed : ''}
+                    onChange={(event) => setConfig({ seed: event.target.value ? parseInt(event.target.value, 10) : undefined })}
+                    placeholder="Optionnel pour figer une direction"
+                    className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-2.5 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
+                  />
                 </div>
               </div>
             </div>

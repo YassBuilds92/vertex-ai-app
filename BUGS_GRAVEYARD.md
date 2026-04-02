@@ -1,5 +1,34 @@
 # BUGS GRAVEYARD
 
+## 2026-04-02 - Faux screenshots des nouveaux modes media a cause du fallback SPA de `vite preview`
+- Statut: corrige localement, prevention documentee
+- Symptome:
+  - les premieres captures `image/video/audio/lyria` semblaient reussies, mais au moins l'une d'elles montrait encore le shell principal avec `Chargement du studio...`
+  - les fichiers PNG existaient bien et repondaient avec des hash differents, ce qui rendait le faux positif trompeur
+- Tentatives:
+  - verification des PNG generes et comparaison de hashes
+  - lecture visuelle directe des captures via l'outil image
+  - verification HTTP du endpoint local `tmp/media-modes-preview.html`
+- Cause racine:
+  - `vite preview` servait `dist/`
+  - la route `tmp/media-modes-preview.html` n'existait pas dans `dist`, donc le serveur renvoyait le fallback SPA `index.html` avec `title=My Google AI Studio App`
+  - les screenshots headless capturaient donc l'app principale au lieu du harness source
+- Resolution:
+  - verifier le HTML renvoye et son `<title>` avant de capturer
+  - lancer un vrai serveur Vite source:
+    - `npx vite --host 127.0.0.1 --port 4174`
+  - regenirer ensuite les captures depuis `http://127.0.0.1:4174/tmp/media-modes-preview.html?...`
+  - preuves finales:
+    - `tmp/qa2-image-mode-desktop.png`
+    - `tmp/qa2-video-mode-desktop.png`
+    - `tmp/qa2-audio-mode-desktop.png`
+    - `tmp/qa2-lyria-mode-desktop.png`
+    - `tmp/qa2-lyria-panel-desktop.png`
+    - `tmp/qa2-cowork-panel-desktop.png`
+- Prevention:
+  - ne jamais utiliser `vite preview` pour un harness HTML/TSX non bundle dans `dist`
+  - verifier explicitement le `<title>` et, si besoin, un fragment unique du harness avant toute campagne de screenshots
+
 ## 2026-04-02 - Les liens YouTube etaient encore lus comme du texte au lieu d'une vraie video
 - Statut: corrige localement, a revalider dans l'app connectee/deployee
 - Symptome:

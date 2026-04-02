@@ -73,6 +73,15 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     ttsLanguageCode: 'fr-FR',
     ttsStyleInstructions: '',
   },
+  lyria: {
+    model: 'lyria-002',
+    temperature: 1.0,
+    topP: 1.0,
+    topK: 40,
+    systemInstruction: '',
+    negativePrompt: '',
+    sampleCount: 1,
+  },
   cowork: {
     model: 'gemini-3.1-pro-preview',
     temperature: 0.1,
@@ -83,6 +92,7 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     googleSearch: true,
     codeExecution: true,
     thinkingLevel: 'high',
+    agentDelegationEnabled: false,
   }
 };
 
@@ -92,6 +102,7 @@ const initialLastSessionIdsByMode: Record<AppMode, string | null> = {
   image: null,
   video: null,
   audio: null,
+  lyria: null,
 };
 
 export const useStore = create<AppState>()(

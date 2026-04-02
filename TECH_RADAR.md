@@ -9,6 +9,35 @@
 - Cout
 - Sources officielles
 
+## 2026-04-02 - Modes media dedies avec defaults Google verifies
+- Statut: retenu pour les surfaces media du shell
+- Date de verification: 2026-04-02
+- Technologie: Gemini image + Veo + Gemini TTS + Lyria
+- Choix:
+  - `image`: garder `gemini-2.5-flash-image`
+  - `video`: garder `veo-3.1-generate-001`
+  - `text-to-speech`: garder `gemini-2.5-flash-tts` comme defaut de surface
+  - `lyria`: garder `lyria-002` comme defaut robuste, avec `lyria-3-clip-preview` et `lyria-3-pro-preview` visibles comme options
+- Pourquoi:
+  - ces model IDs sont deja alignes avec la stack Google retenue par le projet
+  - ils couvrent proprement les 4 surfaces produit sans ajouter de dependance
+  - `lyria-002` reste le choix le plus robuste pour une surface musicale generaliste tant qu'on ne veut pas imposer une preview
+- Alternatives evaluees:
+  - garder un seul mode `audio`
+    - Ecartee: melange TTS et musique, rend l'UX moins lisible
+  - basculer `lyria` par defaut sur `lyria-3-pro-preview`
+    - Ecartee: plus ambitieuse mais moins robuste comme baseline quotidienne
+  - changer le defaut TTS vers `gemini-2.5-pro-tts`
+    - Ecartee pour la surface standard: meilleur fit premium, mais `flash-tts` reste plus leger et deja bien integre pour un usage frequent
+- Cout:
+  - payant a l'usage via Vertex AI / Gemini API
+  - aucune dependance npm ajoutee
+- Sources officielles:
+  - [Gemini 2.5 Flash Image model page](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash-image)
+  - [Generate videos with Veo from text prompts](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-text)
+  - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+  - [Generate music with Lyria](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music)
+
 ## 2026-04-02 - URLs YouTube natives Gemini via `fileData.fileUri` + `videoMetadata`
 - Statut: retenu pour chat/Cowork
 - Date de verification: 2026-04-02

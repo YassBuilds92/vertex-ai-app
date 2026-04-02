@@ -1,5 +1,37 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-02 - Cowork redevient non delegue par defaut, et les surfaces media gagnent enfin leur propre identite
+- Retour produit:
+  - l'utilisateur veut des modes propres pour `image`, `video`, `text-to-speech` et `Lyria`
+  - il veut aussi pouvoir decider explicitement si Cowork a le droit d'utiliser les agents du Hub
+  - par defaut, il ne veut pas de delegation automatique
+- Changement applique:
+  - `src/components/SidebarRight.tsx`
+    - nouvelle section `Options Cowork`
+    - toggle `Utiliser les agents du Hub` ajoute, desactive par defaut
+  - `src/App.tsx`
+    - `hubAgents` n'est plus envoye au backend si le toggle reste coupe
+  - `api/index.ts`
+    - les tools hub et les consignes de delegation sont retires du runtime Cowork quand le toggle est off
+  - shell media:
+    - `image`, `video`, `audio` et `lyria` ont maintenant des surfaces d'accueil distinctes
+    - `lyria` devient un vrai mode de premiere classe, separe du TTS
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - captures Edge headless via harness source:
+    - `tmp/qa2-image-mode-desktop.png`
+    - `tmp/qa2-video-mode-desktop.png`
+    - `tmp/qa2-audio-mode-desktop.png`
+    - `tmp/qa2-lyria-mode-desktop.png`
+    - `tmp/qa2-lyria-panel-desktop.png`
+    - `tmp/qa2-cowork-panel-desktop.png`
+    - `tmp/qa2-cowork-panel-mobile.png`
+- Etat produit:
+  - Cowork ne pousse plus la delegation Hub comme comportement implicite
+  - le shell media est beaucoup plus lisible et mieux segmente
+  - prochaine preuve critique: run authentifie reelle pour confirmer le comportement runtime du toggle
+
 ## Mise a jour 2026-04-02 - Les liens YouTube deviennent enfin des videos natives dans chat et Cowork
 - Retour produit:
   - l'utilisateur veut le meme comportement que Google AI Studio quand il colle une video YouTube:

@@ -153,18 +153,17 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
   return (
     <aside
       className={cn(
-        'fixed md:relative z-50 flex h-full flex-col overflow-hidden border-r border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.86)] backdrop-blur-xl transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]',
+        'fixed md:relative z-50 flex h-full flex-col overflow-hidden border-r border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] transition-transform duration-200 ease-out',
         isLeftSidebarVisible
           ? 'w-[320px] translate-x-0 opacity-100'
           : 'pointer-events-none w-0 -translate-x-full opacity-0 md:border-none'
       )}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(129,236,255,0.08),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_18%)]" />
 
       <div className="relative shrink-0 px-4 pt-3.5">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-[1.15rem] border border-[var(--app-border-strong)] bg-[linear-gradient(135deg,rgba(129,236,255,0.16),rgba(68,196,255,0.24))] shadow-[0_20px_50px_-28px_rgba(68,196,255,0.5)]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-[1.15rem] border border-[var(--app-border-strong)] bg-[rgba(129,236,255,0.14)]">
               <Sparkles size={15} className="text-white" />
             </div>
             <div>
@@ -205,7 +204,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                 className={cn(
                   'studio-glow flex w-full cursor-pointer items-center gap-2.5 rounded-[1.25rem] border px-3 py-2.5 text-[12.5px] font-medium transition-all duration-200',
                   isActive
-                    ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-text)] shadow-[0_22px_40px_-30px_rgba(68,196,255,0.45)]'
+                    ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-text)]'
                     : 'border-transparent text-[var(--app-text-muted)] hover:bg-white/[0.04] hover:text-[var(--app-text)]'
                 )}
               >

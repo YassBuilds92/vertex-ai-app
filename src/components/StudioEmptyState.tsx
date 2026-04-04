@@ -157,13 +157,13 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
 
         <div className="studio-empty-hero__content relative z-10 flex min-h-[inherit] w-full flex-col justify-between lg:max-w-[36rem]">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--app-border)] bg-black/16 px-3.5 py-2 text-[11px] uppercase tracking-[0.22em] text-[var(--app-text)]/74 backdrop-blur-md">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--app-border)] bg-[var(--app-surface)] px-3.5 py-2 text-[11px] uppercase tracking-[0.22em] text-[var(--app-text)]/74">
               <Sparkles size={12} className="text-[var(--app-accent)]" />
               {content.eyebrow}
             </div>
 
             <div className="mt-6 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-[1.2rem] border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-accent)] shadow-[0_22px_52px_-30px_rgba(68,196,255,0.55)]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-[1.2rem] border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-accent)]">
                 <Icon size={18} />
               </div>
               <div>

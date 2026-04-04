@@ -34,62 +34,36 @@ const ThinkingBox = ({ thoughts, live = false }: { thoughts: string; live?: bool
     <div
       ref={boxRef}
       className={cn(
-        "relative min-w-0 w-full p-5 md:p-6 rounded-[2rem] border border-indigo-500/15 overflow-hidden transition-all duration-700 thought-gradient",
-        "bg-[var(--app-surface)]/55 backdrop-blur-sm shadow-inner",
-        live ? "animate-in fade-in duration-1000" : ""
+        "relative min-w-0 w-full p-5 md:p-6 rounded-[2rem] border border-indigo-500/15 overflow-hidden thought-gradient",
+        "bg-[var(--app-surface)]/55",
+        live ? "animate-in fade-in duration-500" : ""
       )}
       style={{ maxHeight: live ? '400px' : '70vh', minHeight: '80px' }}
     >
-      {/* Background Neural Effect */}
-      <div className="absolute inset-0 pointer-events-none opacity-20 overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-full animate-neural">
-           <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
-             <path d="M0,50 Q25,30 50,50 T100,50" fill="none" stroke="currentColor" strokeWidth="0.1" className="text-indigo-500" />
-             <path d="M0,40 Q25,60 50,40 T100,40" fill="none" stroke="currentColor" strokeWidth="0.1" className="text-purple-500" />
-             <circle cx="20" cy="40" r="0.5" fill="currentColor" className="text-indigo-400" />
-             <circle cx="50" cy="45" r="0.5" fill="currentColor" className="text-purple-400" />
-             <circle cx="80" cy="35" r="0.5" fill="currentColor" className="text-pink-400" />
-           </svg>
-        </div>
-      </div>
+      <div className="relative flex flex-col gap-5">
+        {nodes.length === 0 && live ? (
+          <div className="flex items-center gap-3 text-indigo-400/60 font-medium italic text-sm py-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            <span>Initialisation des parametres...</span>
+          </div>
+        ) : (
+          nodes.map((node, i) => (
+            <div
+              key={`${i}-${node.slice(0, 10)}`}
+              className="relative pl-7"
+            >
+              <div className="absolute left-1 top-0 bottom-[-20px] w-0.5 bg-gradient-to-b from-indigo-500/30 to-transparent" />
+              <div className="absolute left-[-2px] top-1.5 w-2 h-2 rounded-full bg-indigo-500/40 ring-2 ring-indigo-500/10" />
 
-      <div className="relative flex flex-col gap-6">
-        <AnimatePresence mode="popLayout">
-          {nodes.length === 0 && live ? (
-            <div className="flex items-center gap-3 text-indigo-400/60 font-medium italic text-sm py-2">
-              <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 2 }} className="w-1.5 h-1.5 rounded-full bg-current" />
-              <span>Initialisation des paramètres...</span>
+              <div className="message-copy text-[14px] text-[var(--app-text)]/85 font-sans leading-relaxed tracking-wide whitespace-pre-wrap">
+                {node}
+                {live && i === nodes.length - 1 && (
+                  <span className="inline-block w-1.5 h-4 bg-indigo-500/50 ml-1.5 align-middle rounded-sm animate-pulse" />
+                )}
+              </div>
             </div>
-          ) : (
-            nodes.map((node, i) => (
-              <motion.div
-                key={`${i}-${node.slice(0, 10)}`}
-                initial={{ opacity: 0, x: -10, y: 10 }}
-                animate={{ opacity: 1, x: 0, y: 0 }}
-                transition={{ duration: 0.5, delay: i * 0.1, ease: [0.23, 1, 0.32, 1] }}
-                className="relative pl-7 group/node"
-              >
-                {/* Visual Flow Line segment */}
-                <div className="absolute left-1 top-0 bottom-[-24px] w-0.5 bg-gradient-to-b from-indigo-500/40 via-indigo-500/10 to-transparent last:bottom-0" />
-                
-                {/* Node indicator */}
-                <div className="absolute left-[-2px] top-1.5 w-2 h-2 rounded-full bg-indigo-500/50 ring-4 ring-indigo-500/10 group-hover/node:scale-125 transition-transform" />
-                
-                <div className="message-copy text-[14px] text-[var(--app-text)]/85 font-sans leading-relaxed tracking-wide whitespace-pre-wrap">
-                  {node}
-                  {live && i === nodes.length - 1 && (
-                    <motion.span 
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ repeat: Infinity, duration: 0.8 }}
-                      className="inline-block w-1.5 h-4 bg-indigo-500/50 ml-1.5 align-middle rounded-sm" 
-                    />
-                  )}
-                </div>
-              </motion.div>
-            ))
-          )}
-        </AnimatePresence>
+          ))
+        )}
       </div>
     </div>
   );
@@ -136,13 +110,13 @@ function formatDurationMs(value: number) {
 }
 
 const ThinkingIndicator = () => (
-  <div className="flex items-center gap-3 px-4 py-2 bg-indigo-500/10 rounded-full border border-indigo-500/20 shadow-sm shadow-indigo-500/5">
+  <div className="flex items-center gap-3 px-4 py-2 bg-indigo-500/10 rounded-full border border-indigo-500/20">
     <div className="flex gap-1.5">
-      <motion.div animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0 }} className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-      <motion.div animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.2 }} className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-      <motion.div animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.4 }} className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse [animation-delay:200ms]" />
+      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse [animation-delay:400ms]" />
     </div>
-    <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-[0.15em] animate-pulse">Analyse</span>
+    <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-[0.15em]">Analyse</span>
   </div>
 );
 
@@ -203,7 +177,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="rounded-[1.75rem] border border-indigo-500/15 bg-[var(--app-surface)]/45 backdrop-blur-sm shadow-inner overflow-hidden">
+      <div className="rounded-[1.75rem] border border-indigo-500/15 bg-[var(--app-surface)] overflow-hidden">
         <div className="px-4 py-3 border-b border-white/6 flex flex-wrap items-center gap-2.5">
           <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-semibold', stateMeta.className)}>
             <StateIcon size={13} className={cn(runState === 'running' && 'animate-spin')} />
@@ -402,20 +376,18 @@ export const MessageItem = React.memo(({
   };
 
   return (
-    <motion.div 
-      initial={disableEntranceAnimation ? false : { opacity: 0, y: 16, filter: 'blur(6px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
+    <div
       className={cn(
         "group/msg relative flex w-full min-w-0 items-start gap-3 md:gap-4",
-        msg.role === 'user' ? "flex-row-reverse" : ""
+        msg.role === 'user' ? "flex-row-reverse" : "",
+        !disableEntranceAnimation && "animate-in fade-in slide-in-from-bottom-2 duration-300"
       )}
     >
       <div className={cn(
-        "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 mt-1 transition-all duration-300 border",
-        msg.role === 'user' 
-          ? "bg-white/[0.05] border-[var(--app-border)] shadow-md text-[var(--app-text)]" 
-          : "bg-[linear-gradient(135deg,rgba(129,236,255,0.16),rgba(68,196,255,0.08))] border-[var(--app-border-strong)] text-[var(--app-accent)] shadow-[0_20px_36px_-24px_rgba(68,196,255,0.55)]"
+        "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 mt-1 border",
+        msg.role === 'user'
+          ? "bg-white/[0.05] border-[var(--app-border)] text-[var(--app-text)]"
+          : "bg-[rgba(129,236,255,0.1)] border-[var(--app-border-strong)] text-[var(--app-accent)]"
       )}>
         {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
       </div>
@@ -425,10 +397,10 @@ export const MessageItem = React.memo(({
         msg.role === 'user' ? "items-end" : "items-start"
       )}>
         <div className={cn(
-          "relative min-w-0 max-w-full px-5 py-4 md:px-7 md:py-5 rounded-[2rem] shadow-2xl transition-all duration-500 overflow-hidden",
+          "relative min-w-0 max-w-full px-5 py-4 md:px-7 md:py-5 rounded-[2rem] overflow-hidden",
           msg.role === 'user'
-            ? "w-fit max-w-full md:max-w-[42rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))] backdrop-blur-sm text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)]"
-            : "w-full md:max-w-[48rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] backdrop-blur-sm text-[var(--app-text)]/90 rounded-bl-md border border-[var(--app-border)] shadow-[0_20px_44px_rgba(0,0,0,0.14)]"
+            ? "w-fit max-w-full md:max-w-[42rem] bg-white/[0.04] text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)]"
+            : "w-full md:max-w-[48rem] bg-white/[0.035] text-[var(--app-text)]/90 rounded-bl-md border border-[var(--app-border)]"
         )}>
           {msg.role === 'model' && !isLoading && (
             <button
@@ -623,7 +595,7 @@ export const MessageItem = React.memo(({
                           <a 
                             href={att.url} 
                             download={att.name || "image.png"}
-                            className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all backdrop-blur-md border border-white/10"
+                            className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all bg-black/70 border border-white/10"
                             title="Télécharger l'image"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -641,7 +613,7 @@ export const MessageItem = React.memo(({
                           <a 
                             href={att.url} 
                             download={att.name || "video.mp4"}
-                            className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all backdrop-blur-md border border-white/10 z-10"
+                            className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all bg-black/70 border border-white/10 z-10"
                             title="Télécharger la vidéo"
                           >
                             <Download size={16} />
@@ -672,7 +644,7 @@ export const MessageItem = React.memo(({
                       <a 
                         href={img} 
                         download={`image-${i}.png`}
-                        className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all backdrop-blur-md border border-white/10"
+                        className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all bg-black/70 border border-white/10"
                       >
                         <Download size={16} />
                       </a>
@@ -769,6 +741,6 @@ export const MessageItem = React.memo(({
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 });

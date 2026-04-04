@@ -317,7 +317,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
 
             <main className="min-h-0 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
               <div className="mx-auto grid max-w-[1580px] gap-4 xl:h-full xl:grid-cols-[320px_minmax(0,1fr)_320px]">
-                <section className="flex min-h-0 flex-col rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4 backdrop-blur-xl">
+                <section className="flex min-h-0 flex-col rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-[11px] uppercase tracking-[0.22em] text-white/36">Bibliotheque</div>
@@ -404,7 +404,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                   )}
                 </section>
 
-                <section className="flex min-h-0 flex-col rounded-[2.2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4 backdrop-blur-2xl">
+                <section className="flex min-h-0 flex-col rounded-[2.2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
                       <div className="text-[11px] uppercase tracking-[0.22em] text-white/36">Interface active</div>
@@ -447,7 +447,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                 </section>
 
                 <aside className="flex min-h-0 flex-col gap-4">
-                  <section className="rounded-[1.8rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.02))] p-4 backdrop-blur-2xl">
+                  <section className="rounded-[1.8rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.02))] p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-[11px] uppercase tracking-[0.22em] text-white/36">{creationRun ? 'Cowork en direct' : 'Cap produit'}</div>
@@ -483,7 +483,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     )}
                   </section>
 
-                  <section className="rounded-[1.8rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4 backdrop-blur-2xl">
+                  <section className="rounded-[1.8rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-white/36">Interface distincte</div>
                     {showcaseAgent ? (
                       <>
@@ -501,7 +501,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
 
             <footer className="border-t border-white/8 bg-black/22 px-4 pb-4 pt-3 sm:px-6 lg:px-8">
               <div className="mx-auto max-w-[1580px]">
-                <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-3 backdrop-blur-2xl sm:p-4">
+                <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-3 sm:p-4">
                   {isAwaitingClarification && <div className="mb-3 grid gap-3 xl:grid-cols-2"><div className="rounded-[1.35rem] border border-white/10 bg-black/18 px-4 py-3"><div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Brief initial</div><p className="mt-2 text-sm leading-6 text-white/70">{creationTranscript[0]?.content || brief || 'La vision initiale reste visible ici.'}</p></div><div className="rounded-[1.35rem] border border-cyan-300/16 bg-cyan-300/[0.06] px-4 py-3"><div className="text-[10px] uppercase tracking-[0.18em] text-cyan-100/68">Question de Cowork</div><p className="mt-2 text-sm leading-6 text-white/82">{creationRun?.clarificationQuestion || "Cowork attend une precision avant de continuer."}</p></div></div>}
 
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-end">

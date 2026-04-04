@@ -108,49 +108,40 @@ export const StudioHeroScene: React.FC<{ mode: AppMode }> = ({ mode }) => {
 
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
-      antialias: true,
-      powerPreference: 'high-performance',
+      antialias: false,
+      powerPreference: 'low-power',
     });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
     renderer.setClearAlpha(0);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, prefersReducedMotion ? 1.2 : 1.8));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.domElement.className = 'studio-hero-scene__canvas';
     mount.appendChild(renderer.domElement);
 
     const root = new THREE.Group();
     scene.add(root);
 
-    const ambientLight = new THREE.AmbientLight(palette.ambient, 1.3);
+    const ambientLight = new THREE.AmbientLight(palette.ambient, 1.4);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.PointLight(palette.key, 18, 24, 2);
+    const keyLight = new THREE.PointLight(palette.key, 16, 20, 2);
     keyLight.position.set(2.8, 1.6, 4.6);
     scene.add(keyLight);
 
-    const rimLight = new THREE.PointLight(palette.rim, 16, 20, 2);
+    const rimLight = new THREE.PointLight(palette.rim, 14, 18, 2);
     rimLight.position.set(-3.1, -1.9, -0.8);
     scene.add(rimLight);
 
-    const fillLight = new THREE.DirectionalLight('#ffffff', 1.25);
-    fillLight.position.set(-1.4, 2.4, 3.2);
-    scene.add(fillLight);
-
-    const shellGeometry = new THREE.TorusKnotGeometry(1.08, 0.28, 220, 32, 2, 3);
-    const shellMaterial = new THREE.MeshPhysicalMaterial({
+    /* Simplified geometry: 100 segments instead of 220, 20 radial instead of 32 */
+    const shellGeometry = new THREE.TorusKnotGeometry(1.08, 0.28, 100, 20, 2, 3);
+    const shellMaterial = new THREE.MeshStandardMaterial({
       color: palette.shell,
       emissive: palette.emissive,
-      emissiveIntensity: 0.24,
-      roughness: 0.18,
-      metalness: 0.32,
-      clearcoat: 1,
-      clearcoatRoughness: 0.16,
-      transmission: 0.32,
-      thickness: 0.9,
-      ior: 1.14,
-      reflectivity: 0.78,
-      opacity: 0.94,
+      emissiveIntensity: 0.26,
+      roughness: 0.22,
+      metalness: 0.35,
+      opacity: 0.92,
       transparent: true,
     });
     const shell = new THREE.Mesh(shellGeometry, shellMaterial);
@@ -160,7 +151,7 @@ export const StudioHeroScene: React.FC<{ mode: AppMode }> = ({ mode }) => {
     const wireMaterial = new THREE.MeshBasicMaterial({
       color: palette.wire,
       transparent: true,
-      opacity: 0.15,
+      opacity: 0.12,
       wireframe: true,
       blending: THREE.AdditiveBlending,
     });
@@ -168,11 +159,12 @@ export const StudioHeroScene: React.FC<{ mode: AppMode }> = ({ mode }) => {
     wireframeShell.scale.setScalar(1.024);
     root.add(wireframeShell);
 
-    const haloGeometry = new THREE.RingGeometry(1.84, 2.42, 128);
+    /* Halo: 48 segments instead of 128 */
+    const haloGeometry = new THREE.RingGeometry(1.84, 2.42, 48);
     const haloMaterial = new THREE.MeshBasicMaterial({
       color: palette.halo,
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.16,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -182,16 +174,18 @@ export const StudioHeroScene: React.FC<{ mode: AppMode }> = ({ mode }) => {
     halo.rotation.set(Math.PI / 2.3, Math.PI / 10, 0);
     root.add(halo);
 
+    /* Particles: 80 instead of 220 */
+    const particleCount = prefersReducedMotion ? 40 : 80;
     const particlesGeometry = new THREE.BufferGeometry();
     particlesGeometry.setAttribute(
       'position',
-      new THREE.BufferAttribute(createParticlePositions(prefersReducedMotion ? 120 : 220), 3),
+      new THREE.BufferAttribute(createParticlePositions(particleCount), 3),
     );
     const particlesMaterial = new THREE.PointsMaterial({
       color: palette.particles,
-      size: prefersReducedMotion ? 0.03 : 0.038,
+      size: 0.034,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.8,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
@@ -217,25 +211,17 @@ export const StudioHeroScene: React.FC<{ mode: AppMode }> = ({ mode }) => {
 
     const render = () => {
       const elapsed = clock.getElapsedTime();
-      const orbitSpeed = prefersReducedMotion ? 0.12 : 0.2;
-      const floatSpeed = prefersReducedMotion ? 0.18 : 0.34;
+      const orbitSpeed = prefersReducedMotion ? 0.1 : 0.16;
+      const floatSpeed = prefersReducedMotion ? 0.14 : 0.26;
 
-      root.rotation.x = -0.32 + Math.sin(elapsed * floatSpeed) * 0.12;
+      root.rotation.x = -0.32 + Math.sin(elapsed * floatSpeed) * 0.1;
       root.rotation.y = elapsed * orbitSpeed;
-      root.rotation.z = Math.cos(elapsed * (floatSpeed * 0.72)) * 0.12;
 
-      shell.rotation.x = elapsed * 0.22;
-      shell.rotation.z = Math.sin(elapsed * 0.42) * 0.1;
-      wireframeShell.rotation.y = -elapsed * 0.28;
-      wireframeShell.rotation.z = elapsed * 0.1;
-      halo.rotation.z = elapsed * 0.16;
+      shell.rotation.x = elapsed * 0.18;
+      wireframeShell.rotation.y = -elapsed * 0.22;
+      halo.rotation.z = elapsed * 0.12;
 
-      particles.rotation.y = elapsed * 0.04;
-      particles.rotation.x = Math.sin(elapsed * 0.18) * 0.18;
-
-      camera.position.x = Math.sin(elapsed * 0.22) * 0.24;
-      camera.position.y = Math.cos(elapsed * 0.18) * 0.16;
-      camera.lookAt(0, 0, 0);
+      particles.rotation.y = elapsed * 0.03;
 
       renderer.render(scene, camera);
       frameId = window.requestAnimationFrame(render);

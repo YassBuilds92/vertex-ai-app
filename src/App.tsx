@@ -2851,19 +2851,19 @@ export default function App() {
       {/* Mobile Overlays */}
       <AnimatePresence>
         {isLeftSidebarVisible && (
-          <motion.div 
+          <motion.div
             key="side-overlay-left"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setLeftSidebarVisible(false)}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden"
+            className="fixed inset-0 bg-black/50 z-40 md:hidden"
           />
         )}
         {isRightSidebarVisible && (
-          <motion.div 
+          <motion.div
             key="side-overlay-right"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setRightSidebarVisible(false)}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden"
+            className="fixed inset-0 bg-black/50 z-40 md:hidden"
           />
         )}
       </AnimatePresence>
@@ -2895,7 +2895,7 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 z-[100] m-4 flex items-center justify-center rounded-[2.5rem] border-2 border-dashed border-[var(--app-border-strong)] bg-[rgba(var(--app-bg-rgb),0.46)] backdrop-blur-md pointer-events-none"
+                className="absolute inset-0 z-[100] m-4 flex items-center justify-center rounded-[2.5rem] border-2 border-dashed border-[var(--app-border-strong)] bg-[rgba(var(--app-bg-rgb),0.7)] pointer-events-none"
               >
                 <motion.div 
                   initial={{ scale: 0.9, opacity: 0 }}
@@ -2915,7 +2915,7 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <header className="relative z-40 flex h-[74px] items-center justify-between border-b border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.78)] px-4 backdrop-blur-xl sm:px-6">
+          <header className="relative z-40 flex h-[74px] items-center justify-between border-b border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] px-4 sm:px-6">
             <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
                <button onClick={() => setLeftSidebarVisible(!isLeftSidebarVisible)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Menu size={18}/></button>
                {user && (
@@ -3066,7 +3066,7 @@ export default function App() {
           ) : (
             <>
               {showAgentsHub && (
-                <Suspense fallback={<div className="absolute inset-0 z-[90] flex items-center justify-center bg-[rgba(var(--app-bg-rgb),0.84)] px-6 backdrop-blur-xl"><StudioSurfaceFallback label="Ouverture de Cowork Apps..." /></div>}>
+                <Suspense fallback={<div className="absolute inset-0 z-[90] flex items-center justify-center bg-[rgb(var(--app-bg-rgb))] px-6"><StudioSurfaceFallback label="Ouverture de Cowork Apps..." /></div>}>
                   <AgentsHub
                     isOpen={showAgentsHub}
                     agents={coworkStoreAgents}

@@ -115,7 +115,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
                 <div className="absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover/media:opacity-100">
                   <button
                     onClick={() => setSelectedImage(attachment.url)}
-                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/60 text-white backdrop-blur-md"
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/60 text-white"
                     title="Agrandir l'image"
                   >
                     <ImageIcon size={16} />
@@ -123,7 +123,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
                   <a
                     href={attachment.url}
                     download={attachment.name || 'image'}
-                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/60 text-white backdrop-blur-md"
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/60 text-white"
                     title="Telecharger"
                     onClick={(event) => event.stopPropagation()}
                   >

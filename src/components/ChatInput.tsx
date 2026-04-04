@@ -380,7 +380,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     damping: 25,
                     delay: idx * 0.05 
                   }}
-                  className="group/att relative w-[140px] shrink-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-sm transition-all hover:border-[var(--app-border-strong)] hover:shadow-[0_16px_30px_-24px_rgba(68,196,255,0.32)]"
+                  className="group/att relative w-[140px] shrink-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04] transition-colors hover:border-[var(--app-border-strong)]"
                 >
                   <div className="flex flex-col gap-2 p-2">
                     <div className="relative aspect-square rounded-xl overflow-hidden bg-black/20 ring-1 ring-white/5">
@@ -421,7 +421,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       ) : null}
                       
                       {/* Badge Type */}
-                      <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[9px] font-bold uppercase tracking-wider text-white/90">
+                      <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/60 border border-white/10 text-[9px] font-bold uppercase tracking-wider text-white/90">
                         {att.type}
                       </div>
                       {att.type === 'youtube' && (
@@ -431,7 +431,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                             event.stopPropagation();
                             openYouTubeSettings(att);
                           }}
-                          className="absolute left-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/90 backdrop-blur-md opacity-0 transition-opacity group-hover/att:opacity-100"
+                          className="absolute left-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/90 opacity-0 transition-opacity group-hover/att:opacity-100"
                           title="Regler la plage video"
                         >
                           <SlidersHorizontal size={13} />
@@ -451,7 +451,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
                   <button 
                     onClick={() => setPendingAttachments(prev => prev.filter(a => a.id !== att.id))}
-                    className="absolute top-2 right-2 w-6 h-6 bg-black/60 text-white hover:bg-red-500 rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 opacity-0 group-hover/att:opacity-100 transition-all shadow-xl z-20"
+                    className="absolute top-2 right-2 w-6 h-6 bg-black/60 text-white hover:bg-red-500 rounded-full flex items-center justify-center border border-white/10 opacity-0 group-hover/att:opacity-100 transition-all shadow-xl z-20"
                   >
                     <X size={12} />
                   </button>
@@ -537,7 +537,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[150] flex items-start justify-center overflow-y-auto bg-black/72 p-4 backdrop-blur-md md:items-center"
+            className="fixed inset-0 z-[150] flex items-start justify-center overflow-y-auto bg-black/72 p-4 md:items-center"
             onClick={() => setYoutubeSettingsDraft(null)}
           >
             <motion.div

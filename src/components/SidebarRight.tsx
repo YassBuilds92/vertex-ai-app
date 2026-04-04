@@ -217,13 +217,12 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
   return (
     <div
       className={cn(
-        'fixed inset-y-0 right-0 z-50 flex h-full flex-col overflow-hidden border-l border-[var(--app-border)] bg-[rgba(var(--app-bg-rgb),0.94)] shadow-[0_20px_48px_-30px_rgba(0,0,0,0.62)] backdrop-blur-lg transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] md:relative md:inset-auto',
+        'fixed inset-y-0 right-0 z-50 flex h-full flex-col overflow-hidden border-l border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] transition-transform duration-200 ease-out md:relative md:inset-auto',
         isRightSidebarVisible
           ? 'w-[min(100vw,392px)] translate-x-0 opacity-100'
           : 'pointer-events-none w-0 translate-x-full opacity-0',
       )}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(129,236,255,0.1),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_22%)]" />
 
       <div className="relative z-10 flex items-center justify-between border-b border-[var(--app-border)] px-5 py-4">
         <div className="flex items-center gap-3 text-[15px] font-semibold tracking-tight text-[var(--app-text)]">
@@ -315,7 +314,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
               <div className={cn('relative border-b border-[var(--app-border)] p-4', `bg-[linear-gradient(135deg,rgba(255,255,255,0.04),transparent),radial-gradient(circle_at_top_left,var(--tw-gradient-stops))]`, activeStudioCard.accentClassName)}>
                 <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_55%)]" />
                 <div className="relative z-10 flex items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-white/10 bg-white/[0.08] text-[var(--app-text)] shadow-[0_20px_44px_-28px_rgba(0,0,0,0.75)]">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-white/10 bg-white/[0.08] text-[var(--app-text)]">
                     {ActiveStudioCardIcon && <ActiveStudioCardIcon size={18} />}
                   </div>
                   <div className="min-w-0">
@@ -792,7 +791,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 220 } as const}
-            className="absolute inset-0 z-[80] border-l border-white/10 bg-[var(--app-bg)]/95 shadow-2xl backdrop-blur-3xl"
+            className="absolute inset-0 z-[80] border-l border-white/10 bg-[var(--app-bg)]"
           >
             <Suspense fallback={
               <div className="flex h-full items-center justify-center px-6">

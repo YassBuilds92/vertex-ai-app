@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "Studio Pro",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/tsx/dist/cli.mjs", "server.ts"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "watch", "api/index.ts"],
       "port": 3000
     }
   ]

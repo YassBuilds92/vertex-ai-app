@@ -21,18 +21,15 @@
     --app-accent-strong: #44c4ff;
     --app-accent-soft: rgba(129, 236, 255, 0.15);
     --app-warm: #ffbf86;
-    --app-shadow: 0 36px 90px -38px rgba(0, 0, 0, 0.82);
-    --app-shadow-soft: 0 24px 54px -30px rgba(0, 0, 0, 0.72);
+    --app-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+    --app-shadow-soft: 0 4px 16px -8px rgba(0, 0, 0, 0.4);
     --app-grid: rgba(255, 255, 255, 0.035);
     --app-grid-strong: rgba(129, 236, 255, 0.06);
     --studio-ambient-word: rgba(207, 233, 255, 0.18);
     --studio-ambient-word-strong: rgba(234, 246, 255, 0.34);
     --studio-ambient-glow: rgba(129, 236, 255, 0.22);
     --studio-ambient-glow-soft: rgba(82, 118, 255, 0.1);
-    --app-panel-overlay:
-      radial-gradient(circle at top left, rgba(129, 236, 255, 0.11), transparent 28%),
-      radial-gradient(circle at bottom right, rgba(82, 118, 255, 0.1), transparent 26%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+    --app-panel-overlay: none;
   }
 
   html.light,
@@ -50,18 +47,15 @@
     --app-accent-strong: #0f6cf6 !important;
     --app-accent-soft: rgba(20, 151, 214, 0.12) !important;
     --app-warm: #b26d2f !important;
-    --app-shadow: 0 34px 90px -44px rgba(34, 49, 74, 0.28) !important;
-    --app-shadow-soft: 0 20px 48px -28px rgba(34, 49, 74, 0.22) !important;
+    --app-shadow: 0 6px 20px -10px rgba(34, 49, 74, 0.2) !important;
+    --app-shadow-soft: 0 4px 12px -6px rgba(34, 49, 74, 0.16) !important;
     --app-grid: rgba(23, 34, 51, 0.045) !important;
     --app-grid-strong: rgba(20, 151, 214, 0.05) !important;
     --studio-ambient-word: rgba(42, 78, 110, 0.14) !important;
     --studio-ambient-word-strong: rgba(20, 151, 214, 0.28) !important;
     --studio-ambient-glow: rgba(20, 151, 214, 0.14) !important;
     --studio-ambient-glow-soft: rgba(231, 146, 61, 0.08) !important;
-    --app-panel-overlay:
-      radial-gradient(circle at top left, rgba(20, 151, 214, 0.09), transparent 28%),
-      radial-gradient(circle at bottom right, rgba(231, 146, 61, 0.08), transparent 26%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.52)) !important;
+    --app-panel-overlay: none !important;
   }
 
   html.oled,
@@ -75,8 +69,8 @@
     --app-surface: rgba(0, 0, 0, 0.84) !important;
     --app-surface-strong: rgba(2, 6, 10, 0.96) !important;
     --app-surface-hover: rgba(255, 255, 255, 0.08) !important;
-    --app-shadow: 0 36px 90px -40px rgba(0, 0, 0, 0.92) !important;
-    --app-shadow-soft: 0 20px 48px -28px rgba(0, 0, 0, 0.9) !important;
+    --app-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.6) !important;
+    --app-shadow-soft: 0 4px 16px -8px rgba(0, 0, 0, 0.5) !important;
     --app-grid: rgba(255, 255, 255, 0.025) !important;
     --app-grid-strong: rgba(129, 236, 255, 0.045) !important;
     --studio-ambient-word: rgba(201, 229, 248, 0.15) !important;
@@ -96,38 +90,9 @@
     position: relative;
     background-color: var(--app-bg);
     background-image:
-      radial-gradient(circle at 16% 18%, rgba(125, 221, 255, 0.18), transparent 24%),
-      radial-gradient(circle at 82% 24%, rgba(72, 106, 255, 0.12), transparent 20%),
-      radial-gradient(circle at 74% 82%, rgba(255, 191, 134, 0.08), transparent 22%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 26%);
-    background-size: auto;
-    background-attachment: scroll;
+      radial-gradient(circle at 16% 18%, rgba(125, 221, 255, 0.1), transparent 28%),
+      radial-gradient(circle at 82% 24%, rgba(72, 106, 255, 0.07), transparent 24%);
     overflow-x: hidden;
-  }
-
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background:
-      radial-gradient(circle at 18% 14%, rgba(129, 236, 255, 0.1), transparent 18%),
-      radial-gradient(circle at 76% 58%, rgba(255, 191, 134, 0.08), transparent 20%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0));
-    mix-blend-mode: normal;
-    opacity: 0.62;
-  }
-
-  body::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.024;
-    background-image:
-      radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.9) 0.55px, transparent 0.65px),
-      radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.85) 0.55px, transparent 0.65px);
-    background-size: 26px 26px, 30px 30px;
   }
 
   input,
@@ -287,42 +252,19 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(circle at top center, rgba(129, 236, 255, 0.07), transparent 22%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
-  opacity: 0.5;
+  background: radial-gradient(circle at top center, rgba(129, 236, 255, 0.05), transparent 26%);
+  opacity: 0.4;
 }
 
 .studio-empty-hero {
   container-type: inline-size;
   background:
-    radial-gradient(circle at 18% 18%, rgba(129, 236, 255, 0.12), transparent 22%),
-    radial-gradient(circle at 82% 76%, rgba(255, 191, 134, 0.09), transparent 22%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 26%),
+    radial-gradient(circle at 18% 18%, rgba(129, 236, 255, 0.08), transparent 26%),
     color-mix(in srgb, var(--app-surface-strong) 96%, black 4%);
 }
 
-.studio-empty-hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(110deg, rgba(255, 255, 255, 0.06), transparent 22%, transparent 78%, rgba(255, 255, 255, 0.025)),
-    radial-gradient(circle at 68% 46%, rgba(129, 236, 255, 0.08), transparent 20%);
-  opacity: 0.95;
-}
-
 .studio-empty-hero__noise {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.78) 0.45px, transparent 0.6px),
-    radial-gradient(circle at 78% 68%, rgba(255, 255, 255, 0.82) 0.4px, transparent 0.58px);
-  background-size: 28px 28px, 34px 34px;
-  opacity: 0.06;
-  mix-blend-mode: screen;
+  display: none;
 }
 
 .studio-empty-hero__scene-wrap {
@@ -338,11 +280,8 @@
   position: absolute;
   inset: 14% 8% 12% 10%;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(129, 236, 255, 0.22), transparent 44%),
-    radial-gradient(circle at 56% 58%, rgba(255, 191, 134, 0.14), transparent 46%);
-  filter: blur(24px);
-  opacity: 0.92;
+  background: radial-gradient(circle at 50% 50%, rgba(129, 236, 255, 0.15), transparent 50%);
+  opacity: 0.7;
 }
 
 .studio-hero-scene {
@@ -396,26 +335,20 @@
   max-width: 22rem;
   border-radius: 1.65rem;
   border: 1px solid var(--app-border);
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--app-surface);
   padding: 1.05rem;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 28px 56px -42px rgba(0, 0, 0, 0.7);
 }
 
 .studio-panel {
-  background: color-mix(in srgb, var(--app-surface) 90%, transparent 10%);
-  border: 1px solid color-mix(in srgb, var(--app-border) 92%, rgba(255, 255, 255, 0.04) 8%);
-  box-shadow: 0 24px 56px -40px rgba(0, 0, 0, 0.76);
-  backdrop-filter: blur(14px);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.4);
 }
 
 .studio-panel-strong {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
-    color-mix(in srgb, var(--app-surface-strong) 96%, transparent 4%);
+  background: var(--app-surface-strong);
   border: 1px solid color-mix(in srgb, var(--app-border-strong) 78%, rgba(255, 255, 255, 0.06) 22%);
-  box-shadow: 0 36px 80px -42px rgba(0, 0, 0, 0.84);
-  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 32px -16px rgba(0, 0, 0, 0.5);
 }
 
 .studio-divider {
@@ -437,10 +370,9 @@
   gap: 0.5rem;
   border-radius: 999px;
   border: 1px solid var(--app-border);
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--app-surface);
   padding: 0.55rem 0.85rem;
   color: color-mix(in srgb, var(--app-text) 76%, var(--app-text-muted) 24%);
-  backdrop-filter: blur(10px);
 }
 
 .studio-button-primary {
@@ -453,13 +385,13 @@
   font-weight: 600;
   color: #041018;
   background: linear-gradient(135deg, color-mix(in srgb, var(--app-accent) 92%, white 8%), color-mix(in srgb, var(--app-accent-strong) 82%, white 18%));
-  box-shadow: 0 24px 50px -28px color-mix(in srgb, var(--app-accent-strong) 42%, transparent 58%);
-  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--app-accent-strong) 38%, transparent 62%);
+  transition: transform 160ms ease, box-shadow 160ms ease;
 }
 
 .studio-button-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 26px 52px -26px color-mix(in srgb, var(--app-accent-strong) 52%, transparent 48%);
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--app-accent-strong) 48%, transparent 52%);
 }
 
 .studio-button-secondary {
@@ -472,14 +404,13 @@
   font-weight: 600;
   color: var(--app-text);
   border: 1px solid var(--app-border);
-  background: rgba(255, 255, 255, 0.045);
-  backdrop-filter: blur(10px);
-  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
+  background: var(--app-surface);
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
 }
 
 .studio-button-secondary:hover {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.065);
+  background: var(--app-surface-hover);
   border-color: var(--app-border-strong);
 }
 
@@ -487,12 +418,11 @@
   width: 100%;
   border-radius: 1.25rem;
   border: 1px solid var(--app-border);
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--app-surface);
   padding: 0.9rem 1rem;
   color: var(--app-text);
   outline: none;
-  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
-  backdrop-filter: blur(8px);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .studio-input::placeholder {
@@ -514,11 +444,9 @@
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  background:
-    linear-gradient(135deg, rgba(129, 236, 255, 0.18), transparent 28%, transparent 72%, rgba(255, 191, 134, 0.14)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 24%);
+  background: linear-gradient(135deg, rgba(129, 236, 255, 0.12), transparent 40%);
   opacity: 0;
-  transition: opacity 220ms ease;
+  transition: opacity 160ms ease;
   pointer-events: none;
 }
 
@@ -560,48 +488,16 @@ a,
   background: rgba(255, 255, 255, 0.2);
 }
 
-@keyframes neural-pulse {
-  0% {
-    opacity: 0.12;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 0.28;
-    transform: scale(1.08);
-  }
-
-  100% {
-    opacity: 0.12;
-    transform: scale(1);
-  }
-}
-
-@keyframes studio-ambient-breathe {
-  0%,
-  100% {
-    opacity: 0.44;
-  }
-
-  50% {
-    opacity: 0.82;
-  }
-}
-
 .animate-neural {
-  animation: neural-pulse 8s ease-in-out infinite;
+  /* disabled for performance — was an infinite scale+opacity loop */
 }
 
 .thought-gradient {
-  background:
-    radial-gradient(circle at 10% 10%, rgba(129, 236, 255, 0.07) 0%, transparent 42%),
-    radial-gradient(circle at 90% 85%, rgba(82, 118, 255, 0.08) 0%, transparent 45%);
+  background: radial-gradient(circle at 10% 10%, rgba(129, 236, 255, 0.05) 0%, transparent 50%);
 }
 
 .light .thought-gradient {
-  background:
-    radial-gradient(circle at 10% 10%, rgba(20, 151, 214, 0.045) 0%, transparent 42%),
-    radial-gradient(circle at 90% 85%, rgba(231, 146, 61, 0.05) 0%, transparent 45%);
+  background: radial-gradient(circle at 10% 10%, rgba(20, 151, 214, 0.04) 0%, transparent 50%);
 }
 
 .presentation-shell {
@@ -630,11 +526,8 @@ a,
   width: clamp(220px, 24vw, 420px);
   aspect-ratio: 0.9;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 68%),
-    radial-gradient(circle at 55% 45%, rgba(214, 91, 53, 0.18), rgba(214, 91, 53, 0) 72%);
-  filter: blur(18px);
-  opacity: 0.8;
+  background: radial-gradient(circle at 50% 50%, rgba(214, 91, 53, 0.12), transparent 68%);
+  opacity: 0.6;
 }
 
 .presentation-flow-item {
@@ -642,28 +535,46 @@ a,
 }
 
 @media (max-width: 767px) {
+  body {
+    background-image: none;
+  }
+
+  .studio-shell::before {
+    display: none;
+  }
+
   .studio-empty-hero {
-    min-height: 36rem;
+    min-height: auto;
     padding: 1.25rem;
+    background: var(--app-surface-strong);
   }
 
   .studio-empty-hero__content {
     min-height: 0;
     display: block;
-    padding-top: 12rem;
+    padding-top: 1rem;
   }
 
-  .studio-empty-hero__scene-wrap {
-    inset: 1rem -14% auto 42%;
-    height: 12.5rem;
-  }
-
+  .studio-empty-hero__scene-wrap,
   .studio-empty-hero__scene-glow {
-    inset: 8% 2% 18% 24%;
+    display: none;
   }
 
   .studio-empty-hero__meta {
     max-width: none;
+  }
+
+  .studio-panel,
+  .studio-panel-strong {
+    box-shadow: none;
+  }
+
+  .studio-glow::before {
+    display: none;
+  }
+
+  .studio-button-primary {
+    box-shadow: none;
   }
 }
 

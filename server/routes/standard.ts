@@ -9,6 +9,7 @@ import {
   DEFAULT_TTS_MODEL,
   generateGeminiTtsBinary,
   generateImageBinary,
+  generateImageBinaries,
   generateLyriaBinary,
 } from '../lib/media-generation.js';
 import { normalizeConfiguredModelId } from '../lib/config.js';
@@ -222,25 +223,34 @@ export function registerStandardApiRoutes(app: Express) {
       const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel } = ImageGenRequestSchema.parse(req.body);
       const modelId = req.body.model || DEFAULT_IMAGE_MODEL;
       log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { modelId, aspectRatio, numberOfImages });
-      const artifact = await generateImageBinary({
-        prompt,
-        model: modelId,
-        aspectRatio,
-        numberOfImages,
-        imageSize,
-        personGeneration,
-        safetySetting,
-        thinkingLevel,
-      });
-      const fileName = createUploadFileName('generated-image', artifact.fileExtension);
-      const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
-      res.json({
-        url: uploaded.url,
-        storageUri: uploaded.storageUri,
-        base64: `data:${artifact.mimeType};base64,${artifact.buffer.toString('base64')}`,
-        mimeType: artifact.mimeType,
-        model: artifact.model,
-      });
+
+      if (numberOfImages && numberOfImages > 1) {
+        const artifacts = await generateImageBinaries({
+          prompt, model: modelId, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel,
+        });
+        const images = await Promise.all(artifacts.map(async (artifact) => {
+          const fileName = createUploadFileName('generated-image', artifact.fileExtension);
+          const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
+          return {
+            url: uploaded.url,
+            storageUri: uploaded.storageUri,
+            mimeType: artifact.mimeType,
+          };
+        }));
+        res.json({ images, model: modelId });
+      } else {
+        const artifact = await generateImageBinary({
+          prompt, model: modelId, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel,
+        });
+        const fileName = createUploadFileName('generated-image', artifact.fileExtension);
+        const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
+        res.json({
+          url: uploaded.url,
+          storageUri: uploaded.storageUri,
+          mimeType: artifact.mimeType,
+          model: artifact.model,
+        });
+      }
     } catch (error) {
       const cleanError = parseApiError(error);
       log.error('Image gen error', cleanError);

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Image as ImageIcon, Sparkles, ChevronDown, Check, Loader2, Download, Maximize2,
+  Undo2, Pencil, ArrowRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../store/useStore';
@@ -37,9 +38,7 @@ const aspectRatios = [
 ];
 
 function RatioShape({ ratio }: { ratio: string }) {
-  if (!ratio) {
-    return <span className="text-[9px] font-black opacity-60">A</span>;
-  }
+  if (!ratio) return <span className="text-[9px] font-black opacity-60">A</span>;
   const [w, h] = ratio.split(':').map(Number);
   const maxDim = 12;
   const scale = Math.min(maxDim / w, maxDim / h);
@@ -73,6 +72,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const [prompt, setPrompt] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
 
+  // Refiner preview state
+  const [isRefining, setIsRefining] = useState(false);
+  const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
+  const [originalPrompt, setOriginalPrompt] = useState('');
+
   const allImages = messages
     .filter((m) => m.role === 'model')
     .flatMap((m) => {
@@ -88,17 +92,71 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         }
       }
       if (m.images) {
-        for (const url of m.images) {
-          imgs.push({ url, prompt: '' });
-        }
+        for (const url of m.images) imgs.push({ url, prompt: '' });
       }
       return imgs;
     });
 
-  const handleSubmit = () => {
-    if (!prompt.trim() || isLoading) return;
-    onGenerate(prompt.trim());
+  const handleSubmit = async () => {
+    if (!prompt.trim() || isLoading || isRefining) return;
+
+    if (isRefinerEnabled) {
+      // Call refiner API and show preview
+      setIsRefining(true);
+      setOriginalPrompt(prompt.trim());
+      try {
+        const res = await fetch('/api/refine', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: prompt.trim(), mode: 'image' }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRefinedPrompt(data.refinedInstruction || prompt.trim());
+        } else {
+          // Refine failed, send original
+          onGenerate(prompt.trim());
+          setPrompt('');
+        }
+      } catch {
+        onGenerate(prompt.trim());
+        setPrompt('');
+      } finally {
+        setIsRefining(false);
+      }
+    } else {
+      onGenerate(prompt.trim());
+      setPrompt('');
+    }
+  };
+
+  const handleApplyRefined = () => {
+    if (refinedPrompt) {
+      onGenerate(refinedPrompt);
+      setPrompt('');
+      setRefinedPrompt(null);
+      setOriginalPrompt('');
+    }
+  };
+
+  const handleRevertOriginal = () => {
+    onGenerate(originalPrompt);
     setPrompt('');
+    setRefinedPrompt(null);
+    setOriginalPrompt('');
+  };
+
+  const handleEditRefined = () => {
+    if (refinedPrompt) {
+      setPrompt(refinedPrompt);
+      setRefinedPrompt(null);
+      setOriginalPrompt('');
+    }
+  };
+
+  const handleDismissPreview = () => {
+    setRefinedPrompt(null);
+    setOriginalPrompt('');
   };
 
   return (
@@ -116,7 +174,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             <ChevronDown size={12} className={cn('text-[var(--app-text-muted)] transition-transform', showModelPicker && 'rotate-180')} />
           </button>
 
-          {/* Refiner toggle */}
           <button
             onClick={onToggleRefiner}
             className={cn(
@@ -161,6 +218,62 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           </AnimatePresence>
         </div>
 
+        {/* Refiner preview panel */}
+        <AnimatePresence>
+          {refinedPrompt && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-4 overflow-hidden"
+            >
+              <div className="rounded-2xl border border-[var(--app-accent)]/20 bg-[var(--app-accent-soft)] p-4">
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[var(--app-accent)]">
+                  <Sparkles size={11} />
+                  Prompt optimise
+                </div>
+                <p className="mb-1 text-[13px] leading-relaxed text-[var(--app-text)]">
+                  {refinedPrompt}
+                </p>
+                <p className="mb-4 text-[11px] text-[var(--app-text-muted)]">
+                  Original : {originalPrompt}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleApplyRefined}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 rounded-lg bg-[var(--app-accent)] px-4 py-1.5 text-[12px] font-bold text-[#0a0a14] transition-all hover:brightness-110"
+                  >
+                    <ArrowRight size={12} />
+                    Generer avec ce prompt
+                  </button>
+                  <button
+                    onClick={handleRevertOriginal}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                  >
+                    <Undo2 size={11} />
+                    Garder l'original
+                  </button>
+                  <button
+                    onClick={handleEditRefined}
+                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                  >
+                    <Pencil size={11} />
+                    Modifier
+                  </button>
+                  <button
+                    onClick={handleDismissPreview}
+                    className="ml-auto text-[11px] text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Prompt area */}
         <div className="relative rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-colors focus-within:border-[var(--app-border-strong)]">
           <textarea
@@ -174,9 +287,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             className="w-full resize-none bg-transparent px-5 pt-4 pb-16 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none"
           />
           <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
-            {/* Settings row */}
             <div className="flex flex-wrap items-center gap-1">
-              {/* Aspect ratio with visual shapes */}
               {aspectRatios.map((ar) => (
                 <button
                   key={ar.value}
@@ -194,7 +305,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                 </button>
               ))}
               <span className="mx-0.5 h-4 w-px bg-[var(--app-border)]" />
-              {/* Number of images */}
               {[1, 2, 3, 4].map((n) => (
                 <button
                   key={n}
@@ -211,23 +321,24 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               ))}
             </div>
 
-            {/* Generate button */}
             <button
               onClick={handleSubmit}
-              disabled={!prompt.trim() || isLoading}
+              disabled={!prompt.trim() || isLoading || isRefining}
               className={cn(
                 'flex shrink-0 items-center gap-2 rounded-xl px-5 py-2 text-[13px] font-bold transition-all',
-                prompt.trim() && !isLoading
+                prompt.trim() && !isLoading && !isRefining
                   ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
                   : 'bg-white/[0.06] text-[var(--app-text-muted)] cursor-not-allowed',
               )}
             >
-              {isLoading ? (
+              {isRefining ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : isLoading ? (
                 <Loader2 size={15} className="animate-spin" />
               ) : (
                 <Sparkles size={14} />
               )}
-              {isLoading ? 'Generation...' : 'Generer'}
+              {isRefining ? 'Optimisation...' : isLoading ? 'Generation...' : 'Generer'}
             </button>
           </div>
         </div>

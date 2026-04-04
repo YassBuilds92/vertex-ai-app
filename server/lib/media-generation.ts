@@ -1087,17 +1087,23 @@ async function mixPodcastEpisodeAudio(options: {
 }
 
 function extractFirstInlinePart(result: any, expectedKind: 'image' | 'audio') {
+  const all = extractAllInlineParts(result, expectedKind);
+  return all.length > 0 ? all[0] : null;
+}
+
+function extractAllInlineParts(result: any, expectedKind: 'image' | 'audio') {
+  const found: any[] = [];
   const candidates = Array.isArray(result?.candidates) ? result.candidates : [];
   for (const candidate of candidates) {
     const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
     for (const part of parts) {
       if (!part?.inlineData) continue;
       const mimeType = String(part.inlineData.mimeType || '').toLowerCase();
-      if (expectedKind === 'image' && mimeType.startsWith('image/')) return part;
-      if (expectedKind === 'audio' && (mimeType.startsWith('audio/') || mimeType.includes('l16') || mimeType.includes('pcm'))) return part;
+      if (expectedKind === 'image' && mimeType.startsWith('image/')) found.push(part);
+      if (expectedKind === 'audio' && (mimeType.startsWith('audio/') || mimeType.includes('l16') || mimeType.includes('pcm'))) found.push(part);
     }
   }
-  return null;
+  return found;
 }
 
 async function getAccessToken(): Promise<string> {
@@ -1173,11 +1179,12 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
     config,
   }));
 
-  const part = extractFirstInlinePart(result, 'image');
-  if (!part?.inlineData?.data) {
+  const allParts = extractAllInlineParts(result, 'image');
+  if (allParts.length === 0) {
     throw new Error("Le modele n'a renvoye aucune image exploitable.");
   }
 
+  const part = allParts[0];
   const mimeType = String(part.inlineData.mimeType || 'image/png');
   return {
     buffer: decodeBinaryData(part.inlineData.data),
@@ -1190,6 +1197,51 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
       requestedCandidates: options.numberOfImages,
     },
   };
+}
+
+export async function generateImageBinaries(options: ImageGenerationOptions): Promise<GeneratedBinaryArtifact[]> {
+  const prompt = clipText(options.prompt, 4000);
+  if (!prompt) throw new Error("Le prompt image est vide.");
+
+  const model = String(options.model || DEFAULT_IMAGE_MODEL).trim() || DEFAULT_IMAGE_MODEL;
+  const ai = createGoogleAI(model);
+  const config: any = {
+    ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
+    ...(options.numberOfImages ? { candidateCount: options.numberOfImages } : {}),
+  };
+
+  if (model.includes('gemini-3') || model.includes('nano-banana')) {
+    if (options.thinkingLevel) config.thinkingLevel = options.thinkingLevel;
+  }
+  if (model.includes('imagen') || model.includes('image-preview') || model.includes('gemini-2.5-flash-image')) {
+    if (options.personGeneration) config.personGeneration = options.personGeneration;
+    if (options.safetySetting) config.safetyFilterLevel = options.safetySetting;
+    if (options.imageSize) config.imageSize = options.imageSize;
+  }
+
+  const result = await retryWithBackoff(() => ai.models.generateContent({
+    model,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config,
+  }));
+
+  const allParts = extractAllInlineParts(result, 'image');
+  if (allParts.length === 0) throw new Error("Le modele n'a renvoye aucune image exploitable.");
+
+  return allParts.map((part) => {
+    const mimeType = String(part.inlineData.mimeType || 'image/png');
+    return {
+      buffer: decodeBinaryData(part.inlineData.data),
+      mimeType,
+      fileExtension: guessExtensionFromMimeType(mimeType),
+      model,
+      metadata: {
+        aspectRatio: options.aspectRatio,
+        imageSize: options.imageSize,
+        requestedCandidates: options.numberOfImages,
+      },
+    };
+  });
 }
 
 export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promise<GeneratedBinaryArtifact> {

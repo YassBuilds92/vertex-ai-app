@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Music, Sparkles, Loader2, ChevronDown, Check,
+  Undo2, Pencil, ArrowRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../store/useStore';
@@ -38,6 +39,11 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
   const [prompt, setPrompt] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
 
+  // Refiner preview state
+  const [isRefining, setIsRefining] = useState(false);
+  const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
+  const [originalPrompt, setOriginalPrompt] = useState('');
+
   const allTracks = messages
     .filter((m) => m.role === 'model')
     .flatMap((m) => {
@@ -56,10 +62,64 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
       return tracks;
     });
 
-  const handleSubmit = () => {
-    if (!prompt.trim() || isLoading) return;
-    onGenerate(prompt.trim());
+  const handleSubmit = async () => {
+    if (!prompt.trim() || isLoading || isRefining) return;
+
+    if (isRefinerEnabled) {
+      setIsRefining(true);
+      setOriginalPrompt(prompt.trim());
+      try {
+        const res = await fetch('/api/refine', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: prompt.trim(), mode: 'lyria' }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRefinedPrompt(data.refinedInstruction || prompt.trim());
+        } else {
+          onGenerate(prompt.trim());
+          setPrompt('');
+        }
+      } catch {
+        onGenerate(prompt.trim());
+        setPrompt('');
+      } finally {
+        setIsRefining(false);
+      }
+    } else {
+      onGenerate(prompt.trim());
+      setPrompt('');
+    }
+  };
+
+  const handleApplyRefined = () => {
+    if (refinedPrompt) {
+      onGenerate(refinedPrompt);
+      setPrompt('');
+      setRefinedPrompt(null);
+      setOriginalPrompt('');
+    }
+  };
+
+  const handleRevertOriginal = () => {
+    onGenerate(originalPrompt);
     setPrompt('');
+    setRefinedPrompt(null);
+    setOriginalPrompt('');
+  };
+
+  const handleEditRefined = () => {
+    if (refinedPrompt) {
+      setPrompt(refinedPrompt);
+      setRefinedPrompt(null);
+      setOriginalPrompt('');
+    }
+  };
+
+  const handleDismissPreview = () => {
+    setRefinedPrompt(null);
+    setOriginalPrompt('');
   };
 
   return (
@@ -142,6 +202,62 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
           </div>
         </div>
 
+        {/* Refiner preview panel */}
+        <AnimatePresence>
+          {refinedPrompt && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-4 overflow-hidden"
+            >
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-emerald-300">
+                  <Sparkles size={11} />
+                  Prompt optimise
+                </div>
+                <p className="mb-1 text-[13px] leading-relaxed text-[var(--app-text)]">
+                  {refinedPrompt}
+                </p>
+                <p className="mb-4 text-[11px] text-[var(--app-text-muted)]">
+                  Original : {originalPrompt}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleApplyRefined}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-1.5 text-[12px] font-bold text-[#0a0a14] transition-all hover:brightness-110"
+                  >
+                    <ArrowRight size={12} />
+                    Composer avec ce prompt
+                  </button>
+                  <button
+                    onClick={handleRevertOriginal}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                  >
+                    <Undo2 size={11} />
+                    Garder l'original
+                  </button>
+                  <button
+                    onClick={handleEditRefined}
+                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                  >
+                    <Pencil size={11} />
+                    Modifier
+                  </button>
+                  <button
+                    onClick={handleDismissPreview}
+                    className="ml-auto text-[11px] text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Prompt */}
         <div className="relative rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-colors focus-within:border-[var(--app-border-strong)]">
           <textarea
@@ -165,16 +281,16 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
 
             <button
               onClick={handleSubmit}
-              disabled={!prompt.trim() || isLoading}
+              disabled={!prompt.trim() || isLoading || isRefining}
               className={cn(
                 'flex items-center gap-2 rounded-xl px-5 py-2 text-[13px] font-bold transition-all',
-                prompt.trim() && !isLoading
+                prompt.trim() && !isLoading && !isRefining
                   ? 'bg-emerald-500 text-[#0a0a14] shadow-lg shadow-emerald-500/20 hover:brightness-110'
                   : 'bg-white/[0.06] text-[var(--app-text-muted)] cursor-not-allowed',
               )}
             >
-              {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Music size={14} />}
-              {isLoading ? 'Composition...' : 'Composer'}
+              {isLoading ? <Loader2 size={15} className="animate-spin" /> : isRefining ? <Loader2 size={15} className="animate-spin" /> : <Music size={14} />}
+              {isLoading ? 'Composition...' : isRefining ? 'Optimisation...' : 'Composer'}
             </button>
           </div>
         </div>

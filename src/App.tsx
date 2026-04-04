@@ -1943,7 +1943,8 @@ export default function App() {
         finalPrompt = lastMsg.content;
       }
 
-      if (isPromptRefinerEnabled && !overrideMessages && finalPrompt.trim()) {
+      const isMediaMode = ['image', 'video', 'audio', 'lyria'].includes(effectiveMode);
+      if (isPromptRefinerEnabled && !overrideMessages && finalPrompt.trim() && !isMediaMode) {
         setRefiningStatus("Optimisation de votre prompt par l'IA...");
         try {
           const refineRes = await fetch('/api/refine', {
@@ -2001,20 +2002,28 @@ export default function App() {
           throw new Error(errData.details || errData.message || 'Erreur génération image');
         }
         const data = await response.json();
-        
-        const generatedImageUrl = data.url;
+
+        const imageAttachments: Attachment[] = data.images
+          ? data.images.map((img: any, idx: number) => ({
+              id: `${Date.now()}-${idx}`,
+              type: 'image' as AttachmentType,
+              url: img.url,
+              storageUri: img.storageUri,
+              name: `Image ${idx + 1}`,
+            }))
+          : [{
+              id: Date.now().toString(),
+              type: 'image' as AttachmentType,
+              url: data.url,
+              storageUri: data.storageUri,
+              name: 'Image générée',
+            }];
 
         const modelMessage: Message = {
           id: createClientMessageId('model'),
           role: 'model',
-          content: "Image générée avec succès.",
-          attachments: [{
-            id: Date.now().toString(),
-            type: 'image',
-            url: generatedImageUrl,
-            storageUri: data.storageUri,
-            name: 'Image générée',
-          }],
+          content: imageAttachments.length > 1 ? `${imageAttachments.length} images générées.` : "Image générée avec succès.",
+          attachments: imageAttachments,
           createdAt: Date.now(),
         };
         const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);

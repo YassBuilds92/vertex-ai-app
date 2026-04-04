@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   FileAudio, Sparkles, Loader2, ChevronDown, Check, Play, Pause,
+  Undo2, Pencil, ArrowRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../store/useStore';
@@ -43,6 +44,11 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
   const [showVoicePicker, setShowVoicePicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
 
+  // Refiner preview state
+  const [isRefining, setIsRefining] = useState(false);
+  const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
+  const [originalPrompt, setOriginalPrompt] = useState('');
+
   const selectedVoice = findGeminiTtsVoice(config.ttsVoice || 'Kore');
 
   const allAudio = messages
@@ -63,10 +69,64 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
       return items;
     });
 
-  const handleSubmit = () => {
-    if (!text.trim() || isLoading) return;
-    onGenerate(text.trim());
+  const handleSubmit = async () => {
+    if (!text.trim() || isLoading || isRefining) return;
+
+    if (isRefinerEnabled) {
+      setIsRefining(true);
+      setOriginalPrompt(text.trim());
+      try {
+        const res = await fetch('/api/refine', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: text.trim(), mode: 'audio' }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRefinedPrompt(data.refinedInstruction || text.trim());
+        } else {
+          onGenerate(text.trim());
+          setText('');
+        }
+      } catch {
+        onGenerate(text.trim());
+        setText('');
+      } finally {
+        setIsRefining(false);
+      }
+    } else {
+      onGenerate(text.trim());
+      setText('');
+    }
+  };
+
+  const handleApplyRefined = () => {
+    if (refinedPrompt) {
+      onGenerate(refinedPrompt);
+      setText('');
+      setRefinedPrompt(null);
+      setOriginalPrompt('');
+    }
+  };
+
+  const handleRevertOriginal = () => {
+    onGenerate(originalPrompt);
     setText('');
+    setRefinedPrompt(null);
+    setOriginalPrompt('');
+  };
+
+  const handleEditRefined = () => {
+    if (refinedPrompt) {
+      setText(refinedPrompt);
+      setRefinedPrompt(null);
+      setOriginalPrompt('');
+    }
+  };
+
+  const handleDismissPreview = () => {
+    setRefinedPrompt(null);
+    setOriginalPrompt('');
   };
 
   return (
@@ -177,6 +237,62 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
           />
         </div>
 
+        {/* Refiner preview panel */}
+        <AnimatePresence>
+          {refinedPrompt && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-4 overflow-hidden"
+            >
+              <div className="rounded-2xl border border-[var(--app-accent)]/20 bg-[var(--app-accent-soft)] p-4">
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[var(--app-accent)]">
+                  <Sparkles size={11} />
+                  Texte optimise
+                </div>
+                <p className="mb-1 text-[13px] leading-relaxed text-[var(--app-text)]">
+                  {refinedPrompt}
+                </p>
+                <p className="mb-4 text-[11px] text-[var(--app-text-muted)]">
+                  Original : {originalPrompt}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleApplyRefined}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 rounded-lg bg-[var(--app-accent)] px-4 py-1.5 text-[12px] font-bold text-[#0a0a14] transition-all hover:brightness-110"
+                  >
+                    <ArrowRight size={12} />
+                    Synthetiser avec ce texte
+                  </button>
+                  <button
+                    onClick={handleRevertOriginal}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                  >
+                    <Undo2 size={11} />
+                    Garder l'original
+                  </button>
+                  <button
+                    onClick={handleEditRefined}
+                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                  >
+                    <Pencil size={11} />
+                    Modifier
+                  </button>
+                  <button
+                    onClick={handleDismissPreview}
+                    className="ml-auto text-[11px] text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Text area */}
         <div className="relative rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-colors focus-within:border-[var(--app-border-strong)]">
           <textarea
@@ -192,16 +308,16 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
           <div className="absolute bottom-3 right-3">
             <button
               onClick={handleSubmit}
-              disabled={!text.trim() || isLoading}
+              disabled={!text.trim() || isLoading || isRefining}
               className={cn(
                 'flex items-center gap-2 rounded-xl px-5 py-2 text-[13px] font-bold transition-all',
-                text.trim() && !isLoading
+                text.trim() && !isLoading && !isRefining
                   ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
                   : 'bg-white/[0.06] text-[var(--app-text-muted)] cursor-not-allowed',
               )}
             >
-              {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
-              {isLoading ? 'Synthese...' : 'Synthetiser'}
+              {isLoading ? <Loader2 size={15} className="animate-spin" /> : isRefining ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
+              {isLoading ? 'Synthese...' : isRefining ? 'Optimisation...' : 'Synthetiser'}
             </button>
           </div>
         </div>

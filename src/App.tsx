@@ -85,6 +85,26 @@ const GeneratedAppHost = React.lazy(async () => {
   return { default: module.GeneratedAppHost };
 });
 
+const ImageStudio = React.lazy(async () => {
+  const module = await import('./components/ImageStudio');
+  return { default: module.ImageStudio };
+});
+
+const VideoStudio = React.lazy(async () => {
+  const module = await import('./components/VideoStudio');
+  return { default: module.VideoStudio };
+});
+
+const AudioStudio = React.lazy(async () => {
+  const module = await import('./components/AudioStudio');
+  return { default: module.AudioStudio };
+});
+
+const LyriaStudio = React.lazy(async () => {
+  const module = await import('./components/LyriaStudio');
+  return { default: module.LyriaStudio };
+});
+
 const NasheedStudioWorkspace = React.lazy(async () => {
   const module = await import('./components/NasheedStudioWorkspace');
   return { default: module.NasheedStudioWorkspace };
@@ -3018,6 +3038,43 @@ export default function App() {
                 </Suspense>
               )}
 
+              {/* --- MEDIA STUDIO MODES (image / video / audio / lyria) --- */}
+              {(activeMode === 'image' || activeMode === 'video' || activeMode === 'audio' || activeMode === 'lyria') && !isAgentSession && !isGeneratedAppSession ? (
+                <main className="relative flex-1 min-h-0 overflow-hidden">
+                  <Suspense fallback={<div className="flex h-full items-center justify-center"><Loader2 size={22} className="animate-spin text-[var(--app-accent)]" /></div>}>
+                    {activeMode === 'image' && (
+                      <ImageStudio
+                        onGenerate={handleSend}
+                        isLoading={isLoading}
+                        messages={displayedMessages}
+                        onImageClick={setSelectedImage}
+                      />
+                    )}
+                    {activeMode === 'video' && (
+                      <VideoStudio
+                        onGenerate={handleSend}
+                        isLoading={isLoading}
+                        messages={displayedMessages}
+                      />
+                    )}
+                    {activeMode === 'audio' && (
+                      <AudioStudio
+                        onGenerate={handleSend}
+                        isLoading={isLoading}
+                        messages={displayedMessages}
+                      />
+                    )}
+                    {activeMode === 'lyria' && (
+                      <LyriaStudio
+                        onGenerate={handleSend}
+                        isLoading={isLoading}
+                        messages={displayedMessages}
+                      />
+                    )}
+                  </Suspense>
+                </main>
+              ) : (
+              <>
               <main
                 ref={parentRef}
                 className={cn(
@@ -3161,6 +3218,8 @@ export default function App() {
                   <ChatInput onSend={handleSend} onStop={() => abortControllerRef.current?.abort()} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} />
                 </div>
               </div>
+              </>
+              )}
             </>
           )}
         </div>

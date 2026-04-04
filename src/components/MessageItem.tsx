@@ -34,7 +34,7 @@ const ThinkingBox = ({ thoughts, live = false }: { thoughts: string; live?: bool
     <div
       ref={boxRef}
       className={cn(
-        "relative min-w-0 w-full p-5 md:p-6 rounded-[2rem] border border-indigo-500/15 overflow-hidden thought-gradient",
+        "relative min-w-0 w-full p-5 md:p-6 rounded-xl border border-indigo-500/15 overflow-hidden thought-gradient",
         "bg-[var(--app-surface)]/55",
         live ? "animate-in fade-in duration-500" : ""
       )}
@@ -177,7 +177,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="rounded-[1.75rem] border border-indigo-500/15 bg-[var(--app-surface)] overflow-hidden">
+      <div className="rounded-xl border border-indigo-500/15 bg-[var(--app-surface)] overflow-hidden">
         <div className="px-4 py-3 border-b border-white/6 flex flex-wrap items-center gap-2.5">
           <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-semibold', stateMeta.className)}>
             <StateIcon size={13} className={cn(runState === 'running' && 'animate-spin')} />
@@ -397,7 +397,7 @@ export const MessageItem = React.memo(({
         msg.role === 'user' ? "items-end" : "items-start"
       )}>
         <div className={cn(
-          "relative min-w-0 max-w-full px-5 py-4 md:px-7 md:py-5 rounded-[2rem] overflow-hidden",
+          "relative min-w-0 max-w-full px-5 py-4 md:px-7 md:py-5 rounded-xl overflow-hidden",
           msg.role === 'user'
             ? "w-fit max-w-full md:max-w-[42rem] bg-white/[0.04] text-[var(--app-text)] rounded-tr-md border border-[var(--app-border)]"
             : "w-full md:max-w-[48rem] bg-white/[0.035] text-[var(--app-text)]/90 rounded-bl-md border border-[var(--app-border)]"
@@ -442,7 +442,7 @@ export const MessageItem = React.memo(({
                       if (e.key === 'Escape') handleEditCancel();
                     }}
                     autoFocus
-                    className="message-copy w-full bg-black/30 border border-[var(--app-border-strong)] rounded-[1.2rem] px-3.5 py-3 text-[15px] text-zinc-100 leading-[1.8] resize-none focus:outline-none focus:ring-1 focus:ring-[rgba(129,236,255,0.24)]"
+                    className="message-copy w-full bg-black/30 border border-[var(--app-border-strong)] rounded-lg px-3.5 py-3 text-[15px] text-zinc-100 leading-[1.8] resize-none focus:outline-none focus:ring-1 focus:ring-[var(--app-accent)]/30"
                     rows={Math.max(2, editText.split('\n').length)}
                   />
                   <div className="flex gap-2 justify-end">
@@ -527,7 +527,7 @@ export const MessageItem = React.memo(({
                               <ThinkingBox thoughts={msg.thoughts} live />
                             ) : (
                               /* Pas encore de tokens de réflexion : loader d'attente */
-                              <div className="p-8 bg-indigo-500/[0.04] border border-indigo-500/20 rounded-[2rem] flex flex-col items-center justify-center gap-4 min-h-[160px] shadow-inner shadow-indigo-500/5 animate-in fade-in zoom-in-95 duration-500">
+                              <div className="p-8 bg-indigo-500/[0.04] border border-indigo-500/20 rounded-xl flex flex-col items-center justify-center gap-4 min-h-[160px] shadow-inner shadow-indigo-500/5 animate-in fade-in zoom-in-95 duration-500">
                                 <ThinkingIndicator />
                                 <div className="flex flex-col items-center gap-1">
                                   <span className="text-xs font-semibold text-indigo-400 animate-pulse">Intelligence en éveil...</span>

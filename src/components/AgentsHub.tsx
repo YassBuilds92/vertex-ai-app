@@ -262,12 +262,12 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 1.01 }}
           transition={{ duration: 0.28, ease: 'easeOut' }}
-          className="relative flex h-[100dvh] max-h-[100dvh] w-full flex-1 overflow-hidden bg-[#04070d] text-white"
+          className="relative flex h-[100dvh] max-h-[100dvh] w-full flex-1 overflow-hidden bg-[rgb(var(--app-bg-rgb))] text-white"
         >
           <div className="pointer-events-none absolute inset-0">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_14%,rgba(117,214,255,0.12),transparent_24%),radial-gradient(circle_at_82%_12%,rgba(255,194,120,0.08),transparent_18%),radial-gradient(circle_at_72%_78%,rgba(86,114,255,0.12),transparent_24%)]" />
             <div className="absolute inset-0 opacity-45 [background-image:linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] [background-size:28px_28px]" />
-            <div className="absolute left-[18%] top-[18%] h-56 w-56 rounded-full bg-cyan-300/8 blur-3xl" />
+            <div className="absolute left-[18%] top-[18%] h-56 w-56 rounded-full bg-indigo-300/8 blur-3xl" />
             <div className="absolute bottom-[12%] right-[18%] h-64 w-64 rounded-full bg-indigo-300/8 blur-3xl" />
           </div>
 
@@ -275,8 +275,8 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
             <header className="border-b border-white/8 px-4 py-4 sm:px-6 lg:px-8">
               <div className="mx-auto flex max-w-[1580px] flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-[1.25rem] border border-white/10 bg-white/[0.05]">
-                    <LayoutTemplate size={18} className="text-cyan-200" />
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05]">
+                    <LayoutTemplate size={18} className="text-indigo-200" />
                   </div>
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">Cowork apps</div>
@@ -288,7 +288,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center xl:w-[min(58rem,100%)] xl:justify-end">
-                  <label className="relative flex h-12 flex-1 items-center overflow-hidden rounded-[1.2rem] border border-white/10 bg-white/[0.05] px-4 text-sm text-white/72">
+                  <label className="relative flex h-12 flex-1 items-center overflow-hidden rounded-lg border border-white/10 bg-white/[0.05] px-4 text-sm text-white/72">
                     <Search size={16} className="mr-3 shrink-0 text-white/38" />
                     <input
                       value={searchQuery}
@@ -305,7 +305,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                   )}
                   <button
                     onClick={onClose}
-                    className="inline-flex h-12 items-center justify-center gap-2 rounded-[1.1rem] border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-white/72 transition-colors hover:border-white/16 hover:text-white"
+                    className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-white/72 transition-colors hover:border-white/16 hover:text-white"
                     title="Fermer Cowork Apps"
                   >
                     <X size={16} />
@@ -317,7 +317,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
 
             <main className="min-h-0 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
               <div className="mx-auto grid max-w-[1580px] gap-4 xl:h-full xl:grid-cols-[320px_minmax(0,1fr)_320px]">
-                <section className="flex min-h-0 flex-col rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
+                <section className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-[11px] uppercase tracking-[0.22em] text-white/36">Bibliotheque</div>
@@ -329,7 +329,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                   </div>
 
                   {filteredAgents.length === 0 ? (
-                    <div className="mt-4 rounded-[1.45rem] border border-dashed border-white/10 bg-black/16 px-4 py-5 text-sm leading-7 text-white/46">
+                    <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-black/16 px-4 py-5 text-sm leading-7 text-white/46">
                       Aucun resultat. Essaie un autre mot-cle ou decris une nouvelle app en bas.
                     </div>
                   ) : (
@@ -354,7 +354,7 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                               type="button"
                               onClick={() => setSelectedId(agent.id)}
                               className={cn(
-                                'group relative aspect-[1.06/1] overflow-hidden rounded-[1.45rem] border p-3 text-left transition-all',
+                                'group relative aspect-[1.06/1] overflow-hidden rounded-xl border p-3 text-left transition-all',
                                 isSelected
                                   ? 'border-white/18 bg-[linear-gradient(180deg,rgba(255,255,255,0.11),rgba(255,255,255,0.04))]'
                                   : 'border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] hover:border-white/14 hover:bg-white/[0.06]'
@@ -404,12 +404,12 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                   )}
                 </section>
 
-                <section className="flex min-h-0 flex-col rounded-[2.2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4">
+                <section className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
                       <div className="text-[11px] uppercase tracking-[0.22em] text-white/36">Interface active</div>
                       <div className="mt-2 flex items-start gap-3">
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[1.1rem] border bg-black/18" style={{ borderColor: showcasePalette?.rim || 'rgba(255,255,255,0.14)', background: showcasePalette?.accentSoft || 'rgba(255,255,255,0.04)' }}>
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border bg-black/18" style={{ borderColor: showcasePalette?.rim || 'rgba(255,255,255,0.14)', background: showcasePalette?.accentSoft || 'rgba(255,255,255,0.04)' }}>
                           <ShowcaseIcon size={18} style={{ color: showcasePalette?.accent || '#d8f6ff' }} />
                         </div>
                         <div className="min-w-0">
@@ -421,17 +421,17 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
 
                     <div className="flex flex-wrap items-center gap-2">
                       {showcaseMeta && <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs uppercase tracking-[0.18em] text-white/66"><ShowcaseIcon size={13} style={{ color: showcasePalette?.accent || '#d8f6ff' }} />{showcaseMeta.label}</span>}
-                      {creationPreviewAgent && creationRun?.status !== 'completed' && <span className="inline-flex items-center gap-2 rounded-full border border-cyan-300/16 bg-cyan-300/[0.08] px-3 py-2 text-xs uppercase tracking-[0.18em] text-cyan-50/84"><Loader2 size={13} className="animate-spin" />Preview en construction</span>}
+                      {creationPreviewAgent && creationRun?.status !== 'completed' && <span className="inline-flex items-center gap-2 rounded-full border border-indigo-300/16 bg-indigo-300/[0.08] px-3 py-2 text-xs uppercase tracking-[0.18em] text-indigo-50/84"><Loader2 size={13} className="animate-spin" />Preview en construction</span>}
                       {showcaseAgent?.updatedAt && <span className="inline-flex rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-xs uppercase tracking-[0.18em] text-white/44">{formatProjectAge(showcaseAgent.updatedAt)}</span>}
                     </div>
                   </div>
 
-                  <div className="mt-4 min-h-[18rem] flex-1 overflow-hidden rounded-[1.8rem] border border-white/10 bg-black/16">
+                  <div className="mt-4 min-h-[18rem] flex-1 overflow-hidden rounded-xl border border-white/10 bg-black/16">
                     {showcaseAgent ? <AgentAppPreview agent={showcaseAgent} size={viewport.width >= 1280 ? 'workspace' : 'feature'} className="h-full min-h-[20rem] border-none bg-transparent" /> : <div className="flex h-full min-h-[20rem] items-center justify-center px-6 text-center text-sm leading-7 text-white/48">Le store est vide pour l'instant. Decris ton idee en bas et Cowork commencera par clarifier le bon chemin.</div>}
                   </div>
 
                   <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-                    <div className="rounded-[1.5rem] border border-white/10 bg-black/18 p-4">
+                    <div className="rounded-xl border border-white/10 bg-black/18 p-4">
                       <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">Signes propres a l'app</div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {showcaseFields.length > 0 ? showcaseFields.map((field) => <span key={field.id} className="inline-flex rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs text-white/68">{field.label}</span>) : <span className="text-sm text-white/46">L'interface se definira au fil de la generation.</span>}
@@ -440,14 +440,14 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     </div>
 
                     <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
-                      {creationRun?.status === 'completed' && latestCreatedAgent && <button type="button" onClick={() => void launchAgent(latestCreatedAgent)} disabled={isRunningAgent} className={cn('inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-all', isRunningAgent ? 'cursor-not-allowed bg-white/8 text-white/35' : 'border border-cyan-300/18 bg-cyan-300/[0.1] text-cyan-50 hover:bg-cyan-300/[0.15]')}>{isRunningAgent ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}Ouvrir la nouvelle app</button>}
+                      {creationRun?.status === 'completed' && latestCreatedAgent && <button type="button" onClick={() => void launchAgent(latestCreatedAgent)} disabled={isRunningAgent} className={cn('inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-all', isRunningAgent ? 'cursor-not-allowed bg-white/8 text-white/35' : 'border border-indigo-300/18 bg-indigo-300/[0.1] text-indigo-50 hover:bg-indigo-300/[0.15]')}>{isRunningAgent ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}Ouvrir la nouvelle app</button>}
                       {primaryLaunchAgent && <button type="button" onClick={() => void launchAgent(primaryLaunchAgent)} disabled={isRunningAgent} className={cn('inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-all', isRunningAgent ? 'cursor-not-allowed bg-white/8 text-white/35' : 'bg-[linear-gradient(180deg,rgba(232,240,255,0.92),rgba(174,188,214,0.9))] text-[#07121d] hover:-translate-y-[1px]')}>{isRunningAgent ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}{primaryLaunchAgent === latestCreatedAgent && creationRun?.status === 'completed' ? 'Ouvrir le studio' : "Ouvrir l'app selectionnee"}</button>}
                     </div>
                   </div>
                 </section>
 
                 <aside className="flex min-h-0 flex-col gap-4">
-                  <section className="rounded-[1.8rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.02))] p-4">
+                  <section className="rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.02))] p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-[11px] uppercase tracking-[0.22em] text-white/36">{creationRun ? 'Cowork en direct' : 'Cap produit'}</div>
@@ -459,18 +459,18 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                     {creationRun ? (
                       <>
                         <div className="mt-4 flex flex-wrap items-center gap-2">
-                          <span className={cn('inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] uppercase tracking-[0.18em]', creationRun.awaitingClarification ? 'border-cyan-300/18 bg-cyan-300/[0.08] text-cyan-50/84' : creationRun.status === 'completed' ? 'border-emerald-300/18 bg-emerald-300/[0.08] text-emerald-50/84' : creationRun.status === 'failed' ? 'border-rose-300/18 bg-rose-300/[0.08] text-rose-50/84' : 'border-cyan-300/16 bg-cyan-300/[0.08] text-cyan-50/84')}>
+                          <span className={cn('inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] uppercase tracking-[0.18em]', creationRun.awaitingClarification ? 'border-indigo-300/18 bg-indigo-300/[0.08] text-indigo-50/84' : creationRun.status === 'completed' ? 'border-emerald-300/18 bg-emerald-300/[0.08] text-emerald-50/84' : creationRun.status === 'failed' ? 'border-rose-300/18 bg-rose-300/[0.08] text-rose-50/84' : 'border-indigo-300/16 bg-indigo-300/[0.08] text-indigo-50/84')}>
                             {creationRun.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
                             {creationRun.awaitingClarification ? 'clarification' : creationRun.status}
                           </span>
                           {creationPreviewAgent && <span className="inline-flex rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-white/52">{creationPreviewAgent.name}</span>}
                         </div>
 
-                        {isAwaitingClarification && <div className="mt-4 rounded-[1.3rem] border border-cyan-300/16 bg-cyan-300/[0.06] p-4 text-sm leading-6 text-white/76">{creationRun.clarificationQuestion || "Cowork a besoin d'un detail supplementaire pour cadrer l'app."}</div>}
+                        {isAwaitingClarification && <div className="mt-4 rounded-lg border border-indigo-300/16 bg-indigo-300/[0.06] p-4 text-sm leading-6 text-white/76">{creationRun.clarificationQuestion || "Cowork a besoin d'un detail supplementaire pour cadrer l'app."}</div>}
 
-                        {creationTranscript.length > 0 && <div className="mt-4 space-y-2">{creationTranscript.slice(-3).map((turn, index) => <div key={`${turn.role}-${turn.kind || 'info'}-${index}`} className={cn('rounded-[1.2rem] border px-3.5 py-3 text-sm leading-6', turn.role === 'assistant' ? 'border-cyan-300/18 bg-cyan-300/[0.07] text-white/82' : 'border-white/10 bg-black/18 text-white/70')}><div className="text-[10px] uppercase tracking-[0.18em] text-white/42">{creationTurnLabel(turn)}</div><div className="mt-1.5">{turn.content}</div></div>)}</div>}
+                        {creationTranscript.length > 0 && <div className="mt-4 space-y-2">{creationTranscript.slice(-3).map((turn, index) => <div key={`${turn.role}-${turn.kind || 'info'}-${index}`} className={cn('rounded-lg border px-3.5 py-3 text-sm leading-6', turn.role === 'assistant' ? 'border-indigo-300/18 bg-indigo-300/[0.07] text-white/82' : 'border-white/10 bg-black/18 text-white/70')}><div className="text-[10px] uppercase tracking-[0.18em] text-white/42">{creationTurnLabel(turn)}</div><div className="mt-1.5">{turn.content}</div></div>)}</div>}
 
-                        {recentCreationPhases.length > 0 && <div className="mt-4 space-y-3">{recentCreationPhases.map((phase, index) => { const isLast = index === recentCreationPhases.length - 1; const failedStep = phase.phase === 'bundle_failed' || creationRun.status === 'failed'; return <div key={`${phase.phase}-${phase.timestamp || index}`} className="flex items-start gap-3"><div className="flex flex-col items-center"><span className={cn('flex h-8 w-8 items-center justify-center rounded-full border', failedStep ? 'border-rose-300/18 bg-rose-300/[0.08] text-rose-100' : 'border-cyan-300/16 bg-cyan-300/[0.08] text-cyan-100')}>{failedStep ? <AlertTriangle size={14} /> : creationRun.status === 'running' && isLast ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}</span>{!isLast && <span className="mt-2 h-6 w-px bg-white/10" />}</div><div className="min-w-0 pb-1"><div className="text-sm font-medium text-white/86">{phase.label}</div><div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-white/36">{phase.phase.replace(/_/g, ' ')}</div></div></div>; })}</div>}
+                        {recentCreationPhases.length > 0 && <div className="mt-4 space-y-3">{recentCreationPhases.map((phase, index) => { const isLast = index === recentCreationPhases.length - 1; const failedStep = phase.phase === 'bundle_failed' || creationRun.status === 'failed'; return <div key={`${phase.phase}-${phase.timestamp || index}`} className="flex items-start gap-3"><div className="flex flex-col items-center"><span className={cn('flex h-8 w-8 items-center justify-center rounded-full border', failedStep ? 'border-rose-300/18 bg-rose-300/[0.08] text-rose-100' : 'border-indigo-300/16 bg-indigo-300/[0.08] text-indigo-100')}>{failedStep ? <AlertTriangle size={14} /> : creationRun.status === 'running' && isLast ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}</span>{!isLast && <span className="mt-2 h-6 w-px bg-white/10" />}</div><div className="min-w-0 pb-1"><div className="text-sm font-medium text-white/86">{phase.label}</div><div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-white/36">{phase.phase.replace(/_/g, ' ')}</div></div></div>; })}</div>}
                       </>
                     ) : (
                       <div className="mt-4 space-y-3">
@@ -478,22 +478,22 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
                           'Comprendre la vision avant de choisir un chemin technique.',
                           'Poser les vraies questions: audio, musique, debat, livrables, structure des tours.',
                           "Generer ensuite une interface propre a l'app, pas un formulaire generique.",
-                        ].map((step, index) => <div key={step} className="flex gap-3 rounded-[1.25rem] border border-white/10 bg-black/18 px-3.5 py-3"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-cyan-300/16 bg-cyan-300/[0.08] text-xs font-semibold text-cyan-100">0{index + 1}</div><p className="text-sm leading-6 text-white/68">{step}</p></div>)}
+                        ].map((step, index) => <div key={step} className="flex gap-3 rounded-lg border border-white/10 bg-black/18 px-3.5 py-3"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-indigo-300/16 bg-indigo-300/[0.08] text-xs font-semibold text-indigo-100">0{index + 1}</div><p className="text-sm leading-6 text-white/68">{step}</p></div>)}
                       </div>
                     )}
                   </section>
 
-                  <section className="rounded-[1.8rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
+                  <section className="rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-white/36">Interface distincte</div>
                     {showcaseAgent ? (
                       <>
                         <div className="mt-3 text-lg font-semibold tracking-tight text-white">{showcaseAgent.name}</div>
                         <p className="mt-2 text-sm leading-6 text-white/60">{showcaseAgent.tagline || showcaseAgent.mission}</p>
                         <div className="mt-4 flex flex-wrap gap-2">{showcaseFields.slice(0, 3).map((field) => <span key={field.id} className="inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/66">{field.label}</span>)}</div>
-                        {showcaseCapabilities.length > 0 && <div className="mt-4 space-y-2">{showcaseCapabilities.map((capability) => <div key={capability} className="rounded-[1.1rem] border border-white/10 bg-black/18 px-3.5 py-3 text-sm leading-6 text-white/66">{capability}</div>)}</div>}
+                        {showcaseCapabilities.length > 0 && <div className="mt-4 space-y-2">{showcaseCapabilities.map((capability) => <div key={capability} className="rounded-lg border border-white/10 bg-black/18 px-3.5 py-3 text-sm leading-6 text-white/66">{capability}</div>)}</div>}
                       </>
                     ) : <p className="mt-3 text-sm leading-6 text-white/48">La prochaine app prendra sa propre forme des que tu l'auras decrite.</p>}
-                    {warningMessage && <div className="mt-4 rounded-[1.2rem] border border-amber-300/14 bg-amber-300/[0.07] px-3.5 py-3 text-sm leading-6 text-amber-50/84">{warningMessage}</div>}
+                    {warningMessage && <div className="mt-4 rounded-lg border border-amber-300/14 bg-amber-300/[0.07] px-3.5 py-3 text-sm leading-6 text-amber-50/84">{warningMessage}</div>}
                   </section>
                 </aside>
               </div>
@@ -501,16 +501,16 @@ export const AgentsHub: React.FC<AgentsHubProps> = ({
 
             <footer className="border-t border-white/8 bg-black/22 px-4 pb-4 pt-3 sm:px-6 lg:px-8">
               <div className="mx-auto max-w-[1580px]">
-                <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-3 sm:p-4">
-                  {isAwaitingClarification && <div className="mb-3 grid gap-3 xl:grid-cols-2"><div className="rounded-[1.35rem] border border-white/10 bg-black/18 px-4 py-3"><div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Brief initial</div><p className="mt-2 text-sm leading-6 text-white/70">{creationTranscript[0]?.content || brief || 'La vision initiale reste visible ici.'}</p></div><div className="rounded-[1.35rem] border border-cyan-300/16 bg-cyan-300/[0.06] px-4 py-3"><div className="text-[10px] uppercase tracking-[0.18em] text-cyan-100/68">Question de Cowork</div><p className="mt-2 text-sm leading-6 text-white/82">{creationRun?.clarificationQuestion || "Cowork attend une precision avant de continuer."}</p></div></div>}
+                <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-3 sm:p-4">
+                  {isAwaitingClarification && <div className="mb-3 grid gap-3 xl:grid-cols-2"><div className="rounded-xl border border-white/10 bg-black/18 px-4 py-3"><div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Brief initial</div><p className="mt-2 text-sm leading-6 text-white/70">{creationTranscript[0]?.content || brief || 'La vision initiale reste visible ici.'}</p></div><div className="rounded-xl border border-indigo-300/16 bg-indigo-300/[0.06] px-4 py-3"><div className="text-[10px] uppercase tracking-[0.18em] text-indigo-100/68">Question de Cowork</div><p className="mt-2 text-sm leading-6 text-white/82">{creationRun?.clarificationQuestion || "Cowork attend une precision avant de continuer."}</p></div></div>}
 
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
                     <div className="min-w-0 flex-1">
-                      <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/40"><Wand2 size={13} className="text-cyan-200" />{isAwaitingClarification ? 'Repondre a Cowork' : 'Entrez ce que vous voulez, Cowork clarifiera le bon chemin'}</div>
+                      <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/40"><Wand2 size={13} className="text-indigo-200" />{isAwaitingClarification ? 'Repondre a Cowork' : 'Entrez ce que vous voulez, Cowork clarifiera le bon chemin'}</div>
                       {isAwaitingClarification ? (
-                        <textarea value={clarificationReply} onChange={(event) => setClarificationReply(event.target.value)} rows={viewport.width < 640 ? 4 : 3} placeholder="Reponds librement: format audio, musique, structure du debat, tours separes, livrables..." className="w-full resize-none rounded-[1.45rem] border border-cyan-300/18 bg-cyan-300/[0.05] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/34" />
+                        <textarea value={clarificationReply} onChange={(event) => setClarificationReply(event.target.value)} rows={viewport.width < 640 ? 4 : 3} placeholder="Reponds librement: format audio, musique, structure du debat, tours separes, livrables..." className="w-full resize-none rounded-xl border border-indigo-300/18 bg-indigo-300/[0.05] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-indigo-300/34" />
                       ) : (
-                        <textarea value={brief} onChange={(event) => setBrief(event.target.value)} rows={viewport.width < 640 ? 4 : 3} placeholder="Entrez ce que vous voulez. Votre imagination deborde: debat entre deux IA, podcast avec musique, studio multi-agents, app de recherche, microsite, n'importe quoi." className="w-full resize-none rounded-[1.45rem] border border-white/10 bg-white/[0.05] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-cyan-300/30" />
+                        <textarea value={brief} onChange={(event) => setBrief(event.target.value)} rows={viewport.width < 640 ? 4 : 3} placeholder="Entrez ce que vous voulez. Votre imagination deborde: debat entre deux IA, podcast avec musique, studio multi-agents, app de recherche, microsite, n'importe quoi." className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-white/28 focus:border-indigo-300/30" />
                       )}
                     </div>
 

@@ -90,7 +90,7 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
   const previewModeLabel = shouldPreferGeneratedComponent ? 'composant genere actif' : 'fallback manifest';
 
   return (
-    <section className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-[#03070d] text-white">
+    <section className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-[rgb(var(--app-bg-rgb))] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_10%_10%,rgba(91,214,255,0.12),transparent_24%),radial-gradient(circle_at_86%_12%,rgba(255,174,92,0.08),transparent_18%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0))]" />
 
       <header className="relative z-10 border-b border-white/10 px-4 py-4 sm:px-6 lg:px-8">
@@ -139,7 +139,7 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
             >
               bundle {bundleStatus}
             </span>
-            <span className="rounded-full border border-cyan-300/14 bg-cyan-300/[0.08] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-cyan-50/84">
+            <span className="rounded-full border border-indigo-300/14 bg-indigo-300/[0.08] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-indigo-50/84">
               {previewModeLabel}
             </span>
             {manifest.publishedVersion && (
@@ -163,16 +163,16 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
       <main className="relative z-10 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-[1520px]">
           <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.42fr)]">
-            <div className="rounded-[1.6rem] border border-cyan-300/10 bg-cyan-300/[0.05] px-5 py-4">
+            <div className="rounded-xl border border-indigo-300/10 bg-indigo-300/[0.05] px-5 py-4">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-cyan-300/16 bg-cyan-300/[0.08] text-cyan-100">
+                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-indigo-300/16 bg-indigo-300/[0.08] text-indigo-100">
                   <CheckCircle2 size={16} />
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-cyan-50">
+                  <div className="text-sm font-semibold text-indigo-50">
                     {shouldPreferGeneratedComponent ? 'Composant genere actif' : 'Fallback manifeste actif'}
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-cyan-50/72">
+                  <p className="mt-1 text-sm leading-6 text-indigo-50/72">
                     {shouldPreferGeneratedComponent
                       ? "Le host rend d'abord le composant TSX genere pour cette app. Si le bundle saute ou casse, le canvas manifeste reprend la main sans bloquer l'ouverture ni la publication."
                       : "Le host utilise actuellement le canvas manifeste comme filet de securite. L'ouverture, l'edition et la publication restent pleinement disponibles."}
@@ -182,7 +182,7 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
             </div>
 
             <div
-              className="rounded-[1.6rem] border px-5 py-4"
+              className="rounded-xl border px-5 py-4"
               style={{
                 borderColor: bundleStatus === 'failed' ? 'rgba(252,165,165,0.18)' : 'rgba(255,255,255,0.1)',
                 background: bundleStatus === 'failed' ? 'rgba(251,113,133,0.07)' : 'rgba(255,255,255,0.03)',
@@ -228,10 +228,10 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
           </div>
 
           {diagnosticsMessage && (
-            <div className="mb-4 rounded-[1.8rem] border border-white/10 bg-black/24 p-5">
+            <div className="mb-4 rounded-xl border border-white/10 bg-black/24 p-5">
               <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">Diagnostic bundle</div>
               {loadError && <p className="mt-3 text-sm leading-6 text-rose-50/84">{loadError}</p>}
-              <pre className="mt-3 overflow-x-auto rounded-[1.2rem] border border-white/10 bg-black/28 p-4 text-xs leading-6 text-white/70">
+              <pre className="mt-3 overflow-x-auto rounded-lg border border-white/10 bg-black/28 p-4 text-xs leading-6 text-white/70">
                 {diagnosticsMessage}
               </pre>
             </div>

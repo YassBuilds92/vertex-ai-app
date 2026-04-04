@@ -73,78 +73,64 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   const agentSessions = activeMode === 'chat'
-    ? sessions
-        .filter((session) => session.sessionKind === 'agent')
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+    ? sessions.filter((session) => session.sessionKind === 'agent').sort((a, b) => b.updatedAt - a.updatedAt)
     : [];
 
   const appSessions = activeMode === 'chat'
-    ? sessions
-        .filter((session) => session.sessionKind === 'generated_app')
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+    ? sessions.filter((session) => session.sessionKind === 'generated_app').sort((a, b) => b.updatedAt - a.updatedAt)
     : [];
 
   const renderSessionList = (items: ChatSession[], options?: { badgeLabel?: string }) => (
-    <div className="space-y-1.5">
+    <div className="space-y-0.5">
       {items.map((session) => (
         <div key={session.id} className="group relative">
           <button
             onClick={() => setActiveSessionId(session.id, { remember: session.sessionKind !== 'agent' && session.sessionKind !== 'generated_app' })}
             className={cn(
-              'flex w-full items-center gap-2.5 rounded-[1.25rem] border px-3 py-2.5 text-left text-[13px] transition-all duration-200',
+              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-all duration-150',
               activeSessionId === session.id
-                ? 'border-[var(--app-border)] bg-white/[0.06] text-[var(--app-text)]'
-                : 'border-transparent text-[var(--app-text-muted)] hover:bg-white/[0.04] hover:text-[var(--app-text)]'
+                ? 'bg-[var(--app-accent-soft)] text-[var(--app-text)] font-medium'
+                : 'text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]'
             )}
           >
-            <div
-              className={cn(
-                'h-1.5 w-1.5 shrink-0 rounded-full transition-colors',
-                activeSessionId === session.id ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-text-muted)]/30'
-              )}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate">{session.title}</span>
-                {options?.badgeLabel && (
-                  <span className="shrink-0 rounded-full border border-[var(--app-border)] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--app-accent)]">
-                    {options.badgeLabel}
-                  </span>
-                )}
-              </div>
-            </div>
+            <div className={cn(
+              'h-1.5 w-1.5 shrink-0 rounded-full transition-colors',
+              activeSessionId === session.id ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-text-muted)]/20'
+            )} />
+            <span className="truncate flex-1">{session.title}</span>
+            {options?.badgeLabel && (
+              <span className="shrink-0 rounded-md bg-[var(--app-accent-soft)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--app-accent)]">
+                {options.badgeLabel}
+              </span>
+            )}
           </button>
 
-          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-            {items.length > 1 && (
-              <button
-                onClick={async (event) => {
-                  event.stopPropagation();
-                  if (!user) return;
-                  if (!window.confirm('Supprimer cette conversation ?')) return;
-
-                  try {
-                    await deleteDoc(doc(db, 'users', user.uid, 'sessions', session.id));
-                    clearCoworkSessionSnapshots(user.uid, session.id);
-                    clearSessionSnapshots(user.uid, session.id);
-                    removeLocalSessionShell(user.uid, session.id);
-
-                    if (activeSessionId === session.id) {
-                      const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent' && item.sessionKind !== 'generated_app');
-                      if (nextSession) setActiveSessionId(nextSession.id);
-                      else onNewChat();
-                    }
-                  } catch (error) {
-                    handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/sessions/${session.id}`);
+          {items.length > 1 && (
+            <button
+              onClick={async (event) => {
+                event.stopPropagation();
+                if (!user) return;
+                if (!window.confirm('Supprimer cette conversation ?')) return;
+                try {
+                  await deleteDoc(doc(db, 'users', user.uid, 'sessions', session.id));
+                  clearCoworkSessionSnapshots(user.uid, session.id);
+                  clearSessionSnapshots(user.uid, session.id);
+                  removeLocalSessionShell(user.uid, session.id);
+                  if (activeSessionId === session.id) {
+                    const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent' && item.sessionKind !== 'generated_app');
+                    if (nextSession) setActiveSessionId(nextSession.id);
+                    else onNewChat();
                   }
-                }}
-                className="flex h-7 w-7 items-center justify-center rounded-xl text-[var(--app-text-muted)] opacity-0 transition-all group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-300"
-                title="Supprimer"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
+                } catch (error) {
+                  handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/sessions/${session.id}`);
+                }
+              }}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md text-[var(--app-text-muted)] opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400 transition-all"
+              title="Supprimer"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -153,156 +139,139 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
   return (
     <aside
       className={cn(
-        'fixed md:relative z-50 flex h-full flex-col overflow-hidden border-r border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] transition-transform duration-200 ease-out',
+        'fixed md:relative z-50 flex h-full flex-col overflow-hidden border-r border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] transition-all duration-200 ease-out',
         isLeftSidebarVisible
-          ? 'w-[320px] translate-x-0 opacity-100'
+          ? 'w-[280px] translate-x-0'
           : 'pointer-events-none w-0 -translate-x-full opacity-0 md:border-none'
       )}
     >
-
-      <div className="relative shrink-0 px-4 pt-3.5">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-[1.15rem] border border-[var(--app-border-strong)] bg-[rgba(129,236,255,0.14)]">
-              <Sparkles size={15} className="text-white" />
+      {/* Header */}
+      <div className="shrink-0 p-3">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--app-accent)] text-white">
+              <Sparkles size={14} />
             </div>
             <div>
-              <h1 className="text-[15px] font-bold tracking-tight text-[var(--app-text)]">Studio Pro</h1>
-              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--app-text-muted)]">Google stack</p>
+              <h1 className="text-sm font-bold text-[var(--app-text)]">Studio</h1>
+              <p className="text-[10px] text-[var(--app-text-muted)]">Gemini</p>
             </div>
           </div>
-
           <button
             onClick={() => setLeftSidebarVisible(false)}
-            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] md:hidden"
-            title="Fermer"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] md:hidden"
           >
-            <X size={16} />
+            <X size={14} />
           </button>
         </div>
 
         <button
           onClick={onNewChat}
-          className="studio-button-primary studio-glow mb-4 flex w-full items-center justify-center gap-2.5 rounded-[1.35rem] px-4 py-3 text-[13px] font-semibold"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--app-accent)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
         >
-          <Plus size={15} />
+          <Plus size={14} />
           {modeCreateLabel[activeMode]}
         </button>
       </div>
 
-      <div className="relative shrink-0 px-4 pb-1">
-        <div className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">Modes</div>
-        <div className="space-y-1">
+      {/* Modes */}
+      <div className="shrink-0 px-3 pb-2">
+        <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Modes</div>
+        <div className="grid grid-cols-3 gap-1">
           {(Object.entries(modeConfig) as [AppMode, (typeof modeConfig)[AppMode]][]).map(([mode, conf]) => {
             const Icon = conf.icon;
             const isActive = activeMode === mode;
-
             return (
-              <div
+              <button
                 key={mode}
                 onClick={() => onModeChange(mode)}
                 className={cn(
-                  'studio-glow flex w-full cursor-pointer items-center gap-2.5 rounded-[1.25rem] border px-3 py-2.5 text-[12.5px] font-medium transition-all duration-200',
+                  'flex flex-col items-center gap-1 rounded-lg py-2 text-[10px] font-medium transition-all duration-150',
                   isActive
-                    ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-text)]'
-                    : 'border-transparent text-[var(--app-text-muted)] hover:bg-white/[0.04] hover:text-[var(--app-text)]'
+                    ? 'bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
+                    : 'text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]'
                 )}
               >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={cn(
-                      'flex h-[1.95rem] w-[1.95rem] items-center justify-center rounded-[0.95rem] transition-all',
-                      isActive ? 'border border-white/12 bg-white/[0.1]' : 'bg-white/[0.04]'
-                    )}
-                  >
-                    <Icon size={14} className={isActive ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]'} />
-                  </div>
-                  <span className="leading-snug">{conf.label}</span>
-                </div>
-              </div>
+                <Icon size={15} />
+                <span>{conf.label}</span>
+              </button>
             );
           })}
         </div>
       </div>
 
-      <div className="relative mt-3 flex-1 min-h-0 overflow-y-auto px-3 pb-2">
-        <div className="mb-2 flex items-center justify-between px-2">
-          <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">Historique</div>
-          <div className="rounded-full border border-[var(--app-border)] bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-[var(--app-text-muted)]">
+      {/* Separator */}
+      <div className="mx-3 h-px bg-[var(--app-border)]" />
+
+      {/* History */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Historique</div>
+          <span className="text-[10px] tabular-nums text-[var(--app-text-muted)]">
             {standardModeSessions.length + agentSessions.length + appSessions.length}
+          </span>
+        </div>
+
+        {standardModeSessions.length === 0 && agentSessions.length === 0 && appSessions.length === 0 && (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            {React.createElement(modeConfig[activeMode].icon, { size: 16, className: 'text-[var(--app-text-muted)]/40' })}
+            <p className="text-xs text-[var(--app-text-muted)]">
+              Aucun fil en <span className="font-medium text-[var(--app-text)]/60">{modeConfig[activeMode].label}</span>
+            </p>
           </div>
-        </div>
+        )}
 
-        <div className="space-y-1">
-          {standardModeSessions.length === 0 && agentSessions.length === 0 && appSessions.length === 0 && (
-            <div className="flex flex-col items-center gap-2.5 px-4 py-8 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04]">
-                {React.createElement(modeConfig[activeMode].icon, { size: 18, className: 'text-[var(--app-text-muted)]' })}
-              </div>
-              <p className="text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                Aucun fil en <span className="font-medium text-[var(--app-text)]/78">{modeConfig[activeMode].label}</span>
-              </p>
-            </div>
-          )}
+        {standardModeSessions.length > 0 && renderSessionList(standardModeSessions)}
 
-          {standardModeSessions.length > 0 && renderSessionList(standardModeSessions)}
+        {agentSessions.length > 0 && (
+          <div className="mt-3">
+            <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Agents</div>
+            {renderSessionList(agentSessions, { badgeLabel: 'Agent' })}
+          </div>
+        )}
 
-          {agentSessions.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <div className="px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                Agents
-              </div>
-              {renderSessionList(agentSessions, { badgeLabel: 'Agent' })}
-            </div>
-          )}
-
-          {appSessions.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <div className="px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                Apps
-              </div>
-              {renderSessionList(appSessions, { badgeLabel: 'App' })}
-            </div>
-          )}
-        </div>
+        {appSessions.length > 0 && (
+          <div className="mt-3">
+            <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Apps</div>
+            {renderSessionList(appSessions, { badgeLabel: 'App' })}
+          </div>
+        )}
       </div>
 
+      {/* User */}
       {user && (
-        <div className="relative border-t border-[var(--app-border)] bg-white/[0.02] px-4 py-3">
+        <div className="border-t border-[var(--app-border)] px-3 py-2.5">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 overflow-hidden">
-              <img src={user.photoURL || ''} alt={user.displayName || ''} className="h-8 w-8 shrink-0 rounded-full ring-1 ring-[var(--app-border)]" />
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <img src={user.photoURL || ''} alt="" className="h-7 w-7 shrink-0 rounded-full ring-1 ring-[var(--app-border)]" />
               <div className="overflow-hidden">
-                <div className="truncate text-[13px] font-medium text-[var(--app-text)]">{user.displayName}</div>
+                <div className="truncate text-xs font-medium text-[var(--app-text)]">{user.displayName}</div>
                 <div className="truncate text-[10px] text-[var(--app-text-muted)]">{user.email}</div>
               </div>
             </div>
             <button
               onClick={() => auth.signOut()}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl text-[var(--app-text-muted)] transition-all hover:bg-red-500/10 hover:text-red-300"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:bg-red-500/10 hover:text-red-400 transition-colors"
               title="Deconnexion"
             >
-              <LogOut size={16} />
+              <LogOut size={14} />
             </button>
           </div>
         </div>
       )}
 
-      <div className="relative flex items-center justify-between border-t border-[var(--app-border)] px-4 py-3 text-[11px] text-[var(--app-text-muted)]">
-        <div className="flex items-center gap-2">
-          <Database size={13} />
+      {/* Status */}
+      <div className="flex items-center justify-between border-t border-[var(--app-border)] px-3 py-2 text-[10px] text-[var(--app-text-muted)]">
+        <div className="flex items-center gap-1.5">
+          <Database size={11} />
           <span className="font-medium">Vertex AI</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px]">{isVertexConfigured ? 'Connecte' : 'SDK'}</span>
-          <div
-            className={cn(
-              'h-2 w-2 rounded-full transition-colors',
-              isVertexConfigured
-                ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
-                : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.4)]'
-            )}
-          />
+        <div className="flex items-center gap-1.5">
+          <span>{isVertexConfigured ? 'OK' : 'SDK'}</span>
+          <div className={cn(
+            'h-1.5 w-1.5 rounded-full',
+            isVertexConfigured ? 'bg-emerald-400' : 'bg-amber-400'
+          )} />
         </div>
       </div>
     </aside>

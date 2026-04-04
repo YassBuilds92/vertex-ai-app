@@ -82,7 +82,7 @@ const modeStudioCards = {
     title: 'Cadre, lumiere, variantes.',
     body: 'Le reste doit se taire.',
     chips: ['Ratios', 'Variantes', 'Securite'],
-    accentClassName: 'from-cyan-400/18 via-sky-400/10 to-transparent',
+    accentClassName: 'from-indigo-400/18 via-violet-400/10 to-transparent',
     icon: ImageIcon,
   },
   video: {
@@ -217,32 +217,32 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
   return (
     <div
       className={cn(
-        'fixed inset-y-0 right-0 z-50 flex h-full flex-col overflow-hidden border-l border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] transition-transform duration-200 ease-out md:relative md:inset-auto',
+        'fixed inset-y-0 right-0 z-50 flex h-full flex-col overflow-hidden border-l border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] transition-all duration-200 ease-out md:relative md:inset-auto',
         isRightSidebarVisible
-          ? 'w-[min(100vw,392px)] translate-x-0 opacity-100'
+          ? 'w-[min(100vw,340px)] translate-x-0'
           : 'pointer-events-none w-0 translate-x-full opacity-0',
       )}
     >
 
-      <div className="relative z-10 flex items-center justify-between border-b border-[var(--app-border)] px-5 py-4">
-        <div className="flex items-center gap-3 text-[15px] font-semibold tracking-tight text-[var(--app-text)]">
-          <Settings2 size={17} className="text-[var(--app-accent)]" />
+      <div className="relative z-10 flex items-center justify-between border-b border-[var(--app-border)] px-4 py-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--app-text)]">
+          <Settings2 size={15} className="text-[var(--app-accent)]" />
           Parametres
         </div>
         <button
           onClick={() => setRightSidebarVisible(false)}
-          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)] md:hidden"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors md:hidden"
         >
-          <X size={16} />
+          <X size={14} />
         </button>
       </div>
 
       <div className="relative z-10 flex-1 overflow-x-visible overflow-y-auto px-4 py-5 sm:px-5">
         <div className="space-y-6">
-          <div className="studio-panel rounded-[1.75rem] p-4">
+          <div className="studio-panel rounded-xl p-4">
             <div className="space-y-3">
               {renderSectionTitle('Theme')}
-              <div className="grid grid-cols-3 gap-1.5 rounded-[1.35rem] border border-[var(--app-border)] bg-black/20 p-1.5">
+              <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-[var(--app-border)] bg-black/20 p-1.5">
                 {[
                   { id: 'dark', icon: Moon, label: 'Sombre' },
                   { id: 'light', icon: Sun, label: 'Clair' },
@@ -252,14 +252,14 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                     key={item.id}
                     onClick={() => setTheme(item.id as any)}
                     className={cn(
-                      'relative flex flex-col items-center gap-1.5 rounded-[1rem] py-3 text-[11px] font-bold transition-colors',
+                      'relative flex flex-col items-center gap-1.5 rounded-lg py-3 text-[11px] font-bold transition-colors',
                       theme === item.id ? 'text-[var(--app-text)]' : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]',
                     )}
                   >
                     {theme === item.id && (
                       <motion.div
                         layoutId="activeTheme"
-                        className="absolute inset-0 rounded-[1rem] border border-[var(--app-border-strong)] bg-white/[0.08]"
+                        className="absolute inset-0 rounded-lg border border-[var(--app-border-strong)] bg-white/[0.08]"
                         transition={{ type: 'spring', damping: 20, stiffness: 200 } as const}
                       />
                     )}
@@ -275,9 +275,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
             <button
               onClick={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
               className={cn(
-                'studio-panel relative flex w-full items-center justify-between overflow-hidden rounded-[1.75rem] border px-5 py-4 text-left transition-colors',
+                'studio-panel relative flex w-full items-center justify-between overflow-hidden rounded-xl border px-5 py-4 text-left transition-colors',
                 isPromptRefinerEnabled
-                  ? 'border-[var(--app-border-strong)] bg-[rgba(129,236,255,0.08)]'
+                  ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)]'
                   : 'hover:border-[var(--app-border-strong)]',
               )}
             >
@@ -310,11 +310,11 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           </div>
 
           {activeStudioCard && (
-            <div className="studio-panel overflow-hidden rounded-[1.8rem] p-0">
+            <div className="studio-panel overflow-hidden rounded-xl p-0">
               <div className={cn('relative border-b border-[var(--app-border)] p-4', `bg-[linear-gradient(135deg,rgba(255,255,255,0.04),transparent),radial-gradient(circle_at_top_left,var(--tw-gradient-stops))]`, activeStudioCard.accentClassName)}>
                 <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_55%)]" />
                 <div className="relative z-10 flex items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-white/10 bg-white/[0.08] text-[var(--app-text)]">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.08] text-[var(--app-text)]">
                     {ActiveStudioCardIcon && <ActiveStudioCardIcon size={18} />}
                   </div>
                   <div className="min-w-0">
@@ -330,7 +330,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
               </div>
               <div className="grid gap-2 px-4 py-4">
                 {activeStudioCard.chips.map((chip) => (
-                  <div key={chip} className="rounded-[1.1rem] border border-[var(--app-border)] bg-white/[0.03] px-3.5 py-2.5 text-[12px] text-[var(--app-text)]/78">
+                  <div key={chip} className="rounded-lg border border-[var(--app-border)] bg-white/[0.03] px-3.5 py-2.5 text-[12px] text-[var(--app-text)]/78">
                     {chip}
                   </div>
                 ))}
@@ -338,15 +338,15 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
             </div>
           )}
 
-          <div className="studio-panel rounded-[1.75rem] p-4">
+          <div className="studio-panel rounded-xl p-4">
             <div className="space-y-3">
               {renderSectionTitle('Modele de langage')}
               <div className="space-y-3">
                 <button
                   onClick={() => setIsModelListOpen((current) => !current)}
                   className={cn(
-                    'flex w-full items-center justify-between rounded-[1.35rem] border border-[var(--app-border)] bg-white/[0.03] px-5 py-4 text-left transition-colors hover:border-[var(--app-border-strong)] hover:bg-white/[0.05]',
-                    isModelListOpen && 'border-[var(--app-border-strong)] bg-white/[0.05] ring-4 ring-[rgba(129,236,255,0.08)]',
+                    'flex w-full items-center justify-between rounded-lg border border-[var(--app-border)] bg-white/[0.03] px-5 py-4 text-left transition-colors hover:border-[var(--app-border-strong)] hover:bg-white/[0.05]',
+                    isModelListOpen && 'border-[var(--app-border-strong)] bg-white/[0.05] ring-2 ring-[var(--app-accent-soft)]',
                   )}
                 >
                   <div className="flex items-center gap-3.5">
@@ -369,7 +369,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                       exit={{ opacity: 0, height: 0, transition: { duration: 0.16 } }}
                       className="overflow-hidden"
                     >
-                      <div className="rounded-[1.35rem] border border-[var(--app-border-strong)] bg-[var(--app-surface)]/92 p-3 shadow-[0_18px_44px_-28px_rgba(0,0,0,0.7)]">
+                      <div className="rounded-lg border border-[var(--app-border-strong)] bg-[var(--app-surface)]/92 p-3 shadow-[0_18px_44px_-28px_rgba(0,0,0,0.7)]">
                         <div className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
                           {availableModels.map((model) => (
                             <button
@@ -379,9 +379,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                                 setIsModelListOpen(false);
                               }}
                               className={cn(
-                                'flex w-full items-center justify-between rounded-[1.1rem] border p-3.5 text-left text-[13px] transition-colors',
+                                'flex w-full items-center justify-between rounded-lg border p-3.5 text-left text-[13px] transition-colors',
                                 config?.model === model.id
-                                  ? 'border-[var(--app-border-strong)] bg-[rgba(129,236,255,0.08)] font-bold text-[var(--app-accent)]'
+                                  ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] font-bold text-[var(--app-accent)]'
                                   : 'border-transparent font-medium text-[var(--app-text)] hover:border-[var(--app-border)] hover:bg-white/[0.05]',
                               )}
                             >
@@ -402,14 +402,14 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           </div>
 
           {activeMode === 'cowork' && (
-            <div className="studio-panel rounded-[1.75rem] p-4 space-y-4">
+            <div className="studio-panel rounded-xl p-4 space-y-4">
               {renderSectionTitle('Options Cowork')}
               <button
                 onClick={() => setConfig({ agentDelegationEnabled: !Boolean(config.agentDelegationEnabled) })}
                 className={cn(
-                  'flex w-full items-start justify-between gap-4 rounded-[1.35rem] border px-4 py-4 text-left transition-colors',
+                  'flex w-full items-start justify-between gap-4 rounded-lg border px-4 py-4 text-left transition-colors',
                   config.agentDelegationEnabled
-                    ? 'border-[var(--app-border-strong)] bg-[rgba(129,236,255,0.08)]'
+                    ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)]'
                     : 'border-[var(--app-border)] bg-white/[0.03] hover:border-[var(--app-border-strong)]',
                 )}
               >
@@ -434,7 +434,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           )}
 
           {activeMode === 'image' && (
-            <div className="studio-panel rounded-[1.75rem] p-4 space-y-5">
+            <div className="studio-panel rounded-xl p-4 space-y-5">
               {renderSectionTitle('Parametres image')}
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -490,7 +490,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           )}
 
           {activeMode === 'video' && (
-            <div className="studio-panel rounded-[1.75rem] p-4 space-y-5">
+            <div className="studio-panel rounded-xl p-4 space-y-5">
               {renderSectionTitle('Parametres video')}
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -560,7 +560,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           )}
 
           {activeMode === 'audio' && (
-            <div className="studio-panel rounded-[1.75rem] p-4 space-y-5">
+            <div className="studio-panel rounded-xl p-4 space-y-5">
               {renderSectionTitle('Parametres audio')}
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -603,7 +603,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   />
                 </div>
 
-                <div className="rounded-[1.15rem] border border-white/5 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
                   {audioSupportsMultiSpeaker
                     ? 'Le modele audio choisi supporte le multi-speaker Gemini TTS a 2 intervenants.'
                     : 'Le modele audio choisi reste single-speaker. Pour un duo, bascule sur Gemini Flash TTS ou Gemini Pro TTS.'}
@@ -613,7 +613,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           )}
 
           {activeMode === 'lyria' && (
-            <div className="studio-panel rounded-[1.75rem] p-4 space-y-5">
+            <div className="studio-panel rounded-xl p-4 space-y-5">
               {renderSectionTitle('Parametres Lyria')}
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -634,7 +634,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                       </button>
                     ))}
                   </div>
-                  <div className="rounded-[1.1rem] border border-white/5 bg-white/[0.03] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                  <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
                     `lyria-002` reste le choix robuste. Les variantes preview Lyria 3 restent utiles pour tester des rendus plus ambitieux.
                   </div>
                 </div>
@@ -664,7 +664,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           )}
 
           {config && isGroundingSupported(config.model) && (
-            <div className="studio-panel rounded-[1.75rem] p-4 space-y-4">
+            <div className="studio-panel rounded-xl p-4 space-y-4">
               {renderSectionTitle('Capacites & outils')}
               <div className="grid grid-cols-1 gap-2.5">
                 {[
@@ -696,7 +696,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           )}
 
           {isTextMode && (
-            <div className="studio-panel rounded-[1.75rem] p-4 space-y-4">
+            <div className="studio-panel rounded-xl p-4 space-y-4">
               <div className="mb-1 flex items-center justify-between px-1">
                 {renderSectionTitle('Instructions systeme')}
                 <button
@@ -716,7 +716,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                   updateSessionInstruction(nextValue);
                 }}
                 placeholder="Definis la personnalite et les regles..."
-                className="studio-input h-32 resize-none rounded-[1.35rem] p-4 text-[13px] leading-relaxed placeholder:text-white/10"
+                className="studio-input h-32 resize-none rounded-lg p-4 text-[13px] leading-relaxed placeholder:text-white/10"
               />
 
               <div className="space-y-3">
@@ -727,9 +727,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                       key={level.id}
                       onClick={() => setConfig({ thinkingLevel: level.id as any })}
                       className={cn(
-                        'flex-1 rounded-[1rem] border px-1 py-2 text-[11px] font-bold transition-colors',
+                        'flex-1 rounded-lg border px-1 py-2 text-[11px] font-bold transition-colors',
                         config.thinkingLevel === level.id
-                          ? 'border-[var(--app-border-strong)] bg-[rgba(129,236,255,0.08)] text-[var(--app-accent)]'
+                          ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
                           : 'border-[var(--app-border)] bg-white/[0.02] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
                       )}
                     >
@@ -744,7 +744,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           <div>
             <button
               onClick={() => setShowAdvanced((current) => !current)}
-              className="studio-panel flex w-full items-center justify-between rounded-[1.75rem] border px-5 py-4 transition-colors hover:bg-white/[0.04]"
+              className="studio-panel flex w-full items-center justify-between rounded-xl border px-5 py-4 transition-colors hover:bg-white/[0.04]"
             >
               <div className="flex items-center gap-3">
                 <Settings2 size={14} className={cn(showAdvanced ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]')} />
@@ -795,7 +795,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
           >
             <Suspense fallback={
               <div className="flex h-full items-center justify-center px-6">
-                <div className="studio-panel flex w-full max-w-sm flex-col items-center gap-3 rounded-[2rem] px-6 py-8 text-center">
+                <div className="studio-panel flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl px-6 py-8 text-center">
                   <RotateCcw size={18} className="animate-spin text-[var(--app-accent)]" />
                   <div className="text-sm font-medium text-[var(--app-text)]">Chargement de la galerie...</div>
                   <div className="text-xs uppercase tracking-[0.22em] text-[var(--app-text-muted)]">prompts systeme</div>

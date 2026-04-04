@@ -199,7 +199,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                 type="button"
                 onClick={() => onFieldChange(field.id, option)}
                 className={cn(
-                  'rounded-[1.2rem] border px-4 py-3 text-left text-sm transition-all',
+                  'rounded-lg border px-4 py-3 text-left text-sm transition-all',
                   isActive
                     ? 'text-slate-950'
                     : 'border-white/10 bg-white/[0.04] text-white/72 hover:bg-white/[0.07]'
@@ -225,7 +225,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
           type="button"
           onClick={() => onFieldChange(field.id, !checked)}
           className={cn(
-            'flex w-full items-center justify-between rounded-[1.25rem] border px-4 py-3 text-left transition-all',
+            'flex w-full items-center justify-between rounded-lg border px-4 py-3 text-left transition-all',
             checked
               ? 'border-transparent text-slate-950'
               : 'border-white/10 bg-white/[0.04] text-white/72 hover:bg-white/[0.07]'
@@ -260,7 +260,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
           onChange={(event) => onFieldChange(field.id, event.target.value)}
           rows={6}
           placeholder={field.placeholder}
-          className="min-h-[200px] w-full rounded-[1.7rem] border border-white/10 bg-black/24 px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-white/22 focus:border-white/20"
+          className="min-h-[200px] w-full rounded-xl border border-white/10 bg-black/24 px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-white/22 focus:border-white/20"
         />
       );
     }
@@ -271,13 +271,13 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
         value={typeof currentValue === 'string' ? currentValue : ''}
         onChange={(event) => onFieldChange(field.id, event.target.value)}
         placeholder={field.placeholder}
-        className="w-full rounded-[1.15rem] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none placeholder:text-white/22 focus:border-white/20"
+        className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none placeholder:text-white/22 focus:border-white/20"
       />
     );
   };
 
   return (
-    <div className="studio-shell relative flex h-[100dvh] w-full overflow-hidden bg-[#06040a] text-[#f8f2e8]">
+    <div className="studio-shell relative flex h-[100dvh] w-full overflow-hidden bg-[rgb(var(--app-bg-rgb))] text-[#f8f2e8]">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_12%,rgba(232,190,116,0.16),transparent_24%),radial-gradient(circle_at_78%_10%,rgba(148,211,255,0.12),transparent_20%),radial-gradient(circle_at_62%_78%,rgba(255,255,255,0.05),transparent_22%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_22%,transparent_82%,rgba(255,255,255,0.02))]" />
@@ -332,7 +332,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
         <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
           <div className="mx-auto grid max-w-[1540px] gap-4 xl:grid-cols-[320px_minmax(0,1fr)_340px]">
             <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-              <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5 shadow-[0_24px_90px_-50px_rgba(0,0,0,0.92)]">
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] p-5 shadow-[0_24px_90px_-50px_rgba(0,0,0,0.92)]">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/40">
                     <Wand2 size={13} />
@@ -357,7 +357,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
               </div>
 
               {controlFields.length > 0 && (
-                <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.03] p-5">
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/40">
                     <Disc3 size={13} />
                     Reglages
@@ -376,7 +376,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                 </div>
               )}
 
-              <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] p-5">
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">Session</div>
@@ -418,7 +418,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                   )}
                 </button>
 
-                <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-black/18 p-3.5">
+                <div className="mt-4 rounded-xl border border-white/10 bg-black/18 p-3.5">
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-white/38">
                     <Wand2 size={12} />
                     Modifier le studio
@@ -428,7 +428,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                     onChange={(event) => setEditRequest(event.target.value)}
                     rows={3}
                     placeholder="Mode duo vocals, cover plus solennelle, dock exports..."
-                    className="mt-3 min-h-[110px] w-full rounded-[1.35rem] border border-white/10 bg-black/22 px-4 py-3 text-sm text-white outline-none placeholder:text-white/22 focus:border-white/20"
+                    className="mt-3 min-h-[110px] w-full rounded-xl border border-white/10 bg-black/22 px-4 py-3 text-sm text-white outline-none placeholder:text-white/22 focus:border-white/20"
                   />
                   <button
                     type="button"
@@ -458,11 +458,11 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.28, ease: 'easeOut' }}
-                className="overflow-hidden rounded-[2.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] shadow-[0_34px_110px_-60px_rgba(0,0,0,0.9)]"
+                className="overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] shadow-[0_34px_110px_-60px_rgba(0,0,0,0.9)]"
               >
                 <div className="relative overflow-hidden px-5 py-5 sm:px-6 sm:py-6">
                   <div className="pointer-events-none absolute inset-0">
-                    <div className="absolute inset-x-[7%] top-[10%] h-[72%] rounded-[2.4rem] bg-[radial-gradient(circle,rgba(255,255,255,0.08),transparent_62%)]" />
+                    <div className="absolute inset-x-[7%] top-[10%] h-[72%] rounded-2xl bg-[radial-gradient(circle,rgba(255,255,255,0.08),transparent_62%)]" />
                     <div
                       className="absolute left-[20%] top-[12%] h-[18rem] w-[18rem] rounded-full blur-3xl"
                       style={{ background: `radial-gradient(circle, ${palette.accentSoft}, transparent 72%)` }}
@@ -497,14 +497,14 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
 
                       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         {spotlightStats.map((item) => (
-                          <div key={item.label} className="rounded-[1.35rem] border border-white/10 bg-black/18 px-4 py-4">
+                          <div key={item.label} className="rounded-xl border border-white/10 bg-black/18 px-4 py-4">
                             <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">{item.label}</div>
                             <div className="mt-2 text-sm font-medium text-white/82">{summarizeText(item.value, 28)}</div>
                           </div>
                         ))}
                       </div>
 
-                      <div className="rounded-[2rem] border border-white/10 bg-black/22 p-4 sm:p-5">
+                      <div className="rounded-2xl border border-white/10 bg-black/22 p-4 sm:p-5">
                         <div className="flex items-center justify-between gap-3">
                           <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">Wave bus</div>
                           <div className="text-[11px] uppercase tracking-[0.18em] text-white/34">
@@ -512,7 +512,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                           </div>
                         </div>
 
-                        <div className="mt-6 flex h-48 items-end gap-2 overflow-hidden rounded-[1.6rem] border border-white/10 bg-black/24 px-4 pb-4">
+                        <div className="mt-6 flex h-48 items-end gap-2 overflow-hidden rounded-xl border border-white/10 bg-black/24 px-4 pb-4">
                           {[16, 28, 44, 60, 54, 74, 52, 86, 62, 72, 46, 68, 58, 80].map((height, index) => (
                             <span
                               key={`${height}-${index}`}
@@ -538,7 +538,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                     </div>
 
                     <div className="grid content-start gap-4">
-                      <div className="rounded-[1.9rem] border border-white/10 bg-black/18 p-4">
+                      <div className="rounded-xl border border-white/10 bg-black/18 p-4">
                         <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Plan</div>
                         <div className="mt-4 space-y-3">
                           {structureSteps.map((item, index) => (
@@ -561,7 +561,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                         </div>
                       </div>
 
-                      <div className="rounded-[1.9rem] border border-white/10 bg-black/18 p-4">
+                      <div className="rounded-xl border border-white/10 bg-black/18 p-4">
                         <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Brief</div>
                         <div className="mt-4 whitespace-pre-wrap text-sm leading-7 text-white/74">
                           {directionText}
@@ -574,7 +574,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
             </section>
 
             <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-              <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] p-5">
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">Sorties</div>
@@ -587,7 +587,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                 </div>
 
                 {masterAudio ? (
-                  <div className="mt-4 rounded-[1.6rem] border border-white/10 bg-black/20 p-4">
+                  <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
                     <div className="flex items-start gap-3">
                       <div className="flex h-11 w-11 items-center justify-center rounded-[1rem] bg-white/[0.08]">
                         <FileAudio size={18} style={{ color: palette.accent }} />
@@ -597,12 +597,12 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                         <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-white/42">{masterAudio.mimeType || 'audio'}</div>
                       </div>
                     </div>
-                    <div className="mt-4 rounded-[1.2rem] border border-white/10 bg-black/16 p-3">
+                    <div className="mt-4 rounded-lg border border-white/10 bg-black/16 p-3">
                       <audio controls src={masterAudio.url} className="w-full" />
                     </div>
                   </div>
                 ) : (
-                  <div className="mt-4 rounded-[1.6rem] border border-dashed border-white/10 bg-black/20 p-5 text-sm leading-6 text-white/52">
+                  <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-black/20 p-5 text-sm leading-6 text-white/52">
                     Le prochain rendu apparaitra ici.
                   </div>
                 )}
@@ -618,7 +618,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                 )}
               </div>
 
-              <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.03] p-5">
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/40">
@@ -635,7 +635,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
                   {runStats.map((item) => (
-                    <div key={item.label} className="rounded-[1.2rem] border border-white/10 bg-black/18 px-4 py-3">
+                    <div key={item.label} className="rounded-lg border border-white/10 bg-black/18 px-4 py-3">
                       <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">{item.label}</div>
                       <div className="mt-2 text-sm font-medium text-white/82">{item.value}</div>
                     </div>
@@ -645,7 +645,7 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                 {recentActivity.length > 0 ? (
                   <div className="mt-4 space-y-2.5">
                     {recentActivity.map((item) => (
-                      <div key={item.id} className="rounded-[1.25rem] border border-white/10 bg-black/18 px-4 py-3">
+                      <div key={item.id} className="rounded-lg border border-white/10 bg-black/18 px-4 py-3">
                         <div className="text-sm font-medium text-white/82">{item.title || 'Etape'}</div>
                         <div className="mt-1 text-sm leading-6 text-white/54">
                           {summarizeText(item.message || item.resultPreview || item.argsPreview || 'Mise a jour interne du studio.', 110)}
@@ -654,13 +654,13 @@ export const NasheedStudioWorkspace: React.FC<NasheedStudioWorkspaceProps> = ({
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-4 rounded-[1.25rem] border border-dashed border-white/10 bg-black/16 px-4 py-4 text-sm leading-6 text-white/52">
+                  <div className="mt-4 rounded-lg border border-dashed border-white/10 bg-black/16 px-4 py-4 text-sm leading-6 text-white/52">
                     Le journal de run apparaitra ici.
                   </div>
                 )}
 
                 {latestModelMessage?.content?.trim() && (
-                  <div className="mt-4 rounded-[1.25rem] border border-white/10 bg-black/18 px-4 py-4">
+                  <div className="mt-4 rounded-lg border border-white/10 bg-black/18 px-4 py-4">
                     <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Notes</div>
                     <div className="mt-3 max-h-[180px] overflow-y-auto pr-1 whitespace-pre-wrap text-sm leading-6 text-white/72">
                       {latestModelMessage.content}

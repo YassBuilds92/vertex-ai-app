@@ -97,7 +97,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               className={cn(
-                'group/media overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/20 shadow-2xl',
+                'group/media overflow-hidden rounded-xl border border-white/10 bg-black/20 shadow-2xl',
                 cardWidthClass,
               )}
             >
@@ -142,7 +142,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               className={cn(
-                'group/media overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/25 shadow-2xl',
+                'group/media overflow-hidden rounded-xl border border-white/10 bg-black/25 shadow-2xl',
                 cardWidthClass,
               )}
             >
@@ -188,7 +188,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               className={cn(
-                'overflow-hidden rounded-[1.35rem] border border-fuchsia-400/14 bg-[radial-gradient(circle_at_top,rgba(244,114,182,0.14),rgba(14,14,18,0.88))] p-4 shadow-xl',
+                'overflow-hidden rounded-xl border border-fuchsia-400/14 bg-[radial-gradient(circle_at_top,rgba(244,114,182,0.14),rgba(14,14,18,0.88))] p-4 shadow-xl',
                 cardWidthClass,
               )}
             >
@@ -201,7 +201,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
                   <div className="text-[11px] text-[var(--app-text-muted)]">{getAttachmentMeta(attachment)}</div>
                 </div>
               </div>
-              <div className="mb-4 rounded-[1.15rem] border border-white/8 bg-black/20 p-3">
+              <div className="mb-4 rounded-lg border border-white/8 bg-black/20 p-3">
                 <div className="mb-3 flex h-10 items-end gap-1.5 overflow-hidden">
                   {Array.from({ length: 18 }).map((_, barIndex) => (
                     <span
@@ -247,12 +247,12 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               className={cn(
-                'group/link rounded-[1.35rem] border border-red-500/20 bg-[linear-gradient(180deg,rgba(239,68,68,0.14),rgba(10,10,10,0.12))] p-4 shadow-xl transition-colors hover:border-red-400/35',
+                'group/link rounded-xl border border-red-500/20 bg-[linear-gradient(180deg,rgba(239,68,68,0.14),rgba(10,10,10,0.12))] p-4 shadow-xl transition-colors hover:border-red-400/35',
                 cardWidthClass,
               )}
             >
               {attachment.thumbnail && (
-                <div className="relative mb-4 overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/30">
+                <div className="relative mb-4 overflow-hidden rounded-lg border border-white/8 bg-black/30">
                   <img
                     src={attachment.thumbnail}
                     alt={attachment.name || 'Lien YouTube'}
@@ -296,7 +296,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             className={cn(
-              'rounded-[1.35rem] border border-emerald-500/18 bg-[var(--app-surface)]/50 p-4 shadow-xl',
+              'rounded-xl border border-emerald-500/18 bg-[var(--app-surface)]/50 p-4 shadow-xl',
               cardWidthClass,
             )}
           >

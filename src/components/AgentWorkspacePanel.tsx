@@ -55,7 +55,7 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
 
   const renderField = (field: AgentFieldSchema) => {
     const baseInputClassName =
-      'w-full rounded-[1.2rem] border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/30 focus:border-cyan-300/35 focus:bg-white/[0.055]';
+      'w-full rounded-lg border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/30 focus:border-indigo-300/35 focus:bg-white/[0.055]';
 
     const currentValue = formValues[field.id];
 
@@ -97,9 +97,9 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
           type="button"
           onClick={() => onFieldChange(field.id, !checked)}
           className={cn(
-            'flex w-full items-center justify-between rounded-[1.2rem] border px-4 py-3 text-left transition-all',
+            'flex w-full items-center justify-between rounded-lg border px-4 py-3 text-left transition-all',
             checked
-              ? 'border-cyan-300/30 bg-cyan-300/[0.08] text-white'
+              ? 'border-indigo-300/30 bg-indigo-300/[0.08] text-white'
               : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/[0.045]'
           )}
         >
@@ -107,13 +107,13 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
           <span
             className={cn(
               'inline-flex h-6 w-11 items-center rounded-full border px-1 transition-all',
-              checked ? 'border-cyan-200/30 bg-cyan-200/20' : 'border-white/10 bg-black/20'
+              checked ? 'border-indigo-200/30 bg-indigo-200/20' : 'border-white/10 bg-black/20'
             )}
           >
             <span
               className={cn(
                 'h-4 w-4 rounded-full transition-transform',
-                checked ? 'translate-x-5 bg-cyan-200' : 'translate-x-0 bg-white/55'
+                checked ? 'translate-x-5 bg-indigo-200' : 'translate-x-0 bg-white/55'
               )}
             />
           </span>
@@ -135,7 +135,7 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pt-6 sm:px-6 lg:px-10">
       <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
-        <div className="overflow-hidden rounded-[2rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] shadow-[0_24px_80px_-40px_rgba(0,0,0,0.78)]">
+        <div className="overflow-hidden rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] shadow-[0_24px_80px_-40px_rgba(0,0,0,0.78)]">
           <div className="border-b border-white/8 px-5 py-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -164,11 +164,11 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
             <AgentAppPreview agent={agent} size="workspace" />
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div className="rounded-[1.4rem] border border-white/8 bg-white/[0.025] p-4">
+              <div className="rounded-xl border border-white/8 bg-white/[0.025] p-4">
                 <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">Quand l'utiliser</div>
                 <p className="mt-3 text-sm leading-6 text-white/66">{agent.whenToUse}</p>
               </div>
-              <div className="rounded-[1.4rem] border border-white/8 bg-white/[0.025] p-4">
+              <div className="rounded-xl border border-white/8 bg-white/[0.025] p-4">
                 <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">Starter prompt</div>
                 <p className="mt-3 text-sm leading-6 text-white/66">{agent.starterPrompt}</p>
               </div>
@@ -185,14 +185,14 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
         </div>
 
         <div className="space-y-5">
-          <div className="overflow-hidden rounded-[2rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))]">
+          <div className="overflow-hidden rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))]">
             <div className="flex items-center justify-between gap-4 border-b border-white/8 px-5 py-4">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.2em] text-white/38">{meta.studioLabel}</div>
                 <div className="mt-1 text-lg font-semibold tracking-tight text-white">Poste de lancement</div>
               </div>
               <div className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-black/20 px-3 py-2 text-xs text-white/55">
-                <CheckCircle2 size={14} className="text-cyan-200" />
+                <CheckCircle2 size={14} className="text-indigo-200" />
                 {renderableFields.length} champ(s)
               </div>
             </div>
@@ -258,7 +258,7 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
             </div>
           </div>
 
-          <div className="rounded-[1.8rem] border border-white/8 bg-white/[0.025] p-5">
+          <div className="rounded-xl border border-white/8 bg-white/[0.025] p-5">
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-white/42">
               <Wand2 size={13} />
               Outils et surface
@@ -278,8 +278,8 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
         </div>
       </div>
 
-      <div className="mt-5 overflow-hidden rounded-[1.8rem] border border-cyan-300/10 bg-cyan-300/[0.045]">
-        <div className="flex items-center gap-2 border-b border-cyan-300/10 px-5 py-4 text-[11px] uppercase tracking-[0.2em] text-cyan-100/70">
+      <div className="mt-5 overflow-hidden rounded-xl border border-indigo-300/10 bg-indigo-300/[0.045]">
+        <div className="flex items-center gap-2 border-b border-indigo-300/10 px-5 py-4 text-[11px] uppercase tracking-[0.2em] text-indigo-100/70">
           <BrainCircuit size={13} />
           Cowork peut faire evoluer cette app
         </div>
@@ -293,7 +293,7 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
               onChange={(event) => setEditRequest(event.target.value)}
               placeholder="Ex: rends cette app plus editoriale, ajoute un champ angle, change le rendu podcast, simplifie l'interface..."
               rows={4}
-              className="min-h-[112px] w-full rounded-[1.4rem] border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/30 focus:border-cyan-300/35 focus:bg-white/[0.055]"
+              className="min-h-[112px] w-full rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/30 focus:border-indigo-300/35 focus:bg-white/[0.055]"
             />
             <div className="flex justify-end">
               <button

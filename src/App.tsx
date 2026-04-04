@@ -2843,11 +2843,11 @@ export default function App() {
 
   return (
     <div className={cn(
-      "studio-shell flex h-[100dvh] w-full transition-all duration-500 font-sans",
+      "studio-shell flex h-[100dvh] w-full font-sans",
       "bg-[var(--app-bg)] text-[var(--app-text)]"
     )}>
       <SidebarLeft user={user} sessions={sessions} isVertexConfigured={isVertexConfigured} onNewChat={handleNewChat} onModeChange={handleModeChange} />
-      
+
       {/* Mobile Overlays */}
       <AnimatePresence>
         {isLeftSidebarVisible && (
@@ -2855,7 +2855,7 @@ export default function App() {
             key="side-overlay-left"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setLeftSidebarVisible(false)}
-            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
           />
         )}
         {isRightSidebarVisible && (
@@ -2863,7 +2863,7 @@ export default function App() {
             key="side-overlay-right"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setRightSidebarVisible(false)}
-            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
           />
         )}
       </AnimatePresence>
@@ -2882,10 +2882,8 @@ export default function App() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute inset-x-0 top-0 h-[36vh] bg-[radial-gradient(circle_at_top,rgba(129,236,255,0.11),transparent_46%)]" />
-            <div className="absolute bottom-0 left-[18%] h-[18rem] w-[18rem] rounded-full bg-[radial-gradient(circle,rgba(255,191,134,0.08),transparent_68%)] blur-2xl" />
-            <div className="absolute right-[8%] top-[18%] h-[20rem] w-[20rem] rounded-full bg-[radial-gradient(circle,rgba(68,196,255,0.12),transparent_65%)] blur-2xl" />
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute inset-x-0 top-0 h-[40vh] bg-[radial-gradient(ellipse_at_top,var(--app-accent-soft),transparent_60%)] opacity-40" />
           </div>
 
           {/* Global Dropzone Overlay */}
@@ -2895,159 +2893,97 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 z-[100] m-4 flex items-center justify-center rounded-[2.5rem] border-2 border-dashed border-[var(--app-border-strong)] bg-[rgba(var(--app-bg-rgb),0.7)] pointer-events-none"
+                className="absolute inset-0 z-[100] m-3 flex items-center justify-center rounded-2xl border-2 border-dashed border-[var(--app-accent)]/30 bg-[rgba(var(--app-bg-rgb),0.8)] backdrop-blur-sm pointer-events-none"
               >
-                <motion.div 
-                  initial={{ scale: 0.9, opacity: 0 }}
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 1.1, opacity: 0 }}
-                  className="studio-panel-strong flex flex-col items-center gap-4 rounded-[3rem] p-12"
+                  exit={{ scale: 1.05, opacity: 0 }}
+                  className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-strong)] p-10 shadow-2xl"
                 >
-                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[var(--app-accent-soft)] text-[var(--app-accent)] ring-8 ring-[rgba(129,236,255,0.08)]">
-                    <Plus size={40} className="animate-pulse" />
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--app-accent-soft)] text-[var(--app-accent)]">
+                    <Plus size={28} />
                   </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="text-xl font-bold text-[var(--app-text)] tracking-tight">Ajouter des fichiers</span>
-                    <span className="text-sm font-medium text-[var(--app-text-muted)] uppercase tracking-[0.2em]">Déposez-les n'importe où</span>
+                  <div className="text-center">
+                    <div className="text-lg font-semibold text-[var(--app-text)]">Deposer des fichiers</div>
+                    <div className="mt-1 text-sm text-[var(--app-text-muted)]">N'importe ou</div>
                   </div>
                 </motion.div>
               </motion.div>
             )}
           </AnimatePresence>
 
-          <header className="relative z-40 flex h-[74px] items-center justify-between border-b border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] px-4 sm:px-6">
-            <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
-               <button onClick={() => setLeftSidebarVisible(!isLeftSidebarVisible)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Menu size={18}/></button>
+          <header className="relative z-40 flex h-14 items-center justify-between border-b border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))]/80 backdrop-blur-md px-3 sm:px-4">
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+               <button onClick={() => setLeftSidebarVisible(!isLeftSidebarVisible)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><Menu size={16}/></button>
                {user && (
-                 <button
-                   onClick={handleNewChat}
-                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(129,236,255,0.1),rgba(68,196,255,0.04))] text-[var(--app-accent)] transition-all hover:border-[var(--app-border-strong)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-text)]"
-                   title={activeModeCreateLabel}
-                 >
-                   <Plus size={18} />
+                 <button onClick={handleNewChat} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] transition-colors" title={activeModeCreateLabel}>
+                   <Plus size={16} />
                  </button>
                )}
-               
-               <div className="group/title flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+
+               <div className="group/title flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                  {!user ? (
-                   <>
-                     <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-accent)]">
-                       <Sparkles size={16} />
-                     </div>
-                      <div className="min-w-0 max-w-[10rem] sm:max-w-none">
-                        <div className="truncate text-sm font-semibold text-[var(--app-text)]">Studio Pro</div>
-                        <div className="mt-0.5 truncate text-[10px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] sm:text-[11px]">{activeModeLabel}</div>
-                     </div>
-                   </>
+                   <div className="min-w-0">
+                     <div className="truncate text-sm font-semibold text-[var(--app-text)]">Studio</div>
+                     <div className="truncate text-[10px] text-[var(--app-text-muted)]">{activeModeLabel}</div>
+                   </div>
                  ) : isEditingTitle ? (
-                   <div className="flex w-full max-w-md items-center gap-2">
-                     <input 
-                       autoFocus 
-                       value={titleInput} 
-                       onChange={e => setTitleInput(e.target.value)}
-                       onKeyDown={e => e.key === 'Enter' && handleManualTitleUpdate()}
-                       onBlur={() => setIsEditingTitle(false)}
-                       className="studio-input text-sm" 
-                     />
-                     <button onClick={handleManualTitleUpdate} className="studio-button-primary px-3 py-2 text-xs"><Check size={14}/></button>
+                   <div className="flex w-full max-w-sm items-center gap-2">
+                     <input autoFocus value={titleInput} onChange={e => setTitleInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleManualTitleUpdate()} onBlur={() => setIsEditingTitle(false)} className="studio-input text-sm py-1.5" />
+                     <button onClick={handleManualTitleUpdate} className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--app-accent)] text-white"><Check size={14}/></button>
                    </div>
                  ) : (
                    <>
-                      <div className="min-w-0 max-w-[12rem] sm:max-w-none">
-                        <div className="truncate text-sm font-semibold text-[var(--app-text)]">{activeSession.title}</div>
-                        <div className="mt-0.5 flex items-center gap-2 overflow-hidden">
-                          <span className="truncate text-[10px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] sm:text-[11px]">{activeSurfaceLabel}</span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-[var(--app-text)]">{activeSession.title}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-[10px] text-[var(--app-text-muted)]">{activeSurfaceLabel}</span>
                          {(activeSession.sessionKind === 'agent' || activeSession.sessionKind === 'generated_app') && (
-                           <span className="rounded-full border border-[var(--app-border)] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--app-accent)]">
-                            App
-                           </span>
+                           <span className="rounded-md bg-[var(--app-accent-soft)] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[var(--app-accent)]">App</span>
                          )}
                        </div>
                      </div>
-                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/title:opacity-100">
-                        <button 
-                          onClick={() => { setTitleInput(activeSession.title); setIsEditingTitle(true); }}
-                          className="flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border)] hover:bg-white/[0.04] hover:text-[var(--app-text)]"
-                          title="Modifier manuellement"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button 
-                          onClick={handleAiTitleUpdate}
-                          disabled={isGeneratingTitle}
-                          className={cn(
-                            "flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border)] hover:bg-white/[0.04] hover:text-[var(--app-accent)]",
-                            isGeneratingTitle && "animate-pulse"
-                          )}
-                          title="Générer par IA"
-                        >
-                          <Sparkles size={13} />
-                        </button>
+                     <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/title:opacity-100">
+                        <button onClick={() => { setTitleInput(activeSession.title); setIsEditingTitle(true); }} className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors" title="Modifier"><Pencil size={12} /></button>
+                        <button onClick={handleAiTitleUpdate} disabled={isGeneratingTitle} className={cn("flex h-7 w-7 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-accent)] transition-colors", isGeneratingTitle && "animate-pulse")} title="Titre IA"><Sparkles size={12} /></button>
                      </div>
                    </>
                  )}
                </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1">
                {activeMode === 'cowork' && user && (
-                 <button
-                   onClick={() => setShowAgentsHub(true)}
-                   className="hidden items-center gap-2 rounded-full border border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] px-3.5 py-2 text-sm font-medium text-[var(--app-text)] transition-colors hover:bg-[rgba(129,236,255,0.2)] sm:inline-flex"
-                  title="Ouvrir Cowork Apps"
-                 >
-                   <Bot size={15} />
-                  <span className="hidden sm:inline">Cowork Apps</span>
-                   {agentsWarning && (
-                     <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/18 bg-amber-300/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-amber-100/80">
-                       <span className="h-1.5 w-1.5 rounded-full bg-amber-200" />
-                       Local
-                     </span>
-                   )}
-                   {coworkStoreAgents.length > 0 && (
-                     <span className="rounded-full bg-white/12 px-2 py-0.5 text-[11px] text-white/80">
-                       {coworkStoreAgents.length}
-                     </span>
-                   )}
+                 <button onClick={() => setShowAgentsHub(true)} className="hidden items-center gap-1.5 rounded-lg bg-[var(--app-accent-soft)] px-2.5 py-1.5 text-xs font-medium text-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] sm:inline-flex" title="Cowork Apps">
+                   <Bot size={13} />
+                   <span className="hidden sm:inline">Apps</span>
+                   {coworkStoreAgents.length > 0 && (<span className="rounded-md bg-[var(--app-accent)]/20 px-1.5 py-0.5 text-[10px]">{coworkStoreAgents.length}</span>)}
                  </button>
                )}
-               <button onClick={() => setShowSearch(!showSearch)} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Search size={18}/></button>
-               <button onClick={() => handleExport('md')} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><Download size={18}/></button>
-               <button onClick={() => setRightSidebarVisible(!isRightSidebarVisible)} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] transition-all hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"><SlidersHorizontal size={18}/></button>
+               <button onClick={() => setShowSearch(!showSearch)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><Search size={15}/></button>
+               <button onClick={() => handleExport('md')} className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><Download size={15}/></button>
+               <button onClick={() => setRightSidebarVisible(!isRightSidebarVisible)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><SlidersHorizontal size={15}/></button>
             </div>
           </header>
 
           {activeMode === 'cowork' && user && !showAgentsHub && (latestCreatedStorePreview || agentsWarning) && (
-            <div className="border-b border-[var(--app-border)] bg-white/[0.02] px-4 py-2.5 sm:px-6">
-              <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2.5">
+            <div className="border-b border-[var(--app-border)] px-3 py-2 sm:px-4">
+              <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2">
                 {latestCreatedStorePreview && (
-                  <button
-                    onClick={() => setShowAgentsHub(true)}
-                    className="inline-flex items-center gap-2 rounded-full border border-cyan-300/18 bg-cyan-300/[0.08] px-3.5 py-2 text-xs font-medium text-cyan-50 transition-colors hover:bg-cyan-300/[0.12]"
-                  >
-                    <Bot size={13} />
-                    <span className="max-w-[14rem] truncate">{latestCreatedStorePreview.name} est prete dans le store</span>
+                  <button onClick={() => setShowAgentsHub(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--app-accent-soft)] px-2.5 py-1.5 text-xs font-medium text-[var(--app-accent)] transition-colors hover:bg-[var(--app-accent-soft)]">
+                    <Bot size={12} />
+                    <span className="max-w-[12rem] truncate">{latestCreatedStorePreview.name} prete</span>
                   </button>
                 )}
                 {agentsWarning && (
-                  <button
-                    onClick={() => setShowAgentsHub(true)}
-                    className="inline-flex items-center gap-2 rounded-full border border-amber-300/14 bg-amber-300/[0.08] px-3.5 py-2 text-xs font-medium text-amber-50/88 transition-colors hover:bg-amber-300/[0.12]"
-                  >
-                    <span className="h-2 w-2 rounded-full bg-amber-200" />
-                    Store local
+                  <button onClick={() => setShowAgentsHub(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-400 transition-colors">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    Local
                   </button>
                 )}
                 {latestCreatedStorePreview && (
-                  <button
-                    onClick={() => {
-                      setLatestCreatedAgent(null);
-                      setLatestCreatedGeneratedApp(null);
-                    }}
-                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-white/58 transition-colors hover:text-white"
-                    title="Masquer le statut de creation"
-                  >
-                    <X size={13} />
-                    Masquer
+                  <button onClick={() => { setLatestCreatedAgent(null); setLatestCreatedGeneratedApp(null); }} className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors" title="Masquer">
+                    <X size={12} />
                   </button>
                 )}
               </div>
@@ -3123,7 +3059,7 @@ export default function App() {
                 )}
                 {hiddenMessagesCount > 0 && (
                   <div className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 lg:px-10">
-                    <div className="flex items-start gap-3 rounded-[1.6rem] border border-[var(--app-border)] bg-white/[0.03] px-4 py-3 text-sm text-[var(--app-text-muted)]">
+                    <div className="flex items-start gap-3 rounded-xl border border-[var(--app-border)] bg-white/[0.03] px-4 py-3 text-sm text-[var(--app-text-muted)]">
                       <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent-soft)] text-[var(--app-accent)]">
                         <History size={15} />
                       </div>
@@ -3220,8 +3156,8 @@ export default function App() {
                 )}
               </main>
 
-              <div className="border-t border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] px-3 pb-4 pt-5 sm:px-5 sm:pt-6">
-                <div className="mx-auto max-w-4xl">
+              <div className="border-t border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))]/80 backdrop-blur-md px-3 pb-3 pt-3 sm:px-4">
+                <div className="mx-auto max-w-3xl">
                   <ChatInput onSend={handleSend} onStop={() => abortControllerRef.current?.abort()} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} />
                 </div>
               </div>
@@ -3235,12 +3171,12 @@ export default function App() {
       {/* Search Overlay */}
       <AnimatePresence>
         {showSearch && (
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="absolute left-1/2 top-24 z-[100] w-full max-w-xl -translate-x-1/2 px-4">
-            <div className="studio-panel-strong rounded-[1.8rem] p-4">
-              <div className="flex items-center gap-3">
-                <Search size={18} className="text-[var(--app-accent)]" />
-                <input autoFocus placeholder="Rechercher dans la conversation..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full bg-transparent border-none outline-none text-sm text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/55" />
-                <button onClick={() => setShowSearch(false)} className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-white/[0.04]"><X size={16} className="text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors" /></button>
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute left-1/2 top-20 z-[100] w-full max-w-lg -translate-x-1/2 px-4">
+            <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-strong)] p-3 shadow-xl backdrop-blur-xl">
+              <div className="flex items-center gap-2.5">
+                <Search size={15} className="text-[var(--app-accent)] shrink-0" />
+                <input autoFocus placeholder="Rechercher…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full bg-transparent border-none outline-none text-sm text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]" />
+                <button onClick={() => setShowSearch(false)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><X size={14} /></button>
               </div>
             </div>
           </motion.div>
@@ -3249,8 +3185,8 @@ export default function App() {
 
       {/* Modal image */}
       {selectedImage && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 p-4 backdrop-blur-xl" onClick={() => setSelectedImage(null)}>
-          <img src={selectedImage} className="max-h-full max-w-full rounded-[2rem] border border-white/10 shadow-[0_30px_80px_-28px_rgba(0,0,0,0.9)]" />
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 p-4 backdrop-blur-md" onClick={() => setSelectedImage(null)}>
+          <img src={selectedImage} className="max-h-full max-w-full rounded-xl shadow-2xl" />
         </div>
       )}
     </div>

@@ -241,7 +241,7 @@ function renderPdfPreview(agent: StudioAgent, palette: AgentPalette) {
   return (
     <div className="grid h-full gap-3 md:grid-cols-[0.54fr_0.46fr]">
       <div
-        className="rounded-[1.35rem] border p-4 text-slate-900 shadow-[0_28px_60px_-32px_rgba(0,0,0,0.55)]"
+        className="rounded-xl border p-4 text-slate-900 shadow-[0_28px_60px_-32px_rgba(0,0,0,0.55)]"
         style={{
           background: 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,245,240,0.94))',
           borderColor: 'rgba(255,255,255,0.55)',
@@ -270,7 +270,7 @@ function renderPdfPreview(agent: StudioAgent, palette: AgentPalette) {
       </div>
 
       <div className="flex flex-col gap-3">
-        <div className="rounded-[1.25rem] border p-3" style={palette.panel}>
+        <div className="rounded-lg border p-3" style={palette.panel}>
           <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-white/52">
             <span>Brief</span>
             <span>PDF</span>
@@ -281,11 +281,11 @@ function renderPdfPreview(agent: StudioAgent, palette: AgentPalette) {
             <FauxLine palette={palette} width="72%" />
           </div>
         </div>
-        <div className="flex-1 rounded-[1.25rem] border p-3" style={palette.tile}>
+        <div className="flex-1 rounded-lg border p-3" style={palette.tile}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Sections</div>
           <div className="mt-3 space-y-2">
             {['Couverture', 'Plan', 'Sources'].map((label) => (
-              <div key={label} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/72">
+              <div key={label} className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2 text-sm text-white/72">
                 <span>{label}</span>
                 <span className="h-2 w-2 rounded-full" style={{ background: palette.accent }} />
               </div>
@@ -299,7 +299,7 @@ function renderPdfPreview(agent: StudioAgent, palette: AgentPalette) {
 
 function renderHtmlPreview(agent: StudioAgent, palette: AgentPalette) {
   return (
-    <div className="h-full rounded-[1.35rem] border p-3" style={palette.panel}>
+    <div className="h-full rounded-xl border p-3" style={palette.panel}>
       <div className="flex items-center gap-2 border-b border-white/10 pb-3">
         <div className="flex gap-1.5">
           {['#f87171', '#fbbf24', '#4ade80'].map((color) => (
@@ -311,7 +311,7 @@ function renderHtmlPreview(agent: StudioAgent, palette: AgentPalette) {
         </div>
       </div>
       <div className="mt-4 grid h-[calc(100%-3.25rem)] gap-3 md:grid-cols-[0.58fr_0.42fr]">
-        <div className="rounded-[1.25rem] border p-4" style={palette.tile}>
+        <div className="rounded-lg border p-4" style={palette.tile}>
           <PreviewBadge palette={palette}>{resolveAgentVisualOutputKind(agent)}</PreviewBadge>
           <div className="mt-4 max-w-[13rem] text-2xl font-semibold leading-[1.02] tracking-tight text-white">
             {agent.name}
@@ -327,12 +327,12 @@ function renderHtmlPreview(agent: StudioAgent, palette: AgentPalette) {
           </div>
         </div>
         <div className="grid gap-3">
-          <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+          <div className="rounded-lg border p-3" style={palette.tile}>
             <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Hero</div>
             <div className="mt-3 h-20 rounded-[1rem]" style={{ background: `linear-gradient(135deg, ${palette.accentSoft}, rgba(255,255,255,0.04))` }} />
           </div>
           <div className="grid flex-1 grid-cols-2 gap-3">
-            <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+            <div className="rounded-lg border p-3" style={palette.tile}>
               <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Sections</div>
               <div className="mt-3 space-y-2">
                 <FauxLine palette={palette} width="88%" strong />
@@ -340,7 +340,7 @@ function renderHtmlPreview(agent: StudioAgent, palette: AgentPalette) {
                 <FauxLine palette={palette} width="74%" />
               </div>
             </div>
-            <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+            <div className="rounded-lg border p-3" style={palette.tile}>
               <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">CTA</div>
               <div className="mt-3 h-9 rounded-full" style={{ background: `linear-gradient(90deg, ${palette.accent}, ${palette.accentStrong})` }} />
               <div className="mt-3 space-y-2">
@@ -359,14 +359,14 @@ function renderPodcastPreview(agent: StudioAgent, palette: AgentPalette) {
   const bars = [40, 68, 82, 56, 92, 48, 72, 38, 78, 44];
   return (
     <div className="grid h-full gap-3 md:grid-cols-[0.52fr_0.48fr]">
-      <div className="rounded-[1.35rem] border p-4" style={palette.panel}>
+      <div className="rounded-xl border p-4" style={palette.panel}>
         <div className="flex items-center justify-between">
           <PreviewBadge palette={palette}>recording</PreviewBadge>
           <span className="text-[11px] uppercase tracking-[0.2em] text-white/44">Mix bus</span>
         </div>
         <div className="mt-4 text-2xl font-semibold tracking-tight text-white">{agent.name}</div>
         <div className="mt-2 text-sm text-white/60">{agent.tagline}</div>
-        <div className="mt-6 flex h-28 items-end gap-2 rounded-[1.25rem] border border-white/10 bg-black/18 px-3 pb-3">
+        <div className="mt-6 flex h-28 items-end gap-2 rounded-lg border border-white/10 bg-black/18 px-3 pb-3">
           {bars.map((height, index) => (
             <span
               key={`${height}-${index}`}
@@ -390,21 +390,21 @@ function renderPodcastPreview(agent: StudioAgent, palette: AgentPalette) {
       </div>
 
       <div className="flex flex-col gap-3">
-        <div className="rounded-[1.25rem] border p-3" style={palette.tile}>
+        <div className="rounded-lg border p-3" style={palette.tile}>
           <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-white/52">
             <span>Voix</span>
             <span>2 pistes</span>
           </div>
           <div className="mt-3 space-y-2.5">
             {['Host A', 'Host B'].map((host, index) => (
-              <div key={host} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/74">
+              <div key={host} className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2 text-sm text-white/74">
                 <span>{host}</span>
                 <span className="h-2 w-16 rounded-full" style={{ background: index === 0 ? palette.accent : 'rgba(255,255,255,0.55)' }} />
               </div>
             ))}
           </div>
         </div>
-        <div className="flex-1 rounded-[1.25rem] border p-3" style={palette.tile}>
+        <div className="flex-1 rounded-lg border p-3" style={palette.tile}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Timeline</div>
           <div className="mt-4 space-y-3">
             {['Intro', 'Sujet', 'Cloture'].map((item, index) => (
@@ -436,7 +436,7 @@ function renderMusicPreview(agent: StudioAgent, palette: AgentPalette) {
 
   return (
     <div className="grid h-full gap-3 md:grid-cols-[0.58fr_0.42fr]">
-      <div className="overflow-hidden rounded-[1.35rem] border p-4" style={palette.panel}>
+      <div className="overflow-hidden rounded-xl border p-4" style={palette.panel}>
         <div className="flex items-center justify-between">
           <PreviewBadge palette={palette}>lyria 3 lane</PreviewBadge>
           <span className="text-[11px] uppercase tracking-[0.2em] text-white/44">Nasheed</span>
@@ -445,9 +445,9 @@ function renderMusicPreview(agent: StudioAgent, palette: AgentPalette) {
         <div className="mt-2 max-w-[26rem] text-sm leading-6 text-white/62">{agent.tagline}</div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-[0.58fr_0.42fr]">
-          <div className="rounded-[1.25rem] border border-white/10 bg-black/22 p-4">
+          <div className="rounded-lg border border-white/10 bg-black/22 p-4">
             <div className="text-[11px] uppercase tracking-[0.18em] text-white/48">Scene</div>
-            <div className="mt-4 flex aspect-square items-center justify-center rounded-[1.4rem] border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.16),rgba(255,255,255,0.02)_52%,rgba(0,0,0,0.18)_72%)]">
+            <div className="mt-4 flex aspect-square items-center justify-center rounded-xl border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.16),rgba(255,255,255,0.02)_52%,rgba(0,0,0,0.18)_72%)]">
               <div
                 className="flex h-44 w-44 items-center justify-center rounded-full border"
                 style={{
@@ -462,7 +462,7 @@ function renderMusicPreview(agent: StudioAgent, palette: AgentPalette) {
           </div>
 
           <div className="flex flex-col gap-3">
-            <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+            <div className="rounded-lg border p-3" style={palette.tile}>
               <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Wave bed</div>
               <div className="mt-4 flex h-24 items-end gap-1.5 overflow-hidden rounded-[1rem] bg-black/16 px-3 pb-3">
                 {bars.map((height, index) => (
@@ -482,11 +482,11 @@ function renderMusicPreview(agent: StudioAgent, palette: AgentPalette) {
               </div>
             </div>
 
-            <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+            <div className="rounded-lg border p-3" style={palette.tile}>
               <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Structure</div>
               <div className="mt-3 space-y-2">
                 {['Intro spirituelle', 'Couplet principal', 'Refrain porte', 'Outro respirante'].map((label, index) => (
-                  <div key={label} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/74">
+                  <div key={label} className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2 text-sm text-white/74">
                     <span>{label}</span>
                     <span className="text-[10px] uppercase tracking-[0.18em] text-white/42">0{index + 1}</span>
                   </div>
@@ -498,14 +498,14 @@ function renderMusicPreview(agent: StudioAgent, palette: AgentPalette) {
       </div>
 
       <div className="grid gap-3">
-        <div className="rounded-[1.25rem] border p-3" style={palette.tile}>
+        <div className="rounded-lg border p-3" style={palette.tile}>
           <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-white/52">
             <span>Moteur</span>
             <span>Preview</span>
           </div>
           <div className="mt-3 space-y-2">
             {['Lyria 3 Pro', 'Lyria 3 Clip', 'Cover art'].map((label, index) => (
-              <div key={label} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/74">
+              <div key={label} className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2 text-sm text-white/74">
                 <span>{label}</span>
                 <span
                   className="h-2.5 w-2.5 rounded-full"
@@ -516,7 +516,7 @@ function renderMusicPreview(agent: StudioAgent, palette: AgentPalette) {
           </div>
         </div>
 
-        <div className="flex-1 rounded-[1.25rem] border p-3" style={palette.tile}>
+        <div className="flex-1 rounded-lg border p-3" style={palette.tile}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Palette</div>
           <div className="mt-4 grid grid-cols-3 gap-2">
             {[palette.accent, palette.accentStrong, 'rgba(255,255,255,0.78)'].map((color) => (
@@ -537,7 +537,7 @@ function renderMusicPreview(agent: StudioAgent, palette: AgentPalette) {
 function renderCodePreview(agent: StudioAgent, palette: AgentPalette) {
   return (
     <div className="grid h-full gap-3 md:grid-cols-[0.58fr_0.42fr]">
-      <div className="rounded-[1.35rem] border p-3" style={palette.panel}>
+      <div className="rounded-xl border p-3" style={palette.panel}>
         <div className="flex items-center justify-between border-b border-white/10 pb-3 text-[11px] uppercase tracking-[0.18em] text-white/52">
           <span>Editor</span>
           <span>{agent.slug}.ts</span>
@@ -546,7 +546,7 @@ function renderCodePreview(agent: StudioAgent, palette: AgentPalette) {
           {['const mission =', 'async function run()', 'return deliverable', 'export default app'].map((line, index) => (
             <div key={line} className="flex items-center gap-3">
               <span className="w-5 text-right text-xs text-white/28">{index + 1}</span>
-              <div className="flex-1 rounded-[0.9rem] border border-white/8 bg-black/18 px-3 py-2 text-sm text-white/70">
+              <div className="flex-1 rounded-lg border border-white/8 bg-black/18 px-3 py-2 text-sm text-white/70">
                 {line}
               </div>
             </div>
@@ -554,18 +554,18 @@ function renderCodePreview(agent: StudioAgent, palette: AgentPalette) {
         </div>
       </div>
       <div className="grid gap-3">
-        <div className="rounded-[1.2rem] border p-3" style={palette.tile}>
+        <div className="rounded-lg border p-3" style={palette.tile}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Status</div>
           <div className="mt-3 space-y-2">
             {['Build', 'Preview', 'Ship'].map((label, index) => (
-              <div key={label} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/72">
+              <div key={label} className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2 text-sm text-white/72">
                 <span>{label}</span>
                 <span className="h-2 w-2 rounded-full" style={{ background: index === 2 ? 'rgba(255,255,255,0.35)' : palette.accent }} />
               </div>
             ))}
           </div>
         </div>
-        <div className="flex-1 rounded-[1.2rem] border p-3" style={palette.tile}>
+        <div className="flex-1 rounded-lg border p-3" style={palette.tile}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Terminal</div>
           <div className="mt-3 rounded-[1rem] bg-black/30 p-3 font-mono text-xs leading-6 text-white/62">
             <div>$ launch {agent.slug}</div>
@@ -582,29 +582,29 @@ function renderCodePreview(agent: StudioAgent, palette: AgentPalette) {
 function renderImagePreview(agent: StudioAgent, palette: AgentPalette) {
   return (
     <div className="grid h-full gap-3 md:grid-cols-[0.56fr_0.44fr]">
-      <div className="rounded-[1.35rem] border p-4" style={palette.panel}>
+      <div className="rounded-xl border p-4" style={palette.panel}>
         <div className="flex items-center justify-between">
           <PreviewBadge palette={palette}>image lab</PreviewBadge>
           <span className="text-[11px] uppercase tracking-[0.18em] text-white/44">render</span>
         </div>
-        <div className="mt-4 rounded-[1.4rem] border border-white/10 p-4" style={{ background: `linear-gradient(135deg, ${palette.accentSoft}, rgba(255,255,255,0.04))` }}>
-          <div className="aspect-[4/5] rounded-[1.2rem] border border-white/10 bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,0.18),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(0,0,0,0.22))]" />
+        <div className="mt-4 rounded-xl border border-white/10 p-4" style={{ background: `linear-gradient(135deg, ${palette.accentSoft}, rgba(255,255,255,0.04))` }}>
+          <div className="aspect-[4/5] rounded-lg border border-white/10 bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,0.18),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(0,0,0,0.22))]" />
         </div>
         <div className="mt-4 text-sm text-white/62">{agent.tagline}</div>
       </div>
       <div className="grid gap-3">
-        <div className="rounded-[1.15rem] border p-3" style={palette.tile}>
+        <div className="rounded-lg border p-3" style={palette.tile}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Layers</div>
           <div className="mt-3 space-y-2">
             {['Subject', 'Foil', 'Frame'].map((label, index) => (
-              <div key={label} className="flex items-center justify-between rounded-[0.95rem] bg-black/18 px-3 py-2 text-sm text-white/74">
+              <div key={label} className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2 text-sm text-white/74">
                 <span>{label}</span>
                 <span className="h-2 w-10 rounded-full" style={{ background: index === 1 ? palette.accentStrong : palette.accent }} />
               </div>
             ))}
           </div>
         </div>
-        <div className="flex-1 rounded-[1.15rem] border p-3" style={palette.tile}>
+        <div className="flex-1 rounded-lg border p-3" style={palette.tile}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Palette</div>
           <div className="mt-4 grid grid-cols-3 gap-2">
             {[palette.accent, palette.accentStrong, 'rgba(255,255,255,0.78)'].map((color) => (
@@ -620,9 +620,9 @@ function renderImagePreview(agent: StudioAgent, palette: AgentPalette) {
 function renderResearchPreview(agent: StudioAgent, palette: AgentPalette) {
   return (
     <div className="grid h-full gap-3 md:grid-cols-[0.46fr_0.54fr]">
-      <div className="rounded-[1.35rem] border p-3" style={palette.panel}>
+      <div className="rounded-xl border p-3" style={palette.panel}>
         <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Dossier</div>
-        <div className="mt-3 rounded-[1.2rem] border border-white/10 bg-black/18 p-4">
+        <div className="mt-3 rounded-lg border border-white/10 bg-black/18 p-4">
           <div className="text-xl font-semibold tracking-tight text-white">{agent.name}</div>
           <div className="mt-2 text-sm leading-6 text-white/60">{agent.summary}</div>
           <div className="mt-4 space-y-2.5">
@@ -635,7 +635,7 @@ function renderResearchPreview(agent: StudioAgent, palette: AgentPalette) {
       <div className="grid gap-3">
         <div className="grid grid-cols-2 gap-3">
           {['Sources', 'Angles'].map((label) => (
-            <div key={label} className="rounded-[1.15rem] border p-3" style={palette.tile}>
+            <div key={label} className="rounded-lg border p-3" style={palette.tile}>
               <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">{label}</div>
               <div className="mt-4 text-3xl font-semibold tracking-tight text-white">
                 {label === 'Sources' ? '12' : '04'}
@@ -643,7 +643,7 @@ function renderResearchPreview(agent: StudioAgent, palette: AgentPalette) {
             </div>
           ))}
         </div>
-        <div className="flex-1 rounded-[1.15rem] border p-3" style={palette.tile}>
+        <div className="flex-1 rounded-lg border p-3" style={palette.tile}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Notes</div>
           <div className="mt-3 space-y-2.5">
             {['Cadre', 'Signal', 'Decision'].map((item, index) => (
@@ -667,7 +667,7 @@ function renderResearchPreview(agent: StudioAgent, palette: AgentPalette) {
 function renderAutomationPreview(palette: AgentPalette) {
   return (
     <div className="grid h-full gap-3 md:grid-cols-[0.42fr_0.58fr]">
-      <div className="rounded-[1.35rem] border p-3" style={palette.panel}>
+      <div className="rounded-xl border p-3" style={palette.panel}>
         <div className="text-[11px] uppercase tracking-[0.18em] text-white/52">Triggers</div>
         <div className="mt-3 space-y-2.5">
           {['Inbox', 'Watch', 'Deliver'].map((step, index) => (
@@ -680,7 +680,7 @@ function renderAutomationPreview(palette: AgentPalette) {
           ))}
         </div>
       </div>
-      <div className="rounded-[1.35rem] border p-4" style={palette.tile}>
+      <div className="rounded-xl border p-4" style={palette.tile}>
         <div className="flex items-center justify-between">
           <PreviewBadge palette={palette}>active flow</PreviewBadge>
           <span className="text-[11px] uppercase tracking-[0.18em] text-white/44">schedule</span>
@@ -730,19 +730,19 @@ function renderPreviewByKind(agent: StudioAgent, palette: AgentPalette) {
 
 const sizeConfig: Record<PreviewSize, { shell: string; header: string; caption: string; footer: string }> = {
   compact: {
-    shell: 'min-h-[14.5rem] rounded-[1.65rem] p-4',
+    shell: 'min-h-[14.5rem] rounded-xl p-4',
     header: 'text-[10px] tracking-[0.2em]',
     caption: 'text-[13px]',
     footer: 'mt-4 gap-2',
   },
   feature: {
-    shell: 'min-h-[18rem] rounded-[2rem] p-5',
+    shell: 'min-h-[18rem] rounded-2xl p-5',
     header: 'text-[10px] tracking-[0.24em]',
     caption: 'text-[14px]',
     footer: 'mt-5 gap-2.5',
   },
   workspace: {
-    shell: 'min-h-[21rem] rounded-[2.1rem] p-5',
+    shell: 'min-h-[21rem] rounded-2xl p-5',
     header: 'text-[10px] tracking-[0.24em]',
     caption: 'text-[15px]',
     footer: 'mt-5 gap-3',
@@ -786,7 +786,7 @@ export const AgentAppPreview: React.FC<AgentAppPreviewProps> = ({
           </div>
           <div className="mt-2 flex items-center gap-3">
             <div
-              className="flex h-11 w-11 items-center justify-center rounded-[1.15rem] border bg-black/20"
+              className="flex h-11 w-11 items-center justify-center rounded-lg border bg-black/20"
               style={{ borderColor: palette.rim }}
             >
               <Icon size={18} style={{ color: palette.accent }} />

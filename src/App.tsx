@@ -322,7 +322,7 @@ export default function App() {
     lastSessionIdsByMode,
     configs, setConfig, isLeftSidebarVisible, setLeftSidebarVisible,
     isRightSidebarVisible, setRightSidebarVisible, theme, 
-    isPromptRefinerEnabled
+    isPromptRefinerEnabled, setPromptRefinerEnabled
   } = useStore();
   const config = configs[activeMode];
 
@@ -1949,7 +1949,7 @@ export default function App() {
           const refineRes = await fetch('/api/refine', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: finalPrompt })
+            body: JSON.stringify({ prompt: finalPrompt, mode: effectiveMode })
           });
           if (refineRes.ok) {
             const refineData = await refineRes.json();
@@ -3048,6 +3048,8 @@ export default function App() {
                         isLoading={isLoading}
                         messages={displayedMessages}
                         onImageClick={setSelectedImage}
+                        isRefinerEnabled={isPromptRefinerEnabled}
+                        onToggleRefiner={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
                       />
                     )}
                     {activeMode === 'video' && (
@@ -3055,6 +3057,8 @@ export default function App() {
                         onGenerate={handleSend}
                         isLoading={isLoading}
                         messages={displayedMessages}
+                        isRefinerEnabled={isPromptRefinerEnabled}
+                        onToggleRefiner={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
                       />
                     )}
                     {activeMode === 'audio' && (
@@ -3062,6 +3066,8 @@ export default function App() {
                         onGenerate={handleSend}
                         isLoading={isLoading}
                         messages={displayedMessages}
+                        isRefinerEnabled={isPromptRefinerEnabled}
+                        onToggleRefiner={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
                       />
                     )}
                     {activeMode === 'lyria' && (
@@ -3069,6 +3075,8 @@ export default function App() {
                         onGenerate={handleSend}
                         isLoading={isLoading}
                         messages={displayedMessages}
+                        isRefinerEnabled={isPromptRefinerEnabled}
+                        onToggleRefiner={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
                       />
                     )}
                   </Suspense>

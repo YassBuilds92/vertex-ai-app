@@ -29,7 +29,34 @@ import {
 import { getServiceAccountEmail, uploadToGCSWithMetadata } from '../lib/storage.js';
 import { buildModelContentsFromRequest } from '../lib/chat-parts.js';
 
-const REFINER_SYSTEM_PROMPT = `Optimise l'instruction systeme suivante pour un modele IA puissant. Sois concis.`;
+const REFINER_PROMPTS: Record<string, string> = {
+  image: `Tu es un expert en direction artistique et generation d'images par IA.
+Reecris ce prompt pour le rendre plus riche, precis et evocateur.
+Ajoute : style photographique ou artistique, lumiere, palette de couleurs, texture, composition, profondeur de champ, ambiance.
+Retourne UNIQUEMENT le prompt reecrit. Pas d'explication, pas de guillemets.`,
+
+  video: `Tu es un directeur de la photographie et un expert en generation video IA.
+Reecris ce prompt pour le rendre cinematographique.
+Ajoute : mouvement de camera (travelling, panoramique, plan fixe...), rythme, atmosphere, lumiere, couleur, espace sonore implicite.
+Retourne UNIQUEMENT le prompt reecrit. Pas d'explication.`,
+
+  audio: `Tu es un directeur artistique audio et un expert en synthese vocale.
+Reecris ce texte pour le rendre plus naturel a lire a voix haute : rythme, ponctuation, fluidite.
+Ne change pas le sens. Retourne UNIQUEMENT le texte ameliore.`,
+
+  lyria: `Tu es un compositeur et un prompt engineer expert en generation musicale par IA.
+Reecris ce prompt pour le rendre plus precis musicalement.
+Ajoute : instruments, tempo, dynamique, texture sonore, ambiance emotionnelle, influences stylistiques.
+Retourne UNIQUEMENT le prompt reecrit. Pas d'explication.`,
+
+  chat: `Tu es un expert en communication avec les LLMs.
+Reecris ce message pour le rendre plus clair, precis et actionnable pour un modele IA.
+Conserve l'intention originale. Retourne UNIQUEMENT le message reecrit.`,
+
+  cowork: `Tu es un expert en orchestration d'agents IA autonomes.
+Reecris cette mission pour la rendre plus precise, avec des objectifs clairs et mesurables.
+Retourne UNIQUEMENT la mission reecrite.`,
+};
 const ICON_PROMPT_SYSTEM_PROMPT = `Genere un prompt d'image pour un logo minimaliste representant ce role IA.`;
 
 function createUploadFileName(prefix: string, extension: string) {
@@ -166,10 +193,12 @@ export function registerStandardApiRoutes(app: Express) {
 
   app.post('/api/refine', async (req, res) => {
     try {
-      const { prompt, type } = ChatRefineSchema.parse(req.body);
+      const { prompt, type, mode } = ChatRefineSchema.parse(req.body);
       const modelId = 'gemini-3.1-flash-lite-preview';
       const ai = createGoogleAI(modelId);
-      const systemPrompt = type === 'icon' ? ICON_PROMPT_SYSTEM_PROMPT : REFINER_SYSTEM_PROMPT;
+      const systemPrompt = type === 'icon'
+        ? ICON_PROMPT_SYSTEM_PROMPT
+        : (REFINER_PROMPTS[mode || 'chat'] || REFINER_PROMPTS.chat);
 
       const result = await retryWithBackoff(() => ai.models.generateContent({
         model: modelId,

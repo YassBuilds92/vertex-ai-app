@@ -483,10 +483,13 @@ export const MessageItem = React.memo(({
                       </div>
                       <div className="flex items-center gap-2 mb-2 text-[10px] font-bold uppercase tracking-wider text-indigo-400/80">
                         <Sparkles size={10} />
-                        Instruction Système Générée
+                        Prompt optimise par l'IA
                       </div>
                       <p className="message-copy text-[13px] text-[var(--app-text)]/80 leading-relaxed italic font-serif">
                         "{msg.refinedInstruction}"
+                      </p>
+                      <p className="mt-2 text-[11px] text-[var(--app-text-muted)]/60">
+                        Original : {msg.content}
                       </p>
                     </div>
                   </motion.div>

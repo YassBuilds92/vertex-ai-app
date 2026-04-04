@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const ChatRefineSchema = z.object({
   prompt: z.string(),
   type: z.enum(['system', 'icon']).optional(),
+  mode: z.string().optional(),
 });
 
 export const AgentCreateSchema = z.object({

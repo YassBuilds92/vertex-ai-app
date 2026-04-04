@@ -22,12 +22,16 @@ interface LyriaStudioProps {
   onGenerate: (prompt: string) => void;
   isLoading: boolean;
   messages: Message[];
+  isRefinerEnabled: boolean;
+  onToggleRefiner: () => void;
 }
 
 export const LyriaStudio: React.FC<LyriaStudioProps> = ({
   onGenerate,
   isLoading,
   messages,
+  isRefinerEnabled,
+  onToggleRefiner,
 }) => {
   const { configs, setConfig } = useStore();
   const config = configs.lyria;
@@ -103,6 +107,20 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
               )}
             </AnimatePresence>
           </div>
+
+          {/* Refiner toggle */}
+          <button
+            onClick={onToggleRefiner}
+            className={cn(
+              'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
+              isRefinerEnabled
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
+            )}
+          >
+            <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
+            Raffineur IA
+          </button>
 
           {/* Variants */}
           <div className="flex items-center gap-1">

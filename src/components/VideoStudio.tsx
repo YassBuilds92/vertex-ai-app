@@ -15,12 +15,16 @@ interface VideoStudioProps {
   onGenerate: (prompt: string) => void;
   isLoading: boolean;
   messages: Message[];
+  isRefinerEnabled: boolean;
+  onToggleRefiner: () => void;
 }
 
 export const VideoStudio: React.FC<VideoStudioProps> = ({
   onGenerate,
   isLoading,
   messages,
+  isRefinerEnabled,
+  onToggleRefiner,
 }) => {
   const { configs, setConfig } = useStore();
   const config = configs.video;
@@ -53,6 +57,22 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   return (
     <div className="flex h-full flex-col">
       <div className="mx-auto w-full max-w-4xl flex-shrink-0 px-4 pt-6 pb-4 sm:px-6">
+        {/* Refiner toggle */}
+        <div className="mb-4 flex items-center gap-2">
+          <button
+            onClick={onToggleRefiner}
+            className={cn(
+              'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
+              isRefinerEnabled
+                ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
+                : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
+            )}
+          >
+            <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
+            Raffineur IA
+          </button>
+        </div>
+
         {/* Prompt */}
         <div className="relative rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-colors focus-within:border-[var(--app-border-strong)]">
           <textarea

@@ -26,12 +26,16 @@ interface AudioStudioProps {
   onGenerate: (prompt: string) => void;
   isLoading: boolean;
   messages: Message[];
+  isRefinerEnabled: boolean;
+  onToggleRefiner: () => void;
 }
 
 export const AudioStudio: React.FC<AudioStudioProps> = ({
   onGenerate,
   isLoading,
   messages,
+  isRefinerEnabled,
+  onToggleRefiner,
 }) => {
   const { configs, setConfig } = useStore();
   const config = configs.audio;
@@ -150,6 +154,20 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
               )}
             </AnimatePresence>
           </div>
+
+          {/* Refiner toggle */}
+          <button
+            onClick={onToggleRefiner}
+            className={cn(
+              'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
+              isRefinerEnabled
+                ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
+                : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
+            )}
+          >
+            <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
+            Raffineur IA
+          </button>
 
           {/* Language */}
           <input

@@ -25,19 +25,39 @@ const imageModels = [
 ];
 
 const aspectRatios = [
-  { value: '1:1', label: '1:1', icon: '⬜' },
-  { value: '4:3', label: '4:3', icon: '▬' },
-  { value: '3:4', label: '3:4', icon: '▮' },
-  { value: '16:9', label: '16:9', icon: '▬▬' },
-  { value: '9:16', label: '9:16', icon: '▮▮' },
-  { value: '3:2', label: '3:2', icon: '▭' },
+  { value: '', label: 'Auto' },
+  { value: '1:1', label: '1:1' },
+  { value: '4:3', label: '4:3' },
+  { value: '3:4', label: '3:4' },
+  { value: '16:9', label: '16:9' },
+  { value: '9:16', label: '9:16' },
+  { value: '3:2', label: '3:2' },
+  { value: '2:3', label: '2:3' },
+  { value: '21:9', label: '21:9' },
 ];
+
+function RatioShape({ ratio }: { ratio: string }) {
+  if (!ratio) {
+    return <span className="text-[9px] font-black opacity-60">A</span>;
+  }
+  const [w, h] = ratio.split(':').map(Number);
+  const maxDim = 12;
+  const scale = Math.min(maxDim / w, maxDim / h);
+  return (
+    <span
+      className="inline-block rounded-[1.5px] border-[1.5px] border-current"
+      style={{ width: Math.max(4, w * scale), height: Math.max(4, h * scale) }}
+    />
+  );
+}
 
 interface ImageStudioProps {
   onGenerate: (prompt: string) => void;
   isLoading: boolean;
   messages: Message[];
   onImageClick: (url: string) => void;
+  isRefinerEnabled: boolean;
+  onToggleRefiner: () => void;
 }
 
 export const ImageStudio: React.FC<ImageStudioProps> = ({
@@ -45,6 +65,8 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   isLoading,
   messages,
   onImageClick,
+  isRefinerEnabled,
+  onToggleRefiner,
 }) => {
   const { configs, setConfig } = useStore();
   const config = configs.image;
@@ -54,14 +76,14 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const allImages = messages
     .filter((m) => m.role === 'model')
     .flatMap((m) => {
-      const imgs: { url: string; prompt: string }[] = [];
+      const imgs: { url: string; prompt: string; refined?: string }[] = [];
       if (m.attachments) {
         for (const a of m.attachments) {
           if (a.type === 'image' && a.url) {
             const userMsg = messages.find(
               (u) => u.role === 'user' && u.createdAt <= m.createdAt && u.createdAt > m.createdAt - 60000,
             );
-            imgs.push({ url: a.url, prompt: userMsg?.content || '' });
+            imgs.push({ url: a.url, prompt: userMsg?.content || '', refined: userMsg?.refinedInstruction });
           }
         }
       }
@@ -83,7 +105,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     <div className="flex h-full flex-col">
       {/* Top: Prompt + Settings */}
       <div className="mx-auto w-full max-w-4xl flex-shrink-0 px-4 pt-6 pb-4 sm:px-6">
-        {/* Model pill */}
+        {/* Model pill + Refiner toggle */}
         <div className="relative mb-4 flex items-center gap-2">
           <button
             onClick={() => setShowModelPicker(!showModelPicker)}
@@ -92,6 +114,20 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             <ImageIcon size={13} className="text-[var(--app-accent)]" />
             {modelNameMap[config.model] || config.model}
             <ChevronDown size={12} className={cn('text-[var(--app-text-muted)] transition-transform', showModelPicker && 'rotate-180')} />
+          </button>
+
+          {/* Refiner toggle */}
+          <button
+            onClick={onToggleRefiner}
+            className={cn(
+              'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
+              isRefinerEnabled
+                ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
+                : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
+            )}
+          >
+            <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
+            Raffineur IA
           </button>
 
           <AnimatePresence>
@@ -135,27 +171,29 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             }}
             placeholder="Decris ton image — cadre, lumiere, style, ambiance..."
             rows={3}
-            className="w-full resize-none bg-transparent px-5 pt-4 pb-14 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none"
+            className="w-full resize-none bg-transparent px-5 pt-4 pb-16 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none"
           />
-          <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
+          <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
             {/* Settings row */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              {/* Aspect ratio */}
+            <div className="flex flex-wrap items-center gap-1">
+              {/* Aspect ratio with visual shapes */}
               {aspectRatios.map((ar) => (
                 <button
                   key={ar.value}
                   onClick={() => setConfig({ aspectRatio: ar.value as any })}
+                  title={ar.label || 'Auto'}
                   className={cn(
-                    'rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all',
-                    config.aspectRatio === ar.value
+                    'flex flex-col items-center gap-0.5 rounded-lg px-2 py-1 transition-all min-w-[34px]',
+                    (config.aspectRatio || '') === ar.value
                       ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-sm'
                       : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
                   )}
                 >
-                  {ar.label}
+                  <RatioShape ratio={ar.value} />
+                  <span className="text-[9px] font-bold leading-none">{ar.label}</span>
                 </button>
               ))}
-              <span className="mx-1 h-4 w-px bg-[var(--app-border)]" />
+              <span className="mx-0.5 h-4 w-px bg-[var(--app-border)]" />
               {/* Number of images */}
               {[1, 2, 3, 4].map((n) => (
                 <button
@@ -178,7 +216,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               onClick={handleSubmit}
               disabled={!prompt.trim() || isLoading}
               className={cn(
-                'flex items-center gap-2 rounded-xl px-5 py-2 text-[13px] font-bold transition-all',
+                'flex shrink-0 items-center gap-2 rounded-xl px-5 py-2 text-[13px] font-bold transition-all',
                 prompt.trim() && !isLoading
                   ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
                   : 'bg-white/[0.06] text-[var(--app-text-muted)] cursor-not-allowed',
@@ -227,22 +265,32 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                     loading="lazy"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-                  <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between p-2.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    {img.prompt && (
-                      <span className="mr-2 truncate text-[10px] text-white/80">{img.prompt}</span>
-                    )}
-                    <div className="flex gap-1.5">
-                      <a
-                        href={img.url}
-                        download="image.png"
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/30"
-                      >
-                        <Download size={12} />
-                      </a>
-                      <button className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/30">
-                        <Maximize2 size={12} />
-                      </button>
+                  <div className="absolute bottom-0 left-0 right-0 p-2.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="flex items-end justify-between gap-2">
+                      <div className="min-w-0">
+                        {img.refined && (
+                          <div className="mb-1 flex items-center gap-1 text-[9px] font-semibold text-indigo-300">
+                            <Sparkles size={8} />
+                            Prompt optimise
+                          </div>
+                        )}
+                        {img.prompt && (
+                          <span className="block truncate text-[10px] text-white/80">{img.prompt}</span>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 gap-1.5">
+                        <a
+                          href={img.url}
+                          download="image.png"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/30"
+                        >
+                          <Download size={12} />
+                        </a>
+                        <button className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/30">
+                          <Maximize2 size={12} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

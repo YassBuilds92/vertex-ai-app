@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, UploadCloud } from 'lu
 import type { AgentFormValues, GeneratedAppManifest, Message } from '../types';
 import { GeneratedAppCanvas } from '../generated-app-sdk';
 import { loadGeneratedAppComponent } from '../utils/generatedAppBundle';
+import { CoworkFloatingWidget } from './CoworkFloatingWidget';
 
 interface GeneratedAppHostProps {
   manifest: GeneratedAppManifest;
@@ -266,6 +267,8 @@ export const GeneratedAppHost: React.FC<GeneratedAppHostProps> = ({
           )}
         </div>
       </main>
+
+      <CoworkFloatingWidget onAskCowork={onAskCowork} />
     </section>
   );
 };

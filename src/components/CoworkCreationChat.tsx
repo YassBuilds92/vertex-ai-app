@@ -187,22 +187,6 @@ export const CoworkCreationChat: React.FC<CoworkCreationChatProps> = ({
               </motion.div>
             ))}
 
-            {/* Awaiting clarification question */}
-            {isAwaiting && creationRun?.clarificationQuestion && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex justify-start"
-              >
-                <div className="max-w-[85%] rounded-2xl border border-indigo-300/12 bg-indigo-400/[0.06] px-4 py-3 text-sm leading-6 text-white/80">
-                  <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.2em] text-indigo-300/70">
-                    Cowork
-                  </div>
-                  <div className="whitespace-pre-wrap">{creationRun.clarificationQuestion}</div>
-                </div>
-              </motion.div>
-            )}
-
             {/* Phase progress inline */}
             {recentPhases.length > 0 && !isAwaiting && (
               <motion.div

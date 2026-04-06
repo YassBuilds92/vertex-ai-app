@@ -1,5 +1,23 @@
 # DECISIONS
 
+## 2026-04-04 - Migration design system: cyan → indigo, border-radius standardises
+- Statut: deploye sur main (commit cdbdc0b)
+- Contexte: l'utilisateur trouve le site moche et demande un redesign complet de toute l'UI/UX
+- Decision:
+  - Accent principal: indigo (#818cf8 dark / #6366f1 light) remplace cyan (#81ecff / #44c4ff)
+  - Font: Inter + JetBrains Mono remplace Sora
+  - Background: #09090b (zinc-950) remplace les gradients complexes
+  - Border-radius: 3 paliers standardises (lg/xl/2xl) remplacent 15+ valeurs custom
+  - Retrait de la scene Three.js du StudioEmptyState (hero simplifie)
+- Pourquoi:
+  - Cyan etait trop "generique chatbot IA", indigo donne plus de personnalite
+  - Les border-radius custom creaient une inconsistance visuelle entre composants
+  - Inter est plus lisible que Sora a petite taille et mieux supporte
+  - Le hero Three.js alourdissait le premier ecran pour un gain visuel marginal
+- Consequence:
+  - Tous les composants partagent le meme langage visuel
+  - StudioHeroScene reste dans le codebase mais n'est plus charge par l'empty state
+
 ## 2026-04-02 - Le hero vide passe sur une scene `three.js` lazy-load, sans `react-three-fiber`
 - Statut: adopte localement
 - Contexte: l'utilisateur veut une vraie refonte plus Awwwards, plus epuree, avec beaucoup plus d'air et explicitement une presence `three.js`.

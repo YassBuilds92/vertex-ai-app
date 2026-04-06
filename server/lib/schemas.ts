@@ -269,6 +269,17 @@ export const ChatSchema = z.object({
   generatedApps: z.array(GeneratedAppManifestSchema).optional(),
   agentRuntime: AgentRuntimeSchema.optional(),
   appRuntime: GeneratedAppRuntimeSchema.optional(),
+  workspaceFiles: z.array(z.object({
+    fileId: z.string(),
+    fileName: z.string(),
+    mimeType: z.string(),
+    attachmentType: z.string(),
+    storageUri: z.string(),
+    fileSizeBytes: z.number(),
+    sessionId: z.string().optional(),
+    label: z.string(),
+    createdAt: z.number(),
+  })).optional(),
 });
 
 export const GeneratedAppPublishSchema = z.object({

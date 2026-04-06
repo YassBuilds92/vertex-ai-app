@@ -241,6 +241,15 @@ service cloud.firestore {
       match /generatedApps/{appId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
+
+      match /workspace/files/{fileId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) &&
+          request.resource.data.fileName is string &&
+          request.resource.data.storageUri is string &&
+          request.resource.data.createdAt is number;
+        allow delete: if isOwner(userId) || isAdmin();
+      }
     }
 
     match /{path=**}/messages/{messageId} {

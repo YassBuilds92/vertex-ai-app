@@ -9,6 +9,18 @@ declare global {
 
 export type AppMode = 'chat' | 'image' | 'video' | 'audio' | 'lyria' | 'cowork';
 
+export interface WorkspaceFile {
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  attachmentType: string;
+  storageUri: string;
+  fileSizeBytes: number;
+  sessionId?: string;
+  label: string;
+  createdAt: number;
+}
+
 export type AttachmentType = 'image' | 'video' | 'audio' | 'document' | 'youtube';
 
 export interface AttachmentVideoMetadata {

@@ -1,5 +1,38 @@
 # SESSION STATE
 
+## 2026-04-04 - Redesign UI complet: migration design system cyan→indigo, nettoyage border-radius
+
+### Ce qui a ete accompli
+- **Design system migre**: accent cyan (#81ecff) → indigo (#818cf8/#6366f1), font Sora → Inter + JetBrains Mono
+- **14 fichiers modifies** dans un seul commit `cdbdc0b`, pousse sur main
+- **Composants réécrits de zero**: ChatInput, StudioEmptyState, SidebarLeft
+- **Composants migres (couleurs + border-radius)**: AgentsHub, AgentWorkspacePanel, GeneratedAppHost, AgentAppPreview, AttachmentGallery, NasheedStudioWorkspace, SidebarRight, MessageItem
+- **index.css**: nouveau systeme de variables CSS (--app-accent, --app-bg-rgb, --radius-*)
+- **App.tsx**: header compact h-14, ambient bg simplifie, max-w-3xl pour chat area
+- **Zero reference cyan restante** dans le codebase
+- **Zero border-radius custom** (rounded-[X.Xrem]) restant — tout standardise en rounded-lg/xl/2xl
+- **Build clean** (seuls warnings de chunk size habituels)
+
+### Bug "je peux plus ecrire"
+- Investigation approfondie de ChatInput.tsx et handleSend dans App.tsx
+- Le textarea n'est disabled que pendant isRecording
+- handleSend n'est pas mode-gate — fonctionne pareil pour tous les modes
+- sendInFlightRef.current se reset dans un finally block
+- **Conclusion**: pas un bug frontend. Cause probable: erreur backend/API pour les modes non-chat, ou version deployee obsolete
+
+### Decisions prises
+- Retirer la scene Three.js du StudioEmptyState (simplification, gain perf)
+- Palette indigo plutot que cyan (plus moderne, meilleur contraste, moins "generique IA")
+- Border-radius standardises: lg (0.75rem), xl (1rem), 2xl (1.25rem) — fini les valeurs custom par composant
+
+### Ce qui reste a faire
+- Tester l'ecriture dans tous les modes en etant connecte (reproduire le bug)
+- Tester Cowork Apps
+- Verifier theme light
+- Verifier mobile
+
+---
+
 ## Mise a jour complementaire - 2026-04-02 (refonte hero `three.js`, shell plus epure, validation desktop/mobile)
 - Besoin traite:
   - l'utilisateur veut une vraie refonte plus Awwwards:

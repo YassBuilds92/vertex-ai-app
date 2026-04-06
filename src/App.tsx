@@ -10,9 +10,10 @@ import {
 
 import {
   auth, db, googleProvider, signInWithPopup, onAuthStateChanged,
-  doc, collection, collectionGroup, onSnapshot, query, where, orderBy, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
+  doc, collection, collectionGroup, onSnapshot, query, where, orderBy, setDoc, addDoc, updateDoc, deleteDoc, getDoc, getDocs,
   OperationType, handleFirestoreError, User as FirebaseUser, cleanForFirestore
 } from './firebase';
+import { limit } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from './store/useStore';
 import { useAudioRecorder } from './hooks/useAudioRecorder';
@@ -21,7 +22,7 @@ import { SidebarRight } from './components/SidebarRight';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
 import { StudioEmptyState } from './components/StudioEmptyState';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest } from './types';
+import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest, WorkspaceFile } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -2187,6 +2188,20 @@ export default function App() {
             }
           : undefined;
 
+        let workspaceFiles: WorkspaceFile[] = [];
+        if (isCoworkRun && !isAgentRun && !isGeneratedAppRun && user) {
+          try {
+            const wsSnap = await getDocs(
+              query(
+                collection(db, 'users', user.uid, 'workspace', 'files'),
+                orderBy('createdAt', 'desc'),
+                limit(30)
+              )
+            );
+            workspaceFiles = wsSnap.docs.map(d => ({ fileId: d.id, ...d.data() } as WorkspaceFile));
+          } catch { /* silencieux — l'espace de travail vide ne bloque pas */ }
+        }
+
         const response = await fetch('/api/cowork', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2216,6 +2231,7 @@ export default function App() {
             agentRuntime,
             appRuntime,
             sessionId: currentSessionId,
+            workspaceFiles: isCoworkRun && !isAgentRun && !isGeneratedAppRun ? workspaceFiles : undefined,
           }),
         });
 
@@ -2317,6 +2333,26 @@ export default function App() {
                     message: "L'app a ete regeneree, mais sa sauvegarde Firestore a echoue. Le run Cowork continue.",
                   });
                 });
+              }
+            }
+
+            if (data.type === 'workspace_file_created' && user) {
+              try {
+                const { type: _t, timestamp: _ts, ...fileData } = data as Record<string, unknown>;
+                await addDoc(collection(db, 'users', user.uid, 'workspace', 'files'), {
+                  ...fileData,
+                  createdAt: Date.now(),
+                });
+              } catch (e) {
+                console.error('Workspace file persistence failed:', e);
+              }
+            }
+
+            if (data.type === 'workspace_file_deleted' && data.fileId && user) {
+              try {
+                await deleteDoc(doc(db, 'users', user.uid, 'workspace', 'files', String(data.fileId)));
+              } catch (e) {
+                console.error('Workspace file delete failed:', e);
               }
             }
 

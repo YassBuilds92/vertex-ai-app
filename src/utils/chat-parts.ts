@@ -107,7 +107,7 @@ function buildCoworkMemoryPart(message: Message): ApiMessagePartPayload | null {
 
 export function buildApiMessageParts(
   message: Message,
-  options?: { includeCoworkMemory?: boolean }
+  options?: { includeCoworkMemory?: boolean; historyMode?: boolean }
 ): ApiMessagePartPayload[] {
   const parts: ApiMessagePartPayload[] = [{ text: message.content || ' ' }];
 
@@ -119,7 +119,14 @@ export function buildApiMessageParts(
   }
 
   for (const attachment of message.attachments || []) {
-    parts.push({ attachment: buildApiAttachmentPayload(attachment) });
+    if (options?.historyMode) {
+      // Replace full media data with a text reference to avoid the model re-processing
+      // historical attachments as if they were newly sent on each subsequent turn.
+      const label = [attachment.name, attachment.mimeType].filter(Boolean).join(' — ');
+      parts.push({ text: `[Pièce jointe: ${label || attachment.type || 'fichier'}]` });
+    } else {
+      parts.push({ attachment: buildApiAttachmentPayload(attachment) });
+    }
   }
 
   return parts;
@@ -131,6 +138,6 @@ export function buildApiHistoryFromMessages(
 ): ApiHistoryMessagePayload[] {
   return messages.map((message) => ({
     role: message.role,
-    parts: buildApiMessageParts(message, options),
+    parts: buildApiMessageParts(message, { ...options, historyMode: true }),
   }));
 }

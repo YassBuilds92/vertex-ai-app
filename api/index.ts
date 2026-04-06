@@ -547,16 +547,48 @@ function resolveRequestClock(clientContext?: ClientContext): RequestClock {
   };
 }
 
+interface WorkspaceFileEntry {
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  attachmentType: string;
+  storageUri: string;
+  fileSizeBytes: number;
+  sessionId?: string;
+  label: string;
+  createdAt: number;
+}
+
+function buildWorkspaceSummaryForPrompt(files: WorkspaceFileEntry[]): string {
+  const lines = files.slice(-30).map((f, i) => {
+    const size = f.fileSizeBytes > 1_000_000
+      ? `${(f.fileSizeBytes / 1_000_000).toFixed(1)} Mo`
+      : f.fileSizeBytes > 0
+        ? `${Math.round(f.fileSizeBytes / 1024)} Ko`
+        : '';
+    return `${i + 1}. ${f.label} | ${f.fileName} | ${f.attachmentType}${size ? ` | ${size}` : ''} | storageUri: ${f.storageUri} | fileId: ${f.fileId}`;
+  });
+  return [
+    `Tu as ${files.length} fichier(s) dans ton espace de travail personnel (persistants entre sessions):`,
+    ...lines,
+    "Tu peux utiliser leur storageUri pour les passer directement aux modeles Gemini ou les referencer dans tes reponses.",
+    "Pour retirer un fichier obsolete, utilise 'workspace_delete' avec son fileId.",
+  ].join('\n');
+}
+
 function buildCoworkSystemInstruction(
   userInstruction?: string,
   capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true },
-  runtime?: { originalMessage?: string; requestClock?: RequestClock; hubAgents?: HubAgentRecord[] },
+  runtime?: { originalMessage?: string; requestClock?: RequestClock; hubAgents?: HubAgentRecord[]; workspaceFiles?: WorkspaceFileEntry[] },
   behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean; agentDelegationEnabled?: boolean }
 ): string {
   const requestClock = runtime?.requestClock;
   const agentDelegationEnabled = Boolean(behavior?.agentDelegationEnabled);
   const hubAgentsSummary = Array.isArray(runtime?.hubAgents) && runtime.hubAgents.length > 0
     ? summarizeHubAgentsForPrompt(runtime.hubAgents, 8)
+    : '';
+  const workspaceSummary = Array.isArray(runtime?.workspaceFiles) && runtime.workspaceFiles.length > 0
+    ? buildWorkspaceSummaryForPrompt(runtime.workspaceFiles)
     : '';
   const debugReasoning = Boolean(behavior?.debugReasoning);
 
@@ -615,6 +647,7 @@ ${agentDelegationEnabled
   - 'review_pdf_draft'
   - 'create_pdf'
   - 'release_file'
+  - 'workspace_delete' : retire un fichier obsolete ou remplace de ton espace de travail persistant.
   - Pour Gemini TTS: prefere 1 seule voix pour narration, flash info, voix-off, explication, monologue ou chronique solo.
   - Pour Gemini TTS: prefere 2 intervenants pour sketch, interview, duo de presentation, dispute, Q/R vivante ou conversation ecrite avec 2 roles explicites.
   - Le multi-speaker Gemini TTS supporte exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants, pas plus. Si le besoin depasse 2 voix, fusionne en 2 roles max ou repasse en narrateur unique.
@@ -651,6 +684,9 @@ ${requestClock
 ${agentDelegationEnabled && hubAgentsSummary ? `### HUB AGENTS DISPONIBLES
 - Tu peux les relancer avec 'run_hub_agent' en utilisant leur id, slug ou nom.
 ${hubAgentsSummary}
+` : ''}
+${workspaceSummary ? `### ESPACE DE TRAVAIL PERSONNEL
+${workspaceSummary}
 ` : ''}
 
 ### MICRO-EXEMPLES
@@ -5572,7 +5608,7 @@ app.post('/api/cowork', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
   };
   try {
-    const { message, sessionId, history, attachments, config, clientContext, hubAgents, generatedApps, agentRuntime, appRuntime } = ChatSchema.parse(req.body);
+    const { message, sessionId, history, attachments, config, clientContext, hubAgents, generatedApps, agentRuntime, appRuntime, workspaceFiles } = ChatSchema.parse(req.body);
     const requestClock = resolveRequestClock(clientContext);
     const agentDelegationEnabled = !appRuntime && !agentRuntime && config.agentDelegationEnabled === true;
     const availableHubAgents = agentDelegationEnabled && Array.isArray(hubAgents)
@@ -8160,6 +8196,15 @@ app.post('/api/cowork', async (req, res) => {
           });
           log.info(`Releasing file: ${filePath} (${mimeType})`);
           const uploaded = await uploadToGCSWithMetadata(buffer, fileName, mimeType);
+          emitEvent('workspace_file_created', {
+            fileName,
+            mimeType,
+            attachmentType,
+            storageUri: uploaded.storageUri,
+            fileSizeBytes: buffer.byteLength,
+            sessionId: sessionId || '',
+            label: fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+          });
           return {
             success: true,
             url: uploaded.url,
@@ -8169,8 +8214,23 @@ app.post('/api/cowork', async (req, res) => {
             mimeType,
             attachmentType,
             fileSizeBytes: buffer.byteLength,
-            message: `Fichier ${filePath} uploadÃƒÂ© avec succÃƒÂ¨s. Voici le lien de tÃƒÂ©lÃƒÂ©chargement.`,
+            message: `Fichier ${filePath} uploadé avec succès. Voici le lien de téléchargement.`,
           };
+        }
+      },
+      {
+        name: "workspace_delete",
+        description: "Retire un fichier de l'espace de travail persistant. A utiliser quand un livrable est obsolete ou remplace par une version plus recente.",
+        parameters: {
+          type: "object",
+          properties: {
+            fileId: { type: "string", description: "Identifiant du fichier tel qu'il apparait dans la section ESPACE DE TRAVAIL PERSONNEL du contexte." }
+          },
+          required: ["fileId"]
+        },
+        execute: ({ fileId }: { fileId: string }) => {
+          emitEvent('workspace_file_deleted', { fileId });
+          return { success: true, message: `Fichier ${fileId} retiré de l'espace de travail.` };
         }
       },
       {
@@ -9252,6 +9312,7 @@ app.post('/api/cowork', async (req, res) => {
               originalMessage: message,
               requestClock,
               hubAgents: availableHubAgents,
+              workspaceFiles: Array.isArray(workspaceFiles) ? workspaceFiles : [],
             }, {
               executionMode,
               debugReasoning: COWORK_DEBUG_REASONING,

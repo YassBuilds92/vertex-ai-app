@@ -9,7 +9,6 @@ type GeneratedAppBundleStateInput = {
 
 const OPTIONAL_PREVIEW_BUNDLE_PATTERNS = [
   /could not resolve "\.\/(?:src|shared)\/generated-app-sdk\.(?:tsx|js)"/i,
-  /could not resolve "react\/jsx-runtime"/i,
   /could not resolve "lucide-react"/i,
 ] as const;
 

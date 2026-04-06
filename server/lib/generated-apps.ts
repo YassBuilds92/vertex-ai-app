@@ -226,8 +226,8 @@ const PLANNER_PROMPT = `Retourne UNIQUEMENT un JSON valide pour la prochaine eta
 Deux sorties possibles:
 1. {"status":"needs_clarification","question":"..."}
 2. {"status":"ready","definition":{...}}
-Quand le brief est encore trop ambigu pour construire une bonne app, pose UNE question utile et concrete en langage naturel. N'invente pas de liste d'options produit.
-Quand le cadre est suffisant, retourne definition complete.
+REGLE CRITIQUE : Si c'est le PREMIER message de l'utilisateur (transcript vide ou un seul message), tu DOIS TOUJOURS retourner needs_clarification. Ne retourne JAMAIS status:ready au premier message, meme si le brief semble complet. Pose UNE question qui creuse les besoins reels : style visuel souhaite, public cible, modeles IA preferes, experience attendue, cas d'usage concret. La question doit etre precise, naturelle, et doit vraiment affiner la vision.
+Quand le transcript contient deja au moins une reponse de clarification, tu peux retourner status:ready avec la definition complete.
 Champs obligatoires dans definition: name, slug, tagline, summary, mission, whenToUse, outputKind, modalities, identity, starterPrompt, systemInstruction, toolAllowList, capabilities, uiSchema, modelProfile, visualDirection, runtime.
 outputKind autorise pour compatibilite store: pdf | html | music | podcast | code | research | automation | image.
 Outils autorises: ${TOOL_LIBRARY.join(', ')}.
@@ -236,25 +236,48 @@ Modeles image: ${IMAGE_MODELS.join(', ')}.
 Modeles musique: ${MUSIC_MODELS.join(', ')}.
 Modeles TTS: ${TTS_MODELS.join(', ')}.
 3 a 8 champs UI max. Ecris en francais. L'app peut etre hybride. outputKind est seulement un tag legacy pour le store, pas une contrainte de conception.
-runtime.toolDefaults doit encoder les defaults utiles par outil quand l'app en a besoin.`;
+runtime.toolDefaults doit encoder les defaults utiles par outil quand l'app en a besoin.
+visualDirection OBLIGATOIRE: choisis une accentColor unique et specifique au domaine (ex: pour un generateur de sprites : #a855f7, pour un generateur de cartes : #f59e0b, pour un studio musical : #10b981). mood, thesis et surfaceTone doivent etre coherents avec l'app et pas generiques.`;
 
 const REVISION_PROMPT = `Retourne UNIQUEMENT un JSON valide pour mettre a jour une app experte Cowork existante.
 Conserve l'identite utile de l'app. Mets a jour interface, prompt, outils, modalities, identity, runtime.toolDefaults et modelProfile selon la demande.
 3 a 8 champs UI max. Ecris en francais.`;
 
-const SOURCE_GENERATOR_PROMPT = `Retourne UNIQUEMENT du code TSX valide.
-Genere un composant React exporte par defaut pour une generated app Cowork.
-Contraintes strictes:
-- importe seulement React depuis 'react'
-- aucun autre import
-- composant self-contained
-- utilise les props suivantes si utiles: manifest, featureDeck, formValues, isRunning, messages, onFieldChange, onRun, onPublish, canPublish, onAskCowork
-- l'interface doit etre differente du host legacy manifeste autant que possible
-- conserve une experience premium, lisible et exploitable
-- respecte les champs du manifest sans supposer un outputKind rigide
-- n'utilise pas de markdown fences ni d'explications
-- utilise des styles inline ou des objets JS simples
-- si l'app est media-rich, mets en avant les artefacts deja presents dans messages`;
+const SOURCE_GENERATOR_PROMPT = `Retourne UNIQUEMENT du code TSX valide. Aucun markdown, aucune explication, aucune fence.
+Tu codes une vraie application avec une interface COMPLETEMENT sur mesure pour cette app specifique.
+REGLES ABSOLUES:
+- import React from 'react' uniquement, aucun autre import
+- styles uniquement inline (objets JS) ou template literals dans style={{}}
+- le composant est export default, self-contained
+- props disponibles: manifest, featureDeck, formValues, isRunning, messages, onFieldChange, onRun, onPublish, canPublish, onAskCowork
+
+DESIGN SYSTEM OBLIGATOIRE:
+- fond principal: #050810 ou #060b12
+- utilise manifest.visualDirection.accentColor comme couleur dominante PARTOUT (titres, bordures actives, boutons, glows, gradients)
+- typographie: font-size grand pour le titre principal (28-40px), sous-titres mediums, labels en uppercase tracking-widest
+- espacements genereux, layout qui respire
+- bordures: 1px solid avec rgba de l'accentColor a 0.18-0.25
+- glows subtils: box-shadow avec l'accentColor a faible opacite (0.08-0.15)
+- coins arrondis: 12-16px pour les cards, 8-10px pour les inputs, 999px pour les badges
+
+INTERFACE SUR MESURE - TU DOIS:
+- creer un layout UNIQUE adapte a ce que fait l'app. Exemples:
+  * generateur de sprite → zone de preview en grille avec cellules animees, controles de vitesse FPS, palette de couleurs
+  * generateur de carte Pokemon → apercu de la carte en temps reel avec le fond themed, champs de stats integres visuellement
+  * studio musical → visualiseur de forme d'onde, lecteur audio custom, knobs de parametres
+  * studio podcast → transcripteur, frise chronologique des tours de parole, player
+  * generateur de recherche → cartes de sources, timeline de gathering, synthese progressive
+- chaque section a un titre contextuel (pas "ATELIER", pas "RESULTATS" generiques — utilise les vrais mots du domaine)
+- les boutons d'action sont des elements visuellement distincts et clairement clickables avec l'accentColor
+- affiche les resultats deja presents dans messages de facon pertinente (images en grid, audio avec player, texte structure)
+- si isRunning=true, montre un indicateur d'activite thematique (pas juste un spinner — adapte a l'app)
+
+ABSOLUMENT INTERDIT:
+- copier le layout du GeneratedAppCanvas generique (deux colonnes ATELIER/RESULTATS avec grid xl:grid-cols-2)
+- utiliser des classes Tailwind (pas de className avec strings Tailwind)
+- utiliser bg-[#...], text-[...] ou autres utilities Tailwind dans className
+- aucun composant externe (lucide, etc.)
+- aucun formValues[field.id] generique itere en boucle sans mise en scene — chaque champ doit avoir sa propre presentation visuelle contextualisee`;
 
 function slugify(value: string): string {
   return value
@@ -945,7 +968,9 @@ export async function buildGeneratedAppVersion(sourceCode: string, slug: string)
       write: false,
       format: 'esm',
       platform: 'browser',
-      jsx: 'automatic',
+      jsx: 'transform',
+      jsxFactory: 'React.createElement',
+      jsxFragment: 'React.Fragment',
       target: ['es2020'],
       sourcemap: false,
       minify: false,

@@ -1,5 +1,31 @@
 # SESSION STATE
 
+## 2026-04-06 - Workspace persistant Cowork + fix history media
+
+### Ce qui a été accompli
+
+**1. Fix bug media history Cowork**
+- Problème: à chaque message suivant une photo, l'IA répondait comme si la photo venait d'être envoyée
+- Cause: `buildApiMessageParts` renvoyait les données brutes pour tous les messages historiques
+- Fix: option `historyMode` → remplace les attachments par `[Pièce jointe: nom — mimeType]`
+- Fichier: `src/utils/chat-parts.ts`
+
+**2. Espace de travail persistant Cowork (VM)**
+- `release_file` émet SSE `workspace_file_created` → frontend persiste dans `/users/{uid}/workspace/files/`
+- Avant chaque run Cowork: fetch 30 derniers fichiers → `workspaceFiles` dans body → `### ESPACE DE TRAVAIL PERSONNEL` dans system prompt
+- Nouvel outil `workspace_delete` → SSE `workspace_file_deleted` → suppression Firestore
+- 5 fichiers modifiés: `src/types.ts`, `server/lib/schemas.ts`, `api/index.ts`, `src/App.tsx`, `firestore.rules`
+- Commit 1f86135, pushé sur main
+
+### État: non testé en run réel — à valider end-to-end
+
+### Pièges
+- `limit` importé depuis `firebase/firestore` directement dans App.tsx (légèrement incohérent avec le reste)
+- Signed URLs expirent 7j, storageUri permanent → liens morts dans chat après 7j pour l'utilisateur
+- Workspace actif seulement pour runs Cowork purs (pas agent/generated_app)
+
+---
+
 ## 2026-04-04 - Redesign UI complet: migration design system cyan→indigo, nettoyage border-radius
 
 ### Ce qui a ete accompli

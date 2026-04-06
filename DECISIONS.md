@@ -1,5 +1,28 @@
 # DECISIONS
 
+## 2026-04-06 - Workspace Cowork : frontend-mediated (pas firebase-admin)
+- Statut: livré (commit 1f86135)
+- Contexte: l'utilisateur veut que l'agent Cowork ait une mémoire persistante de ses créations (type VM)
+- Decision: pattern frontend-mediated identique à hubAgents/generatedApps
+  - Frontend lit Firestore (/users/{uid}/workspace/files) avant chaque run
+  - Envoie les fichiers dans le body (workspaceFiles)
+  - Backend injecte dans le system prompt via buildCoworkSystemInstruction
+  - release_file émet workspace_file_created → frontend persiste dans Firestore
+  - Nouvel outil workspace_delete → émet workspace_file_deleted → frontend supprime
+- Pourquoi pas firebase-admin:
+  - Le backend n'a pas d'identité par utilisateur (pas de token JWT user)
+  - Ajouter firebase-admin demanderait un refactor auth complet
+  - Le pattern frontend-mediated est déjà utilisé pour hubAgents, cohérent et sans dépendance nouvelle
+- Conséquence:
+  - storageUri (gs://) est stocké → permanent, jamais expiré, passable aux modèles Gemini
+  - Signed URLs (7j) dans les messages restent valides pour le téléchargement utilisateur
+
+## 2026-04-06 - Fix history media: historyMode remplace raw attachments par texte
+- Statut: livré (commit 1f86135)
+- Contexte: l'IA re-décrivait les images/médias à chaque message suivant car buildApiMessageParts renvoyait les données binaires pour tous les messages historiques
+- Decision: option historyMode dans buildApiMessageParts → remplace attachment data par "[Pièce jointe: nom — mimeType]"
+- Pourquoi: le message courant continue d'envoyer les vraies données via le champ attachments séparé; l'historique n'a besoin que d'une référence textuelle
+
 ## 2026-04-04 - Migration design system: cyan → indigo, border-radius standardises
 - Statut: deploye sur main (commit cdbdc0b)
 - Contexte: l'utilisateur trouve le site moche et demande un redesign complet de toute l'UI/UX

@@ -1,4 +1,5 @@
 import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { 
   MessageSquare, Plus, Send, 
   Bot, User, Database, Image as ImageIcon, 
@@ -2067,34 +2068,34 @@ export default function App() {
     shouldAutoScrollRef.current = !scrollContainer || isScrolledNearBottom(scrollContainer) || displayedMessages.length === 0;
     setRecentlyCompletedMessageId(null);
 
-    // Show the user message IMMEDIATELY before any async work so the UI never freezes.
-    // We use a stable ID so each branch below can update the same optimistic entry with
-    // clean attachment URLs once uploads complete.
+    // flushSync forces React to paint SYNCHRONOUSLY before any async work.
+    // Without this, React 18 batches all state updates and delays the paint until
+    // the first network await, causing the visible freeze the user experiences.
     let earlyUserMessageId: string | null = null;
-    if (!overrideMessages) {
-      earlyUserMessageId = createClientMessageId('msg');
-      setOptimisticMessages(prev => [...prev, {
-        id: earlyUserMessageId!,
-        role: 'user' as const,
-        content: textToSend,
-        createdAt: Date.now(),
-        // Show local attachment data for instant feedback; URLs are filled in after upload.
-        attachments: pendingAttachments.map(({ file: _file, ...rest }) => rest),
-      }]);
-    }
-
-    // Clear old response state immediately to prevent "phantom" previous responses
-    setStreamingContent('');
-    setStreamingThoughts('');
-    setExpandedThoughts(prev => {
-      const { streaming, ...rest } = prev;
-      return rest;
+    flushSync(() => {
+      if (!overrideMessages) {
+        earlyUserMessageId = createClientMessageId('msg');
+        setOptimisticMessages(prev => [...prev, {
+          id: earlyUserMessageId!,
+          role: 'user' as const,
+          content: textToSend,
+          createdAt: Date.now(),
+          // Show local attachment data for instant feedback; URLs are filled in after upload.
+          attachments: pendingAttachments.map(({ file: _file, ...rest }) => rest),
+        }]);
+      }
+      // Clear old response state in the same synchronous paint.
+      setStreamingContent('');
+      setStreamingThoughts('');
+      setExpandedThoughts(prev => {
+        const { streaming, ...rest } = prev;
+        return rest;
+      });
+      setLiveCoworkMessage(null);
+      setIsLoading(true);
     });
-    setLiveCoworkMessage(null);
     liveCoworkMessageRef.current = null;
-
     sendInFlightRef.current = true;
-    setIsLoading(true);
     // Defer thoughts-panel expansion until thoughts actually arrive to avoid showing the
     // reflection popup before the user message renders.
     setExpandedThoughts(prev => ({ ...prev, streaming: true }));

@@ -1,5 +1,59 @@
 # QA RECIPES
 
+## Cowork - follow-up court ne doit plus rerunner le premier dossier
+- Objectif:
+  - verifier qu'un run Cowork long peut etre suivi d'une deuxieme question differente sans que le modele reparte sur la premiere mission
+- Validation locale:
+  - `node node_modules/tsx/dist/cli.mjs verify-chat-parts.ts`
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts`
+- Validation manuelle:
+  - ouvrir Cowork
+  - envoyer une grosse demande de recherche ou de comparaison
+  - attendre une reponse riche ou un etat de fin de run
+  - envoyer ensuite un follow-up court mais different, par exemple:
+    - `ok, et toi tu penses quoi du plus terrifiant ?`
+    - ou une deuxieme question ciblee qui ne demande pas un nouveau dossier complet
+- Attendus:
+  - Cowork traite d'abord la nouvelle question
+  - il reutilise l'ancien dossier seulement comme contexte
+  - il ne relance pas automatiquement une grosse batterie de recherches sur la premiere requete si le follow-up ne l'exige pas
+  - il n'ecrit pas une reponse qui semble toujours adressee a la toute premiere question
+
+## Modes media - studios generes, copie de prompt et layouts premium
+- Objectif:
+  - verifier les vraies surfaces studio apres generation pour l'image, l'audio et Lyria
+  - verifier la copie des prompts, la mise en avant hero et les previews media custom
+- Harness:
+  - `tmp/media-modes-preview.html`
+  - `tmp/media-modes-preview.tsx`
+- Lancement:
+  - `npx vite --host 127.0.0.1 --port 4174`
+- URLs utiles:
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=audio&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=lyria&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=cowork&surface=panel`
+- Attendus image:
+  - une image hero est mise en avant
+  - les autres generations vivent dans une galerie secondaire
+  - le prompt source et le prompt optimise sont copiables
+  - le panneau de meta montre modele, profil de raffineur et consignes perso
+- Attendus audio / Lyria:
+  - le lecteur est custom et non natif
+  - les actions play/pause sont lisibles et esthetiques
+  - le prompt source du media est visible et copiables
+- Attendus Cowork:
+  - la section de raffineur par mode est visible
+  - le mode `cowork` montre bien ses options sans confusion avec les autres surfaces
+- Captures de reference locales:
+  - `tmp/qa-image-studio-2026-04-08.png`
+  - `tmp/qa-image-studio-mobile-2026-04-08.png`
+  - `tmp/qa-audio-studio-2026-04-08.png`
+  - `tmp/qa-audio-studio-mobile-2026-04-08.png`
+  - `tmp/qa-lyria-studio-2026-04-08.png`
+  - `tmp/qa-cowork-panel-2026-04-08.png`
+  - `tmp/qa-cowork-panel-mobile-2026-04-08.png`
+
 ## Cowork v2 - Phase 2 sandbox Python/Shell
 - Objectif:
   - verifier que le worker Cloud Run execute du Python et du shell reels

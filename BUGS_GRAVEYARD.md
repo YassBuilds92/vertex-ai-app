@@ -1,5 +1,61 @@
 # BUGS GRAVEYARD
 
+## 2026-04-08 - Cowork repartait sur la premiere requete et ignorait le follow-up courant
+- Statut: corrige localement
+- Symptome:
+  - l'utilisateur pose une grosse premiere question de recherche
+  - puis pose une deuxieme question differente ou plus courte
+  - Cowork repond comme s'il etait encore sur la premiere mission
+  - il peut meme relancer des recherches sur les memes termes au lieu de traiter le follow-up
+- Tentatives:
+  - verification du prompt systeme Cowork
+  - audit du payload envoye a `/api/cowork`
+  - inspection de l'historique reconstruit pour les tours precedents
+  - validation ciblee via `test-cowork-loop.ts` et helper `buildApiHistoryFromMessages(...)`
+- Cause racine:
+  - l'historique envoye au modele restait trop massif et trop verbeux
+  - la derniere demande etait noyee dans ce contexte precedent
+  - rien n'indiquait assez fermement au runtime que le dernier message devait prendre le dessus sur l'ancien dossier
+- Resolution:
+  - ajout de `coworkCompact` dans `src/utils/chat-parts.ts`
+  - limitation de l'historique a un petit nombre de messages utiles
+  - ajout de `buildCoworkCurrentTurnPrompt(...)` dans `api/index.ts`
+  - renforcement de la system instruction Cowork pour rappeler qu'un follow-up court ne doit pas relancer tout le dossier precedent
+  - ajout/ajustement de la regression dans `test-cowork-loop.ts`
+- Preuve:
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+  - `node node_modules/tsx/dist/cli.mjs verify-chat-parts.ts` : OK
+  - verification ciblee de `buildApiHistoryFromMessages(..., { coworkCompact: true, maxMessages: 8 })` : OK
+- Prevention:
+  - tout runtime agentique multi-tour doit traiter le dernier message comme l'instruction de tete
+  - l'historique doit etre contextuel et borne, jamais une retranscription brute sans priorisation
+
+## 2026-04-08 - Le harness media etait blanc parce que Vite servait un module stale, pas parce que la UI cassait
+- Statut: corrige localement
+- Symptome:
+  - les pages `tmp/media-modes-preview.html?...` chargeaient mais rendaient un ecran blanc
+  - les captures headless montraient une page vide, ce qui faisait soupconner un bug frontend general
+- Tentatives:
+  - verification des captures et du serveur Vite
+  - ajout d'un overlay d'erreur runtime dans le HTML
+  - ajout d'un error boundary React dans le harness
+  - restart Vite et purge `node_modules/.vite`
+- Cause racine:
+  - Vite continuait a servir une version transformee stale de `src/utils/media-history.ts`
+  - cette version ne portait pas les nouveaux exports attendus (`buildVideoHistory`, etc.)
+  - le blank screen venait donc d'un `SyntaxError` module/export, pas du layout studio
+- Resolution:
+  - affichage in-page des erreurs runtime pour sortir du faux "page blanche"
+  - creation du nouveau fichier `src/utils/media-gallery-history.ts`
+  - recablage des imports studio vers ce nouveau chemin
+  - suppression de l'ancien module stale
+- Preuve:
+  - le harness a recommence a rendre normalement apres recablage
+  - captures QA reelles regagnees pour image, audio, lyria et Cowork
+- Prevention:
+  - en cas de blank preview, rendre l'erreur visible dans la page avant toute chasse CSS
+  - si Vite sert obstinement un ancien module transforme, renommer le fichier fautif pour casser la resolution stale
+
 ## 2026-04-07 - La "session" sandbox Python marchait sur une requete puis perdait tout a la suivante
 - Statut: corrige localement et valide reellement sur le worker Cloud Run
 - Symptome:

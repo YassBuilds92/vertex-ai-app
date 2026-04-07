@@ -259,8 +259,12 @@ const baseResearch = {
   const defaultHistory = buildApiHistoryFromMessages([publishedMessage]);
   assert.equal(defaultHistory[0]?.parts.length, 2);
   assert.equal(defaultHistory[0]?.parts[0]?.text, publishedMessage.content);
-  assert.ok(defaultHistory[0]?.parts[1]?.text?.includes('opening.mp3'));
-  assert.ok(defaultHistory[0]?.parts[1]?.text?.includes('audio/mpeg'));
+  assert.equal(defaultHistory[0]?.parts[1]?.attachment?.name, 'opening.mp3');
+  assert.equal(defaultHistory[0]?.parts[1]?.attachment?.mimeType, 'audio/mpeg');
+  assert.equal(
+    defaultHistory[0]?.parts[1]?.attachment?.url,
+    'https://storage.googleapis.com/example/audio-opening.mp3?sig=abc',
+  );
 
   const coworkHistory = buildApiHistoryFromMessages([publishedMessage], { includeCoworkMemory: true });
   const memoryPart = coworkHistory[0]?.parts.find((part: any) => typeof part.text === 'string' && part.text.includes('[Memoire Cowork persistante]'));

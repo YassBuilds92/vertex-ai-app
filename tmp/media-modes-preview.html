@@ -7,6 +7,37 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function () {
+        const showDebug = (label, value) => {
+          const existing = document.getElementById('preview-debug-overlay');
+          const target = existing || document.createElement('pre');
+          target.id = 'preview-debug-overlay';
+          target.textContent = label + '\n' + String(value || 'Unknown error');
+          target.style.position = 'fixed';
+          target.style.inset = '24px';
+          target.style.padding = '20px';
+          target.style.margin = '0';
+          target.style.whiteSpace = 'pre-wrap';
+          target.style.background = 'rgba(28, 9, 16, 0.96)';
+          target.style.color = '#ffe7ef';
+          target.style.border = '1px solid rgba(251, 113, 133, 0.45)';
+          target.style.borderRadius = '24px';
+          target.style.font = '14px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace';
+          target.style.zIndex = '99999';
+          if (!existing) document.body.appendChild(target);
+        };
+
+        window.addEventListener('error', (event) => {
+          showDebug('window.error', event.error?.stack || event.message || event.filename || 'Unknown error');
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+          const reason = event.reason;
+          showDebug('unhandledrejection', reason?.stack || reason?.message || String(reason));
+        });
+      })();
+    </script>
     <script type="module" src="/tmp/media-modes-preview.tsx"></script>
   </body>
   </html>

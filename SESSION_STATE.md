@@ -1,5 +1,91 @@
 # SESSION STATE
 
+## 2026-04-08 - Fluidite globale, studios media premium et fix critique Cowork multi-tour fermes localement
+
+### Ce qui a ete accompli
+- Correctif critique Cowork multi-tour:
+  - un follow-up court ne doit plus etre ecrase par le dossier precedent
+  - `src/utils/chat-parts.ts` compacte maintenant l'historique Cowork
+  - `api/index.ts` ajoute un wrapper de tour courant pour rappeler que la derniere demande utilisateur est prioritaire
+- Socle media/instructions:
+  - `src/types.ts` et `src/App.tsx` preservent `generationMeta` sur les medias generes
+  - ces metas gardent le prompt source, le prompt raffine, le modele, le profil de raffineur et les consignes perso
+  - `src/utils/instruction-gallery.ts` agrege maintenant une vraie galerie d'instructions/prompts a partir de l'historique
+- Studios media:
+  - `src/components/ImageStudio.tsx`
+    - hero image + galerie secondaire
+    - copie fiable des prompts source / optimises
+    - meta visibles sur le profil de raffineur
+  - `src/components/StudioAudioPlayer.tsx`
+    - vrai player custom pour audio/Lyria
+    - prompt source visible et copiable
+  - `src/components/AudioStudio.tsx`, `src/components/LyriaStudio.tsx`, `src/components/VideoStudio.tsx`
+    - historique/media relies aux vraies metas de generation
+- Raffineurs IA:
+  - `shared/prompt-refiners.ts` introduit des profils par mode
+  - `src/store/useStore.ts` persiste maintenant la config raffineur par mode
+  - `src/components/SidebarRight.tsx` expose profils et consignes perso selon le mode
+- Perf / fluidite:
+  - `src/App.tsx`
+    - updates streaming plus calmes
+    - `startTransition(...)` sur des ecritures plus lourdes
+  - `src/index.css`
+    - encore moins de transitions globales inutiles
+  - `vite.config.ts`
+    - chunking plus propre; le chunk principal reste autour de 208 kB
+
+### Validation locale
+- `npm run lint` : OK
+- `npm run build` : OK
+- `node node_modules/tsx/dist/cli.mjs verify-chat-parts.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+- QA visuelle reelle:
+  - harness Vite source `tmp/media-modes-preview.html`
+  - captures desktop/mobile regenerees puis nettoyees du repo avant commit
+  - verification manuelle des surfaces:
+    - image studio
+    - audio studio
+    - Lyria studio
+    - panneau Cowork
+
+### Bugs importants rencontres et corriges
+- Bug produit critique:
+  - Cowork repondait a la premiere question au lieu du follow-up
+  - resolution: historique compact + prompt de priorite du tour courant
+- Bug QA/harness:
+  - preview media blanche
+  - cause: Vite servait encore un module stale sur `src/utils/media-history.ts`
+  - resolution:
+    - overlay d'erreur runtime
+    - `PreviewErrorBoundary`
+    - nouveau module `src/utils/media-gallery-history.ts`
+
+### Ce qui reste a faire
+- rejouer ces flows dans le produit reel apres push:
+  - Cowork long + follow-up court
+  - image avec copie de prompt
+  - audio/Lyria avec player custom
+- redeployer l'app si on veut projeter ce lot sur le domaine public
+- reprendre ensuite le prochain chantier prioritaire
+
+### Decisions prises et pourquoi
+- le dernier message utilisateur doit avoir la priorite absolue sur un run Cowork multi-tour
+- les metas de generation media sont un contrat produit de premiere classe, pas juste du debug
+- le raffineur doit etre configure par mode, pas globalement
+
+### Pieges / points d'attention
+- ne pas reintroduire un historique Cowork massif
+- ne pas perdre `generationMeta` a la sanitization ou dans les galleries
+- si un harness Vite devient blanc, afficher d'abord l'erreur runtime dans la page avant de toucher au CSS
+
+### Intention exacte
+- fermer proprement le gros lot demande par l'utilisateur:
+  - fluidite
+  - no-freeze
+  - UX image/audio plus premium
+  - Cowork plus intelligent en multi-tour
+- laisser la suite sur une base stable, observable et rejouable
+
 ## 2026-04-07 - Cowork v2 Phase 2: sandbox Python/Shell completee localement, worker Cloud Run deploye et valide reellement
 
 ### Ce qui a ete accompli

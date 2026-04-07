@@ -1,5 +1,48 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-08 - Cowork multi-tour recentre sur la derniere demande, prompt systeme rafraichi et studios media relies a la vraie source de prompt
+- Retour produit:
+  - l'utilisateur signalait un bug critique de comportement: apres une grosse reponse Cowork, une deuxieme question differente pouvait etre ignoree et Cowork repartait sur la premiere mission
+  - il demandait aussi une experience plus premium autour des medias generes et une base plus exploitable pour un futur createur d'instructions
+- Changement applique:
+  - runtime Cowork:
+    - `src/utils/chat-parts.ts`
+      - historique compact special Cowork (`coworkCompact`)
+      - clipping des tours precedents pour eviter qu'un vieux dossier noie la nouvelle demande
+    - `api/index.ts`
+      - ajout de `buildCoworkCurrentTurnPrompt(...)`
+      - rappel explicite dans la system instruction que la derniere demande utilisateur a toujours priorite
+      - un follow-up court ne doit plus automatiquement relancer toute une campagne de recherche
+  - prompt/systeme Cowork:
+    - wording rafraichi pour mieux coller aux capacites reelles du runtime
+    - priorite plus claire entre:
+      - traiter le dernier tour
+      - utiliser l'historique comme contexte
+      - ne rechercher que si le nouveau point le demande vraiment
+      - rester honnete quand un point n'a pas ete verifie
+  - socle medias / instruction memory:
+    - `src/types.ts` et `src/App.tsx`
+      - les medias generes conservent `generationMeta` (`prompt`, `refinedPrompt`, modele, profil, consignes perso)
+    - `src/utils/instruction-gallery.ts`
+      - nouvelle agregation des prompts/instructions depuis l'historique reel
+    - studios:
+      - image: hero + galerie + copie fiable des prompts
+      - audio/Lyria: lecteur custom + copie du prompt source
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `node node_modules/tsx/dist/cli.mjs verify-chat-parts.ts` : OK
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+  - QA visuelle reelle via Vite source + captures Edge/Playwright CLI:
+    - image studio desktop/mobile
+    - audio studio desktop/mobile
+    - Lyria studio
+    - panneau Cowork desktop/mobile
+- Etat produit:
+  - le bug "Cowork reste bloque sur la premiere question" est traite a la racine du contrat multi-tour
+  - les medias generes gardent enfin une source de prompt fiable pour les galeries, la copie et les futurs outils d'instructions
+  - la prochaine etape naturelle apres push est un retest utilisateur en conversation reelle longue, puis un redeploiement si voulu
+
 ## Mise a jour 2026-04-07 - Phase 2 completee localement, worker sandbox deploye et valide reellement
 - Retour produit:
   - apres la fermeture des hotfix prod `chat/cowork`, le prochain chantier critique etait enfin la vraie sandbox Python/Shell du brief Studio Pro

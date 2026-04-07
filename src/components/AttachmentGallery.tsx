@@ -4,13 +4,13 @@ import {
   ExternalLink,
   FileText,
   Image as ImageIcon,
-  Mic,
   Youtube,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import type { Attachment } from '../types';
+import { StudioAudioPlayer } from './StudioAudioPlayer';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -188,50 +188,18 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               className={cn(
-                'overflow-hidden rounded-xl border border-fuchsia-400/14 bg-[radial-gradient(circle_at_top,rgba(244,114,182,0.14),rgba(14,14,18,0.88))] p-4 shadow-xl',
+                'overflow-hidden rounded-xl',
                 cardWidthClass,
               )}
             >
-              <div className="mb-3 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-pink-500/12 text-pink-200 shadow-[0_12px_30px_rgba(236,72,153,0.18)]">
-                  <Mic size={18} />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-[var(--app-text)]">{attachment.name || 'Audio joint'}</div>
-                  <div className="text-[11px] text-[var(--app-text-muted)]">{getAttachmentMeta(attachment)}</div>
-                </div>
-              </div>
-              <div className="mb-4 rounded-lg border border-white/8 bg-black/20 p-3">
-                <div className="mb-3 flex h-10 items-end gap-1.5 overflow-hidden">
-                  {Array.from({ length: 18 }).map((_, barIndex) => (
-                    <span
-                      key={`${key}-bar-${barIndex}`}
-                      className="flex-1 rounded-full bg-gradient-to-t from-pink-500/22 via-fuchsia-300/45 to-white/75"
-                      style={{ height: `${28 + ((barIndex * 9) % 34)}%` }}
-                    />
-                  ))}
-                </div>
-                <audio controls src={attachment.url} className="w-full" />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <a
-                  href={attachment.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
-                >
-                  <ExternalLink size={14} />
-                  Ouvrir
-                </a>
-                <a
-                  href={attachment.url}
-                  download={getDownloadName(attachment, 'audio.mp3')}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
-                >
-                  <Download size={14} />
-                  Telecharger
-                </a>
-              </div>
+              <StudioAudioPlayer
+                src={attachment.url}
+                title={attachment.name || 'Audio joint'}
+                subtitle={getAttachmentMeta(attachment)}
+                prompt={attachment.generationMeta?.refinedPrompt || attachment.generationMeta?.prompt}
+                downloadName={getDownloadName(attachment, 'audio.mp3')}
+                compact={variant === 'compact'}
+              />
             </motion.div>
           );
         }

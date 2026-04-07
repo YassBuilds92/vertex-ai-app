@@ -29,6 +29,17 @@ export interface AttachmentVideoMetadata {
   fps?: number;
 }
 
+export type MediaGenerationMode = Extract<AppMode, 'image' | 'video' | 'audio' | 'lyria'>;
+
+export interface AttachmentGenerationMeta {
+  mode: MediaGenerationMode;
+  prompt?: string;
+  refinedPrompt?: string;
+  model?: string;
+  refinerProfileId?: string;
+  refinerCustomInstructions?: string;
+}
+
 export interface Attachment {
   id: string;
   type: AttachmentType;
@@ -40,6 +51,7 @@ export interface Attachment {
   base64?: string;
   thumbnail?: string;
   videoMetadata?: AttachmentVideoMetadata;
+  generationMeta?: AttachmentGenerationMeta;
 }
 
 export interface Message {
@@ -355,6 +367,9 @@ export interface ModelConfig {
   topP: number;
   topK: number;
   systemInstruction: string;
+  refinerEnabled?: boolean;
+  refinerProfileId?: string;
+  refinerCustomInstructions?: string;
   googleSearch?: boolean;
   googleMaps?: boolean;
   codeExecution?: boolean;
@@ -383,6 +398,11 @@ export interface ModelConfig {
   safetySetting?: string;
   videoDurationSeconds?: number;
   agentDelegationEnabled?: boolean;
+}
+
+export interface MediaGenerationRequest {
+  originalPrompt?: string;
+  refinedPrompt?: string;
 }
 
 export interface CustomPrompt {

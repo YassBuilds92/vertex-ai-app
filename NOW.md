@@ -1,52 +1,58 @@
 # NOW
 
 ## Objectif actuel
-- Phase 2 Cowork v2 est codee localement et le worker Cloud Run est valide reellement.
-- Le prochain gros chantier fonctionnel est la Phase 3 V1 (GitOps / GitHub / Vercel), sauf si on choisit d'abord de push/deployer la Phase 2 backend.
+- Lot "fluidite + media studios + Cowork multi-tour" ferme localement et pret pour retest reel / redeploiement.
+- Ce lot couvre maintenant:
+  - Cowork qui traite en priorite le dernier follow-up au lieu de repartir sur la requete precedente
+  - la persistance exacte `prompt` / `refinedPrompt` / modele / profil de raffineur sur image/audio/video/lyria
+  - la galerie image hero + copie fiable des prompts
+  - le player audio custom avec preview plus premium
+  - les raffineurs IA par mode avec profils et consignes perso
+  - plusieurs sources de jank frontend (transitions globales, updates streaming trop frequentes, gros shell trop lourd)
 
 ## Blocage actuel
-- Aucun blocage technique majeur sur la Phase 2 elle-meme.
-- Point ouvert non ferme dans cette session:
-  - les changements Phase 2 du repo ne sont pas encore commit/push/deployes cote backend Vercel dans ce tour
-  - le retest produit authentifie sur la disparition de `session-touch-failed` n'a pas encore ete rejoue par l'utilisateur dans cette session
+- Aucun blocage technique majeur.
+- La prochaine preuve critique n'est plus le code local mais le retest utilisateur reel:
+  - conversation Cowork longue puis follow-up court
+  - generation image/audio sur session normale
+  - redeploiement si on veut projeter ce lot sur l'environnement public
 
 ## Prochaine action exacte
-- Soit:
-  - commit/push les changements Phase 2
-  - deployer le backend associe
-  - rejouer un vrai run `/api/cowork` avec `COWORK_ENABLE_SANDBOX=1`
-- Soit:
-  - attaquer directement la Phase 3 V1
+- rejouer les flows critiques en contexte reel apres push:
+  - Cowork multi-tour
+  - image studio avec copie de prompt
+  - audio/Lyria studio avec player custom
+- si le retest est bon, reprendre le prochain chantier prioritaire (Phase 3 V1 ou lot produit suivant)
 
 ## Fichiers chauds
 - `api/index.ts`
-- `server/lib/cowork-workers.ts`
-- `server/lib/cowork-sandbox.ts`
-- `cloud-run/cowork-workers/cloudbuild.yaml`
-- `cloud-run/cowork-workers/src/sandbox/python.js`
-- `cloud-run/cowork-workers/src/sandbox/shell.js`
-- `cloud-run/cowork-workers/src/sandbox/persistence.js`
+- `src/App.tsx`
+- `src/components/ImageStudio.tsx`
+- `src/components/AudioStudio.tsx`
+- `src/components/LyriaStudio.tsx`
+- `src/components/VideoStudio.tsx`
+- `src/components/StudioAudioPlayer.tsx`
+- `src/components/SidebarRight.tsx`
+- `src/utils/chat-parts.ts`
+- `src/utils/media-gallery-history.ts`
+- `src/utils/instruction-gallery.ts`
+- `shared/prompt-refiners.ts`
+- `tmp/media-modes-preview.html`
+- `tmp/media-modes-preview.tsx`
 
 ## Validations restantes
-- si on veut fermer la Phase 2 "deployee cote produit":
-  - push/deploy du repo courant
-  - retest reel d'un run `/api/cowork` qui appelle `run_python` / `run_shell`
-- validations deja faites:
+- a faire:
+  - retest utilisateur reel / redeploiement si souhaite
+- deja faits sur ce lot:
   - `npm run lint`
   - `npm run build`
-  - `node node_modules/tsx/dist/cli.mjs test-cowork-workers.ts`
+  - `node node_modules/tsx/dist/cli.mjs verify-chat-parts.ts`
   - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts`
-  - `node node_modules/tsx/dist/cli.mjs test-cowork-sandbox.ts`
-  - `GET /health` sur `cowork-workers`
-  - `POST /sandbox/python` reel
-  - `POST /sandbox/shell` reel
-  - installation de package + reimport sur 2 requetes reelles
-  - persistance de fichier de session shell sur 2 requetes reelles
-  - `DELETE /sandbox/:sessionId` reel
+  - check cible `buildApiHistoryFromMessages(..., { coworkCompact: true, maxMessages: 8 })`
+  - QA visuelle locale via Vite source + Playwright CLI / Edge sur les studios image/audio/lyria et le panneau Cowork
 
 ## Risques immediats
-- ne jamais supposer que `/tmp` ou un venv local Cloud Run survit d'une requete a l'autre ou entre instances
-- ne jamais rebasculer le pipeline image worker sur Container Registry classique; garder Artifact Registry
-- ne jamais deployer une image Cloud Run avant `docker push` effectif dans le pipeline
-- ne jamais exposer les routes sandbox sans timeout, cleanup, bearer auth et allowlist shell
-- la Phase 2 manipule du code arbitraire: toute persistence doit rester isolee par `sessionId` et nettoyable explicitement
+- ne pas reintroduire un historique Cowork trop massif sur les runs multi-tour
+- ne pas perdre `generationMeta` lors de sanitization/persistence des attachments
+- ne pas refaire du lecteur audio natif brut sur les surfaces premium
+- ne pas casser la compaction d'historique Cowork en voulant rajouter trop de contexte

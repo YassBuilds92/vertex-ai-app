@@ -7,6 +7,7 @@ import type {
 
 const COWORK_HISTORY_ATTACHMENT_LIMIT = 4;
 const COWORK_HISTORY_ACTIVITY_LIMIT = 6;
+const COWORK_HISTORY_MESSAGE_LIMIT = 8;
 
 function stripDataUrlPrefix(value?: string) {
   if (!value) return undefined;
@@ -36,6 +37,23 @@ function clipText(value?: string, max = 240) {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return trimmed.length > max ? `${trimmed.slice(0, max)}... [tronque]` : trimmed;
+}
+
+function clipHistoryText(value?: string, max = 900) {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length <= max) return trimmed;
+
+  const headLength = Math.max(220, Math.floor(max * 0.62));
+  const tailLength = Math.max(120, Math.floor(max * 0.22));
+  const omitted = trimmed.length - headLength - tailLength;
+
+  return [
+    trimmed.slice(0, headLength),
+    `... [${omitted} caracteres masques] ...`,
+    trimmed.slice(-tailLength),
+  ].join('\n');
 }
 
 function buildCoworkMemoryPart(message: Message): ApiMessagePartPayload | null {
@@ -107,9 +125,12 @@ function buildCoworkMemoryPart(message: Message): ApiMessagePartPayload | null {
 
 export function buildApiMessageParts(
   message: Message,
-  options?: { includeCoworkMemory?: boolean; historyMode?: boolean }
+  options?: { includeCoworkMemory?: boolean; historyMode?: boolean; coworkCompact?: boolean }
 ): ApiMessagePartPayload[] {
-  const parts: ApiMessagePartPayload[] = [{ text: message.content || ' ' }];
+  const historyText = options?.coworkCompact && options.historyMode
+    ? clipHistoryText(message.content, message.role === 'model' ? 900 : 1400) || ' '
+    : message.content || ' ';
+  const parts: ApiMessagePartPayload[] = [{ text: historyText }];
 
   if (options?.includeCoworkMemory) {
     const coworkMemory = buildCoworkMemoryPart(message);
@@ -141,9 +162,13 @@ export function buildApiMessageParts(
 
 export function buildApiHistoryFromMessages(
   messages: Message[],
-  options?: { includeCoworkMemory?: boolean }
+  options?: { includeCoworkMemory?: boolean; coworkCompact?: boolean; maxMessages?: number }
 ): ApiHistoryMessagePayload[] {
-  return messages.map((message) => ({
+  const maxMessages = options?.maxMessages
+    || (options?.coworkCompact ? COWORK_HISTORY_MESSAGE_LIMIT : undefined);
+  const scopedMessages = maxMessages ? messages.slice(-maxMessages) : messages;
+
+  return scopedMessages.map((message) => ({
     role: message.role,
     parts: buildApiMessageParts(message, { ...options, historyMode: true }),
   }));

@@ -9,6 +9,7 @@ import Markdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { AttachmentGallery } from './AttachmentGallery';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -371,8 +372,9 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
 
 const CopyCodeButton = ({ code }: { code: string }) => {
   const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
+  const handleCopy = async () => {
+    const didCopy = await copyTextToClipboard(code);
+    if (!didCopy) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -384,7 +386,7 @@ const CopyCodeButton = ({ code }: { code: string }) => {
   );
 };
 
-export const MessageItem = React.memo(({ 
+const MessageItemComponent = ({
   msg, idx, isLast, isLoading, isExpanded, disableEntranceAnimation = false, onToggleThoughts, setSelectedImage, onEdit, onRetry
 }: {
   msg: Message, idx: number, isLast: boolean, isLoading: boolean, isExpanded: boolean,
@@ -401,8 +403,9 @@ export const MessageItem = React.memo(({
   const [isCollapsed, setIsCollapsed] = useState(msg.role === 'user' && msg.content && msg.content.length > 800);
   const isCoworkMessage = Boolean(msg.runMeta?.mode || (msg.activity?.length ?? 0) > 0 || msg.runState);
 
-  const handleCopyMsg = () => {
-    navigator.clipboard.writeText(msg.content);
+  const handleCopyMsg = async () => {
+    const didCopy = await copyTextToClipboard(msg.content);
+    if (!didCopy) return;
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
@@ -435,7 +438,7 @@ export const MessageItem = React.memo(({
       </div>
 
       <div className={cn(
-        "flex min-w-0 flex-1 flex-col gap-2 transition-all",
+        "flex min-w-0 flex-1 flex-col gap-2",
         msg.role === 'user' ? "items-end" : "items-start"
       )}>
         <div className={cn(
@@ -448,7 +451,7 @@ export const MessageItem = React.memo(({
             <button
               onClick={() => onRetry(idx)}
               disabled={isLoading}
-              className="absolute -right-12 top-10 flex h-9 w-9 items-center justify-center text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/5 hover:bg-[var(--app-text)]/10 rounded-xl opacity-0 group-hover/msg:opacity-100 transition-all border border-[var(--app-border)] shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
+              className="absolute -right-12 top-10 flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--app-border)] bg-[var(--app-text)]/5 text-zinc-500 opacity-0 shadow-lg transition-colors transition-opacity hover:bg-[var(--app-text)]/10 hover:text-[var(--app-text)] group-hover/msg:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
               title="Régénérer la réponse"
             >
               <RotateCcw size={14} />
@@ -457,7 +460,7 @@ export const MessageItem = React.memo(({
           {msg.role === 'model' && msg.content && (
             <button 
               onClick={handleCopyMsg}
-              className="absolute -right-12 top-2 flex h-9 w-9 items-center justify-center text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/5 hover:bg-[var(--app-text)]/10 rounded-xl opacity-0 group-hover/msg:opacity-100 transition-all border border-[var(--app-border)] shadow-lg"
+              className="absolute -right-12 top-2 flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--app-border)] bg-[var(--app-text)]/5 text-zinc-500 opacity-0 shadow-lg transition-colors transition-opacity hover:bg-[var(--app-text)]/10 hover:text-[var(--app-text)] group-hover/msg:opacity-100"
               title="Copier le message"
             >
               {isCopied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
@@ -488,14 +491,14 @@ export const MessageItem = React.memo(({
                     rows={Math.max(2, editText.split('\n').length)}
                   />
                   <div className="flex gap-2 justify-end">
-                    <button onClick={handleEditCancel} className="px-3 py-1.5 text-xs text-zinc-300 hover:text-white rounded-full border border-[var(--app-border)] bg-white/5 hover:bg-white/10 transition-all">Annuler</button>
-                    <button onClick={handleEditSave} className="px-3 py-1.5 text-xs text-[#041018] border border-[var(--app-border-strong)] bg-[linear-gradient(135deg,rgba(129,236,255,0.95),rgba(68,196,255,0.78))] rounded-full transition-all flex items-center gap-1.5"><Send size={11} />Envoyer</button>
+                    <button onClick={handleEditCancel} className="rounded-full border border-[var(--app-border)] bg-white/5 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-white/10 hover:text-white">Annuler</button>
+                    <button onClick={handleEditSave} className="flex items-center gap-1.5 rounded-full border border-[var(--app-border-strong)] bg-[linear-gradient(135deg,rgba(129,236,255,0.95),rgba(68,196,255,0.78))] px-3 py-1.5 text-xs text-[#041018] transition-transform transition-opacity hover:translate-y-[-1px]"><Send size={11} />Envoyer</button>
                   </div>
                 </div>
               ) : (
                 <div className="relative">
                   <p className={cn(
-                    "message-copy whitespace-pre-wrap leading-[1.8] text-[15.5px] text-[var(--app-text)] transition-all duration-300",
+                    "message-copy whitespace-pre-wrap leading-[1.8] text-[15.5px] text-[var(--app-text)]",
                     isCollapsed ? "line-clamp-6 overflow-hidden" : ""
                   )}>
                     {msg.content}
@@ -640,7 +643,7 @@ export const MessageItem = React.memo(({
                           <a 
                             href={att.url} 
                             download={att.name || "image.png"}
-                            className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all bg-black/70 border border-white/10"
+                            className="absolute top-3 right-3 rounded-xl border border-white/10 bg-black/70 p-2 text-white opacity-0 transition-colors transition-opacity group-hover/media:opacity-100 hover:bg-black/80"
                             title="Télécharger l'image"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -658,7 +661,7 @@ export const MessageItem = React.memo(({
                           <a 
                             href={att.url} 
                             download={att.name || "video.mp4"}
-                            className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all bg-black/70 border border-white/10 z-10"
+                            className="absolute top-3 right-3 z-10 rounded-xl border border-white/10 bg-black/70 p-2 text-white opacity-0 transition-colors transition-opacity group-hover/media:opacity-100 hover:bg-black/80"
                             title="Télécharger la vidéo"
                           >
                             <Download size={16} />
@@ -689,7 +692,7 @@ export const MessageItem = React.memo(({
                       <a 
                         href={img} 
                         download={`image-${i}.png`}
-                        className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl opacity-0 group-hover/media:opacity-100 transition-all bg-black/70 border border-white/10"
+                        className="absolute top-3 right-3 rounded-xl border border-white/10 bg-black/70 p-2 text-white opacity-0 transition-colors transition-opacity group-hover/media:opacity-100 hover:bg-black/80"
                       >
                         <Download size={16} />
                       </a>
@@ -756,7 +759,7 @@ export const MessageItem = React.memo(({
               <button
                 onClick={() => setShowRefined(!showRefined)}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-all rounded-lg border",
+                  "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-medium transition-colors transition-opacity",
                   showRefined 
                     ? "text-[var(--app-accent)] bg-[rgba(129,236,255,0.12)] border-[var(--app-border-strong)]" 
                     : "text-zinc-500 hover:text-[var(--app-accent)] bg-[var(--app-text)]/[0.04] hover:bg-[rgba(129,236,255,0.08)] border-[var(--app-border)] hover:border-[var(--app-border-strong)]"
@@ -770,7 +773,7 @@ export const MessageItem = React.memo(({
             <button
               onClick={() => { setEditText(msg.content); setIsEditing(true); }}
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-full border border-[var(--app-border)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-[var(--app-text)]/[0.04] px-3 py-1.5 text-[11px] font-medium text-zinc-500 transition-colors transition-opacity hover:bg-[var(--app-text)]/[0.08] hover:text-[var(--app-text)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Pencil size={11} />
               Modifier
@@ -778,7 +781,7 @@ export const MessageItem = React.memo(({
             <button
               onClick={() => onRetry(idx)}
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-[var(--app-text)] bg-[var(--app-text)]/[0.04] hover:bg-[var(--app-text)]/[0.08] rounded-full border border-[var(--app-border)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-[var(--app-text)]/[0.04] px-3 py-1.5 text-[11px] font-medium text-zinc-500 transition-colors transition-opacity hover:bg-[var(--app-text)]/[0.08] hover:text-[var(--app-text)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RotateCcw size={11} />
               Renvoyer
@@ -788,4 +791,31 @@ export const MessageItem = React.memo(({
       </div>
     </div>
   );
-});
+};
+
+function areMessageItemPropsEqual(
+  previous: React.ComponentProps<typeof MessageItemComponent>,
+  next: React.ComponentProps<typeof MessageItemComponent>,
+) {
+  return previous.idx === next.idx
+    && previous.isLast === next.isLast
+    && previous.isLoading === next.isLoading
+    && previous.isExpanded === next.isExpanded
+    && previous.disableEntranceAnimation === next.disableEntranceAnimation
+    && previous.msg.id === next.msg.id
+    && previous.msg.role === next.msg.role
+    && previous.msg.content === next.msg.content
+    && previous.msg.thoughts === next.msg.thoughts
+    && previous.msg.audio === next.msg.audio
+    && previous.msg.video === next.msg.video
+    && previous.msg.createdAt === next.msg.createdAt
+    && previous.msg.runState === next.msg.runState
+    && previous.msg.refinedInstruction === next.msg.refinedInstruction
+    && previous.msg.attachments === next.msg.attachments
+    && previous.msg.images === next.msg.images
+    && previous.msg.thoughtImages === next.msg.thoughtImages
+    && previous.msg.activity === next.msg.activity
+    && previous.msg.runMeta === next.msg.runMeta;
+}
+
+export const MessageItem = React.memo(MessageItemComponent, areMessageItemPropsEqual);

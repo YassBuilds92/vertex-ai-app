@@ -1,5 +1,53 @@
 # DECISIONS
 
+## 2026-04-08 - Cowork multi-tour doit etre pilote par le dernier message, pas par le poids de l'historique
+- Statut: adopte localement
+- Contexte: sur des runs Cowork longs et riches en recherche, un follow-up court pouvait etre noye sous l'historique precedent. Le modele repartait alors sur le premier dossier, relancait des recherches deja faites et ignorait la nouvelle question de l'utilisateur.
+- Decision:
+  - compacter l'historique envoye a Cowork
+  - limiter cet historique aux derniers messages utiles
+  - encapsuler le message courant dans un prompt explicite qui rappelle que la priorite absolue est la derniere demande utilisateur
+- Pourquoi:
+  - un agent de recherche utile doit savoir changer de focale sans rerunner tout le dossier precedent
+  - l'utilisateur percoit sinon une IA "bloquee" ou "qui se repete"
+  - la correction doit vivre dans le contrat runtime, pas dans un simple wording frontend
+- Consequence:
+  - `src/utils/chat-parts.ts` porte maintenant un mode `coworkCompact`
+  - `api/index.ts` ajoute `buildCoworkCurrentTurnPrompt(...)`
+  - la system instruction Cowork rappelle que l'historique precedent n'est qu'un contexte
+
+## 2026-04-08 - Les medias generes conservent leurs metas de generation comme contrat produit de premiere classe
+- Statut: adopte localement
+- Contexte: sans trace fiable du prompt source, du prompt raffine, du modele et du profil de raffineur, il est impossible de proposer une vraie copie de prompt, une galerie d'instructions exploitable ou un futur createur d'instructions base sur les generations passees.
+- Decision:
+  - attacher aux medias generes une structure `generationMeta`
+  - y conserver `mode`, `prompt`, `refinedPrompt`, `model`, `refinerProfileId` et `refinerCustomInstructions`
+  - preservrer cette meta a la sanitization, a la persistance et a la relecture historique
+- Pourquoi:
+  - la source du rendu est une donnee produit, pas juste un detail debug
+  - cela alimente directement les galeries image/audio/video/lyria et le futur chantier "instruction creator"
+  - cela evite de recalculer ou de deviner les invites apres coup
+- Consequence:
+  - `src/types.ts` et `src/App.tsx` portent maintenant ce contrat
+  - `AttachmentGallery`, `ImageStudio`, `AudioStudio`, `LyriaStudio` et `VideoStudio` peuvent rendre et recopier les prompts fiables
+  - `src/utils/instruction-gallery.ts` peut agreger les instructions depuis l'historique reel
+
+## 2026-04-08 - Le raffineur IA devient configure par mode, pas global
+- Statut: adopte localement
+- Contexte: l'utilisateur veut un raffineur par mode et des profils beaucoup plus specialises, surtout pour l'image. Un reglage unique global tirait toute l'app vers un comportement trop generique et plus lent a ajuster.
+- Decision:
+  - stocker `refinerEnabled`, `refinerProfileId` et `refinerCustomInstructions` par mode
+  - definir un catalogue partage de profils specialises selon le mode
+  - laisser le panneau droit basculer de profil sans casser les autres modes
+- Pourquoi:
+  - un raffineur image "manga/shonen" n'a rien a voir avec un raffineur chat, audio ou video
+  - la personnalisation produit doit etre locale au contexte de creation
+  - cela prepare une vraie famille de raffineurs personnalisables au lieu d'un toggle monolithique
+- Consequence:
+  - `shared/prompt-refiners.ts` devient la source de verite des profils
+  - `src/store/useStore.ts` porte la configuration par mode
+  - `src/components/SidebarRight.tsx` expose maintenant une UX de profils/refinements par mode
+
 ## 2026-04-07 - Les sessions sandbox Phase 2 ne doivent jamais dependre du filesystem local Cloud Run seul
 - Statut: adopte localement et valide reellement sur le worker Cloud Run
 - Contexte: `install_python_package` pouvait reussir sur une requete, puis `run_python` ou `run_shell` retomber sur un autre instance Cloud Run et perdre le venv/local workspace. Une "session" basee sur `/tmp` uniquement donnait donc un faux sentiment de persistance.

@@ -29,36 +29,25 @@ import {
 } from '../lib/schemas.js';
 import { getServiceAccountEmail, uploadToGCSWithMetadata } from '../lib/storage.js';
 import { buildModelContentsFromRequest } from '../lib/chat-parts.js';
+import { buildPromptRefinerSystemPrompt, type PromptRefinerMode } from '../../shared/prompt-refiners.js';
 
-const REFINER_PROMPTS: Record<string, string> = {
-  image: `Tu es un expert en direction artistique et generation d'images par IA.
-Reecris ce prompt pour le rendre plus riche, precis et evocateur.
-Ajoute : style photographique ou artistique, lumiere, palette de couleurs, texture, composition, profondeur de champ, ambiance.
-Retourne UNIQUEMENT le prompt reecrit. Pas d'explication, pas de guillemets.`,
-
-  video: `Tu es un directeur de la photographie et un expert en generation video IA.
-Reecris ce prompt pour le rendre cinematographique.
-Ajoute : mouvement de camera (travelling, panoramique, plan fixe...), rythme, atmosphere, lumiere, couleur, espace sonore implicite.
-Retourne UNIQUEMENT le prompt reecrit. Pas d'explication.`,
-
-  audio: `Tu es un directeur artistique audio et un expert en synthese vocale.
-Reecris ce texte pour le rendre plus naturel a lire a voix haute : rythme, ponctuation, fluidite.
-Ne change pas le sens. Retourne UNIQUEMENT le texte ameliore.`,
-
-  lyria: `Tu es un compositeur et un prompt engineer expert en generation musicale par IA.
-Reecris ce prompt pour le rendre plus precis musicalement.
-Ajoute : instruments, tempo, dynamique, texture sonore, ambiance emotionnelle, influences stylistiques.
-Retourne UNIQUEMENT le prompt reecrit. Pas d'explication.`,
-
-  chat: `Tu es un expert en communication avec les LLMs.
-Reecris ce message pour le rendre plus clair, precis et actionnable pour un modele IA.
-Conserve l'intention originale. Retourne UNIQUEMENT le message reecrit.`,
-
-  cowork: `Tu es un expert en orchestration d'agents IA autonomes.
-Reecris cette mission pour la rendre plus precise, avec des objectifs clairs et mesurables.
-Retourne UNIQUEMENT la mission reecrite.`,
-};
 const ICON_PROMPT_SYSTEM_PROMPT = `Genere un prompt d'image pour un logo minimaliste representant ce role IA.`;
+const REFINE_CACHE_TTL_MS = 10 * 60 * 1000;
+const refineCache = new Map<string, { value: string; expiresAt: number }>();
+
+function writeRefineCache(key: string, value: string) {
+  if (refineCache.size >= 200) {
+    const oldestKey = refineCache.keys().next().value;
+    if (oldestKey) {
+      refineCache.delete(oldestKey);
+    }
+  }
+
+  refineCache.set(key, {
+    value,
+    expiresAt: Date.now() + REFINE_CACHE_TTL_MS,
+  });
+}
 
 function createUploadFileName(prefix: string, extension: string) {
   const safeExtension = extension.startsWith('.') ? extension : `.${extension}`;
@@ -109,6 +98,19 @@ function writeSseData(res: Response, data: unknown) {
 
 function createTraceId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeRefinerMode(value?: string): PromptRefinerMode {
+  switch (value) {
+    case 'image':
+    case 'video':
+    case 'audio':
+    case 'lyria':
+    case 'cowork':
+      return value;
+    default:
+      return 'chat';
+  }
 }
 
 type GeneratedAppStreamBuilder = (
@@ -202,12 +204,30 @@ export function registerStandardApiRoutes(app: Express) {
 
   app.post('/api/refine', async (req, res) => {
     try {
-      const { prompt, type, mode } = ChatRefineSchema.parse(req.body);
+      const { prompt, type, mode, profileId, customInstructions } = ChatRefineSchema.parse(req.body);
       const modelId = 'gemini-3.1-flash-lite-preview';
       const ai = createGoogleAI(modelId);
+      const normalizedMode = normalizeRefinerMode(mode);
       const systemPrompt = type === 'icon'
         ? ICON_PROMPT_SYSTEM_PROMPT
-        : (REFINER_PROMPTS[mode || 'chat'] || REFINER_PROMPTS.chat);
+        : buildPromptRefinerSystemPrompt({
+            mode: normalizedMode,
+            profileId,
+            customInstructions,
+          });
+      const cacheKey = JSON.stringify({
+        prompt,
+        type: type || null,
+        mode: normalizedMode,
+        profileId: profileId || null,
+        customInstructions: String(customInstructions || '').trim(),
+      });
+      const cached = refineCache.get(cacheKey);
+
+      if (cached && cached.expiresAt > Date.now()) {
+        res.json({ refinedInstruction: cached.value, cached: true });
+        return;
+      }
 
       const result = await retryWithBackoff(() => ai.models.generateContent({
         model: modelId,
@@ -215,10 +235,17 @@ export function registerStandardApiRoutes(app: Express) {
         config: {
           systemInstruction: systemPrompt,
           temperature: 0.2,
+          maxOutputTokens: type === 'icon' ? 180 : 640,
+          responseMimeType: 'text/plain',
         }
-      }));
+      }), {
+        maxRetries: 1,
+        baseDelayMs: 350,
+      });
 
-      res.json({ refinedInstruction: result.text || '' });
+      const refinedInstruction = String(result.text || '').trim();
+      writeRefineCache(cacheKey, refinedInstruction);
+      res.json({ refinedInstruction });
     } catch (error) {
       const cleanError = parseApiError(error);
       log.error('Refine error', cleanError);

@@ -1,20 +1,21 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  Film, Sparkles, Loader2, Play, Download,
+  Film, Sparkles, Loader2,
   Undo2, Pencil, ArrowRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../store/useStore';
-import { Message } from '../types';
+import { MediaGenerationRequest, Message } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { buildVideoHistory } from '../utils/media-gallery-history';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 interface VideoStudioProps {
-  onGenerate: (prompt: string) => void;
+  onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
   isLoading: boolean;
   messages: Message[];
   isRefinerEnabled: boolean;
@@ -37,23 +38,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
   const [originalPrompt, setOriginalPrompt] = useState('');
 
-  const allVideos = messages
-    .filter((m) => m.role === 'model')
-    .flatMap((m) => {
-      const vids: { url: string; prompt: string }[] = [];
-      if (m.attachments) {
-        for (const a of m.attachments) {
-          if (a.type === 'video' && a.url) {
-            const userMsg = messages.find(
-              (u) => u.role === 'user' && u.createdAt <= m.createdAt && u.createdAt > m.createdAt - 120000,
-            );
-            vids.push({ url: a.url, prompt: userMsg?.content || '' });
-          }
-        }
-      }
-      if (m.video) vids.push({ url: m.video, prompt: '' });
-      return vids;
-    });
+  const allVideos = useMemo(() => buildVideoHistory(messages), [messages]);
 
   const handleSubmit = async () => {
     if (!prompt.trim() || isLoading || isRefining) return;
@@ -65,30 +50,35 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         const res = await fetch('/api/refine', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: prompt.trim(), mode: 'video' }),
+          body: JSON.stringify({
+            prompt: prompt.trim(),
+            mode: 'video',
+            profileId: config.refinerProfileId,
+            customInstructions: config.refinerCustomInstructions,
+          }),
         });
         if (res.ok) {
           const data = await res.json();
           setRefinedPrompt(data.refinedInstruction || prompt.trim());
         } else {
-          onGenerate(prompt.trim());
+          onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
           setPrompt('');
         }
       } catch {
-        onGenerate(prompt.trim());
+        onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
         setPrompt('');
       } finally {
         setIsRefining(false);
       }
     } else {
-      onGenerate(prompt.trim());
+      onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
       setPrompt('');
     }
   };
 
   const handleApplyRefined = () => {
     if (refinedPrompt) {
-      onGenerate(refinedPrompt);
+      onGenerate(refinedPrompt, { originalPrompt, refinedPrompt });
       setPrompt('');
       setRefinedPrompt(null);
       setOriginalPrompt('');
@@ -96,7 +86,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   };
 
   const handleRevertOriginal = () => {
-    onGenerate(originalPrompt);
+    onGenerate(originalPrompt, { originalPrompt });
     setPrompt('');
     setRefinedPrompt(null);
     setOriginalPrompt('');
@@ -290,9 +280,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   </div>
                 </div>
               )}
-              {[...allVideos].reverse().map((vid, i) => (
+              {allVideos.map((vid) => (
                 <div
-                  key={i}
+                  key={vid.id}
                   className="group relative overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-all hover:border-[var(--app-border-strong)]"
                 >
                   <video
@@ -301,9 +291,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                     className="aspect-video w-full object-cover"
                     preload="metadata"
                   />
-                  {vid.prompt && (
+                  {(vid.refinedPrompt || vid.prompt) && (
                     <div className="border-t border-[var(--app-border)] px-3 py-2">
-                      <p className="truncate text-[11px] text-[var(--app-text-muted)]">{vid.prompt}</p>
+                      <p className="truncate text-[11px] text-[var(--app-text-muted)]">{vid.refinedPrompt || vid.prompt}</p>
                     </div>
                   )}
                 </div>

@@ -23,7 +23,7 @@ import { SidebarRight } from './components/SidebarRight';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
 import { StudioEmptyState } from './components/StudioEmptyState';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest, SelectedCustomPromptRef, WorkspaceFile } from './types';
+import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest, SelectedCustomPromptRef, WorkspaceFile, MediaGenerationMode, MediaGenerationRequest } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -148,6 +148,13 @@ const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork
 const createClientMessageId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const MESSAGE_VISIBILITY_LIMIT = 15;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 96;
+const MEDIA_MODES: MediaGenerationMode[] = ['image', 'video', 'audio', 'lyria'];
+
+function sanitizeOptionalText(value?: string | null) {
+  const trimmed = String(value || '').trim();
+  return trimmed || undefined;
+}
+
 const slugifyAgentLabel = (value: string) =>
   value
     .toLowerCase()
@@ -330,7 +337,6 @@ export default function App() {
     lastSessionIdsByMode,
     configs, setConfig, isLeftSidebarVisible, setLeftSidebarVisible,
     isRightSidebarVisible, setRightSidebarVisible, theme, 
-    isPromptRefinerEnabled, setPromptRefinerEnabled
   } = useStore();
   const config = configs[activeMode];
 
@@ -406,7 +412,7 @@ export default function App() {
   const coworkStorageWarningShownRef = useRef(false);
   const sendInFlightRef = useRef(false);
   const workspaceFilesCacheRef = useRef<{ files: WorkspaceFile[]; ts: number } | null>(null);
-  const handleSendRuntimeRef = useRef<((text: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession) => Promise<void>) | null>(null);
+  const handleSendRuntimeRef = useRef<((text: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession, mediaRequest?: MediaGenerationRequest) => Promise<void>) | null>(null);
   const sessionRepairAttemptedRef = useRef<Record<string, boolean>>({});
 
   const activeSessionFromList = sessions.find(s => s.id === activeSessionId) || null;
@@ -982,7 +988,9 @@ export default function App() {
         hydratedMessages = hydrateCoworkMessages(hydratedMessages, user.uid, activeSessionId);
       }
       hydratedMessages = hydrateSessionMessages(hydratedMessages, user.uid, activeSessionId);
-      setCurrentMessages(hydratedMessages);
+      React.startTransition(() => {
+        setCurrentMessages(hydratedMessages);
+      });
       clearSessionSnapshots(user.uid, activeSessionId, fetchedMessages.map(message => message.id));
 
       const liveId = liveCoworkMessageRef.current?.id;
@@ -993,16 +1001,18 @@ export default function App() {
           liveCoworkMessageRef.current = null;
         }
       }
-      
+
       // Clean up optimistic messages that have landed in Firestore
-      setOptimisticMessages(prev => prev.filter(om => 
-        !hydratedMessages.some(fm =>
-          fm.id === om.id
-          || (fm.role === om.role && fm.content === om.content && Math.abs(fm.createdAt - om.createdAt) < 5000)
-        )
-      ));
-      
-      setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: hydratedMessages } : s));
+      React.startTransition(() => {
+        setOptimisticMessages(prev => prev.filter(om =>
+          !hydratedMessages.some(fm =>
+            fm.id === om.id
+            || (fm.role === om.role && fm.content === om.content && Math.abs(fm.createdAt - om.createdAt) < 5000)
+          )
+        ));
+
+        setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: hydratedMessages } : s));
+      });
     }, (error) => {
       logFirestoreOperation('message-list-sync-failed', {
         userId: user.uid,
@@ -2061,12 +2071,25 @@ export default function App() {
     }
   };
 
-  const handleSend = async (textToSend: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession) => {
+  const handleSend = async (
+    textToSend: string,
+    overrideMessages?: Message[],
+    runtimeSessionOverride?: ChatSession,
+    mediaRequest?: MediaGenerationRequest,
+  ) => {
     if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading || sendInFlightRef.current) return;
 
     const scrollContainer = parentRef.current;
     shouldAutoScrollRef.current = !scrollContainer || isScrolledNearBottom(scrollContainer) || displayedMessages.length === 0;
     setRecentlyCompletedMessageId(null);
+    const anticipatedMode = (runtimeSessionOverride?.mode || activeMode) as AppMode;
+    const anticipatedIsMediaMode = MEDIA_MODES.includes(anticipatedMode as MediaGenerationMode);
+    const optimisticOriginalPrompt = anticipatedIsMediaMode
+      ? sanitizeOptionalText(mediaRequest?.originalPrompt) || textToSend
+      : textToSend;
+    const optimisticRefinedPrompt = anticipatedIsMediaMode
+      ? sanitizeOptionalText(mediaRequest?.refinedPrompt)
+      : undefined;
 
     // flushSync forces React to paint SYNCHRONOUSLY before any async work.
     // Without this, React 18 batches all state updates and delays the paint until
@@ -2078,10 +2101,11 @@ export default function App() {
         setOptimisticMessages(prev => [...prev, {
           id: earlyUserMessageId!,
           role: 'user' as const,
-          content: textToSend,
+          content: optimisticOriginalPrompt,
           createdAt: Date.now(),
           // Show local attachment data for instant feedback; URLs are filled in after upload.
           attachments: pendingAttachments.map(({ file: _file, ...rest }) => rest),
+          refinedInstruction: optimisticRefinedPrompt,
         }]);
       }
       // Clear old response state in the same synchronous paint.
@@ -2110,6 +2134,7 @@ export default function App() {
       const isCoworkRun = effectiveMode === 'cowork';
       const isAgentRun = effectiveSession.sessionKind === 'agent' && Boolean(effectiveSession.agentWorkspace);
       const isGeneratedAppRun = effectiveSession.sessionKind === 'generated_app' && Boolean(effectiveSession.generatedAppWorkspace);
+      const isMediaMode = MEDIA_MODES.includes(effectiveMode as MediaGenerationMode);
       isRichToolRun = isCoworkRun || isAgentRun || isGeneratedAppRun;
 
       studioDebug('send', 'Starting handleSend.', {
@@ -2131,7 +2156,7 @@ export default function App() {
         const newId = Date.now().toString();
         const nextSession: ChatSession = {
           id: newId,
-          title: customTitle || textToSend.slice(0, 30) || 'Nouvelle conversation',
+          title: customTitle || optimisticOriginalPrompt.slice(0, 30) || 'Nouvelle conversation',
           messages: [],
           updatedAt: Date.now(),
           mode: effectiveMode,
@@ -2142,7 +2167,7 @@ export default function App() {
           agentWorkspace: effectiveSession.agentWorkspace,
         };
         upsertSessionLocal(nextSession, { pendingRemote: true });
-        await persistSessionShell(nextSession);
+        void persistSessionShell(nextSession);
         setCustomTitle(null);
         currentSessionId = newId;
         studioDebug('session', 'Created a new client session shell.', {
@@ -2197,22 +2222,31 @@ export default function App() {
       }));
 
       // --- PROMPT REFINEMENT ---
-      let refinedInstruction = undefined;
-      let finalPrompt = textToSend;
+      let refinedInstruction = isMediaMode
+        ? sanitizeOptionalText(mediaRequest?.refinedPrompt)
+        : undefined;
+      let finalPrompt = isMediaMode
+        ? sanitizeOptionalText(mediaRequest?.originalPrompt) || textToSend
+        : textToSend;
 
       if (overrideMessages) {
         const lastMsg = overrideMessages[overrideMessages.length - 1];
         finalPrompt = lastMsg.content;
+        refinedInstruction = sanitizeOptionalText(lastMsg.refinedInstruction) || refinedInstruction;
       }
 
-      const isMediaMode = ['image', 'video', 'audio', 'lyria'].includes(effectiveMode);
-      if (isPromptRefinerEnabled && !overrideMessages && finalPrompt.trim() && !isMediaMode) {
+      if (effectiveConfig?.refinerEnabled && !overrideMessages && finalPrompt.trim() && !isMediaMode) {
         setRefiningStatus("Optimisation de votre prompt par l'IA...");
         try {
           const refineRes = await fetch('/api/refine', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: finalPrompt, mode: effectiveMode })
+            body: JSON.stringify({
+              prompt: finalPrompt,
+              mode: effectiveMode,
+              profileId: effectiveConfig?.refinerProfileId,
+              customInstructions: effectiveConfig?.refinerCustomInstructions,
+            })
           });
           if (refineRes.ok) {
             const refineData = await refineRes.json();
@@ -2224,6 +2258,25 @@ export default function App() {
           setRefiningStatus(null);
         }
       }
+
+      finalPrompt = finalPrompt.trim();
+      refinedInstruction = sanitizeOptionalText(refinedInstruction);
+      if (refinedInstruction === finalPrompt) {
+        refinedInstruction = undefined;
+      }
+
+      const mediaGenerationMeta = isMediaMode
+        ? {
+            mode: effectiveMode as MediaGenerationMode,
+            prompt: finalPrompt,
+            refinedPrompt: refinedInstruction,
+            model: typeof effectiveConfig?.model === 'string' ? effectiveConfig.model : undefined,
+            refinerProfileId: effectiveConfig?.refinerEnabled ? sanitizeOptionalText(effectiveConfig?.refinerProfileId) : undefined,
+            refinerCustomInstructions: effectiveConfig?.refinerEnabled
+              ? sanitizeOptionalText(effectiveConfig?.refinerCustomInstructions)
+              : undefined,
+          }
+        : undefined;
 
       // In Image/Video mode, the refined instruction IS the prompt
       const generationPrompt = (effectiveMode === 'image' || effectiveMode === 'video' || effectiveMode === 'audio' || effectiveMode === 'lyria') && refinedInstruction 
@@ -2241,7 +2294,7 @@ export default function App() {
           };
           // Update the early optimistic entry with real attachment URLs.
           setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
-          await persistSessionMessage(currentSessionId, userMessage);
+          void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
 
@@ -2273,6 +2326,7 @@ export default function App() {
               url: img.url,
               storageUri: img.storageUri,
               name: `Image ${idx + 1}`,
+              generationMeta: mediaGenerationMeta,
             }))
           : [{
               id: Date.now().toString(),
@@ -2280,6 +2334,7 @@ export default function App() {
               url: data.url,
               storageUri: data.storageUri,
               name: 'Image générée',
+              generationMeta: mediaGenerationMeta,
             }];
 
         const modelMessage: Message = {
@@ -2309,7 +2364,7 @@ export default function App() {
             refinedInstruction,
           };
           setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
-          await persistSessionMessage(currentSessionId, userMessage);
+          void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
 
@@ -2343,6 +2398,7 @@ export default function App() {
             storageUri: data.storageUri,
             mimeType: data.mimeType || 'audio/wav',
             name: 'Audio généré',
+            generationMeta: mediaGenerationMeta,
           }],
           createdAt: Date.now(),
         };
@@ -2366,7 +2422,7 @@ export default function App() {
             refinedInstruction,
           };
           setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
-          await persistSessionMessage(currentSessionId, userMessage);
+          void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
 
@@ -2399,6 +2455,7 @@ export default function App() {
             storageUri: data.storageUri,
             mimeType: data.mimeType || 'audio/wav',
             name: 'Piste Lyria generee',
+            generationMeta: mediaGenerationMeta,
           }],
           createdAt: Date.now(),
         };
@@ -2421,13 +2478,15 @@ export default function App() {
             attachments: cleanAttachments,
           };
           setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
-          await persistSessionMessage(currentSessionId, userMessage);
+          void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
 
         const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
         const historyForApi = buildApiHistoryFromMessages(apiHistory, {
           includeCoworkMemory: true,
+          coworkCompact: isCoworkRun && !isAgentRun && !isGeneratedAppRun,
+          maxMessages: isCoworkRun && !isAgentRun && !isGeneratedAppRun ? 8 : undefined,
         });
         const currentRequestAttachments = overrideMessages
           ? (overrideMessages[overrideMessages.length - 1]?.attachments || [])
@@ -2719,10 +2778,10 @@ export default function App() {
         if (!overrideMessages) {
           const userMessage: Message = {
             id: earlyUserMessageId!,
-            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments
+            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction
           };
           setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
-          await persistSessionMessage(currentSessionId, userMessage);
+          void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
 
@@ -2750,6 +2809,7 @@ export default function App() {
             url: data.url,
             storageUri: data.storageUri,
             name: 'Vidéo générée',
+            generationMeta: mediaGenerationMeta,
           }],
           createdAt: Date.now(),
         };
@@ -2777,7 +2837,7 @@ export default function App() {
           refinedInstruction
         };
         setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
-        await persistSessionMessage(currentSessionId, userMessage);
+        void persistSessionMessage(currentSessionId, userMessage);
         setPendingAttachments([]);
       } else {
         const lastMsg = overrideMessages[overrideMessages.length - 1];
@@ -2838,6 +2898,18 @@ export default function App() {
       let fullContent = '';
       let thoughts = '';
       let buffer = '';
+      let scheduledStreamingFrame: number | null = null;
+
+      const flushStreamingState = () => {
+        scheduledStreamingFrame = null;
+        setStreamingContent(fullContent);
+        setStreamingThoughts(thoughts);
+      };
+
+      const scheduleStreamingState = () => {
+        if (scheduledStreamingFrame !== null) return;
+        scheduledStreamingFrame = window.requestAnimationFrame(flushStreamingState);
+      };
 
       const modelMsgId = Date.now().toString();
 
@@ -2870,14 +2942,25 @@ export default function App() {
               if (data.error) {
                 throw new Error(data.error);
               }
-              if (data.text) { fullContent += data.text; setStreamingContent(fullContent); }
-              if (data.thoughts) { thoughts += data.thoughts; setStreamingThoughts(thoughts); }
+              if (data.text) {
+                fullContent += data.text;
+                scheduleStreamingState();
+              }
+              if (data.thoughts) {
+                thoughts += data.thoughts;
+                scheduleStreamingState();
+              }
             } catch (e) {
               throw e;
             }
           }
         }
       }
+
+      if (scheduledStreamingFrame !== null) {
+        window.cancelAnimationFrame(scheduledStreamingFrame);
+      }
+      flushStreamingState();
 
       setStreamingThoughtsExpanded(false);
       if (thoughts) {
@@ -3225,7 +3308,7 @@ export default function App() {
     return (
       <div
         className={cn(
-          "studio-shell flex h-[100dvh] w-full overflow-hidden transition-all duration-500 font-sans",
+          "studio-shell flex h-[100dvh] w-full overflow-hidden transition-colors duration-300 font-sans",
           "bg-[var(--app-bg)] text-[var(--app-text)]"
         )}
       >
@@ -3490,39 +3573,39 @@ export default function App() {
                   <Suspense fallback={<div className="flex h-full items-center justify-center"><Loader2 size={22} className="animate-spin text-[var(--app-accent)]" /></div>}>
                     {activeMode === 'image' && (
                       <ImageStudio
-                        onGenerate={handleSend}
+                        onGenerate={(prompt, request) => { void handleSend(prompt, undefined, undefined, request); }}
                         isLoading={isLoading}
                         messages={displayedMessages}
                         onImageClick={setSelectedImage}
-                        isRefinerEnabled={isPromptRefinerEnabled}
-                        onToggleRefiner={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
+                        isRefinerEnabled={Boolean(configs.image.refinerEnabled)}
+                        onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.image.refinerEnabled) })}
                       />
                     )}
                     {activeMode === 'video' && (
                       <VideoStudio
-                        onGenerate={handleSend}
+                        onGenerate={(prompt, request) => { void handleSend(prompt, undefined, undefined, request); }}
                         isLoading={isLoading}
                         messages={displayedMessages}
-                        isRefinerEnabled={isPromptRefinerEnabled}
-                        onToggleRefiner={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
+                        isRefinerEnabled={Boolean(configs.video.refinerEnabled)}
+                        onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.video.refinerEnabled) })}
                       />
                     )}
                     {activeMode === 'audio' && (
                       <AudioStudio
-                        onGenerate={handleSend}
+                        onGenerate={(prompt, request) => { void handleSend(prompt, undefined, undefined, request); }}
                         isLoading={isLoading}
                         messages={displayedMessages}
-                        isRefinerEnabled={isPromptRefinerEnabled}
-                        onToggleRefiner={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
+                        isRefinerEnabled={Boolean(configs.audio.refinerEnabled)}
+                        onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.audio.refinerEnabled) })}
                       />
                     )}
                     {activeMode === 'lyria' && (
                       <LyriaStudio
-                        onGenerate={handleSend}
+                        onGenerate={(prompt, request) => { void handleSend(prompt, undefined, undefined, request); }}
                         isLoading={isLoading}
                         messages={displayedMessages}
-                        isRefinerEnabled={isPromptRefinerEnabled}
-                        onToggleRefiner={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
+                        isRefinerEnabled={Boolean(configs.lyria.refinerEnabled)}
+                        onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.lyria.refinerEnabled) })}
                       />
                     )}
                   </Suspense>

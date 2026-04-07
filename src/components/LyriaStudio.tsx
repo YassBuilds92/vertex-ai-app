@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Music, Sparkles, Loader2, ChevronDown, Check,
   Undo2, Pencil, ArrowRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../store/useStore';
-import { Message } from '../types';
+import { MediaGenerationRequest, Message } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { buildAudioHistory } from '../utils/media-gallery-history';
+import { StudioAudioPlayer } from './StudioAudioPlayer';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -20,7 +22,7 @@ const lyriaModels = [
 ];
 
 interface LyriaStudioProps {
-  onGenerate: (prompt: string) => void;
+  onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
   isLoading: boolean;
   messages: Message[];
   isRefinerEnabled: boolean;
@@ -44,23 +46,7 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
   const [originalPrompt, setOriginalPrompt] = useState('');
 
-  const allTracks = messages
-    .filter((m) => m.role === 'model')
-    .flatMap((m) => {
-      const tracks: { url: string; prompt: string }[] = [];
-      if (m.attachments) {
-        for (const a of m.attachments) {
-          if (a.type === 'audio' && a.url) {
-            const userMsg = messages.find(
-              (u) => u.role === 'user' && u.createdAt <= m.createdAt && u.createdAt > m.createdAt - 60000,
-            );
-            tracks.push({ url: a.url, prompt: userMsg?.content || '' });
-          }
-        }
-      }
-      if (m.audio) tracks.push({ url: m.audio, prompt: '' });
-      return tracks;
-    });
+  const allTracks = useMemo(() => buildAudioHistory(messages, { mode: 'lyria' }), [messages]);
 
   const handleSubmit = async () => {
     if (!prompt.trim() || isLoading || isRefining) return;
@@ -72,30 +58,35 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
         const res = await fetch('/api/refine', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: prompt.trim(), mode: 'lyria' }),
+          body: JSON.stringify({
+            prompt: prompt.trim(),
+            mode: 'lyria',
+            profileId: config.refinerProfileId,
+            customInstructions: config.refinerCustomInstructions,
+          }),
         });
         if (res.ok) {
           const data = await res.json();
           setRefinedPrompt(data.refinedInstruction || prompt.trim());
         } else {
-          onGenerate(prompt.trim());
+          onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
           setPrompt('');
         }
       } catch {
-        onGenerate(prompt.trim());
+        onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
         setPrompt('');
       } finally {
         setIsRefining(false);
       }
     } else {
-      onGenerate(prompt.trim());
+      onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
       setPrompt('');
     }
   };
 
   const handleApplyRefined = () => {
     if (refinedPrompt) {
-      onGenerate(refinedPrompt);
+      onGenerate(refinedPrompt, { originalPrompt, refinedPrompt });
       setPrompt('');
       setRefinedPrompt(null);
       setOriginalPrompt('');
@@ -103,7 +94,7 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
   };
 
   const handleRevertOriginal = () => {
-    onGenerate(originalPrompt);
+    onGenerate(originalPrompt, { originalPrompt });
     setPrompt('');
     setRefinedPrompt(null);
     setOriginalPrompt('');
@@ -314,18 +305,15 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
                   <span className="text-sm text-emerald-300/70">Composition en cours...</span>
                 </div>
               )}
-              {[...allTracks].reverse().map((track, i) => (
-                <div
-                  key={i}
-                  className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-5 py-4 transition-colors hover:border-[var(--app-border-strong)]"
-                >
-                  {track.prompt && (
-                    <p className="mb-3 text-[12px] leading-relaxed text-[var(--app-text-muted)] line-clamp-2">
-                      {track.prompt}
-                    </p>
-                  )}
-                  <audio src={track.url} controls className="w-full" preload="metadata" />
-                </div>
+              {allTracks.map((track, index) => (
+                <StudioAudioPlayer
+                  key={track.id}
+                  src={track.url}
+                  title={track.name || `Piste ${allTracks.length - index}`}
+                  subtitle={track.model || track.mimeType || config.model}
+                  prompt={track.refinedPrompt || track.prompt}
+                  downloadName={track.name || 'lyria-track.wav'}
+                />
               ))}
             </>
           )}

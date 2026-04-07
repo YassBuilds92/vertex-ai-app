@@ -236,6 +236,7 @@ function sanitizeAttachment(attachment: Attachment): Attachment {
     thumbnail: attachment.thumbnail,
     base64: attachment.base64,
     videoMetadata: attachment.videoMetadata,
+    generationMeta: attachment.generationMeta,
   };
 }
 

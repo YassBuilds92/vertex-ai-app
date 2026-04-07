@@ -30,6 +30,11 @@ import {
   GEMINI_TTS_VOICES,
   modelSupportsGeminiTtsMultiSpeaker,
 } from '../../shared/gemini-tts.js';
+import {
+  getDefaultPromptRefinerProfileId,
+  getPromptRefinerProfile,
+  getPromptRefinerProfiles,
+} from '../../shared/prompt-refiners.js';
 import { db, auth, cleanForFirestore } from '../firebase';
 import { useStore } from '../store/useStore';
 import { ChatSession, CustomPrompt, SelectedCustomPromptRef } from '../types';
@@ -111,8 +116,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
     setRightSidebarVisible,
     theme,
     setTheme,
-    isPromptRefinerEnabled,
-    setPromptRefinerEnabled,
     resetConfig,
   } = useStore();
 
@@ -147,6 +150,14 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
   const audioSupportsMultiSpeaker = activeMode === 'audio'
     ? modelSupportsGeminiTtsMultiSpeaker(config?.model || '')
     : false;
+  const availableRefinerProfiles = useMemo(
+    () => getPromptRefinerProfiles(activeMode),
+    [activeMode],
+  );
+  const activeRefinerProfile = useMemo(
+    () => getPromptRefinerProfile(activeMode, config?.refinerProfileId),
+    [activeMode, config?.refinerProfileId],
+  );
   const thinkingLevels = useMemo(() => {
     const levels = [
       { id: 'minimal', label: 'Eco' },
@@ -365,6 +376,93 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                 </AnimatePresence>
               </div>
             </div>
+          </div>
+
+          <div className="studio-panel rounded-xl p-4 space-y-4">
+            {renderSectionTitle('Raffineur IA')}
+            <button
+              onClick={() => setConfig({ refinerEnabled: !Boolean(config?.refinerEnabled) })}
+              className={cn(
+                'flex w-full items-start justify-between gap-4 rounded-lg border px-4 py-4 text-left transition-colors',
+                config?.refinerEnabled
+                  ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)]'
+                  : 'border-[var(--app-border)] bg-white/[0.03] hover:border-[var(--app-border-strong)]',
+              )}
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[13px] font-bold tracking-tight text-[var(--app-text)]">
+                  <Sparkles size={15} className={config?.refinerEnabled ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]'} />
+                  Raffinage personnalise
+                </div>
+                <p className="mt-2 text-[11px] leading-6 text-[var(--app-text-muted)]">
+                  Chaque mode garde maintenant son propre raffineur, son profil et ses consignes perso.
+                </p>
+              </div>
+              <div className={cn('relative mt-0.5 h-6 w-11 rounded-full transition-colors', config?.refinerEnabled ? 'bg-[var(--app-accent-soft)]' : 'bg-white/10')}>
+                <motion.div
+                  animate={{ x: config?.refinerEnabled ? 23 : 2 }}
+                  className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm"
+                  transition={{ type: 'spring', damping: 20, stiffness: 300 } as const}
+                />
+              </div>
+            </button>
+
+            <div className="space-y-2">
+              <div className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Profil actif</div>
+              <div className="grid grid-cols-2 gap-2">
+                {availableRefinerProfiles.map((profile) => (
+                  <button
+                    key={profile.id}
+                    onClick={() => setConfig({ refinerProfileId: profile.id })}
+                    className={cn(
+                      'rounded-xl border px-3 py-3 text-left transition-colors',
+                      config?.refinerProfileId === profile.id
+                        ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
+                        : 'border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]',
+                    )}
+                  >
+                    <div className="text-[12px] font-bold tracking-tight">{profile.title}</div>
+                    <div className="mt-1 text-[10px] leading-5 opacity-80">{profile.summary}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+              {activeRefinerProfile
+                ? `${activeRefinerProfile.title}: ${activeRefinerProfile.summary}`
+                : 'Profil par defaut actif.'}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-bold text-[var(--app-text-muted)]">Consignes perso</span>
+                <button
+                  onClick={() => setConfig({ refinerCustomInstructions: '' })}
+                  className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                >
+                  Vider
+                </button>
+              </div>
+              <textarea
+                value={config?.refinerCustomInstructions || ''}
+                onChange={(event) => setConfig({ refinerCustomInstructions: event.target.value })}
+                placeholder={
+                  activeRefinerProfile?.placeholder
+                    || 'Ex: plus premium, plus lisible, plus direct, moins bavard, plus manga, plus pub, plus cinematic.'
+                }
+                className="w-full min-h-28 resize-none rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
+              />
+            </div>
+
+            {!config?.refinerProfileId && (
+              <button
+                onClick={() => setConfig({ refinerProfileId: getDefaultPromptRefinerProfileId(activeMode) })}
+                className="rounded-lg border border-[var(--app-border)] bg-white/[0.03] px-3 py-2 text-[11px] font-bold text-[var(--app-text-muted)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
+              >
+                Charger le profil par defaut
+              </button>
+            )}
           </div>
 
           {activeMode === 'cowork' && (

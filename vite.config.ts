@@ -13,6 +13,17 @@ export default defineConfig(({mode}) => {
           main: path.resolve(__dirname, 'index.html'),
           presentation: path.resolve(__dirname, 'presentation.html'),
         },
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('three')) return 'three-vendor';
+            if (id.includes('firebase')) return 'firebase-vendor';
+            if (id.includes('react-markdown')) return 'markdown-vendor';
+            if (id.includes('motion')) return 'motion-vendor';
+            if (id.includes('lucide-react')) return 'icons-vendor';
+            return 'vendor';
+          },
+        },
       },
     },
     define: {

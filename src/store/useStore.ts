@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { AppMode, ModelConfig, ChatSession } from '../types';
+import { getDefaultPromptRefinerProfileId } from '../../shared/prompt-refiners.js';
 
 interface AppState {
   activeMode: AppMode;
@@ -17,8 +18,6 @@ interface AppState {
   setLeftSidebarVisible: (visible: boolean) => void;
   isRightSidebarVisible: boolean;
   setRightSidebarVisible: (visible: boolean) => void;
-  isPromptRefinerEnabled: boolean;
-  setPromptRefinerEnabled: (enabled: boolean) => void;
   resetConfig: () => void;
   theme: 'dark' | 'light' | 'oled';
   setTheme: (theme: 'dark' | 'light' | 'oled') => void;
@@ -33,6 +32,9 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     maxOutputTokens: 8192,
     responseMimeType: 'text/plain',
     systemInstruction: '',
+    refinerEnabled: false,
+    refinerProfileId: getDefaultPromptRefinerProfileId('chat'),
+    refinerCustomInstructions: '',
     googleSearch: false,
     googleMaps: false,
     codeExecution: false,
@@ -47,6 +49,9 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     topP: 1.0,
     topK: 40,
     systemInstruction: '',
+    refinerEnabled: false,
+    refinerProfileId: getDefaultPromptRefinerProfileId('image'),
+    refinerCustomInstructions: '',
     aspectRatio: '1:1',
     imageSize: '1K',
     numberOfImages: 1,
@@ -59,6 +64,9 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     topP: 1.0,
     topK: 40,
     systemInstruction: '',
+    refinerEnabled: false,
+    refinerProfileId: getDefaultPromptRefinerProfileId('video'),
+    refinerCustomInstructions: '',
     videoResolution: '720p',
     videoAspectRatio: '16:9',
     videoDurationSeconds: 6,
@@ -69,6 +77,9 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     topP: 1.0,
     topK: 40,
     systemInstruction: '',
+    refinerEnabled: false,
+    refinerProfileId: getDefaultPromptRefinerProfileId('audio'),
+    refinerCustomInstructions: '',
     ttsVoice: 'Kore',
     ttsLanguageCode: 'fr-FR',
     ttsStyleInstructions: '',
@@ -79,6 +90,9 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     topP: 1.0,
     topK: 40,
     systemInstruction: '',
+    refinerEnabled: false,
+    refinerProfileId: getDefaultPromptRefinerProfileId('lyria'),
+    refinerCustomInstructions: '',
     negativePrompt: '',
     sampleCount: 1,
   },
@@ -89,6 +103,9 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     topK: 1,
     maxOutputTokens: 65536,
     systemInstruction: '',
+    refinerEnabled: false,
+    refinerProfileId: getDefaultPromptRefinerProfileId('cowork'),
+    refinerCustomInstructions: '',
     googleSearch: true,
     codeExecution: true,
     thinkingLevel: 'high',
@@ -138,8 +155,6 @@ export const useStore = create<AppState>()(
       setLeftSidebarVisible: (visible) => set({ isLeftSidebarVisible: visible }),
       isRightSidebarVisible: true,
       setRightSidebarVisible: (visible) => set({ isRightSidebarVisible: visible }),
-      isPromptRefinerEnabled: false,
-      setPromptRefinerEnabled: (enabled) => set({ isPromptRefinerEnabled: enabled }),
       resetConfig: () => set((state) => ({
         configs: {
           ...state.configs,

@@ -439,7 +439,6 @@
 
 /* ─── Global transitions ─── */
 button, input, textarea, select, a,
-.studio-panel, .studio-panel-strong,
 .studio-button-primary, .studio-button-secondary,
 .studio-input {
   transition-property: background-color, border-color, color, box-shadow, opacity, transform;

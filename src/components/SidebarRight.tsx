@@ -76,40 +76,6 @@ const modelSubtitleByMode = {
   lyria: 'Generation musicale',
 } as const;
 
-const modeStudioCards = {
-  image: {
-    eyebrow: 'Image direction',
-    title: 'Cadre, lumiere, variantes.',
-    body: 'Le reste doit se taire.',
-    chips: ['Ratios', 'Variantes', 'Securite'],
-    accentClassName: 'from-indigo-400/18 via-violet-400/10 to-transparent',
-    icon: ImageIcon,
-  },
-  video: {
-    eyebrow: 'Video lab',
-    title: 'Format, duree, mouvement.',
-    body: 'Un depart plus cine, moins formulaire.',
-    chips: ['Formats', 'Duree', 'Cadence'],
-    accentClassName: 'from-orange-300/18 via-amber-300/10 to-transparent',
-    icon: Film,
-  },
-  audio: {
-    eyebrow: 'Voice studio',
-    title: 'Voix, langue, intention.',
-    body: 'Moins de chrome, plus de studio.',
-    chips: ['Voix', 'Locale', 'Style'],
-    accentClassName: 'from-rose-300/18 via-pink-300/10 to-transparent',
-    icon: Mic,
-  },
-  lyria: {
-    eyebrow: 'Lyria mode',
-    title: 'Texture, energie, variantes.',
-    body: 'Une entree musique plus nette.',
-    chips: ['Lyria 2', 'Negative', 'Seed'],
-    accentClassName: 'from-emerald-300/18 via-teal-300/10 to-transparent',
-    icon: Music,
-  },
-} as const;
 
 interface SidebarRightProps {
   activeSession: ChatSession;
@@ -181,10 +147,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
   const audioSupportsMultiSpeaker = activeMode === 'audio'
     ? modelSupportsGeminiTtsMultiSpeaker(config?.model || '')
     : false;
-  const activeStudioCard = activeMode === 'image' || activeMode === 'video' || activeMode === 'audio' || activeMode === 'lyria'
-    ? modeStudioCards[activeMode]
-    : null;
-  const ActiveStudioCardIcon = activeStudioCard?.icon;
   const thinkingLevels = useMemo(() => {
     const levels = [
       { id: 'minimal', label: 'Eco' },
@@ -341,72 +303,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
             </div>
           </div>
 
-          <div className="group">
-            <button
-              onClick={() => setPromptRefinerEnabled(!isPromptRefinerEnabled)}
-              className={cn(
-                'studio-panel relative flex w-full items-center justify-between overflow-hidden rounded-xl border px-5 py-4 text-left transition-colors',
-                isPromptRefinerEnabled
-                  ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)]'
-                  : 'hover:border-[var(--app-border-strong)]',
-              )}
-            >
-              <div className="relative z-10 flex items-center gap-3.5">
-                <div
-                  className={cn(
-                    'flex h-10 w-10 items-center justify-center rounded-xl transition-colors',
-                    isPromptRefinerEnabled
-                      ? 'border border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
-                      : 'bg-white/5 text-[var(--app-text-muted)]',
-                  )}
-                >
-                  <Sparkles size={18} fill={isPromptRefinerEnabled ? 'currentColor' : 'none'} />
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className={cn('text-[14px] font-bold tracking-tight', isPromptRefinerEnabled ? 'text-[var(--app-accent)]' : 'text-[var(--app-text)]')}>
-                    Raffineur IA
-                  </span>
-                  <span className="text-[10px] font-medium text-[var(--app-text-muted)]">Optimisation auto</span>
-                </div>
-              </div>
-              <div className={cn('relative h-5 w-10 rounded-full transition-colors', isPromptRefinerEnabled ? 'bg-[var(--app-accent-soft)]' : 'bg-white/10')}>
-                <motion.div
-                  animate={{ x: isPromptRefinerEnabled ? 22 : 2 }}
-                  className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm"
-                  transition={{ type: 'spring', damping: 20, stiffness: 300 } as const}
-                />
-              </div>
-            </button>
-          </div>
-
-          {activeStudioCard && (
-            <div className="studio-panel overflow-hidden rounded-xl p-0">
-              <div className={cn('relative border-b border-[var(--app-border)] p-4', `bg-[linear-gradient(135deg,rgba(255,255,255,0.04),transparent),radial-gradient(circle_at_top_left,var(--tw-gradient-stops))]`, activeStudioCard.accentClassName)}>
-                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_55%)]" />
-                <div className="relative z-10 flex items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.08] text-[var(--app-text)]">
-                    {ActiveStudioCardIcon && <ActiveStudioCardIcon size={18} />}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-black uppercase tracking-[0.24em] text-[var(--app-text-muted)]">{activeStudioCard.eyebrow}</div>
-                    <div className="mt-2 text-[1.05rem] font-semibold leading-6 tracking-[-0.03em] text-[var(--app-text)]">
-                      {activeStudioCard.title}
-                    </div>
-                    <p className="mt-2 text-[12px] leading-6 text-[var(--app-text)]/64">
-                      {activeStudioCard.body}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="grid gap-2 px-4 py-4">
-                {activeStudioCard.chips.map((chip) => (
-                  <div key={chip} className="rounded-lg border border-[var(--app-border)] bg-white/[0.03] px-3.5 py-2.5 text-[12px] text-[var(--app-text)]/78">
-                    {chip}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div className="studio-panel rounded-xl p-4">
             <div className="space-y-3">
@@ -503,61 +399,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
             </div>
           )}
 
-          {activeMode === 'image' && (
-            <div className="studio-panel rounded-xl p-4 space-y-5">
-              {renderSectionTitle('Parametres image')}
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Format</span>
-                  <div className="grid grid-cols-3 gap-2">
-                    {['1:1', '4:3', '3:4', '16:9', '9:16', '21:9', '3:2', '2:3'].map((ratio) => (
-                      <button
-                        key={ratio}
-                        onClick={() => setConfig({ aspectRatio: ratio as any })}
-                        className={cn(
-                          'rounded-xl border py-2 text-[11px] font-bold transition-colors',
-                          config.aspectRatio === ratio
-                            ? 'border-[var(--app-border-strong)] bg-[rgba(129,236,255,0.1)] text-[var(--app-accent)]'
-                            : 'border-white/5 bg-white/5 text-[var(--app-text-muted)] hover:bg-white/10',
-                        )}
-                      >
-                        {ratio}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Generation de personnes</span>
-                  <select
-                    value={config.personGeneration || 'allow_adult'}
-                    onChange={(event) => setConfig({ personGeneration: event.target.value })}
-                    className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-2.5 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
-                  >
-                    <option value="allow_all" className="bg-[#111]">Autoriser tout</option>
-                    <option value="allow_adult" className="bg-[#111]">Adultes uniquement</option>
-                    <option value="dont_allow" className="bg-[#111]">Interdire</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between px-1">
-                    <span className="font-mono text-[11px] font-bold text-[var(--app-text-muted)]">Nombre d images</span>
-                    <span className="text-xs font-bold text-[var(--app-accent)]">{config.numberOfImages || 1}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="4"
-                    step="1"
-                    value={config.numberOfImages || 1}
-                    onChange={(event) => setConfig({ numberOfImages: parseInt(event.target.value, 10) })}
-                    className="h-1 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[var(--app-accent)]"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
 
           {activeMode === 'video' && (
             <div className="studio-panel rounded-xl p-4 space-y-5">

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Image as ImageIcon, Sparkles, ChevronDown, Check, Loader2, Download, Maximize2,
-  Undo2, Pencil, ArrowRight,
+  Undo2, Pencil, ArrowRight, Copy,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../store/useStore';
@@ -71,6 +71,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const config = configs.image;
   const [prompt, setPrompt] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [copiedPromptIndex, setCopiedPromptIndex] = useState<number | null>(null);
 
   // Refiner preview state
   const [isRefining, setIsRefining] = useState(false);
@@ -358,11 +359,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {isLoading && (
-                <div className="aspect-square animate-pulse rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] flex items-center justify-center">
-                  <Loader2 size={24} className="animate-spin text-[var(--app-accent)]" />
+              {isLoading && Array.from({ length: config.numberOfImages || 1 }).map((_, i) => (
+                <div key={`loading-${i}`} className="aspect-square animate-pulse rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] flex items-center justify-center">
+                  {i === 0 && <Loader2 size={24} className="animate-spin text-[var(--app-accent)]" />}
                 </div>
-              )}
+              ))}
               {[...allImages].reverse().map((img, i) => (
                 <div
                   key={i}
@@ -377,30 +378,53 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                   <div className="absolute bottom-0 left-0 right-0 p-2.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <div className="flex items-end justify-between gap-2">
-                      <div className="min-w-0">
-                        {img.refined && (
-                          <div className="mb-1 flex items-center gap-1 text-[9px] font-semibold text-indigo-300">
-                            <Sparkles size={8} />
-                            Prompt optimise
-                          </div>
-                        )}
-                        {img.prompt && (
-                          <span className="block truncate text-[10px] text-white/80">{img.prompt}</span>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 gap-1.5">
-                        <a
-                          href={img.url}
-                          download="image.png"
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/30"
-                        >
-                          <Download size={12} />
-                        </a>
-                        <button className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/30">
-                          <Maximize2 size={12} />
-                        </button>
+                    <div className="flex flex-col gap-1.5">
+                      {(img.prompt || img.refined) && (
+                        <div className="rounded-lg bg-black/60 px-2.5 py-2 backdrop-blur-sm">
+                          {img.refined && (
+                            <div className="mb-1 flex items-center gap-1 text-[9px] font-semibold text-indigo-300">
+                              <Sparkles size={8} />
+                              Prompt optimise
+                            </div>
+                          )}
+                          {img.prompt && (
+                            <p className="text-[10px] leading-relaxed text-white/90 break-words line-clamp-5">
+                              {img.refined || img.prompt}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-1.5">
+                        {img.prompt ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(img.refined || img.prompt);
+                              setCopiedPromptIndex(i);
+                              setTimeout(() => setCopiedPromptIndex(null), 1500);
+                            }}
+                            className="flex items-center gap-1 rounded-lg bg-white/20 px-2.5 py-1.5 text-[10px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/30"
+                          >
+                            {copiedPromptIndex === i ? <Check size={10} /> : <Copy size={10} />}
+                            {copiedPromptIndex === i ? 'Copie !' : 'Copier le prompt'}
+                          </button>
+                        ) : <span />}
+                        <div className="flex shrink-0 gap-1.5">
+                          <a
+                            href={img.url}
+                            download="image.png"
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/30"
+                          >
+                            <Download size={12} />
+                          </a>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onImageClick(img.url); }}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/30"
+                          >
+                            <Maximize2 size={12} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

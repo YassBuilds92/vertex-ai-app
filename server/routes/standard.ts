@@ -103,6 +103,14 @@ function writeSseEvent(res: Response, event: string, data: unknown) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+function writeSseData(res: Response, data: unknown) {
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function createTraceId(prefix: string) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 type GeneratedAppStreamBuilder = (
   brief: string,
   source: 'manual' | 'cowork',
@@ -466,16 +474,60 @@ export function registerStandardApiRoutes(app: Express) {
 
   app.post('/api/chat', async (req, res) => {
     let headersSent = false;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
+    const traceId = createTraceId('chat');
+    res.on('close', () => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+    });
     try {
       const { message, history, attachments, config, refinedSystemInstruction } = ChatSchema.parse(req.body);
 
       const modelId = normalizeConfiguredModelId(config.model, 'gemini-3.1-pro-preview');
       const ai = createGoogleAI(modelId);
       const systemPromptText = refinedSystemInstruction || config.systemInstruction || '';
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Studio-Trace-Id', traceId);
+      headersSent = true;
+      res.flushHeaders?.();
+      writeSseData(res, {
+        debug: {
+          traceId,
+          stage: 'request_accepted',
+          modelId,
+          historyCount: history.length,
+          attachmentCount: attachments?.length || 0,
+        },
+      });
+      heartbeat = setInterval(() => {
+        res.write(': keep-alive\n\n');
+      }, 15000);
+
+      log.info('Chat request accepted', {
+        traceId,
+        modelId,
+        historyCount: history.length,
+        attachmentCount: attachments?.length || 0,
+      });
+
       const contents = await buildModelContentsFromRequest({
         history,
         message,
         attachments,
+      });
+
+      writeSseData(res, {
+        debug: {
+          traceId,
+          stage: 'contents_built',
+          turnCount: contents.length,
+          currentPartCount: contents[contents.length - 1]?.parts?.length || 0,
+        },
       });
 
       const tools: any[] = [];
@@ -497,10 +549,14 @@ export function registerStandardApiRoutes(app: Express) {
       if (tools.length > 0) genConfig.tools = tools;
       if (thinkingConfig) genConfig.thinkingConfig = thinkingConfig;
 
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      headersSent = true;
+      writeSseData(res, {
+        debug: {
+          traceId,
+          stage: 'model_stream_start',
+          toolCount: tools.length,
+          thinkingLevel: config.thinkingLevel || 'high',
+        },
+      });
 
       const response = await ai.models.generateContentStream({
         model: modelId,
@@ -508,7 +564,18 @@ export function registerStandardApiRoutes(app: Express) {
         config: genConfig,
       });
 
+      let sawFirstChunk = false;
       for await (const chunk of response) {
+        if (!sawFirstChunk) {
+          sawFirstChunk = true;
+          writeSseData(res, {
+            debug: {
+              traceId,
+              stage: 'first_chunk_received',
+            },
+          });
+        }
+
         const candidates = (chunk as any).candidates;
         if (candidates?.[0]?.finishReason && candidates[0].finishReason !== 'STOP' && candidates[0].finishReason !== 'FINISH_REASON_UNSPECIFIED') {
           log.warn(`Stream finished with reason: ${candidates[0].finishReason}`, { model: modelId });
@@ -533,13 +600,32 @@ export function registerStandardApiRoutes(app: Express) {
         }
       }
 
+      writeSseData(res, {
+        debug: {
+          traceId,
+          stage: 'stream_completed',
+        },
+      });
+      if (heartbeat) clearInterval(heartbeat);
       res.end();
     } catch (error) {
-      log.error('Chat error', error);
+      const cleanError = parseApiError(error);
+      if (heartbeat) clearInterval(heartbeat);
+      log.error('Chat error', {
+        traceId,
+        error: cleanError,
+      });
       if (!headersSent) {
-        res.status(500).json({ error: 'Chat failed', message: String(error) });
+        res.status(500).json({ error: 'Chat failed', message: cleanError });
       } else {
-        res.write(`data: ${JSON.stringify({ error: String(error) })}\n\n`);
+        writeSseData(res, {
+          error: cleanError,
+          debug: {
+            traceId,
+            stage: 'error',
+            message: cleanError,
+          },
+        });
         res.end();
       }
     }

@@ -3,6 +3,7 @@ import type {
   ApiHistoryMessagePayload,
   ApiMessagePartPayload,
 } from '../../shared/chat-parts.js';
+import { extractTextFromPdfBuffer } from './chunking.js';
 import { tryExtractGcsUriFromUrl } from './storage.js';
 import { log } from './logger.js';
 
@@ -21,6 +22,7 @@ type ModelPart =
 const MAX_REMOTE_BINARY_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 const MAX_REMOTE_TEXT_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_CHARS = 120_000;
+const MIN_PDF_EXTRACTED_TEXT_CHARS = 120;
 const YOUTUBE_PLACEHOLDERS = new Set([
   'Chargement du titre...',
   'Video YouTube',
@@ -273,6 +275,27 @@ function buildTextAttachmentPart(attachment: ApiAttachmentPayload, mimeType: str
   };
 }
 
+function buildPdfAttachmentTextPart(
+  attachment: ApiAttachmentPayload,
+  text: string,
+  totalPages?: number,
+): ModelPart {
+  const normalizedText = text.replace(/\u0000/g, '').trim();
+  if (!normalizedText) {
+    return { text: buildFallbackAttachmentText(attachment) };
+  }
+
+  return {
+    text: [
+      'Document PDF joint.',
+      attachment.name ? `Nom: ${attachment.name}` : null,
+      totalPages && totalPages > 0 ? `Pages: ${totalPages}` : null,
+      'Texte extrait du PDF:',
+      clipText(normalizedText),
+    ].filter(Boolean).join('\n'),
+  };
+}
+
 async function resolveYoutubeTitle(attachment: ApiAttachmentPayload) {
   if (attachment.name && !YOUTUBE_PLACEHOLDERS.has(attachment.name)) {
     return attachment.name;
@@ -329,6 +352,47 @@ export async function resolveAttachmentToModelParts(attachment: ApiAttachmentPay
       title ? `Titre: ${title}` : null,
       attachment.url ? `URL: ${attachment.url}` : null,
     ].filter(Boolean).join('\n') }];
+  }
+
+  if (mimeType === 'application/pdf') {
+    const localBuffer = decodeBase64Attachment(base64);
+    let pdfBuffer = localBuffer;
+
+    if (!pdfBuffer && attachment.url && looksLikeHttpUrl(attachment.url)) {
+      try {
+        const remote = await fetchRemoteAttachment(
+          attachment.url,
+          mimeType,
+          MAX_REMOTE_BINARY_ATTACHMENT_BYTES,
+        );
+        pdfBuffer = remote.buffer;
+      } catch (error) {
+        log.warn('PDF attachment fetch failed, falling back to native file reference', {
+          url: attachment.url,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (pdfBuffer) {
+      try {
+        const extracted = await extractTextFromPdfBuffer(pdfBuffer);
+        if (extracted.text.trim().length >= MIN_PDF_EXTRACTED_TEXT_CHARS) {
+          return [buildPdfAttachmentTextPart(attachment, extracted.text, extracted.totalPages)];
+        }
+
+        log.warn('PDF text extraction returned too little text, keeping native PDF fallback', {
+          name: attachment.name,
+          totalPages: extracted.totalPages,
+          extractedChars: extracted.text.trim().length,
+        });
+      } catch (error) {
+        log.warn('PDF text extraction failed, keeping native PDF fallback', {
+          name: attachment.name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
   if (mimeType && isTextMimeType(mimeType)) {

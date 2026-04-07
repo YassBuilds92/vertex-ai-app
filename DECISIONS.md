@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-04-07 - Les routes `chat` et `cowork` doivent ouvrir leur SSE immediatement avec un `traceId` et un heartbeat
+- Statut: adopte localement
+- Contexte: un PDF joint pouvait laisser `/api/chat` muet jusqu'au timeout gateway, et Cowork souffrait du meme risque structurel tant que le premier octet SSE dependait du premier token modele.
+- Decision:
+  - ouvrir le SSE des que la requete est validee
+  - `flushHeaders()` immediat
+  - premier event debug/initialisation avant le travail modele
+  - heartbeat `: keep-alive`
+  - header `X-Studio-Trace-Id` et propagation du `traceId` dans les events SSE
+- Pourquoi:
+  - un endpoint SSE ne doit jamais rester une boite noire tant qu'il prepare un prompt, un PDF ou une memoire
+  - cela supprime le faux signal "l'IA ne fait rien" et rend les blocages diagnostiquerables depuis F12
+  - le meme pattern doit servir de norme pour toutes les futures routes longues (`sandbox`, `browser`, `healing`)
+- Consequence:
+  - `server/routes/standard.ts` et `api/index.ts` ont maintenant un chemin SSE "ouvert tot"
+  - le frontend loggue les `traceId` et les stages backend
+
 ## 2026-04-07 - Cowork pur ignore maintenant toute `systemInstruction` custom envoyee par le client
 - Statut: adopte, deploye en production
 - Contexte: un prompt galerie persiste du type `GEO-PALANTIR` pouvait etre envoye dans `/api/cowork` puis ajoute a `buildCoworkSystemInstruction(...)`, ce qui detournait completement la boucle Cowork et rendait les runs hors sujet.

@@ -1,5 +1,87 @@
 # SESSION STATE
 
+## 2026-04-07 - Fix critique chat/PDF: SSE immediat, heartbeat keepalive, fallback PDF text-first, recanonisation de session
+
+### Ce qui a ete accompli
+- Diagnostic du blocage utilisateur reel en mode `chat`:
+  - les logs F12 montraient `POST /api/chat -> start`, puis aucun event utile pendant ~300 s, puis `504 Gateway Timeout`
+  - `attachmentCount: 1` montrait qu'une piece jointe PDF partait bien, mais la console n'avait aucune visibilite sur les etapes backend
+  - le probleme n'etait donc pas un crash immediate ni un rejet de schema `/api/chat`
+- Correctifs backend `chat`:
+  - `server/routes/standard.ts`
+    - ajout d'un `traceId` par requete `chat`
+    - envoi immediat des headers SSE via `flushHeaders()`
+    - emission instantanee d'un premier event debug `request_accepted`
+    - heartbeat `: keep-alive` toutes les 15 s
+    - nouveaux events debug `contents_built`, `model_stream_start`, `first_chunk_received`, `stream_completed`, `error`
+    - header `X-Studio-Trace-Id` pour relier F12 et les logs backend
+  - `server/lib/chat-parts.ts`
+    - nouveau fallback PDF text-first:
+      - si le PDF est recuperable en buffer, extraction texte via `extractTextFromPdfBuffer()`
+      - si un vrai texte est extrait, le modele recoit un contexte texte clippe au lieu de dependendre uniquement du PDF natif
+      - si l'extraction echoue ou est trop pauvre, fallback honnete sur la reference PDF native existante
+- Correctifs frontend / logs:
+  - `src/App.tsx`
+    - `touchSession()` n'utilise plus un simple `updateDoc({ updatedAt })`
+    - le shell de session est reecrit de facon canonique via `setDoc(cleanForFirestore(...))` pour nettoyer les champs legacy qui pouvaient faire echouer la revalidation Firestore
+    - le parseur SSE `/api/chat` journalise maintenant explicitement les `data.debug` en `StudioDebug[chat:debug]`
+  - `src/utils/client-debug.ts`
+    - les fetchs logguent maintenant `traceId` si le backend le renvoie
+- Correctifs Cowork:
+  - `api/index.ts`
+    - ajout d'un `ensureSseReady()` pour `/api/cowork`
+    - headers SSE flushes plus tot
+    - `traceId` sur tous les events
+    - heartbeat keepalive identique au mode `chat`
+    - premier event `status` emis des l'initialisation
+
+### Validation locale
+- `npm run lint` : OK
+- `npm run build` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+- smoke local `/api/chat` texte:
+  - `STATUS 200`
+  - `X-Studio-Trace-Id` present
+  - premier chunk immediat:
+    - `data: {"debug":{"stage":"request_accepted",...}}`
+- smoke local `/api/chat` PDF (`tmp/qa-attachment.pdf`):
+  - `STATUS 200`
+  - `X-Studio-Trace-Id` present
+  - chunk 1 immediat:
+    - `request_accepted`
+  - chunk 2:
+    - `contents_built`
+    - `model_stream_start`
+
+### Ce qui reste a faire
+- deployer ce lot sur Vercel
+- refaire le scenario utilisateur reel sur prod:
+  - mode `chat`
+  - PDF joint
+  - verifier qu'on ne voit plus un `504` muet apres 300 s
+  - verifier la presence des etapes `chat:debug`
+- verifier que `session-touch-failed` disparait sur les sessions reouvertes; si non, inspecter le detail du document legacy qui resiste encore
+
+### Decisions prises et pourquoi
+- un endpoint SSE doit ouvrir la reponse HTTP avant toute etape potentiellement longue:
+  - sinon un modele lent au premier token ressemble a un freeze reseau ou a une panne API
+- pour le chat document-centric, un PDF textuel doit d'abord essayer le chemin texte:
+  - plus rapide
+  - plus debuggable
+  - moins dependant d'un parse natif modele opaque
+- pour reabiliter des documents `sessions/{id}` legacy, toucher un timestamp ne suffit pas:
+  - il faut reecrire un shell canonique qui remplace les anciens champs hors schema
+
+### Pieges / points d'attention
+- un `STATUS 200` immediat ne prouve pas encore que la reponse finale modele sera toujours rapide; il prouve seulement que la requete ne reste plus muette jusqu'au timeout gateway
+- le fallback PDF text-first aide surtout les PDFs textuels; un PDF scanne peut encore retomber sur le chemin natif
+- le fix `touchSession()` ne traite que les shells qu'on reecrit; des collections legacy non ouvertes peuvent encore contenir des champs anciens
+
+### Intention exacte
+- supprimer le faux ressenti "l'IA ne fait rien" en rendant toutes les etapes visibles des les premieres centaines de millisecondes
+- faire en sorte qu'un PDF ne transforme plus le mode `chat` en boite noire de 5 minutes
+- remettre les sessions sur un schema propre sans demander a l'utilisateur de tout recreer a la main
+
 ## 2026-04-07 - Hotfix utilisateur Cowork: prompt hijack neutralise, rules Firestore redeployees, logs F12 enrichis
 
 ### Ce qui a ete accompli

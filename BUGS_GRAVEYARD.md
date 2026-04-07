@@ -1,5 +1,47 @@
 # BUGS GRAVEYARD
 
+## 2026-04-07 - Le mode chat avec PDF semblait "planter", mais le vrai bug etait un SSE muet jusqu'au timeout gateway
+- Statut: corrige localement, a redeployer puis revalider en production
+- Symptome:
+  - en `chat`, envoi d'un message avec PDF joint
+  - F12 montrait `POST /api/chat -> start`
+  - puis plus rien de metier pendant ~300 s
+  - enfin `504 Gateway Timeout`
+  - impression utilisateur: "l'IA ne fait rien", "elle n'a meme pas vu le PDF"
+- Tentatives:
+  - verification des logs client enrichis
+  - audit de `src/App.tsx`, `server/routes/standard.ts`, `server/lib/chat-parts.ts`
+  - smoke local `/api/chat` texte puis `/api/chat` PDF avec lecture du premier chunk SSE
+- Cause racine:
+  - `/api/chat` montait un flux SSE mais n'envoyait aucun octet avant le premier chunk Gemini
+  - avec un PDF, la phase `attachment -> build contents -> premier token modele` pouvait etre longue
+  - Vercel ne voyait donc pas de vraie reponse ouverte et finissait par couper la requete en `504`
+  - en plus, le mode `chat` dependait encore trop du PDF natif pour les documents textuels, ce qui gardait la latence opaque
+- Resolution:
+  - `server/routes/standard.ts`
+    - `flushHeaders()` immediat
+    - premier event debug `request_accepted`
+    - heartbeat `: keep-alive`
+    - `X-Studio-Trace-Id`
+    - nouveaux stages debug `contents_built`, `model_stream_start`, `first_chunk_received`, `stream_completed`
+  - `server/lib/chat-parts.ts`
+    - fallback PDF text-first via `extractTextFromPdfBuffer()`
+    - fallback PDF natif conserve seulement si l'extraction est vide ou rate
+  - `src/App.tsx`
+    - logs F12 des `data.debug` via `StudioDebug[chat:debug]`
+- Preuve:
+  - smoke local `/api/chat` texte:
+    - `STATUS 200`
+    - premier chunk immediat `request_accepted`
+  - smoke local `/api/chat` PDF:
+    - `STATUS 200`
+    - `request_accepted -> contents_built -> model_stream_start`
+  - `npm run lint` : OK
+  - `npm run build` : OK
+- Prevention:
+  - tout endpoint SSE critique doit emettre un premier chunk immediat
+  - un PDF textuel ne doit pas dependre uniquement d'un parse natif modele si une extraction texte locale est possible
+
 ## 2026-04-07 - Cowork semblait "ne rien faire", mais le vrai triple bug etait prompt hijack + rules Firestore + logs trop pauvres
 - Statut: corrige, redeploye et partiellement revalide en production
 - Symptome:

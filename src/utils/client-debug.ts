@@ -171,6 +171,7 @@ export function installStudioDebugInstrumentation() {
             ok: response.ok,
             durationMs: Math.round(finishedAt - startedAt),
             contentType: response.headers.get('content-type'),
+            traceId: response.headers.get('x-studio-trace-id') || undefined,
           },
           response.ok ? 'info' : 'warn'
         );
@@ -213,6 +214,7 @@ export function logCoworkStreamEventDebug(event: CoworkStreamEvent) {
     chunkCount: 'chunkCount' in event ? event.chunkCount : undefined,
     filesCount: 'filesCount' in event ? event.filesCount : undefined,
     auto: 'auto' in event ? event.auto : undefined,
+    traceId: 'traceId' in event ? (event as { traceId?: string }).traceId : undefined,
     textPreview:
       'text' in event && typeof event.text === 'string'
         ? clipString(event.text, 120)

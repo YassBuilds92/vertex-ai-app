@@ -1062,21 +1062,31 @@ export default function App() {
     });
   }, []);
 
-  const touchSession = useCallback(async (sessionId: string) => {
-    if (!user || !sessionId || sessionId === 'local-new') return;
+  const touchSession = useCallback(async (session: ChatSession) => {
+    if (!user || !session?.id || session.id === 'local-new') return;
+
+    const nextSession: ChatSession = {
+      ...session,
+      updatedAt: Date.now(),
+    };
+    const { messages, ...sessionPayload } = nextSession;
 
     try {
-      await updateDoc(doc(db, 'users', user.uid, 'sessions', sessionId), {
-        updatedAt: Date.now(),
-      });
+      await setDoc(
+        doc(db, 'users', user.uid, 'sessions', nextSession.id),
+        cleanForFirestore(sessionPayload)
+      );
+      saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
       logFirestoreOperation('session-touch-success', {
         userId: user.uid,
-        sessionId,
+        sessionId: nextSession.id,
+        sessionKind: nextSession.sessionKind || 'standard',
       });
     } catch (error) {
       logFirestoreOperation('session-touch-failed', {
         userId: user.uid,
-        sessionId,
+        sessionId: nextSession.id,
+        sessionKind: nextSession.sessionKind || 'standard',
         error,
       }, 'warn');
       console.warn('Session timestamp update failed:', error);
@@ -1502,9 +1512,9 @@ export default function App() {
           const { messages, ...sessionPayload } = session;
           await setDoc(
             doc(db, 'users', user.uid, 'sessions', session.id),
-            cleanForFirestore(sessionPayload),
-            { merge: true }
+            cleanForFirestore(sessionPayload)
           );
+          saveLocalSessionShell(user.uid, session, { pendingRemote: false });
         }));
 
         if (cancelled) return;
@@ -1535,68 +1545,83 @@ export default function App() {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeAgentWorkspace) return;
 
     const normalizedValues = buildAgentRuntimeFormValues(activeAgentWorkspace.agent, nextValues);
+    const currentSession = sessions.find((session) => session.id === activeSessionId);
+    if (!currentSession) return;
+
+    const nextSession: ChatSession = {
+      ...currentSession,
+      updatedAt: Date.now(),
+      agentWorkspace: {
+        ...activeAgentWorkspace,
+        formValues: normalizedValues,
+      },
+    };
 
     setSessions(prev => prev.map(session => {
       if (session.id !== activeSessionId || session.sessionKind !== 'agent' || !session.agentWorkspace) {
         return session;
       }
 
-      return {
-        ...session,
-        updatedAt: Date.now(),
-        agentWorkspace: {
-          ...session.agentWorkspace,
-          formValues: normalizedValues,
-        }
-      };
+      return nextSession;
     }));
+    saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
 
     try {
-      await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId), {
-        updatedAt: Date.now(),
-        agentWorkspace: cleanForFirestore({
-          ...activeAgentWorkspace,
-          formValues: normalizedValues,
-        }),
-      });
+      const { messages, ...sessionPayload } = nextSession;
+      await setDoc(
+        doc(db, 'users', user.uid, 'sessions', activeSessionId),
+        cleanForFirestore(sessionPayload)
+      );
+      saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
     } catch (error) {
       console.warn('Agent workspace form persistence degraded:', error);
     }
-  }, [activeAgentWorkspace, activeSessionId, user]);
+  }, [activeAgentWorkspace, activeSessionId, sessions, user]);
 
   const updateGeneratedAppWorkspaceValues = useCallback(async (nextValues: AgentFormValues) => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeGeneratedAppWorkspace) return;
 
     const normalizedValues = buildAgentRuntimeFormValues(adaptGeneratedAppToStudioAgent(activeGeneratedAppWorkspace.app), nextValues);
+    const currentSession = sessions.find((session) => session.id === activeSessionId);
+    if (!currentSession) return;
+
+    const nextSession: ChatSession = {
+      ...currentSession,
+      updatedAt: Date.now(),
+      generatedAppWorkspace: {
+        ...activeGeneratedAppWorkspace,
+        formValues: normalizedValues,
+      },
+    };
 
     setSessions(prev => prev.map(session => {
       if (session.id !== activeSessionId || session.sessionKind !== 'generated_app' || !session.generatedAppWorkspace) {
         return session;
       }
 
-      return {
-        ...session,
-        updatedAt: Date.now(),
-        generatedAppWorkspace: {
-          ...session.generatedAppWorkspace,
-          formValues: normalizedValues,
-        }
-      };
+      return nextSession;
     }));
+    saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
 
     try {
-      await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId), {
-        updatedAt: Date.now(),
-        generatedAppWorkspace: cleanForFirestore({
-          ...activeGeneratedAppWorkspace,
-          app: buildGeneratedAppRemotePayload(activeGeneratedAppWorkspace.app),
-          formValues: normalizedValues,
-        }),
-      });
+      const { messages, ...sessionPayload } = nextSession;
+      await setDoc(
+        doc(db, 'users', user.uid, 'sessions', activeSessionId),
+        cleanForFirestore({
+          ...sessionPayload,
+          generatedAppWorkspace: sessionPayload.generatedAppWorkspace
+            ? {
+                ...sessionPayload.generatedAppWorkspace,
+                app: buildGeneratedAppRemotePayload(sessionPayload.generatedAppWorkspace.app),
+              }
+            : undefined,
+        })
+      );
+      saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
     } catch (error) {
       console.warn('Generated app workspace form persistence degraded:', error);
     }
-  }, [activeGeneratedAppWorkspace, activeSessionId, user]);
+  }, [activeGeneratedAppWorkspace, activeSessionId, sessions, user]);
 
   const requestCoworkAgentEdit = useCallback(async (agent: StudioAgent, request: string, formValues: AgentFormValues) => {
     if (!user) return;
@@ -2114,7 +2139,20 @@ export default function App() {
       }
 
       if (!user || !currentSessionId) return;
-      await touchSession(currentSessionId);
+      const sessionTouchPayload: ChatSession = {
+        ...effectiveSession,
+        id: currentSessionId,
+        updatedAt: Date.now(),
+        mode: effectiveMode,
+        userId: user.uid,
+        systemInstruction: effectiveSession.systemInstruction || effectiveConfig?.systemInstruction || configs.chat?.systemInstruction || '',
+        selectedCustomPrompt: effectiveSession.selectedCustomPrompt || selectedCustomPrompt || undefined,
+        sessionKind: effectiveSession.sessionKind || 'standard',
+        agentWorkspace: effectiveSession.agentWorkspace,
+        generatedAppWorkspace: effectiveSession.generatedAppWorkspace,
+        messages: effectiveSessionMessages,
+      };
+      await touchSession(sessionTouchPayload);
 
       // Keep a rich payload for the current request, but persist lightweight attachments only.
       const requestAttachments: Attachment[] = [];
@@ -2793,7 +2831,12 @@ export default function App() {
                 hasThoughts: Boolean(data.thoughts),
                 thoughtsPreview: typeof data.thoughts === 'string' ? data.thoughts.slice(0, 120) : undefined,
                 hasError: Boolean(data.error),
+                debugStage: typeof data.debug?.stage === 'string' ? data.debug.stage : undefined,
+                traceId: typeof data.debug?.traceId === 'string' ? data.debug.traceId : undefined,
               });
+              if (data.debug) {
+                studioDebug('chat:debug', `Chat backend stage: ${data.debug.stage || 'unknown'}`, data.debug);
+              }
               if (data.error) {
                 throw new Error(data.error);
               }
@@ -3046,7 +3089,21 @@ export default function App() {
     }
 
     try {
-      await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId), { title: titleInput });
+      const currentSession = sessions.find((session) => session.id === activeSessionId);
+      if (!currentSession) return;
+      const nextSession: ChatSession = {
+        ...currentSession,
+        title: titleInput,
+        updatedAt: Date.now(),
+      };
+      const { messages, ...sessionPayload } = nextSession;
+      saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
+      await setDoc(
+        doc(db, 'users', user.uid, 'sessions', activeSessionId),
+        cleanForFirestore(sessionPayload)
+      );
+      saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
+      setSessions(prev => prev.map((session) => session.id === activeSessionId ? nextSession : session));
       setIsEditingTitle(false);
     } catch (e) { console.error(e); }
   };
@@ -3095,7 +3152,22 @@ export default function App() {
         if (activeSessionId === 'local-new') {
           setCustomTitle(aiTitle);
         } else {
-          await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId), { title: aiTitle });
+          const currentSession = sessions.find((session) => session.id === activeSessionId);
+          if (currentSession) {
+            const nextSession: ChatSession = {
+              ...currentSession,
+              title: aiTitle,
+              updatedAt: Date.now(),
+            };
+            const { messages, ...sessionPayload } = nextSession;
+            saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
+            await setDoc(
+              doc(db, 'users', user.uid, 'sessions', activeSessionId),
+              cleanForFirestore(sessionPayload)
+            );
+            saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
+            setSessions(prev => prev.map((session) => session.id === activeSessionId ? nextSession : session));
+          }
         }
       }
     } catch (e) { console.error(e); } finally { setIsGeneratingTitle(false); }

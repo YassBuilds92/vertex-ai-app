@@ -5695,9 +5695,32 @@ registerStandardApiRoutes(app);
 app.post('/api/cowork', async (req, res) => {
   let headersSent = false;
   let releaseCoworkRunGate: (() => void) | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  const traceId = `cowork-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const ensureSseReady = () => {
+    if (headersSent) return;
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Studio-Trace-Id', traceId);
+    headersSent = true;
+    res.flushHeaders?.();
+    res.write(': connected\n\n');
+    if (!heartbeat) {
+      heartbeat = setInterval(() => {
+        res.write(': keep-alive\n\n');
+      }, 15000);
+      res.on('close', () => {
+        if (heartbeat) {
+          clearInterval(heartbeat);
+          heartbeat = null;
+        }
+      });
+    }
+  };
   const emitEvent = (type: string, payload: Record<string, unknown> = {}) => {
-    if (!headersSent) return;
-    res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
+    ensureSseReady();
+    res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), traceId, ...payload })}\n\n`);
   };
   try {
     const {
@@ -5717,6 +5740,13 @@ app.post('/api/cowork', async (req, res) => {
     } = ChatSchema.parse(req.body);
     const trimmedUserIdHint = String(userIdHint || '').trim();
     const requestClock = resolveRequestClock(clientContext);
+    ensureSseReady();
+    emitEvent('status', {
+      iteration: 0,
+      title: 'Initialisation',
+      message: 'Cowork prepare le contexte, les pieces jointes et la memoire utile.',
+      runState: 'running',
+    });
     const ragConfig = getCoworkRagConfig();
     const ragUsage = {
       embeddingCount: 0,
@@ -5809,10 +5839,7 @@ app.post('/api/cowork', async (req, res) => {
       runMeta.phase = 'completed';
       runMeta.taskComplete = true;
 
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      headersSent = true;
+      ensureSseReady();
 
       emitEvent('status', {
         iteration: 0,
@@ -9839,10 +9866,7 @@ app.post('/api/cowork', async (req, res) => {
       attachments,
     });
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    headersSent = true;
+    ensureSseReady();
     let iterations = 0;
     const FAILSAFE_MAX_ITERATIONS = 50;
     let finalVisibleText = '';
@@ -10905,6 +10929,10 @@ app.post('/api/cowork', async (req, res) => {
     }
   } finally {
     releaseCoworkRunGate?.();
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
   }
 });
 

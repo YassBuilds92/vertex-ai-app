@@ -1,5 +1,28 @@
 # QA RECIPES
 
+## Chat - PDF joint sans 504 ni silence de 300 s
+- Objectif:
+  - verifier qu'un message `chat` avec PDF joint ouvre immediatement le flux SSE
+  - verifier que F12 montre des etapes backend explicites au lieu d'un simple `start` puis `504`
+  - verifier que la lecture PDF passe bien par un fallback texte si le document est textuel
+- Validation reelle:
+  - ouvrir `vertex-ai-app-pearl.vercel.app`
+  - aller en mode `Chat & Raisonnement`
+  - ouvrir F12
+  - joindre un PDF textuel
+  - envoyer une question simple de lecture du document
+- Attendus F12:
+  - `POST /api/chat -> 200` rapidement, pas au bout de 300 s
+  - `traceId` present dans le log fetch de reponse
+  - logs `StudioDebug[chat:debug]` avec au minimum:
+    - `request_accepted`
+    - `contents_built`
+    - `model_stream_start`
+  - absence de `504 Gateway Timeout` pour ce run
+- Attendus produit:
+  - la reponse arrive sans charge infinie muette
+  - pour un PDF textuel simple, le modele lit bien le contenu utile
+
 ## Cowork - anti-hijack prompt + Firestore rich persistence
 - Objectif:
   - verifier que Cowork pur n'est plus detourne par une instruction systeme custom

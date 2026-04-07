@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Plus, Trash2, Loader2, Sparkles, X, Check, MessageSquare, 
-  ChevronRight, RefreshCw, LayoutDashboard, BrainCircuit, Bot, Pencil
+  Plus, Trash2, Loader2, Sparkles, X, Check, MessageSquare,
+  ChevronRight, LayoutDashboard, BrainCircuit, Bot, Pencil
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, handleFirestoreError, OperationType, cleanForFirestore } from '../firebase';
@@ -17,11 +17,32 @@ function cn(...inputs: ClassValue[]) {
 }
 
 interface SystemInstructionGalleryProps {
-  onSelect: (prompt: string) => void;
+  onSelect: (prompt: CustomPrompt) => void;
   onClose: () => void;
+  selectedPromptId?: string | null;
 }
 
-export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> = ({ onSelect, onClose }) => {
+function extractGeneratedImageUrl(payload: any): string | null {
+  if (typeof payload?.base64 === 'string' && payload.base64) return payload.base64;
+  if (typeof payload?.url === 'string' && payload.url) return payload.url;
+
+  if (Array.isArray(payload?.images)) {
+    const firstImage = payload.images.find((image: any) => (
+      typeof image?.url === 'string' || typeof image?.base64 === 'string'
+    ));
+    if (firstImage) {
+      return firstImage.url || firstImage.base64 || null;
+    }
+  }
+
+  return null;
+}
+
+export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> = ({
+  onSelect,
+  onClose,
+  selectedPromptId,
+}) => {
   const [prompts, setPrompts] = useState<CustomPrompt[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -70,18 +91,19 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
       const imageRes = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: imagePrompt })
+        body: JSON.stringify({ prompt: imagePrompt, aspectRatio: '1:1' })
       });
       
       if (!imageRes.ok) {
-          const errData = await imageRes.json();
-          throw new Error(errData.details || "Erreur lors de la génération d'image");
+        const errData = await imageRes.json();
+        throw new Error(errData.details || "Erreur lors de la generation d'image");
       }
       
-      const { base64 } = await imageRes.json();
-      if (!base64) throw new Error("Aucune image n'a été retournée par l'IA");
+      const imagePayload = await imageRes.json();
+      const generatedIcon = extractGeneratedImageUrl(imagePayload);
+      if (!generatedIcon) throw new Error("Aucune image n'a ete retournee par l'IA");
       
-      setPreviewIcon(base64);
+      setPreviewIcon(generatedIcon);
     } catch (error: any) {
       console.error("Icon generation failed:", error);
       const errorMessage = error.message || "Échec de la génération de l'icône";
@@ -110,21 +132,22 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
       const imageRes = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: imagePrompt })
+        body: JSON.stringify({ prompt: imagePrompt, aspectRatio: '1:1' })
       });
       
       if (!imageRes.ok) {
         const errData = await imageRes.json();
-        throw new Error(errData.details || errData.message || "Erreur lors de la génération d'image");
+        throw new Error(errData.details || errData.message || "Erreur lors de la generation d'image");
       }
       
-      const { base64 } = await imageRes.json();
-      if (!base64) throw new Error("Aucune image retournée");
+      const imagePayload = await imageRes.json();
+      const generatedIcon = extractGeneratedImageUrl(imagePayload);
+      if (!generatedIcon) throw new Error("Aucune image retournee");
       
-      let finalIconUrl = base64;
-      if (base64.startsWith('data:image')) {
+      let finalIconUrl = generatedIcon;
+      if (generatedIcon.startsWith('data:image')) {
         try {
-          finalIconUrl = await compressImage(base64, 256, 256, 0.7);
+          finalIconUrl = await compressImage(generatedIcon, 256, 256, 0.7);
         } catch (compressError) {
           console.error("Compression failed:", compressError);
         }
@@ -171,7 +194,8 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
           prompt: newPrompt.trim(),
           iconUrl: finalIconUrl,
           userId: currentUser.uid,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         }));
         docId = docRef.id;
       }
@@ -186,7 +210,11 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
       setNewPrompt('');
       setPreviewIcon(null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `users/${currentUser.uid}/custom_prompts`);
+      handleFirestoreError(
+        error,
+        editingPrompt ? OperationType.UPDATE : OperationType.CREATE,
+        `users/${currentUser.uid}/custom_prompts`
+      );
     }
   };
 
@@ -216,6 +244,11 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
     setNewPrompt(prompt.prompt);
     setPreviewIcon(prompt.iconUrl || null);
     setIsAdding(true);
+  };
+
+  const handleSelectPrompt = (prompt: CustomPrompt) => {
+    onSelect(prompt);
+    onClose();
   };
 
   return (
@@ -330,34 +363,45 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="group relative"
+                className={cn(
+                  "group rounded-2xl border bg-[var(--app-surface)] transition-all",
+                  selectedPromptId === p.id
+                    ? "border-indigo-500/50 bg-indigo-500/[0.04]"
+                    : "border-[var(--app-border)] hover:border-indigo-500/40 hover:bg-indigo-500/[0.02]"
+                )}
               >
-                <button
-                  onClick={() => {
-                    onSelect(p.prompt);
-                    onClose();
-                  }}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-[var(--app-surface)] border border-[var(--app-border)] hover:border-indigo-500/40 hover:bg-indigo-500/[0.02] transition-all text-left"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-[var(--app-bg)] border border-[var(--app-border)] flex items-center justify-center overflow-hidden shrink-0 shadow-sm transition-transform group-hover:scale-105">
-                    {p.iconUrl ? (
-                      <img src={p.iconUrl} className="w-full h-full object-cover" />
-                    ) : (
-                      <MessageSquare size={16} className="text-[var(--app-text-muted)]" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0 pr-6">
-                    <h3 className="text-xs font-bold text-[var(--app-text)] truncate group-hover:text-indigo-400 transition-colors">
-                      {p.title}
-                    </h3>
-                    <p className="text-[10px] text-[var(--app-text-muted)] truncate mt-0.5">
-                      {p.prompt}
-                    </p>
-                  </div>
-                </button>
-                <div className="flex items-center gap-1.5 absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all pointer-events-none group-hover:pointer-events-auto">
+                <div className="flex items-center gap-3.5 p-3.5">
+                  <button
+                    onClick={() => handleSelectPrompt(p)}
+                    className="flex min-w-0 flex-1 items-center gap-3.5 text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-[var(--app-bg)] border border-[var(--app-border)] flex items-center justify-center overflow-hidden shrink-0 shadow-sm transition-transform group-hover:scale-105">
+                      {p.iconUrl ? (
+                        <img src={p.iconUrl} className="w-full h-full object-cover" />
+                      ) : (
+                        <MessageSquare size={16} className="text-[var(--app-text-muted)]" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="min-w-0 flex-1 truncate text-xs font-bold text-[var(--app-text)] transition-colors group-hover:text-indigo-400">
+                          {p.title}
+                        </h3>
+                        {selectedPromptId === p.id && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-300">
+                            <Check size={10} />
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 truncate text-[10px] text-[var(--app-text-muted)]">
+                        {p.prompt}
+                      </p>
+                    </div>
+                  </button>
+
                   {deleteConfirmId === p.id ? (
-                    <div className="flex items-center gap-1 bg-[var(--app-surface)] border border-red-500/30 rounded-lg p-0.5 shadow-lg pointer-events-auto">
+                    <div className="flex shrink-0 items-center gap-1 rounded-lg border border-red-500/30 bg-[var(--app-surface)] p-0.5 shadow-lg">
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(null); }}
                         className="px-2 py-1 text-[9px] font-bold text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"
@@ -372,22 +416,29 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
                       </button>
                     </div>
                   ) : (
-                    <>
+                    <div className="flex shrink-0 items-center gap-1 opacity-80 transition-opacity group-hover:opacity-100">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleSelectPrompt(p); }}
+                        className="p-2 rounded-lg bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-indigo-500 hover:text-white transition-all shadow-sm"
+                        title="Utiliser"
+                      >
+                        <ChevronRight size={12} />
+                      </button>
                       <button
                         onClick={(e) => handleEdit(e, p)}
-                        className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-all shadow-sm pointer-events-auto"
+                        className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-all shadow-sm"
                         title="Modifier"
                       >
                         <Pencil size={12} />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(p.id); }}
-                        className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm pointer-events-auto"
+                        className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
                         title="Supprimer"
                       >
                         <Trash2 size={12} />
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               </motion.div>
@@ -398,3 +449,5 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
     </div>
   );
 };
+
+

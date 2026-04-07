@@ -20,7 +20,7 @@ import {
   Sun,
   X,
 } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -30,9 +30,9 @@ import {
   GEMINI_TTS_VOICES,
   modelSupportsGeminiTtsMultiSpeaker,
 } from '../../shared/gemini-tts.js';
-import { db, auth } from '../firebase';
+import { db, auth, cleanForFirestore } from '../firebase';
 import { useStore } from '../store/useStore';
-import { ChatSession } from '../types';
+import { ChatSession, CustomPrompt, SelectedCustomPromptRef } from '../types';
 
 const SystemInstructionGallery = React.lazy(async () => {
   const module = await import('./SystemInstructionGallery');
@@ -113,9 +113,30 @@ const modeStudioCards = {
 
 interface SidebarRightProps {
   activeSession: ChatSession;
+  selectedCustomPrompt: SelectedCustomPromptRef | null;
+  onSelectedCustomPromptChange: (prompt: SelectedCustomPromptRef | null) => void;
 }
 
-export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => {
+function buildSelectedPromptSnapshot(
+  prompt: Pick<CustomPrompt, 'id' | 'title' | 'prompt' | 'iconUrl'>
+): SelectedCustomPromptRef {
+  return {
+    id: prompt.id,
+    title: prompt.title,
+    prompt: prompt.prompt,
+    iconUrl: prompt.iconUrl,
+  };
+}
+
+function normalizePromptText(value: string | undefined) {
+  return (value || '').replace(/\r\n/g, '\n').trim();
+}
+
+export const SidebarRight: React.FC<SidebarRightProps> = ({
+  activeSession,
+  selectedCustomPrompt,
+  onSelectedCustomPromptChange,
+}) => {
   const {
     activeMode,
     configs,
@@ -135,6 +156,8 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
   const [isModelListOpen, setIsModelListOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
+  const [isSavingSelectedPrompt, setIsSavingSelectedPrompt] = useState(false);
+  const [selectedPromptNotice, setSelectedPromptNotice] = useState<string | null>(null);
 
   const availableModels = useMemo(() => ([
     { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', info: 'Intelligence avancee', modes: ['chat', 'cowork'] },
@@ -175,11 +198,58 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
       : levels;
   }, [config?.model]);
 
-  const updateSessionInstruction = (instruction: string) => {
+  const selectedPromptIsDirty = Boolean(
+    selectedCustomPrompt
+    && normalizePromptText(config?.systemInstruction) !== normalizePromptText(selectedCustomPrompt.prompt)
+  );
+
+  const updateSessionInstruction = (
+    instruction: string,
+    options?: { selectedCustomPrompt?: SelectedCustomPromptRef | null }
+  ) => {
     if (!user || !activeSession.id || activeSession.id === 'local-new') return;
-    updateDoc(doc(db, 'users', user.uid, 'sessions', activeSession.id), {
-      systemInstruction: instruction,
-    }).catch(console.error);
+    updateDoc(
+      doc(db, 'users', user.uid, 'sessions', activeSession.id),
+      cleanForFirestore({
+        systemInstruction: instruction,
+        selectedCustomPrompt: options?.selectedCustomPrompt,
+      })
+    ).catch(console.error);
+  };
+
+  const applySelectedPrompt = (prompt: CustomPrompt) => {
+    const promptSnapshot = buildSelectedPromptSnapshot(prompt);
+    setSelectedPromptNotice(null);
+    onSelectedCustomPromptChange(promptSnapshot);
+    setConfig({ systemInstruction: prompt.prompt });
+    updateSessionInstruction(prompt.prompt, { selectedCustomPrompt: promptSnapshot });
+  };
+
+  const handleSaveSelectedPrompt = async () => {
+    if (!user || !selectedCustomPrompt || !config?.systemInstruction?.trim()) return;
+
+    setIsSavingSelectedPrompt(true);
+    setSelectedPromptNotice(null);
+
+    const updatedPrompt: SelectedCustomPromptRef = {
+      ...selectedCustomPrompt,
+      prompt: config.systemInstruction,
+    };
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'custom_prompts', selectedCustomPrompt.id), {
+        prompt: config.systemInstruction,
+        updatedAt: serverTimestamp(),
+      });
+      onSelectedCustomPromptChange(updatedPrompt);
+      updateSessionInstruction(config.systemInstruction, { selectedCustomPrompt: updatedPrompt });
+      setSelectedPromptNotice('Instruction sauvegardee sur la version selectionnee.');
+    } catch (error) {
+      console.error('Selected prompt update failed:', error);
+      setSelectedPromptNotice("Impossible de mettre a jour cette instruction pour l'instant.");
+    } finally {
+      setIsSavingSelectedPrompt(false);
+    }
   };
 
   const renderSectionTitle = (label: string) => (
@@ -712,12 +782,66 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
                 value={config.systemInstruction || ''}
                 onChange={(event) => {
                   const nextValue = event.target.value;
+                  setSelectedPromptNotice(null);
                   setConfig({ systemInstruction: nextValue });
                   updateSessionInstruction(nextValue);
                 }}
                 placeholder="Definis la personnalite et les regles..."
                 className="studio-input h-32 resize-none rounded-lg p-4 text-[13px] leading-relaxed placeholder:text-white/10"
               />
+
+              {selectedCustomPrompt && (
+                <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.03] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                        Instruction liee
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        {selectedCustomPrompt.iconUrl ? (
+                          <img
+                            src={selectedCustomPrompt.iconUrl}
+                            alt={selectedCustomPrompt.title}
+                            className="h-7 w-7 rounded-lg border border-[var(--app-border)] object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)]">
+                            <Bot size={12} />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-[12px] font-bold text-[var(--app-text)]">
+                            {selectedCustomPrompt.title}
+                          </div>
+                          <div className="text-[10px] text-[var(--app-text-muted)]">
+                            {selectedPromptIsDirty
+                              ? 'Des changements locaux attendent une mise a jour.'
+                              : 'Cette version correspond deja a votre instruction sauvegardee.'}
+                          </div>
+                        </div>
+                      </div>
+                      {selectedPromptNotice && (
+                        <div className="mt-2 text-[10px] text-[var(--app-accent)]">
+                          {selectedPromptNotice}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={handleSaveSelectedPrompt}
+                      disabled={!selectedPromptIsDirty || isSavingSelectedPrompt || !config.systemInstruction?.trim()}
+                      className={cn(
+                        'rounded-lg border px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors',
+                        selectedPromptIsDirty
+                          ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-accent)] hover:border-[var(--app-border-strong)]'
+                          : 'border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)]',
+                      )}
+                    >
+                      {isSavingSelectedPrompt ? 'Sauvegarde...' : 'Mettre a jour'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-3">
                 {renderSectionTitle('Reflexion interne')}
@@ -804,9 +928,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ activeSession }) => 
             }>
               <SystemInstructionGallery
                 onClose={() => setShowGallery(false)}
+                selectedPromptId={selectedCustomPrompt?.id || null}
                 onSelect={(prompt) => {
-                  setConfig({ systemInstruction: prompt });
-                  updateSessionInstruction(prompt);
+                  applySelectedPrompt(prompt);
                 }}
               />
             </Suspense>

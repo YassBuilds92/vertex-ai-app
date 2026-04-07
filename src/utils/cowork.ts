@@ -84,6 +84,28 @@ export type CoworkStreamEvent =
       runMeta?: Partial<RunMeta>;
     }
   | {
+      type: 'workspace_file_created';
+      timestamp?: number;
+      iteration?: number;
+      fileId?: string;
+      fileName?: string;
+      mimeType?: string;
+      attachmentType?: string;
+      storageUri?: string;
+      fileSizeBytes?: number;
+      sessionId?: string;
+      label?: string;
+      createdAt?: number;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
+      type: 'workspace_file_deleted';
+      timestamp?: number;
+      iteration?: number;
+      fileId?: string;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
       type: 'warning';
       timestamp?: number;
       iteration?: number;

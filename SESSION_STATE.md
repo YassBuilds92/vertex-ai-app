@@ -1,5 +1,52 @@
 # SESSION STATE
 
+## 2026-04-07 - Galerie d instructions: edit fiable, icones IA retablies, sauvegarde directe
+
+### Ce qui a ete accompli
+- Fix du pipeline d'icone IA dans `src/components/SystemInstructionGallery.tsx`:
+  - la galerie attendait encore `base64`
+  - `/api/generate-image` renvoie maintenant `url` / `images[]`
+  - la galerie accepte desormais `url` GCS ou `base64`, en preview immediate comme en generation background
+- Refonte des actions de cartes dans `SystemInstructionGallery`:
+  - suppression de l'overlay d'actions fragile base sur `group-hover` + `pointer-events`
+  - actions `Utiliser`, `Modifier`, `Supprimer` rendues explicitement et de facon fiable sur chaque carte
+  - ajout d'un etat visuel `Active` pour l'instruction actuellement selectionnee
+- Nouveau flux de mise a jour directe depuis `src/components/SidebarRight.tsx`:
+  - lorsqu'une instruction de galerie est selectionnee, la session garde un `selectedCustomPrompt`
+  - le panneau droit affiche un bloc `Instruction liee`
+  - si le textarea `Instructions systeme` diverge du prompt sauvegarde, un bouton `Mettre a jour` pousse directement la nouvelle version dans `users/{uid}/custom_prompts/{id}`
+- Persistance session/local cache:
+  - `src/types.ts` ajoute `SelectedCustomPromptRef`
+  - `src/App.tsx` transporte la selection dans une session standard nouvellement creee
+  - `src/utils/sessionShells.ts` normalise et conserve ce lien dans le cache local-first
+- Hygiene TypeScript:
+  - `src/utils/cowork.ts` declare maintenant `workspace_file_created` et `workspace_file_deleted`
+  - `tmp/media-modes-preview.tsx` accepte les nouveaux props de `SidebarRight` et peut afficher un prompt lie mocke via `?linked=1`
+
+### Validation locale
+- `npm run lint` : OK
+- `npm run build` : OK
+- Harness visuel local via Vite source:
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?surface=panel&mode=chat&linked=1`
+- Captures reelles Edge headless:
+  - `tmp/qa-sidebar-linked-desktop.png`
+  - `tmp/qa-sidebar-linked-mobile.png`
+  - `tmp/qa-sidebar-linked-mobile-tall.png`
+
+### Ce qui reste a faire
+- Rejouer le flux authentifie complet sur de vraies instructions Firestore:
+  - edit carte existante
+  - selection puis mise a jour directe depuis le panneau droit
+  - creation sans icone puis verification de la generation auto
+
+### Risques / limites
+- Le harness local prouve le rendu du bloc `Instruction liee`, pas la galerie authentifiee complete.
+- Si un prompt est modifie hors de la session courante, le snapshot de session reste sur l'ancienne version jusqu'a une nouvelle selection ou une mise a jour directe.
+
+### Intention exacte
+- Eviter a l'utilisateur de repasser par le crayon pour chaque iteration sur une instruction deja choisie.
+- Restaurer la confiance dans `Mes Instructions` en rendant les actions explicites, robustes et coherentes avec le backend actuel.
+
 ## 2026-04-06 - Workspace persistant Cowork + fix history media
 
 ### Ce qui a été accompli
@@ -2365,3 +2412,4 @@
 - Limites restantes:
   - la validation reelle sur donnees/auth utilisateur reste a faire
   - sur mobile, la bibliotheque passe vite sous la ligne de flottaison si le store grossit ou si le clavier prend beaucoup d'espace
+

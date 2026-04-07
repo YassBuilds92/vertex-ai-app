@@ -22,7 +22,7 @@ import { SidebarRight } from './components/SidebarRight';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
 import { StudioEmptyState } from './components/StudioEmptyState';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest, WorkspaceFile } from './types';
+import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest, SelectedCustomPromptRef, WorkspaceFile } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -385,6 +385,7 @@ export default function App() {
   const [hasLoadedRemoteSessions, setHasLoadedRemoteSessions] = useState(false);
   const [hasLoadedRemoteAgents, setHasLoadedRemoteAgents] = useState(false);
   const [hasLoadedRemoteGeneratedApps, setHasLoadedRemoteGeneratedApps] = useState(false);
+  const [selectedCustomPrompt, setSelectedCustomPrompt] = useState<SelectedCustomPromptRef | null>(null);
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -400,7 +401,8 @@ export default function App() {
   const handleSendRuntimeRef = useRef<((text: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession) => Promise<void>) | null>(null);
   const sessionRepairAttemptedRef = useRef<Record<string, boolean>>({});
 
-  const activeSession = sessions.find(s => s.id === activeSessionId) || { 
+  const activeSessionFromList = sessions.find(s => s.id === activeSessionId) || null;
+  const activeSession = activeSessionFromList || {
     id: 'local-new', 
     title: customTitle || 'Nouvelle conversation', 
     messages: [], 
@@ -408,6 +410,7 @@ export default function App() {
     mode: activeMode, 
     userId: user?.uid || '', 
     systemInstruction: config?.systemInstruction || configs.chat?.systemInstruction || '',
+    selectedCustomPrompt: selectedCustomPrompt || undefined,
     sessionKind: 'standard' as const,
   };
 
@@ -444,6 +447,30 @@ export default function App() {
       formValues: buildAgentRuntimeFormValues(adaptGeneratedAppToStudioAgent(latestApp), activeSession.generatedAppWorkspace.formValues || {}),
     };
   }, [activeSession, generatedApps]);
+
+  useEffect(() => {
+    if (!user) {
+      setSelectedCustomPrompt(null);
+      return;
+    }
+
+    if (activeSessionFromList?.selectedCustomPrompt) {
+      setSelectedCustomPrompt(activeSessionFromList.selectedCustomPrompt);
+      return;
+    }
+
+    if (activeSessionId && activeSessionId !== 'local-new') {
+      setSelectedCustomPrompt(null);
+    }
+  }, [
+    activeSessionFromList?.id,
+    activeSessionFromList?.selectedCustomPrompt?.id,
+    activeSessionFromList?.selectedCustomPrompt?.title,
+    activeSessionFromList?.selectedCustomPrompt?.prompt,
+    activeSessionFromList?.selectedCustomPrompt?.iconUrl,
+    activeSessionId,
+    user,
+  ]);
 
   const materializeAgentBlueprint = useCallback((blueprint: AgentBlueprint, overrides?: Partial<StudioAgent>): StudioAgent => {
     const now = Date.now();
@@ -1899,6 +1926,7 @@ export default function App() {
           mode: effectiveMode,
           userId: user.uid,
           systemInstruction: effectiveSession.systemInstruction || effectiveConfig?.systemInstruction || configs.chat?.systemInstruction || '',
+          selectedCustomPrompt: effectiveSession.selectedCustomPrompt || selectedCustomPrompt || undefined,
           sessionKind: effectiveSession.sessionKind || 'standard',
           agentWorkspace: effectiveSession.agentWorkspace,
         };
@@ -3278,7 +3306,11 @@ export default function App() {
         </div>
       )}
 
-      <SidebarRight activeSession={activeSession as ChatSession} />
+      <SidebarRight
+        activeSession={activeSession as ChatSession}
+        selectedCustomPrompt={selectedCustomPrompt}
+        onSelectedCustomPromptChange={setSelectedCustomPrompt}
+      />
       
       {/* Search Overlay */}
       <AnimatePresence>

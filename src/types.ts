@@ -319,6 +319,13 @@ export interface SystemPromptVersion {
   rationale?: string;
 }
 
+export interface SelectedCustomPromptRef {
+  id: string;
+  title: string;
+  prompt: string;
+  iconUrl?: string;
+}
+
 export interface ChatSession {
   id: string;
   title: string;
@@ -327,6 +334,7 @@ export interface ChatSession {
   mode: AppMode;
   userId: string;
   systemInstruction?: string;
+  selectedCustomPrompt?: SelectedCustomPromptRef;
   systemPromptHistory?: SystemPromptVersion[];
   sessionKind?: 'standard' | 'agent' | 'generated_app';
   agentWorkspace?: AgentWorkspaceState;

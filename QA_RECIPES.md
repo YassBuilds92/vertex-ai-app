@@ -339,3 +339,36 @@
 
 ## Limite connue
 - La vraie validation produit restante reste le flux authentifie complet avec reponses Gemini/Firestore reelles.
+
+## Instructions personnalisees - galerie, edition, mise a jour directe
+- Objectif:
+  - verifier que `Mes Instructions` permet a nouveau d'editer une carte existante
+  - verifier que la generation d'icone IA marche meme si `/api/generate-image` renvoie une URL GCS
+  - verifier qu'une instruction selectionnee peut etre mise a jour directement depuis `Instructions systeme`
+- Validation code:
+  - `npm run lint`
+  - `npm run build`
+- Harness visuel local:
+  - lancer `npx vite --host 127.0.0.1 --port 4174`
+  - ouvrir `http://127.0.0.1:4174/tmp/media-modes-preview.html?surface=panel&mode=chat&linked=1`
+- Captures de reference locales:
+  - `tmp/qa-sidebar-linked-desktop.png`
+  - `tmp/qa-sidebar-linked-mobile.png`
+  - `tmp/qa-sidebar-linked-mobile-tall.png`
+- Validation manuelle authentifiee:
+  - ouvrir l'app connectee avec de vraies `custom_prompts`
+  - ouvrir `Parametres` -> `Galerie`
+  - cliquer `Modifier` sur une instruction existante
+  - verifier que le formulaire de la galerie se pre-remplit
+  - changer le texte puis cliquer `Mettre a jour`
+  - re-selectionner cette instruction depuis la galerie
+  - modifier ensuite `Instructions systeme` dans le panneau droit
+  - cliquer `Mettre a jour` dans le bloc `Instruction liee`
+  - reouvrir la galerie et verifier que la carte affiche bien la nouvelle version
+  - creer enfin une instruction sans icone preview et verifier qu'une `iconUrl` apparait apres la generation background
+- Attendus:
+  - les boutons `Modifier` et `Supprimer` restent cliquables sans dependre d'un overlay fragile
+  - une carte selectionnee affiche `Active`
+  - le bloc `Instruction liee` apparait apres selection et detecte les changements locaux
+  - la mise a jour directe pousse bien le nouveau texte dans `custom_prompts/{id}`
+  - l'icone preview ou background s'affiche meme si l'API renvoie une URL au lieu d'un base64

@@ -1,31 +1,29 @@
 # NOW
 
 ## Objectif actuel
-- Espace de travail persistant pour l'agent Cowork (type VM/gestionnaire de fichiers inter-sessions) — LIVRÉ et pushé.
-- Fix bug media history Cowork (l'IA re-décrivait les images à chaque message) — LIVRÉ et pushé.
+- Fix UX des instructions personnalisees: edition fiable, generation d'icone IA compatible avec l'API actuelle, et mise a jour directe d'une instruction selectionnee depuis le panneau droit.
 
 ## Blocage actuel
-- Aucun. Les deux features sont en prod (commit 1f86135).
+- Le flux complet authentifie sur de vraies `custom_prompts` Firestore n'a pas encore ete rejoue localement avec le compte utilisateur reel.
 
 ## Prochaine action exacte
-- Tester en conditions réelles :
-  1. Lancer un run Cowork qui crée un fichier (podcast, PDF, image)
-  2. Vérifier dans Firestore `/users/{uid}/workspace/files` qu'un doc est créé
-  3. Ouvrir une nouvelle session Cowork → vérifier que l'agent liste ses créations passées
-  4. Tester `workspace_delete` avec un fileId réel
+- Ouvrir une session connectee et verifier en conditions reelles:
+  1. `Mes Instructions` -> `Modifier` ouvre bien l'editeur
+  2. selection d'une instruction -> modification dans `Instructions systeme` -> `Mettre a jour`
+  3. creation d'une instruction sans icone -> `iconUrl` apparait apres generation IA/background
 
 ## Fichiers chauds
-- `api/index.ts` — release_file emit, workspace_delete tool, buildCoworkSystemInstruction
-- `src/App.tsx` — fetch workspace, SSE handlers workspace_file_created/deleted
-- `server/lib/schemas.ts` — ChatSchema.workspaceFiles
-- `src/utils/chat-parts.ts` — historyMode (fix media re-processing)
-- `firestore.rules` — règles workspace/files
+- `src/components/SystemInstructionGallery.tsx`
+- `src/components/SidebarRight.tsx`
+- `src/App.tsx`
+- `src/utils/sessionShells.ts`
+- `src/types.ts`
+- `src/utils/cowork.ts`
 
 ## Validations restantes
-- Test end-to-end workspace (création → Firestore → injection session suivante)
-- Test workspace_delete (suppression Firestore)
-- Vérifier que le fix history media règle bien le bug de re-description photo
+- QA authentifiee sur vraies donnees Firestore pour `custom_prompts`
+- verification que la mise a jour directe reste correcte apres reouverture de session
 
-## Risques immédiats
-- Les signed URLs GCS expirent en 7 jours. Le workspace stocke les storageUri (permanents) donc OK pour l'accès modèle, mais les liens de téléchargement utilisateur expireront. Pas de régénération automatique pour l'instant.
-- `limit` importé directement depuis `firebase/firestore` dans App.tsx — s'assurer que la version du SDK le supporte (elle le supporte, c'est une API stable).
+## Risques immediats
+- Le lien `selectedCustomPrompt` est persiste par session; si le prompt est modifie ailleurs sans etre re-selectionne, le snapshot de session ne se resynchronise qu'au prochain select/update.
+- La validation visuelle locale couvre le panneau droit via harness (`tmp/media-modes-preview.tsx`), pas la galerie authentifiee complete.

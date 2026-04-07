@@ -39,6 +39,22 @@ function writeSessionShellStore(store: SessionShellStore) {
   }
 }
 
+function normalizeSelectedCustomPrompt(value: unknown): ChatSession['selectedCustomPrompt'] {
+  if (!value || typeof value !== 'object') return undefined;
+
+  const input = value as Record<string, unknown>;
+  if (typeof input.id !== 'string' || typeof input.title !== 'string' || typeof input.prompt !== 'string') {
+    return undefined;
+  }
+
+  return {
+    id: input.id,
+    title: input.title,
+    prompt: input.prompt,
+    iconUrl: typeof input.iconUrl === 'string' ? input.iconUrl : undefined,
+  };
+}
+
 function normalizeSessionShell(session: ChatSession): ChatSession {
   const generatedAppWorkspace = session.generatedAppWorkspace
     ? {
@@ -78,6 +94,7 @@ function normalizeSessionShell(session: ChatSession): ChatSession {
     mode: session.mode || 'chat',
     userId: session.userId || '',
     systemInstruction: typeof session.systemInstruction === 'string' ? session.systemInstruction : '',
+    selectedCustomPrompt: normalizeSelectedCustomPrompt(session.selectedCustomPrompt),
     systemPromptHistory: Array.isArray(session.systemPromptHistory) ? session.systemPromptHistory : undefined,
     sessionKind: session.sessionKind === 'generated_app' ? 'generated_app' : session.sessionKind === 'agent' ? 'agent' : 'standard',
     agentWorkspace: session.agentWorkspace,

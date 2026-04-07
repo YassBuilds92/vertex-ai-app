@@ -11,6 +11,16 @@ import type { AppMode, Attachment, ChatSession } from '../src/types';
 const params = new URLSearchParams(window.location.search);
 const mode = (params.get('mode') as AppMode | null) || 'image';
 const surface = params.get('surface') || 'empty';
+const linkedPromptEnabled = params.get('linked') === '1';
+
+const previewSelectedPrompt = linkedPromptEnabled
+  ? {
+      id: 'preview-linked-prompt',
+      title: 'Directeur editoral',
+      prompt: 'Tu gardes une voix nette, concise et exigeante. Tu proposes des versions plus claires sans perdre le style.',
+      iconUrl: undefined,
+    }
+  : null;
 
 const previewSession: ChatSession = {
   id: 'preview-session',
@@ -67,7 +77,11 @@ function PreviewApp() {
               </div>
             </div>
           </main>
-          <SidebarRight activeSession={previewSession} />
+          <SidebarRight
+            activeSession={previewSession}
+            selectedCustomPrompt={previewSelectedPrompt}
+            onSelectedCustomPromptChange={() => {}}
+          />
         </div>
       </div>
     );

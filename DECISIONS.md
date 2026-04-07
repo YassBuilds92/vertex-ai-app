@@ -1,5 +1,20 @@
 # DECISIONS
 
+## 2026-04-07 - Une instruction selectionnee depuis la galerie devient une reference de session editable depuis le panneau droit
+- Statut: adopte localement
+- Contexte: l'utilisateur veut pouvoir choisir une instruction personnalisee, la modifier pendant qu'il l'utilise, puis sauvegarder directement cette nouvelle version sans repasser par le mode `Modifier` de la galerie.
+- Decision:
+  - memoriser dans `ChatSession.selectedCustomPrompt` le prompt personnalise actuellement lie a la session
+  - afficher dans `SidebarRight` un bloc `Instruction liee` avec un bouton `Mettre a jour`
+  - pousser cette mise a jour directement dans `users/{uid}/custom_prompts/{id}` tout en gardant `systemInstruction` sync cote session
+- Pourquoi:
+  - le flux voulu est une iteration rapide sur une instruction deja choisie, pas un aller-retour permanent vers la galerie
+  - garder la reference au niveau session permet de transporter correctement le lien quand une `local-new` devient une vraie conversation
+- Consequence:
+  - `src/App.tsx`, `src/types.ts` et `src/utils/sessionShells.ts` portent maintenant un vrai lien `selectedCustomPrompt`
+  - `src/components/SidebarRight.tsx` peut detecter une divergence locale et proposer une mise a jour directe
+  - le snapshot de session peut diverger d'une edition externe jusqu'a re-selection ou mise a jour directe
+
 ## 2026-04-06 - Workspace Cowork : frontend-mediated (pas firebase-admin)
 - Statut: livré (commit 1f86135)
 - Contexte: l'utilisateur veut que l'agent Cowork ait une mémoire persistante de ses créations (type VM)
@@ -1061,3 +1076,4 @@
 - Consequence:
   - `server/lib/media-generation.ts` peut maintenant retourner `mixStrategy: 'voice-only'`
   - `api/index.ts` remonte explicitement ce statut et son warning
+

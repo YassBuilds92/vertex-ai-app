@@ -231,7 +231,7 @@ export async function callCoworkWorker<T = unknown>(
     return {
       ok: true,
       status: response.status,
-      durationMs,
+      durationMs: Date.now() - startedAt,
       events,
     };
   }

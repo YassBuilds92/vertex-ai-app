@@ -1,5 +1,52 @@
 # QA RECIPES
 
+## Cowork v2 - Phase 2 sandbox Python/Shell
+- Objectif:
+  - verifier que le worker Cloud Run execute du Python et du shell reels
+  - verifier qu'une session sandbox survit sur plusieurs requetes grace a GCS
+  - verifier que les fichiers generes et le cleanup fonctionnent vraiment
+- Validation locale:
+  - `npm run lint`
+  - `npm run build`
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-workers.ts`
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts`
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-sandbox.ts`
+- Validation reelle worker:
+  - `GET /health`
+  - `POST /sandbox/python` avec `print('phase2-ok')`
+  - `POST /sandbox/shell` avec `echo phase2-shell-ok`
+  - install package:
+    - `POST /sandbox/python` avec `packages: ['colorama']`
+    - puis nouveau `POST /sandbox/python` meme `sessionId` avec `import colorama`
+  - persistence workspace:
+    - `POST /sandbox/shell` meme `sessionId` avec une commande Python qui ecrit `note.txt`
+    - puis nouveau `POST /sandbox/shell` meme `sessionId` avec `cat note.txt`
+  - cleanup:
+    - `DELETE /sandbox/:sessionId`
+- Attendus:
+  - health:
+    - `ok: true`
+    - `sandbox.python: true`
+    - `sandbox.shell: true`
+  - Python:
+    - SSE `progress`
+    - `stdout` attendu
+    - `done.success: true`
+  - Shell:
+    - `stdout` attendu
+    - `done.success: true`
+  - persistence packages:
+    - un package installe sur la requete 1 est importable sur la requete 2
+    - les events montrent `session_restore` puis `session_persist`
+  - persistence fichiers:
+    - le fichier ecrit sur la requete 1 est lisible sur la requete 2
+  - cleanup:
+    - `ok: true`
+    - plus aucun etat residuel attendu pour cette session
+- Point de vigilance:
+  - une validation "install OK" sur une seule requete ne suffit pas
+  - la vraie preuve Phase 2 est toujours sur 2 requetes distinctes avec le meme `sessionId`
+
 ## Chat - PDF joint sans 504 ni silence de 300 s
 - Objectif:
   - verifier qu'un message `chat` avec PDF joint ouvre immediatement le flux SSE

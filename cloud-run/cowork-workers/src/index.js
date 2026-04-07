@@ -2,36 +2,14 @@ import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import { ensureAuthorized } from './auth.js';
-
-function json(res, status, payload) {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'Content-Length': Buffer.byteLength(body),
-  });
-  res.end(body);
-}
-
-async function readJsonBody(req) {
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.from(chunk));
-  }
-  if (chunks.length === 0) return {};
-  const raw = Buffer.concat(chunks).toString('utf8');
-  return raw ? JSON.parse(raw) : {};
-}
-
-function getPathname(req) {
-  return new URL(req.url || '/', 'http://127.0.0.1').pathname;
-}
+import { json, readJsonBody, getPathname } from './lib/http.js';
+import { handlePythonRequest } from './sandbox/python.js';
+import { handleShellRequest } from './sandbox/shell.js';
+import { cleanupSession } from './sandbox/sessions.js';
+import { clearPersistedSession } from './sandbox/persistence.js';
 
 function matchesFutureWorkerRoute(method, pathname) {
-  if (method === 'POST' && ['/sandbox/python', '/sandbox/shell', '/browser/session', '/healing/run'].includes(pathname)) {
-    return true;
-  }
-  if (method === 'DELETE' && /^\/sandbox\/[^/]+$/.test(pathname)) {
+  if (method === 'POST' && ['/browser/session', '/healing/run'].includes(pathname)) {
     return true;
   }
   if (method === 'DELETE' && /^\/browser\/[^/]+$/.test(pathname)) {
@@ -53,6 +31,66 @@ async function handleRequest(req, res) {
       service: 'cowork-workers',
       time: new Date().toISOString(),
       runtime: process.version,
+      sandbox: {
+        python: true,
+        shell: true,
+      },
+    });
+  }
+
+  if (method === 'POST' && pathname === '/sandbox/python') {
+    const auth = ensureAuthorized(req);
+    if (!auth.ok) {
+      return json(res, auth.status, auth.body);
+    }
+
+    let requestBody = {};
+    try {
+      requestBody = await readJsonBody(req);
+    } catch (error) {
+      return json(res, 400, {
+        ok: false,
+        error: 'invalid_json',
+        message: error instanceof Error ? error.message : 'JSON invalide.',
+      });
+    }
+
+    return handlePythonRequest(req, res, requestBody);
+  }
+
+  if (method === 'POST' && pathname === '/sandbox/shell') {
+    const auth = ensureAuthorized(req);
+    if (!auth.ok) {
+      return json(res, auth.status, auth.body);
+    }
+
+    let requestBody = {};
+    try {
+      requestBody = await readJsonBody(req);
+    } catch (error) {
+      return json(res, 400, {
+        ok: false,
+        error: 'invalid_json',
+        message: error instanceof Error ? error.message : 'JSON invalide.',
+      });
+    }
+
+    return handleShellRequest(req, res, requestBody);
+  }
+
+  if (method === 'DELETE' && /^\/sandbox\/[^/]+$/.test(pathname)) {
+    const auth = ensureAuthorized(req);
+    if (!auth.ok) {
+      return json(res, auth.status, auth.body);
+    }
+
+    const sessionId = pathname.split('/').pop();
+    await cleanupSession(sessionId);
+    await clearPersistedSession(sessionId);
+    return json(res, 200, {
+      ok: true,
+      sessionId,
+      message: `Sandbox ${sessionId} nettoyee.`,
     });
   }
 

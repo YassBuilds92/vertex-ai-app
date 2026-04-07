@@ -1,14 +1,20 @@
 substitutions:
   _SERVICE_NAME: cowork-workers
   _REGION: europe-west1
+  _REPOSITORY: cowork-workers
+  _IMAGE_TAG: manual
 
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
       - build
       - -t
-      - gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE_NAME}:${_IMAGE_TAG}
       - .
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE_NAME}:${_IMAGE_TAG}
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args:
@@ -16,12 +22,20 @@ steps:
       - deploy
       - ${_SERVICE_NAME}
       - --image
-      - gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE_NAME}:${_IMAGE_TAG}
       - --region
       - ${_REGION}
       - --platform
       - managed
+      - --cpu
+      - "1"
+      - --memory
+      - 1Gi
+      - --timeout
+      - "300"
+      - --update-env-vars
+      - COWORK_SANDBOX_PERSIST_SESSIONS=1,COWORK_SANDBOX_PERSIST_BUCKET=videosss92,COWORK_WORKSPACE_BUCKET=videosss92
       - --allow-unauthenticated
 
 images:
-  - gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE_NAME}:${_IMAGE_TAG}

@@ -1,5 +1,48 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-07 - Phase 2 completee localement, worker sandbox deploye et valide reellement
+- Retour produit:
+  - apres la fermeture des hotfix prod `chat/cowork`, le prochain chantier critique etait enfin la vraie sandbox Python/Shell du brief Studio Pro
+  - l'exigence n'etait pas une demo locale mais une vraie execution sur Cloud Run avec timeouts, fichiers, packages et validations reelles
+- Changement applique:
+  - backend:
+    - `api/index.ts`
+      - outils `run_python`, `run_shell`, `install_python_package`
+      - meta runtime et rendu resultat branches
+    - `server/lib/cowork-sandbox.ts`
+      - orchestration worker pour Python/Shell
+      - mapping `fileId -> workspace`
+      - rehydratation des fichiers generes
+  - worker Cloud Run:
+    - `POST /sandbox/python`
+    - `POST /sandbox/shell`
+    - `DELETE /sandbox/:sessionId`
+    - SSE `progress/stdout/stderr/done/error`
+    - allowlist shell
+    - packages dynamiques via `uv`
+    - upload/download GCS des fichiers
+  - fix architectural majeur:
+    - ajout de `src/sandbox/persistence.js`
+    - persistence GCS du manifest packages et du workspace de session
+    - restauration automatique sur les appels suivants d'un meme `sessionId`
+  - infra:
+    - pipeline Cloud Build migre vers Artifact Registry
+    - deploy Cloud Run reel valide
+- Validation reelle:
+  - `GET /health` : OK
+  - `POST /sandbox/python` : OK
+  - `POST /sandbox/shell` : OK
+  - install package sur un appel + import sur l'appel suivant : OK
+  - fichier cree sur un appel shell + relu sur le suivant : OK
+  - cleanup `DELETE /sandbox/:sessionId` : OK
+- Etat produit:
+  - la Phase 2 n'est plus theorique
+  - le worker sait executer du Python reel, installer des packages, persister une session et manipuler des fichiers
+  - le principal piege decouvert est maintenant connu et corrige: Cloud Run est stateless, donc aucune session sandbox ne doit dependre de `/tmp` seul
+- Limites assumees:
+  - les changements repo de cette phase ne sont pas encore push/deployes cote backend Vercel dans cette session
+  - la fermeture produit totale demande encore un run `/api/cowork` deploye avec `COWORK_ENABLE_SANDBOX=1`
+
 ## Mise a jour 2026-04-07 - Hotfix prod SSE/traceId: plus de silence initial sur chat PDF, Cowork parle des l'initialisation
 - Retour produit:
   - l'utilisateur voyait `Chat & Raisonnement` charger a l'infini avec PDF joint

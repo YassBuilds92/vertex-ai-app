@@ -93,6 +93,12 @@ import {
   type RelevantMemoryChunk,
 } from '../server/lib/cowork-memory.js';
 import { callCoworkWorker } from '../server/lib/cowork-workers.js';
+import {
+  installPythonPackageInCoworkSandbox,
+  runPythonInCoworkSandbox,
+  runShellInCoworkSandbox,
+  type CoworkSandboxExecutionResult,
+} from '../server/lib/cowork-sandbox.js';
 import { log } from '../server/lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from '../server/lib/path-utils.js';
 import { ChatSchema } from '../server/lib/schemas.js';
@@ -643,6 +649,9 @@ function buildCoworkSystemInstruction(
     : '';
   const debugReasoning = Boolean(behavior?.debugReasoning);
   const ragEnabled = Boolean(behavior?.ragEnabled);
+  const sandboxEnabled = Boolean(behavior?.sandboxEnabled);
+  const gitEnabled = Boolean(behavior?.gitEnabled);
+  const browserEnabled = Boolean(behavior?.browserEnabled);
 
   const baseInstruction = `Tu es Cowork, un operateur autonome haut niveau.
 Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu restes honnete quand les preuves sont insuffisantes.
@@ -682,7 +691,10 @@ Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu r
 - Avant toute livraison importante, pose-toi ce filtre interne: "Est-ce qu'un bon assistant humain bien paye serait a l'aise de rendre ca a un patron ?" Si non, travaille encore ou explicite honnêtement la limite.
 
 ### ENVIRONNEMENT
-- Node.js uniquement. Python n'est pas disponible.
+- Runtime principal: Node.js local.
+${sandboxEnabled
+  ? "- Sandbox distante Cloud Run disponible pour Python et shell via 'run_python', 'install_python_package' et 'run_shell'."
+  : "- Python et shell distant ne sont pas disponibles pour ce run tant que la sandbox n'est pas active."}
 - N'expose jamais ton chain-of-thought brut.
 - Outils disponibles:
   - 'create_generated_app' : concoit une vraie app experte deployable avec prompt systeme, UI, models, source TSX et bundle.
@@ -702,6 +714,8 @@ ${agentDelegationEnabled
   - 'workspace_delete' : retire un fichier obsolete ou remplace de ton espace de travail persistant.
 ${ragEnabled
   ? "  - 'memory_search' : recherche semantiquement dans la memoire persistante de l'utilisateur.\n  - 'memory_recall' : recupere les chunks indexes pour un ou plusieurs fileIds.\n  - 'memory_forget' : retire un fichier de la memoire vectorielle quand il devient obsolete.\n"
+  : ''}${sandboxEnabled
+  ? "  - 'run_python' : execute du vrai Python isole sur le worker Cloud Run, avec packages optionnels, inputs workspace et fichiers generes.\n  - 'install_python_package' : installe explicitement un package Python dans la session sandbox courante.\n  - 'run_shell' : execute une commande shell allowlistee dans la sandbox distante.\n"
   : ''}  - Pour Gemini TTS: prefere 1 seule voix pour narration, flash info, voix-off, explication, monologue ou chronique solo.
   - Pour Gemini TTS: prefere 1 seule voix pour narration, flash info, voix-off, explication, monologue ou chronique solo.
   - Pour Gemini TTS: prefere 2 intervenants pour sketch, interview, duo de presentation, dispute, Q/R vivante ou conversation ecrite avec 2 roles explicites.
@@ -6030,6 +6044,27 @@ app.post('/api/cowork', async (req, res) => {
           hasLatexSource: Boolean(args?.latexSource),
         };
       }
+      if (toolName === 'run_python') {
+        return {
+          packages: Array.isArray(args?.packages) ? args.packages.length : 0,
+          inputFiles: Array.isArray(args?.inputFiles) ? args.inputFiles.length : 0,
+          timeoutMs: Number(args?.timeoutMs || 0),
+          codePreview: clipText(args?.code || '', 140),
+        };
+      }
+      if (toolName === 'run_shell') {
+        return {
+          command: clipText(args?.command || '', 140),
+          workdir: clipText(args?.workdir || '', 80),
+          timeoutMs: Number(args?.timeoutMs || 0),
+        };
+      }
+      if (toolName === 'install_python_package') {
+        return {
+          name: clipText(args?.name || '', 64),
+          version: clipText(args?.version || '', 32),
+        };
+      }
       if (toolName === 'publish_status') {
         return {
           phase: clipText(args?.phase || '', 40),
@@ -6220,6 +6255,24 @@ app.post('/api/cowork', async (req, res) => {
           success: Boolean(output?.success),
         };
       }
+      if (toolName === 'run_python' || toolName === 'run_shell') {
+        return {
+          sessionId: clipText(output?.sessionId || '', 64),
+          exitCode: Number(output?.exitCode || 0),
+          timedOut: Boolean(output?.timedOut),
+          generatedFiles: Array.isArray(output?.generatedFiles) ? output.generatedFiles.length : 0,
+          installedPackages: Array.isArray(output?.installedPackages) ? output.installedPackages.length : 0,
+          workerMs: Number(output?.workerDurationMs || 0),
+        };
+      }
+      if (toolName === 'install_python_package') {
+        return {
+          sessionId: clipText(output?.sessionId || '', 64),
+          installedPackages: Array.isArray(output?.installedPackages) ? output.installedPackages.length : 0,
+          workerMs: Number(output?.workerDurationMs || 0),
+          success: Boolean(output?.success),
+        };
+      }
       return formatToolMeta(toolName, args);
     };
     const formatToolResultPreview = (toolName: string, output: any) => {
@@ -6311,6 +6364,32 @@ app.post('/api/cowork', async (req, res) => {
           output?.warning ? clipText(output.warning, 120) : null,
           output?.path ? clipText(output.path, 120) : null,
           output?.message ? clipText(output.message, 140) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'run_python') {
+        return [
+          Number.isFinite(Number(output?.exitCode)) ? `exit ${Number(output.exitCode)}` : null,
+          output?.timedOut ? 'timeout' : null,
+          Array.isArray(output?.generatedFiles) && output.generatedFiles.length > 0 ? `${output.generatedFiles.length} fichier(s)` : null,
+          Array.isArray(output?.installedPackages) && output.installedPackages.length > 0 ? `${output.installedPackages.length} package(s)` : null,
+          output?.message ? clipText(output.message, 140) : null,
+          output?.stderr ? clipText(output.stderr, 120) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'run_shell') {
+        return [
+          Number.isFinite(Number(output?.exitCode)) ? `exit ${Number(output.exitCode)}` : null,
+          output?.timedOut ? 'timeout' : null,
+          Array.isArray(output?.generatedFiles) && output.generatedFiles.length > 0 ? `${output.generatedFiles.length} fichier(s)` : null,
+          output?.message ? clipText(output.message, 140) : null,
+          output?.stderr ? clipText(output.stderr, 120) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'install_python_package') {
+        return [
+          Array.isArray(output?.installedPackages) && output.installedPackages.length > 0 ? output.installedPackages.join(', ') : null,
+          output?.message ? clipText(output.message, 140) : null,
+          output?.error ? clipText(output.error, 120) : null,
         ].filter(Boolean).join(' | ');
       }
       if (toolName === 'release_file') {
@@ -6436,6 +6515,46 @@ app.post('/api/cowork', async (req, res) => {
     }
 
     const pdfQualityTargets: PdfQualityTargets | null = null;
+    const registerWorkerRun = (
+      result: CoworkSandboxExecutionResult,
+      options: { pythonExecution?: boolean } = {},
+    ) => {
+      runMeta.workerCallsCount += 1;
+      runMeta.workerMsTotal += Math.max(0, Number(result.workerDurationMs || 0));
+      if (options.pythonExecution) {
+        runMeta.pythonExecutions += 1;
+      }
+      syncRunMeta();
+    };
+    const emitSandboxWorkerEvent = (toolName: string, label: string, event: { event: string; data: unknown }) => {
+      const payload = typeof event.data === 'object' && event.data ? event.data as Record<string, unknown> : {};
+      const eventMessage = typeof payload.message === 'string'
+        ? payload.message
+        : typeof payload.text === 'string'
+          ? payload.text
+          : '';
+
+      if (!eventMessage.trim()) return;
+
+      if (event.event === 'stderr' || event.event === 'error') {
+        emitEvent('warning', {
+          iteration: iterations,
+          title: `${label} stderr`,
+          message: clipText(eventMessage.trim(), 320),
+          toolName,
+          runMeta,
+        });
+        return;
+      }
+
+      emitEvent('status', {
+        iteration: iterations,
+        title: label,
+        message: clipText(eventMessage.trim(), 320),
+        runState: 'running',
+        runMeta,
+      });
+    };
 
     const localTools: LocalToolDefinition[] = [
       ...(COWORK_DEBUG_REASONING ? [{
@@ -8743,6 +8862,194 @@ app.post('/api/cowork', async (req, res) => {
         }
       },
       {
+        name: "run_python",
+        description: "Execute du vrai Python isole sur le worker Cloud Run, avec packages optionnels, inputs du workspace et fichiers generes.",
+        parameters: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "Code Python complet a executer." },
+            packages: {
+              type: "array",
+              description: "Packages Python a installer dans la session sandbox avant execution.",
+              items: { type: "string" }
+            },
+            inputFiles: {
+              type: "array",
+              description: "Fichiers du workspace a importer dans la sandbox avant execution.",
+              items: {
+                type: "object",
+                properties: {
+                  fileId: { type: "string", description: "fileId present dans ESPACE DE TRAVAIL PERSONNEL." },
+                  path: { type: "string", description: "Chemin relatif dans la sandbox (ex: data/input.csv)." }
+                },
+                required: ["fileId", "path"]
+              }
+            },
+            timeoutMs: { type: "number", description: "Timeout optionnel en millisecondes (max 300000)." }
+          },
+          required: ["code"]
+        },
+        execute: async ({
+          code,
+          packages,
+          inputFiles,
+          timeoutMs,
+        }: {
+          code: string;
+          packages?: string[];
+          inputFiles?: Array<{ fileId: string; path: string }>;
+          timeoutMs?: number;
+        }) => {
+          const result = await runPythonInCoworkSandbox({
+            sessionId: sessionId || `cowork-${Date.now()}`,
+            userId: trimmedUserIdHint || undefined,
+            code: String(code || ''),
+            packages: Array.isArray(packages) ? packages.map((value) => String(value || '').trim()).filter(Boolean) : [],
+            inputFiles,
+            workspaceFiles: Array.isArray(workspaceFiles) ? workspaceFiles : [],
+            timeoutMs,
+            onWorkerEvent: async (event) => {
+              emitSandboxWorkerEvent('run_python', 'Sandbox Python', event);
+            },
+          });
+
+          registerWorkerRun(result, { pythonExecution: true });
+
+          return {
+            success: result.success,
+            recoverable: !result.success,
+            sessionId: result.sessionId,
+            exitCode: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut,
+            signal: result.signal,
+            inputFiles: result.inputFiles,
+            generatedFiles: result.generatedFiles,
+            installedPackages: result.installedPackages,
+            packageManifest: result.packageManifest,
+            workerDurationMs: result.workerDurationMs,
+            warnings: result.warnings,
+            ...(result.success
+              ? {}
+              : { error: clipText(result.stderr || result.message || 'Execution Python echouee.', 320) }),
+            message: result.message
+              || (result.success
+                ? 'Execution Python terminee.'
+                : 'Execution Python terminee avec erreur.'),
+          };
+        }
+      },
+      {
+        name: "run_shell",
+        description: "Execute une commande shell allowlistee dans la sandbox distante. Utilise-le pour des inspections ou des commandes simples liees au workspace de session.",
+        parameters: {
+          type: "object",
+          properties: {
+            command: { type: "string", description: "Commande shell allowlistee a executer." },
+            workdir: { type: "string", description: "Sous-dossier relatif optionnel dans la sandbox." },
+            timeoutMs: { type: "number", description: "Timeout optionnel en millisecondes (max 300000)." }
+          },
+          required: ["command"]
+        },
+        execute: async ({
+          command,
+          workdir,
+          timeoutMs,
+        }: {
+          command: string;
+          workdir?: string;
+          timeoutMs?: number;
+        }) => {
+          const result = await runShellInCoworkSandbox({
+            sessionId: sessionId || `cowork-${Date.now()}`,
+            userId: trimmedUserIdHint || undefined,
+            command: String(command || ''),
+            workdir,
+            timeoutMs,
+            onWorkerEvent: async (event) => {
+              emitSandboxWorkerEvent('run_shell', 'Sandbox Shell', event);
+            },
+          });
+
+          registerWorkerRun(result);
+
+          return {
+            success: result.success,
+            recoverable: !result.success,
+            sessionId: result.sessionId,
+            exitCode: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut,
+            signal: result.signal,
+            cwd: result.cwd,
+            generatedFiles: result.generatedFiles,
+            workerDurationMs: result.workerDurationMs,
+            warnings: result.warnings,
+            ...(result.success
+              ? {}
+              : { error: clipText(result.stderr || result.message || 'Commande shell echouee.', 320) }),
+            message: result.message
+              || (result.success
+                ? 'Commande shell terminee.'
+                : 'Commande shell terminee avec erreur.'),
+          };
+        }
+      },
+      {
+        name: "install_python_package",
+        description: "Installe explicitement un package Python dans la session sandbox courante pour les executions suivantes.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Nom du package Python (ex: seaborn)." },
+            version: { type: "string", description: "Version optionnelle exacte a installer." },
+            timeoutMs: { type: "number", description: "Timeout optionnel en millisecondes (max 300000)." }
+          },
+          required: ["name"]
+        },
+        execute: async ({
+          name,
+          version,
+          timeoutMs,
+        }: {
+          name: string;
+          version?: string;
+          timeoutMs?: number;
+        }) => {
+          const result = await installPythonPackageInCoworkSandbox({
+            sessionId: sessionId || `cowork-${Date.now()}`,
+            userId: trimmedUserIdHint || undefined,
+            name: String(name || ''),
+            version,
+            timeoutMs,
+            onWorkerEvent: async (event) => {
+              emitSandboxWorkerEvent('install_python_package', 'Sandbox Python', event);
+            },
+          });
+
+          registerWorkerRun(result);
+
+          return {
+            success: result.success,
+            recoverable: !result.success,
+            sessionId: result.sessionId,
+            installedPackages: result.installedPackages,
+            packageManifest: result.packageManifest,
+            workerDurationMs: result.workerDurationMs,
+            warnings: result.warnings,
+            ...(result.success
+              ? {}
+              : { error: clipText(result.stderr || result.message || 'Installation Python echouee.', 320) }),
+            message: result.message
+              || (result.success
+                ? 'Package Python installe.'
+                : 'Installation Python terminee avec erreur.'),
+          };
+        }
+      },
+      {
         name: "create_pdf",
         description: "Cree un fichier PDF directement. Pour un rendu premium, editorial ou tres thematique, prefere `engine='latex'`. En mode 'latex', l'outil compile un vrai source .tex via un provider HTTP externe compatible YtoTech et peut reutiliser le PDF deja compile pendant 'review_pdf_draft'. Le rendu premium supporte une direction artistique par section/page: `visualTheme`, `mood`, `motif`, `flagHints`, `pageStyle`, `pageBreakBefore`.",
         parameters: {
@@ -9789,6 +10096,9 @@ app.post('/api/cowork', async (req, res) => {
         return false;
       }
       if (!COWORK_ENABLE_RAG && ['memory_search', 'memory_recall', 'memory_forget'].includes(tool.name)) {
+        return false;
+      }
+      if (!COWORK_ENABLE_SANDBOX && ['run_python', 'run_shell', 'install_python_package'].includes(tool.name)) {
         return false;
       }
       if (!runtimeToolAllowList) return true;

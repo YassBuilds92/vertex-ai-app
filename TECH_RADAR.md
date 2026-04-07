@@ -9,6 +9,55 @@
 - Cout
 - Sources officielles
 
+## 2026-04-07 - Phase 2 worker images: Artifact Registry regional pour `cowork-workers`
+- Statut: retenu et valide reellement
+- Date de verification: 2026-04-07
+- Technologie: Artifact Registry Docker repository (`pkg.dev`) + Cloud Run
+- Choix:
+  - utiliser Artifact Registry en `europe-west1` pour les images du worker `cowork-workers`
+  - deployer Cloud Run depuis `europe-west1-docker.pkg.dev/.../cowork-workers`
+  - garder un `docker push` explicite dans `cloudbuild.yaml` avant le deploy
+- Pourquoi:
+  - la doc Google indique qu'Artifact Registry est le service recommande pour les images conteneur
+  - le choix regional colle mieux au runtime Cloud Run `europe-west1`
+  - le pipeline devient plus lisible et plus robuste qu'un ancien flux `gcr.io`
+- Alternatives evaluees:
+  - Container Registry classique
+    - ecartee: heritage historique moins adapte au flux actuel, et non retenu pour ce lot
+  - migration vers des repos `gcr.io` heberges par Artifact Registry
+    - possible, mais `pkg.dev` regional est plus simple et plus explicite pour ce nouveau worker
+- Cout:
+  - service Google gere
+  - cout stockage/egress standard Artifact Registry
+  - pas de dependance npm supplementaire
+- Sources officielles:
+  - [Transition from Container Registry](https://cloud.google.com/artifact-registry/docs/transition/transition-from-gcr)
+  - [Deploying container images to Cloud Run](https://cloud.google.com/run/docs/deploying)
+
+## 2026-04-07 - Phase 2 session sandbox: GCS pour la persistance, pas le filesystem local Cloud Run
+- Statut: retenu et valide reellement
+- Date de verification: 2026-04-07
+- Technologie: Cloud Run + Cloud Storage (GCS)
+- Choix:
+  - utiliser le filesystem local uniquement comme espace de travail temporaire
+  - persister le manifest de packages et le workspace de session dans GCS
+  - restaurer cet etat sur les requetes suivantes du meme `sessionId`
+- Pourquoi:
+  - la doc Cloud Run rappelle que le filesystem writable est en memoire et ne persiste pas si le conteneur s'arrete
+  - les validations reelles de cette session ont confirme qu'une "session" Python mono-instance n'est pas fiable
+  - GCS est deja dans la stack, simple a integrer et suffisant pour la promesse produit Phase 2
+- Alternatives evaluees:
+  - garder uniquement `/tmp`
+    - ecartee: faux positif de persistance, casse des qu'une autre instance sert la requete suivante
+  - monter un volume partage plus lourd
+    - ecartee pour cette phase: complexite inutile tant que GCS suffit
+- Cout:
+  - Google Cloud Storage standard
+  - pas de dependance npm supplementaire majeure
+- Sources officielles:
+  - [What is Cloud Run](https://docs.cloud.google.com/run/docs/overview/what-is-cloud-run)
+  - [Container runtime contract](https://cloud.google.com/run/docs/container-contract)
+
 ## 2026-04-07 - Phase 1B RAG multimodal: `gemini-embedding-2-preview`
 - Statut: retenu et valide reellement
 - Date de verification: 2026-04-07

@@ -1,5 +1,103 @@
 # SESSION STATE
 
+## 2026-04-07 - Cowork v2 Phase 2: sandbox Python/Shell completee localement, worker Cloud Run deploye et valide reellement
+
+### Ce qui a ete accompli
+- Phase 2 codee de bout en bout dans le repo:
+  - nouveaux outils backend `run_python`, `run_shell`, `install_python_package`
+  - nouveau client `server/lib/cowork-sandbox.ts`
+  - worker Cloud Run avec vraies routes:
+    - `GET /health`
+    - `POST /sandbox/python`
+    - `POST /sandbox/shell`
+    - `DELETE /sandbox/:sessionId`
+- Worker sandbox:
+  - Python 3.12 + `uv`
+  - SSE `progress/stdout/stderr/done/error`
+  - timeouts
+  - upload/download GCS des fichiers de travail
+  - detection et publication des fichiers generes
+  - allowlist shell
+  - packages dynamiques avec blacklist
+- Fix architectural majeur:
+  - ajout d'une persistence de session sandbox sur GCS
+  - manifest packages + workspace de session restaures/persistes entre requetes
+  - correction necessaire car Cloud Run ne garantit pas la survie du filesystem local entre requetes/instances
+
+### Infra reelle
+- creation d'un repo Artifact Registry:
+  - `europe-west1-docker.pkg.dev/gen-lang-client-0405707007/cowork-workers`
+- pipeline `cloudbuild.yaml` corrige:
+  - build
+  - push explicite Docker
+  - deploy Cloud Run
+- service Cloud Run redeploye avec succes apres plusieurs iterations
+- revision validee en fin de session:
+  - `cowork-workers-00006-5sw`
+- variables worker deployees cote Cloud Run:
+  - `COWORK_SANDBOX_PERSIST_SESSIONS=1`
+  - `COWORK_SANDBOX_PERSIST_BUCKET=videosss92`
+  - `COWORK_WORKSPACE_BUCKET=videosss92`
+
+### Validation locale
+- `npm run lint` : OK
+- `npm run build` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-workers.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-sandbox.ts` : OK
+
+### Validation reelle
+- `GET /health` : OK
+- `POST /sandbox/python` avec `print('phase2-ok')` : OK
+- `POST /sandbox/shell` avec `echo phase2-shell-ok` : OK
+- install dynamique `colorama` puis nouvel appel Python meme `sessionId` :
+  - restore session : OK
+  - `import colorama` : OK
+- ecriture d'un fichier via shell Python puis lecture sur une 2e requete meme `sessionId` :
+  - persistence workspace : OK
+- `DELETE /sandbox/:sessionId` : OK
+
+### Bugs importants rencontres et corriges
+- pipeline Cloud Build initialement faux:
+  - tentative de deploy avant push image
+  - puis quota/problemes `gcr.io`
+  - resolution: migration Artifact Registry + `docker push` explicite
+- hypothese fausse initiale sur les sessions sandbox:
+  - un package installe dans une requete n'etait pas retrouve a la suivante
+  - cause: Cloud Run stateless / multi-instance, `/tmp` non partage
+  - resolution: persistence GCS du manifest et du workspace de session
+- `run_shell` avec `python` pouvait casser en `ENOENT`
+  - resolution: preparation/restauration du venv pour les commandes Python shell quand une session persistante existe
+
+### Ce qui reste a faire
+- optionnel mais logique pour fermer totalement la phase cote produit:
+  - commit/push le repo
+  - deployer le backend qui expose ces outils
+  - rejouer un vrai run `/api/cowork` avec `COWORK_ENABLE_SANDBOX=1`
+- sinon, le prochain chantier fonctionnel est la Phase 3 V1
+
+### Decisions prises et pourquoi
+- Cloud Run reste le runtime sandbox retenu:
+  - 100% Google
+  - reellement valide
+  - tient les usages Phase 2
+- les sessions sandbox doivent persister hors instance:
+  - GCS choisi car deja dans la stack, simple et Google-native
+- Artifact Registry remplace Container Registry classique pour les images worker:
+  - plus coherent avec l'etat actuel GCP
+  - meilleur fit regional et Cloud Run
+
+### Pieges / points d'attention
+- `/tmp` Cloud Run est utilisable pour une requete, pas comme stockage de session fiable
+- une install package "OK" sur un appel ne prouve rien tant qu'on ne refait pas un 2e appel avec le meme `sessionId`
+- `run_shell` doit rester borne a une allowlist stricte
+- ne jamais exposer de token worker dans les logs ou la memoire projet
+
+### Intention exacte
+- faire une vraie Phase 2 executable en conditions reelles
+- ne pas livrer une "sandbox" qui n'est qu'une demo mono-requete
+- laisser la suite du projet sur une base Cloud Run robuste, rejouable et honnete
+
 ## 2026-04-07 - Fix critique chat/PDF: SSE immediat, heartbeat keepalive, fallback PDF text-first, recanonisation de session
 
 ### Ce qui a ete accompli

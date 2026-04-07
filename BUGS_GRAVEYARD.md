@@ -1,5 +1,52 @@
 # BUGS GRAVEYARD
 
+## 2026-04-07 - La "session" sandbox Python marchait sur une requete puis perdait tout a la suivante
+- Statut: corrige localement et valide reellement sur le worker Cloud Run
+- Symptome:
+  - `install_python_package` reussit
+  - un nouvel appel avec le meme `sessionId` ne retrouve plus le package
+  - un fichier ecrit dans le workspace d'une requete disparait sur la suivante
+  - impression trompeuse: "la sandbox est instable" ou "uv a casse"
+- Tentatives:
+  - verification du code `uv venv` et des chemins locaux
+  - verification des manifests packages
+  - smoke tests reels sur plusieurs requetes avec le meme `sessionId`
+  - audit du comportement Cloud Run au lieu d'insister sur Python seulement
+- Cause racine:
+  - le design initial supposait qu'une session = un dossier local `/tmp/...`
+  - or Cloud Run est stateless et multi-instance
+  - la requete suivante peut tomber sur une autre instance sans le meme venv ni le meme workspace
+- Resolution:
+  - ajout de `cloud-run/cowork-workers/src/sandbox/persistence.js`
+  - persistence GCS du manifest packages et du workspace
+  - restauration automatique au debut des handlers `python` et `shell`
+  - repersistence apres execution
+  - ajout de vrais smokes sur 2 requetes distinctes avec le meme `sessionId`
+- Prevention:
+  - ne jamais appeler "session" un etat garde uniquement dans `/tmp` sur Cloud Run
+  - pour toute promesse de continute multi-requete, tester obligatoirement sur plusieurs appels reels et pas seulement dans le meme process local
+
+## 2026-04-07 - Le pipeline worker Cloud Run deployait une image avant qu'elle soit vraiment disponible
+- Statut: corrige localement et valide reellement
+- Symptome:
+  - Cloud Build semblait builder correctement
+  - puis `gcloud run deploy` cassait parce que l'image n'etait pas disponible comme attendu
+  - le chemin `gcr.io` ajoutait encore de la friction sur cette phase
+- Tentatives:
+  - relecture de `cloudbuild.yaml`
+  - reruns Cloud Build
+  - inspection des artefacts images et de la cible de deploy
+- Cause racine:
+  - le pipeline comptait implicitement sur la publication declarative `images:` alors qu'une etape suivante deployait deja l'image
+  - le choix initial du registre n'etait pas le plus propre pour ce nouveau worker
+- Resolution:
+  - migration vers Artifact Registry regional
+  - `docker push` explicite avant le `gcloud run deploy`
+  - revalidation par builds/deploys reels successifs
+- Prevention:
+  - pour tout service Cloud Run image-based, garder le pipeline canonique `build -> push -> deploy`
+  - eviter les suppositions implicites sur la disponibilite d'image entre etapes Cloud Build
+
 ## 2026-04-07 - Le mode chat avec PDF semblait "planter", mais le vrai bug etait un SSE muet jusqu'au timeout gateway
 - Statut: corrige, pousse sur `main`, redeploye et revalide en production
 - Symptome:

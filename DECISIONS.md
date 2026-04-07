@@ -1,5 +1,37 @@
 # DECISIONS
 
+## 2026-04-07 - Les sessions sandbox Phase 2 ne doivent jamais dependre du filesystem local Cloud Run seul
+- Statut: adopte localement et valide reellement sur le worker Cloud Run
+- Contexte: `install_python_package` pouvait reussir sur une requete, puis `run_python` ou `run_shell` retomber sur un autre instance Cloud Run et perdre le venv/local workspace. Une "session" basee sur `/tmp` uniquement donnait donc un faux sentiment de persistance.
+- Decision:
+  - considerer `/tmp` comme espace de travail temporaire par requete/instance
+  - persister le manifest packages et le workspace de session dans GCS
+  - restaurer cette session au debut des requetes suivantes pour le meme `sessionId`
+- Pourquoi:
+  - Cloud Run reste un runtime disposable et multi-instance
+  - la Phase 2 promet une vraie session sandbox, pas juste une execution isolee mono-requete
+  - GCS est deja dans la stack, Google-native et suffisant pour ce besoin
+- Consequence:
+  - ajout de `cloud-run/cowork-workers/src/sandbox/persistence.js`
+  - `python.js` et `shell.js` restaurent/persistent l'etat de session
+  - les smokes reels incluent maintenant obligatoirement un test sur 2 requetes avec le meme `sessionId`
+
+## 2026-04-07 - Les images du worker `cowork-workers` passent par Artifact Registry, pas Container Registry classique
+- Statut: adopte localement et valide reellement
+- Contexte: le pipeline initial Phase 2 deployait avant push effectif et utilisait encore `gcr.io`, ce qui a rendu le flux fragile puis bloque par les contraintes/quota du registre cible.
+- Decision:
+  - construire et pousser l'image worker dans un repo Artifact Registry regional
+  - deployer Cloud Run depuis cette image `pkg.dev`
+  - garder un `docker push` explicite avant le `gcloud run deploy`
+- Pourquoi:
+  - meilleur fit actuel GCP / Cloud Run
+  - permet un repository regional proche du runtime (`europe-west1`)
+  - evite de garder une dependance historique a Container Registry
+- Consequence:
+  - creation du repo `europe-west1-docker.pkg.dev/.../cowork-workers`
+  - `cloudbuild.yaml` migre vers Artifact Registry
+  - le pipeline de reference Phase 2 devient `build -> push -> deploy`
+
 ## 2026-04-07 - Les routes `chat` et `cowork` doivent ouvrir leur SSE immediatement avec un `traceId` et un heartbeat
 - Statut: adopte localement
 - Contexte: un PDF joint pouvait laisser `/api/chat` muet jusqu'au timeout gateway, et Cowork souffrait du meme risque structurel tant que le premier octet SSE dependait du premier token modele.

@@ -38,9 +38,24 @@ function normalizeObjectPath(objectPath: string) {
   return String(objectPath || '').replace(/^\/+/, '');
 }
 
+export function isStorageConfigured() {
+  return Boolean(storage);
+}
+
 export function buildGcsUri(objectPath: string, bucketName = BUCKET_NAME) {
   const normalizedPath = normalizeObjectPath(objectPath);
   return normalizedPath ? `gs://${bucketName}/${normalizedPath}` : `gs://${bucketName}`;
+}
+
+export function parseGcsUri(storageUri?: string | null): { bucketName: string; objectPath: string } | null {
+  const normalized = String(storageUri || '').trim();
+  const match = normalized.match(/^gs:\/\/([^/]+)\/(.+)$/i);
+  if (!match) return null;
+
+  return {
+    bucketName: match[1],
+    objectPath: normalizeObjectPath(match[2]),
+  };
 }
 
 export function tryExtractGcsUriFromUrl(url?: string | null): string | null {
@@ -99,4 +114,17 @@ export async function uploadToGCSWithMetadata(buffer: Buffer, fileName: string, 
 export async function uploadToGCS(buffer: Buffer, fileName: string, contentType: string): Promise<string> {
   const uploaded = await uploadToGCSWithMetadata(buffer, fileName, contentType);
   return uploaded.url;
+}
+
+export async function downloadFromGCS(storageUri: string): Promise<Buffer> {
+  if (!storage) throw new Error('Storage non configure');
+
+  const location = parseGcsUri(storageUri);
+  if (!location) {
+    throw new Error(`Storage URI invalide: ${storageUri}`);
+  }
+
+  const file = storage.bucket(location.bucketName).file(location.objectPath);
+  const [buffer] = await file.download();
+  return buffer;
 }

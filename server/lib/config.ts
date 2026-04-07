@@ -38,10 +38,32 @@ export function getQdrantConfig() {
   };
 }
 
+export function getCoworkRagConfig() {
+  const requestedVectorSize = Number.parseInt(process.env.COWORK_RAG_VECTOR_SIZE || '', 10);
+  const requestedTopK = Number.parseInt(process.env.COWORK_RAG_TOP_K || '', 10);
+  const requestedChunkMaxTokens = Number.parseInt(process.env.COWORK_RAG_CHUNK_MAX_TOKENS || '', 10);
+  const requestedChunkOverlapTokens = Number.parseInt(process.env.COWORK_RAG_CHUNK_OVERLAP_TOKENS || '', 10);
+  const requestedPromptBudget = Number.parseInt(process.env.COWORK_RAG_MAX_PROMPT_TOKENS || '', 10);
+  const requestedScoreThreshold = Number.parseFloat(process.env.COWORK_RAG_SCORE_THRESHOLD || '');
+
+  return {
+    autoInject: envFlagEnabled(process.env.COWORK_RAG_AUTOINJECT),
+    collectionName: String(process.env.COWORK_RAG_COLLECTION || 'cowork_memory').trim() || 'cowork_memory',
+    embeddingModel: String(process.env.COWORK_RAG_EMBEDDING_MODEL || 'gemini-embedding-001').trim() || 'gemini-embedding-001',
+    vectorSize: Number.isFinite(requestedVectorSize) && requestedVectorSize > 0 ? requestedVectorSize : 1536,
+    topK: Number.isFinite(requestedTopK) && requestedTopK > 0 ? requestedTopK : 5,
+    scoreThreshold: Number.isFinite(requestedScoreThreshold) ? requestedScoreThreshold : 0.65,
+    chunkMaxTokens: Number.isFinite(requestedChunkMaxTokens) && requestedChunkMaxTokens > 0 ? requestedChunkMaxTokens : 800,
+    chunkOverlapTokens: Number.isFinite(requestedChunkOverlapTokens) && requestedChunkOverlapTokens >= 0 ? requestedChunkOverlapTokens : 80,
+    maxPromptTokens: Number.isFinite(requestedPromptBudget) && requestedPromptBudget > 0 ? requestedPromptBudget : 2000,
+  };
+}
+
 export const COWORK_ENABLE_RAG = getCoworkFeatureFlags().rag;
 export const COWORK_ENABLE_SANDBOX = getCoworkFeatureFlags().sandbox;
 export const COWORK_ENABLE_GIT = getCoworkFeatureFlags().git;
 export const COWORK_ENABLE_BROWSER = getCoworkFeatureFlags().browser;
+export const COWORK_RAG_AUTOINJECT = getCoworkRagConfig().autoInject;
 
 export const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as acces a des outils pour accomplir des taches complexes. Analyse, propose et execute.";
 export const MAX_PREVIEW_CHARS = 420;

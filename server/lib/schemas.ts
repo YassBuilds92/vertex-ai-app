@@ -234,6 +234,7 @@ export const VideoGenSchema = z.object({
 export const ChatSchema = z.object({
   message: z.string(),
   sessionId: z.string().optional(),
+  userIdHint: z.string().optional(),
   history: z.array(z.object({
     role: z.enum(['user', 'model']),
     parts: z.array(ChatPartSchema),
@@ -269,6 +270,7 @@ export const ChatSchema = z.object({
   generatedApps: z.array(GeneratedAppManifestSchema).optional(),
   agentRuntime: AgentRuntimeSchema.optional(),
   appRuntime: GeneratedAppRuntimeSchema.optional(),
+  memorySearchEnabled: z.boolean().optional(),
   workspaceFiles: z.array(z.object({
     fileId: z.string(),
     fileName: z.string(),

@@ -9,6 +9,78 @@
 - Cout
 - Sources officielles
 
+## 2026-04-07 - Phase 1A RAG text-first: `gemini-embedding-001`
+- Statut: retenu pour l'implementation locale
+- Date de verification: 2026-04-07
+- Technologie: Vertex AI text embeddings (`gemini-embedding-001`)
+- Choix:
+  - utiliser `gemini-embedding-001` comme defaut de la Phase 1A text-first
+  - garder `gemini-embedding-2-preview` pour la Phase 1B multimodale
+  - demander `outputDimensionality=1536` pour rester aligne avec la collection Qdrant cible
+- Pourquoi:
+  - la doc Vertex AI officielle documente `gemini-embedding-001` comme modele texte stable pour les embeddings
+  - le besoin Phase 1A vise d'abord texte/PDF; inutile d'introduire tout de suite la complexite multimodale complete
+  - cela laisse un chemin propre `1A text-first` puis `1B multimodal`
+- Alternatives evaluees:
+  - `gemini-embedding-2-preview`
+    - Ecartee comme defaut 1A: plus ambitieuse, mais reservee a la suite multimodale du brief
+  - heuristiques lexicales sans vector DB
+    - Ecartee: ne satisfait pas la promesse de memoire absolue / recherche semantique
+- Cout:
+  - payant a l'usage via Vertex AI
+  - aucune dependance npm supplementaire pour le modele lui-meme
+- Sources officielles:
+  - [Get text embeddings](https://cloud.google.com/vertex-ai/generative-ai/docs/embeddings/get-text-embeddings)
+  - [Embedding tasks and dimensionality](https://cloud.google.com/vertex-ai/generative-ai/docs/embeddings/get-text-embeddings#choose-an-embedding-task-type)
+
+## 2026-04-07 - Phase 1A vector DB: Qdrant Cloud free
+- Statut: retenu pour l'implementation locale
+- Date de verification: 2026-04-07
+- Technologie: Qdrant Cloud / API REST Qdrant
+- Choix:
+  - utiliser une seule collection `cowork_memory`
+  - filtrer strictement par payload `userId`
+  - indexer aussi `fileId` et `mimeType`
+- Pourquoi:
+  - la doc Qdrant recommande explicitement le filtrage payload pour le multitenancy
+  - l'API REST Qdrant reste simple a brancher depuis le backend Vercel sans nouvelle pile lourde
+  - le free tier Qdrant Cloud reste compatible avec un MVP RAG
+- Alternatives evaluees:
+  - Supabase pgvector
+    - Ecartee pour cette passe: bonne alternative, mais moins directe ici qu'un client REST Qdrant borne a un seul usage vectoriel
+  - self-host Qdrant sur Cloud Run des la Phase 1A
+    - Ecartee: possible plus tard si le free tier cloud devient limitant, mais premature pour fermer la phase
+- Cout:
+  - free tier disponible
+  - au-dela, cout Qdrant Cloud a surveiller
+- Sources officielles:
+  - [Qdrant multitenancy guide](https://qdrant.tech/documentation/guides/multitenancy/)
+  - [Qdrant pricing](https://qdrant.tech/pricing/)
+  - [Create collection](https://api.qdrant.tech/api-reference/collections/create-collection)
+  - [Create payload index](https://api.qdrant.tech/api-reference/indexes/create-field-index)
+  - [Query points](https://api.qdrant.tech/api-reference/search/query-points)
+
+## 2026-04-07 - Extraction PDF Node: `pdf-parse`
+- Statut: retenu pour la Phase 1A
+- Date de verification: 2026-04-07
+- Technologie: `pdf-parse`
+- Choix:
+  - utiliser `pdf-parse@2.4.5` pour extraire le texte PDF cote Node avant chunking
+- Pourquoi:
+  - API plus simple et plus courte a integrer ici que `pdfjs-dist`
+  - suffit au besoin Phase 1A: extraire du texte, pas rendre un canvas PDF
+- Alternatives evaluees:
+  - `pdfjs-dist`
+    - Ecartee pour cette passe: plus generaliste et plus lourde alors que le besoin est seulement l'extraction texte serveur
+  - `pdf2json`
+    - Ecartee: moins directe pour le besoin simple d'extraction texte
+- Cout:
+  - gratuit / open-source
+  - +1 dependance npm
+- Sources officielles:
+  - [pdf-parse package](https://www.npmjs.com/package/pdf-parse)
+  - [pdf-parse repository](https://github.com/mehmet-kozan/pdf-parse)
+
 ## 2026-04-07 - Cloud Run unique pour `cowork-workers`
 - Statut: retenu et scaffold localement
 - Date de verification: 2026-04-07

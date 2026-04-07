@@ -2259,6 +2259,8 @@ export default function App() {
             agentRuntime,
             appRuntime,
             sessionId: currentSessionId,
+            userIdHint: isCoworkRun && !isAgentRun && !isGeneratedAppRun && user ? user.uid : undefined,
+            memorySearchEnabled: isCoworkRun && !isAgentRun && !isGeneratedAppRun ? true : undefined,
             workspaceFiles: isCoworkRun && !isAgentRun && !isGeneratedAppRun ? workspaceFiles : undefined,
           }),
         });
@@ -2366,11 +2368,32 @@ export default function App() {
 
             if (data.type === 'workspace_file_created' && user) {
               try {
-                const { type: _t, timestamp: _ts, ...fileData } = data as Record<string, unknown>;
-                await addDoc(collection(db, 'users', user.uid, 'workspace', 'files'), {
-                  ...fileData,
-                  createdAt: Date.now(),
-                });
+                const {
+                  type: _t,
+                  timestamp: _ts,
+                  iteration: _iteration,
+                  runMeta: _runMeta,
+                  fileId,
+                  ...fileData
+                } = data as Record<string, unknown>;
+                const createdAt =
+                  typeof fileData.createdAt === 'number' && Number.isFinite(fileData.createdAt)
+                    ? Number(fileData.createdAt)
+                    : Date.now();
+                if (typeof fileId === 'string' && fileId.trim()) {
+                  await setDoc(
+                    doc(db, 'users', user.uid, 'workspace', 'files', fileId),
+                    cleanForFirestore({
+                      ...fileData,
+                      createdAt,
+                    })
+                  );
+                } else {
+                  await addDoc(collection(db, 'users', user.uid, 'workspace', 'files'), cleanForFirestore({
+                    ...fileData,
+                    createdAt,
+                  }));
+                }
               } catch (e) {
                 console.error('Workspace file persistence failed:', e);
               }

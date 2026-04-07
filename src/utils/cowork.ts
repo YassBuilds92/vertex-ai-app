@@ -106,6 +106,37 @@ export type CoworkStreamEvent =
       runMeta?: Partial<RunMeta>;
     }
   | {
+      type: 'memory_indexed';
+      timestamp?: number;
+      iteration?: number;
+      fileId?: string;
+      fileName?: string;
+      mimeType?: string;
+      chunkCount?: number;
+      totalPages?: number;
+      extractedCharacters?: number;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
+      type: 'memory_index_failed';
+      timestamp?: number;
+      iteration?: number;
+      fileId?: string;
+      fileName?: string;
+      mimeType?: string;
+      message?: string;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
+      type: 'memory_recalled';
+      timestamp?: number;
+      iteration?: number;
+      filesCount?: number;
+      chunkCount?: number;
+      auto?: boolean;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
       type: 'warning';
       timestamp?: number;
       iteration?: number;
@@ -414,6 +445,56 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
         })
       );
     }
+
+    case 'memory_indexed':
+      return pushActivity(
+        next,
+        createActivityItem(next, 'status', iteration, timestamp, {
+          title: event.fileName ? `Memoire indexee: ${event.fileName}` : 'Memoire indexee',
+          message:
+            event.chunkCount && event.chunkCount > 0
+              ? `${event.chunkCount} chunk(s) ont ete indexes pour ce fichier.${event.totalPages ? ` PDF ${event.totalPages} page(s).` : ''}`
+              : 'Le fichier a ete ajoute a la memoire persistante.',
+          meta: {
+            fileId: event.fileId,
+            mimeType: event.mimeType,
+            chunks: Number(event.chunkCount || 0),
+            pages: Number(event.totalPages || 0),
+          },
+          status: 'success',
+        })
+      );
+
+    case 'memory_index_failed':
+      return pushActivity(
+        next,
+        createActivityItem(next, 'warning', iteration, timestamp, {
+          title: event.fileName ? `Indexation memoire echouee: ${event.fileName}` : 'Indexation memoire echouee',
+          message: event.message || "L'indexation memoire a echoue pour ce fichier.",
+          meta: {
+            fileId: event.fileId,
+            mimeType: event.mimeType,
+          },
+          status: 'warning',
+        })
+      );
+
+    case 'memory_recalled':
+      return pushActivity(
+        next,
+        createActivityItem(next, 'status', iteration, timestamp, {
+          title: event.auto ? 'Memoire injectee' : 'Memoire rappelee',
+          message: event.auto
+            ? `${Number(event.chunkCount || 0)} chunk(s) issus de ${Number(event.filesCount || 0)} fichier(s) ont ete injectes au debut du run.`
+            : `${Number(event.chunkCount || 0)} chunk(s) ont ete rappeles depuis ${Number(event.filesCount || 0)} fichier(s).`,
+          meta: {
+            chunks: Number(event.chunkCount || 0),
+            files: Number(event.filesCount || 0),
+            auto: Boolean(event.auto),
+          },
+          status: 'info',
+        })
+      );
 
     case 'warning':
       next.runState = next.runState === 'failed' ? 'failed' : next.runState;

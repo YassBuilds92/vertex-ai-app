@@ -180,6 +180,8 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
         ? `~$${runMeta.estimatedCostUsd < 0.1 ? runMeta.estimatedCostUsd.toFixed(3) : runMeta.estimatedCostUsd.toFixed(2)}`
         : null;
   const visibleItems = items.filter((item) => item.kind !== 'tool_call' && (!isCompactCowork || item.kind !== 'reasoning'));
+  const latestInjectedMemory = [...items].reverse().find((item) => item.meta?.auto === true && Number(item.meta?.chunks || 0) > 0);
+  const injectedMemoryChunks = latestInjectedMemory ? Number(latestInjectedMemory.meta?.chunks || 0) : 0;
 
   if (items.length === 0 && !live && !msg.runState) return null;
 
@@ -251,6 +253,12 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
               <BrainCircuit size={12} />
               {runMeta.embeddingCount > 0 ? `${runMeta.embeddingCount} embed${runMeta.embeddingCount > 1 ? 's' : ''}` : 'memoire'}
               {runMeta.vectorSearches > 0 ? ` | ${runMeta.vectorSearches} recherche${runMeta.vectorSearches > 1 ? 's' : ''}` : ''}
+            </div>
+          )}
+          {injectedMemoryChunks > 0 && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/[0.06] text-[11px] text-indigo-100">
+              <BrainCircuit size={12} />
+              {`Memoire (${injectedMemoryChunks})`}
             </div>
           )}
           {(runMeta.pythonExecutions > 0 || runMeta.gitOps > 0 || runMeta.browserOps > 0) && (

@@ -31,6 +31,10 @@
 - `server/lib/agents.ts` : bibliotheque d'outils agents, blueprints et logique de creation/revision.
 - `server/lib/generated-apps.ts` : equivalent cote generated apps, avec source + bundle versionnes.
 - `server/lib/cowork-workers.ts` : client unique vers le worker Cloud Run (bearer auth, retry, SSE passthrough).
+- `server/lib/chunking.ts` : extraction PDF + chunking texte pour le RAG text-first.
+- `server/lib/embeddings.ts` : wrapper Vertex embeddings pour Cowork.
+- `server/lib/qdrant.ts` : client REST Qdrant, collection/indexes et requetes vectorielles.
+- `server/lib/cowork-memory.ts` : orchestration index/search/recall/forget de la memoire Cowork.
 - `src/utils/cowork.ts` : hydratation des evenements SSE Cowork cote frontend.
 - `src/utils/chat-parts.ts` et `server/lib/chat-parts.ts` : serialisation d'historique et pieces jointes.
 
@@ -54,3 +58,4 @@
 - Changement runtime/Cowork : `api/index.ts`, `src/utils/cowork.ts`, `src/App.tsx`.
 - Changement de persistance/reprise : `src/utils/sessionRecovery.ts`, `src/utils/sessionShells.ts`, `firestore.rules`.
 - Changement Cowork v2 / worker externe : `server/lib/cowork-workers.ts`, `server/lib/config.ts`, `cloud-run/cowork-workers/*`, `test-cowork-workers.ts`, puis plus tard `server/lib/embeddings.ts`, `server/lib/qdrant.ts`, `server/lib/github.ts`, `server/lib/vercel.ts`.
+- Changement Cowork v2 / memoire RAG : `api/index.ts`, `server/lib/chunking.ts`, `server/lib/embeddings.ts`, `server/lib/qdrant.ts`, `server/lib/cowork-memory.ts`, `src/App.tsx`, `src/utils/cowork.ts`, `src/components/MessageItem.tsx`, `test-cowork-rag.ts`.

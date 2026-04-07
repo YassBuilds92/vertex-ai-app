@@ -1,5 +1,72 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-07 - Cowork v2 Phase 1A: memoire absolue text-first et retrieval semantique localement branchés
+- Retour produit:
+  - le brief Studio Pro demande que Cowork se souvienne des fichiers utilisateur et puisse les retrouver semantiquement au debut d'un run
+  - pour cette premiere sous-phase, le besoin vise d'abord les fichiers texte/PDF, sans promettre encore le multimodal complet
+- Changement applique:
+  - backend RAG:
+    - `server/lib/chunking.ts`
+      - extraction PDF via `pdf-parse`
+      - chunking texte simple sans LangChain
+    - `server/lib/embeddings.ts`
+      - wrapper Vertex embeddings (`gemini-embedding-001` par defaut en Phase 1A)
+    - `server/lib/qdrant.ts`
+      - client REST Qdrant
+      - collection auto `cowork_memory`
+      - indexes payload `userId`, `fileId`, `mimeType`
+    - `server/lib/cowork-memory.ts`
+      - `indexTextLikeFileToMemory`
+      - `searchRelevantMemory`
+      - `recallMemoryFiles`
+      - `forgetMemoryFile`
+      - `buildRelevantMemorySection`
+  - `api/index.ts`
+    - parse maintenant `userIdHint` et `memorySearchEnabled`
+    - auto-retrieval avant iteration 0 si:
+      - `COWORK_ENABLE_RAG=1`
+      - `COWORK_RAG_AUTOINJECT=1`
+      - run Cowork pur
+      - `userIdHint` present
+    - nouveaux outils:
+      - `memory_search`
+      - `memory_recall`
+      - `memory_forget`
+    - `release_file`
+      - genere un `fileId` stable cote backend
+      - emet `workspace_file_created` avec ce `fileId`
+      - indexe automatiquement les fichiers texte/PDF quand le RAG est actif
+      - emet `memory_indexed` / `memory_index_failed`
+    - `workspace_delete` tente aussi `memory_forget`
+  - frontend:
+    - `src/App.tsx`
+      - envoie `userIdHint: user.uid`
+      - envoie `memorySearchEnabled: true`
+      - persiste le workspace avec le `fileId` backend via `setDoc`
+    - `src/utils/cowork.ts`
+      - nouveaux evenements SSE memoire
+    - `src/components/MessageItem.tsx`
+      - pill `Memoire (n)` quand des chunks ont ete auto-injectes
+  - tests:
+    - nouveau `test-cowork-rag.ts`
+      - texte + PDF
+      - index -> search -> recall -> forget
+      - vrai smoke gate par env vars
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-cowork-workers.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+  - `npx tsx test-cowork-rag.ts` : SKIP honnete sans envs Vertex/Qdrant
+- Etat produit:
+  - la Phase 1A est complete localement
+  - la prochaine preuve critique est une vraie execution contre Qdrant + Vertex
+- Limites assumees:
+  - `gemini-embedding-001` reste text-only
+  - image/audio/video attendent encore la Phase 1B multimodale
+
 ## Mise a jour 2026-04-07 - Cowork v2 Phase 0: socle Cloud Run, helper worker unique et meta V2
 - Retour produit:
   - le brief Studio Pro demande un Cowork v2 avec RAG, sandbox Python, browser automation et healing long-running

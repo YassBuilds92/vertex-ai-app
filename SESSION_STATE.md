@@ -1,5 +1,100 @@
 # SESSION STATE
 
+## 2026-04-07 - Cowork v2 Phase 1A: RAG text-first local complet
+
+### Ce qui a ete accompli
+- Backend RAG ajoute:
+  - `server/lib/chunking.ts`
+    - chunking texte simple en TS pur
+    - extraction PDF via `pdf-parse`
+  - `server/lib/embeddings.ts`
+    - wrapper Vertex embeddings via `@google/genai`
+    - defaut Phase 1A: `gemini-embedding-001`
+    - tracking usage (`tokenCount`, dimensions, truncation)
+  - `server/lib/qdrant.ts`
+    - client REST Qdrant
+    - creation auto de collection
+    - indexes payload `userId`, `fileId`, `mimeType`
+    - retries via `retryWithBackoff()`
+  - `server/lib/cowork-memory.ts`
+    - orchestration index/search/recall/forget
+    - auto-section `### MEMOIRE PERTINENTE`
+- `api/index.ts`:
+  - parse maintenant `userIdHint` et `memorySearchEnabled`
+  - auto-retrieval avant la boucle Cowork si:
+    - `COWORK_ENABLE_RAG=1`
+    - `COWORK_RAG_AUTOINJECT=1`
+    - run Cowork pur (pas agent/generated app)
+    - `userIdHint` present
+  - nouveaux tools:
+    - `memory_search`
+    - `memory_recall`
+    - `memory_forget`
+  - `release_file`:
+    - genere maintenant un `fileId` stable cote backend
+    - emet `workspace_file_created` avec ce `fileId`
+    - indexe automatiquement les fichiers texte/PDF quand le RAG est actif
+    - emet `memory_indexed` ou `memory_index_failed`
+  - `workspace_delete` tente aussi un `memory_forget`
+  - `RunMeta` remonte maintenant les compteurs RAG reels (`embeddingCount`, `embeddingTokens`, `vectorSearches`)
+- Frontend:
+  - `src/App.tsx`
+    - envoie `userIdHint: user.uid`
+    - envoie `memorySearchEnabled: true`
+    - persiste les fichiers workspace avec le `fileId` backend via `setDoc(...)`
+  - `src/utils/cowork.ts`
+    - nouveaux events SSE:
+      - `memory_indexed`
+      - `memory_index_failed`
+      - `memory_recalled`
+  - `src/components/MessageItem.tsx`
+    - nouveau pill `Memoire (n)` quand une auto-injection a reellement eu lieu
+- Tests:
+  - nouveau `test-cowork-rag.ts`
+    - smoke reel gate par env vars
+    - texte + PDF
+    - index -> search -> recall -> forget
+    - skip honnete si Vertex/Qdrant/envs absents
+
+### Validation locale
+- `npm run lint` : OK
+- `npm run build` : OK
+- `npx tsx test-cowork-workers.ts` : OK
+- `npx tsx test-cowork-loop.ts` : OK
+- `npx tsx test-generated-app-stream.ts` : OK
+- `npx tsx test-generated-app-manifest.ts` : OK
+- `npx tsx test-cowork-rag.ts` : SKIP honnete si envs RAG absentes
+
+### Ce qui reste a faire
+- brancher les env vars reelles Qdrant + Vertex
+- jouer `npx tsx test-cowork-rag.ts` en vrai
+- faire un run Cowork authentifie:
+  - upload PDF texte
+  - verification de `memory_indexed`
+  - nouvelle question qui doit rappeler le bon passage via auto-injection
+- attaquer ensuite la Phase 1B multimodale (`gemini-embedding-2-preview`)
+
+### Decisions prises et pourquoi
+- Phase 1A garde `gemini-embedding-001` comme defaut:
+  - plus stable pour du text-first immediat
+  - aligne avec la sequence decidee (`1A` text-first, `1B` multimodal)
+- la memoire s'appuie sur `userIdHint` explicite:
+  - le backend n'a toujours pas d'identite Firebase user native
+  - il faut donc transmettre l'isolement tenant dans le body `/api/cowork`
+- `release_file` genere le `fileId` cote backend:
+  - indispensable pour que le vector DB et Firestore parlent du meme fichier
+
+### Pieges / points d'attention
+- si `userIdHint` manque, les tools memoire doivent echouer honnetement au lieu d'indexer sans isolation
+- si Qdrant tombe, `release_file` doit quand meme reussir, mais en emettant `memory_index_failed`
+- `memory_recall` peut remonter beaucoup de texte: a utiliser de facon ciblee
+- `gemini-embedding-001` reste text-only; ne pas lui promettre image/audio/video
+
+### Intention exacte
+- livrer une vraie Phase 1A utilisable, pas juste des wrappers backend
+- faire en sorte qu'un fichier publie par Cowork puisse etre retrouve semantiquement au run suivant
+- garder une transparence utilisateur explicite sur ce qui a ete memorise, rappele ou rate
+
 ## 2026-04-07 - Cowork v2 Phase 0: worker Cloud Run minimal + helper backend + meta V2
 
 ### Ce qui a ete accompli

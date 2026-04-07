@@ -28,6 +28,7 @@ import {
   COWORK_ENABLE_BROWSER,
   COWORK_ENABLE_GIT,
   COWORK_ENABLE_RAG,
+  COWORK_RAG_AUTOINJECT,
   COWORK_ENABLE_SANDBOX,
   COWORK_DEBUG_REASONING,
   LEGACY_COWORK_SYSTEM_INSTRUCTION,
@@ -37,6 +38,7 @@ import {
   MAX_PREVIEW_CHARS,
   MAX_WEB_FETCH_CHARS,
   MODEL_PRICING_USD_PER_1M,
+  getCoworkRagConfig,
   normalizeConfiguredModelId,
   PORT,
   USD_TO_EUR_RATE,
@@ -79,6 +81,17 @@ import {
 } from '../shared/released-artifacts.js';
 import { buildThinkingConfig, createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
 import { buildModelContentsFromRequest } from '../server/lib/chat-parts.js';
+import {
+  buildRelevantMemorySection,
+  forgetMemoryFile,
+  groupRelevantMemoryByFile,
+  indexTextLikeFileToMemory,
+  recallMemoryFiles,
+  searchRelevantMemory,
+  summarizeMemorySearchResults,
+  supportsTextMemoryIndexing,
+  type RelevantMemoryChunk,
+} from '../server/lib/cowork-memory.js';
 import { callCoworkWorker } from '../server/lib/cowork-workers.js';
 import { log } from '../server/lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from '../server/lib/path-utils.js';
@@ -600,7 +613,13 @@ function buildWorkspaceSummaryForPrompt(files: WorkspaceFileEntry[]): string {
 function buildCoworkSystemInstruction(
   userInstruction?: string,
   capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true },
-  runtime?: { originalMessage?: string; requestClock?: RequestClock; hubAgents?: HubAgentRecord[]; workspaceFiles?: WorkspaceFileEntry[] },
+  runtime?: {
+    originalMessage?: string;
+    requestClock?: RequestClock;
+    hubAgents?: HubAgentRecord[];
+    workspaceFiles?: WorkspaceFileEntry[];
+    relevantMemorySection?: string;
+  },
   behavior?: {
     executionMode?: CoworkExecutionMode;
     debugReasoning?: boolean;
@@ -619,7 +638,11 @@ function buildCoworkSystemInstruction(
   const workspaceSummary = Array.isArray(runtime?.workspaceFiles) && runtime.workspaceFiles.length > 0
     ? buildWorkspaceSummaryForPrompt(runtime.workspaceFiles)
     : '';
+  const relevantMemorySection = typeof runtime?.relevantMemorySection === 'string'
+    ? runtime.relevantMemorySection.trim()
+    : '';
   const debugReasoning = Boolean(behavior?.debugReasoning);
+  const ragEnabled = Boolean(behavior?.ragEnabled);
 
   const baseInstruction = `Tu es Cowork, un operateur autonome haut niveau.
 Tu avances vite, tu finis proprement, tu n'es ni paresseux ni theatrale, et tu restes honnete quand les preuves sont insuffisantes.
@@ -677,6 +700,9 @@ ${agentDelegationEnabled
   - 'create_pdf'
   - 'release_file'
   - 'workspace_delete' : retire un fichier obsolete ou remplace de ton espace de travail persistant.
+${ragEnabled
+  ? "  - 'memory_search' : recherche semantiquement dans la memoire persistante de l'utilisateur.\n  - 'memory_recall' : recupere les chunks indexes pour un ou plusieurs fileIds.\n  - 'memory_forget' : retire un fichier de la memoire vectorielle quand il devient obsolete.\n"
+  : ''}  - Pour Gemini TTS: prefere 1 seule voix pour narration, flash info, voix-off, explication, monologue ou chronique solo.
   - Pour Gemini TTS: prefere 1 seule voix pour narration, flash info, voix-off, explication, monologue ou chronique solo.
   - Pour Gemini TTS: prefere 2 intervenants pour sketch, interview, duo de presentation, dispute, Q/R vivante ou conversation ecrite avec 2 roles explicites.
   - Le multi-speaker Gemini TTS supporte exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants, pas plus. Si le besoin depasse 2 voix, fusionne en 2 roles max ou repasse en narrateur unique.
@@ -716,6 +742,8 @@ ${hubAgentsSummary}
 ` : ''}
 ${workspaceSummary ? `### ESPACE DE TRAVAIL PERSONNEL
 ${workspaceSummary}
+` : ''}
+${relevantMemorySection ? `${relevantMemorySection}
 ` : ''}
 
 ### MICRO-EXEMPLES
@@ -3979,6 +4007,15 @@ function getPublicToolNarrationTarget(toolName: string, args: any): string | nul
     case 'web_search':
       rawTarget = args?.query ?? args?.q;
       break;
+    case 'memory_search':
+      rawTarget = args?.query;
+      break;
+    case 'memory_recall':
+      rawTarget = Array.isArray(args?.fileIds) ? args.fileIds[0] : args?.fileId;
+      break;
+    case 'memory_forget':
+      rawTarget = args?.fileId;
+      break;
     case 'web_fetch':
       rawTarget = args?.url;
       break;
@@ -4077,6 +4114,27 @@ function buildPublicToolNarration(
         message: target
           ? `Je lance une recherche ciblee sur '${target}'.`
           : "Je lance une recherche ciblee pour cadrer le sujet."
+      };
+    case 'memory_search':
+      return {
+        title: 'Memoire',
+        message: target
+          ? `Je fouille la memoire persistante sur '${target}'.`
+          : "Je fouille la memoire persistante pour retrouver le bon contexte."
+      };
+    case 'memory_recall':
+      return {
+        title: 'Memoire',
+        message: target
+          ? `Je rappelle maintenant le contenu memorise pour '${target}'.`
+          : "Je rappelle maintenant des fichiers deja indexes en memoire."
+      };
+    case 'memory_forget':
+      return {
+        title: 'Memoire',
+        message: target
+          ? `Je nettoie maintenant la memoire pour '${target}'.`
+          : "Je retire un fichier obsolete de la memoire persistante."
       };
     case 'web_fetch':
       return {
@@ -5642,8 +5700,39 @@ app.post('/api/cowork', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, timestamp: Date.now(), ...payload })}\n\n`);
   };
   try {
-    const { message, sessionId, history, attachments, config, clientContext, hubAgents, generatedApps, agentRuntime, appRuntime, workspaceFiles } = ChatSchema.parse(req.body);
+    const {
+      message,
+      sessionId,
+      userIdHint,
+      history,
+      attachments,
+      config,
+      clientContext,
+      hubAgents,
+      generatedApps,
+      agentRuntime,
+      appRuntime,
+      memorySearchEnabled,
+      workspaceFiles,
+    } = ChatSchema.parse(req.body);
+    const trimmedUserIdHint = String(userIdHint || '').trim();
     const requestClock = resolveRequestClock(clientContext);
+    const ragConfig = getCoworkRagConfig();
+    const ragUsage = {
+      embeddingCount: 0,
+      embeddingTokens: 0,
+      vectorSearches: 0,
+    };
+    const recordMemoryEmbedding = (usage?: { tokenCount?: number | null }) => {
+      ragUsage.embeddingCount += 1;
+      const tokenCount = Number(usage?.tokenCount || 0);
+      if (Number.isFinite(tokenCount) && tokenCount > 0) {
+        ragUsage.embeddingTokens += tokenCount;
+      }
+    };
+    const recordMemoryVectorSearch = () => {
+      ragUsage.vectorSearches += 1;
+    };
     const agentDelegationEnabled = !appRuntime && !agentRuntime && config.agentDelegationEnabled === true;
     const availableHubAgents = agentDelegationEnabled && Array.isArray(hubAgents)
       ? hubAgents
@@ -5682,6 +5771,37 @@ app.post('/api/cowork', async (req, res) => {
       toolName: RuntimeModelAwareToolName,
       args: T
     ) => applyRuntimeToolDefaults(toolName, args, runtimeApp, runtimeAppFormValues);
+    const shouldAutoInjectMemory =
+      COWORK_ENABLE_RAG
+      && COWORK_RAG_AUTOINJECT
+      && memorySearchEnabled !== false
+      && !runtimeApp
+      && !runtimeAgent
+      && Boolean(trimmedUserIdHint);
+    let autoRelevantMemoryChunks: RelevantMemoryChunk[] = [];
+    let autoRelevantMemoryWarning: string | null = null;
+
+    if (shouldAutoInjectMemory) {
+      try {
+        autoRelevantMemoryChunks = await searchRelevantMemory({
+          userId: trimmedUserIdHint,
+          query: message,
+          topK: ragConfig.topK,
+          scoreThreshold: ragConfig.scoreThreshold,
+        }, {
+          onEmbedding: recordMemoryEmbedding,
+          onVectorSearch: recordMemoryVectorSearch,
+        });
+      } catch (error) {
+        autoRelevantMemoryWarning = error instanceof Error ? error.message : String(error);
+        log.warn(`Cowork memory auto-retrieval failed for user ${trimmedUserIdHint}`, error);
+      }
+    }
+
+    const relevantMemorySection = buildRelevantMemorySection(
+      autoRelevantMemoryChunks,
+      ragConfig.maxPromptTokens,
+    );
 
     if (requestRequiresAbuseBlock(message)) {
       const runMeta = createEmptyCoworkRunMeta();
@@ -6042,12 +6162,35 @@ app.post('/api/cowork', async (req, res) => {
       }
       if (toolName === 'release_file') {
         return {
+          fileId: clipText(output?.fileId || '', 48),
           path: clipText(output?.path || args?.path || '', 120),
           fileName: clipText(output?.fileName || '', 80),
           mimeType: clipText(output?.mimeType || '', 32),
           attachmentType: clipText(output?.attachmentType || '', 16),
           url: clipText(output?.url || '', 160),
           fileSizeBytes: Number(output?.fileSizeBytes || 0),
+          memoryIndexed: Boolean(output?.memoryIndexed),
+          memoryChunkCount: Number(output?.memoryChunkCount || 0),
+        };
+      }
+      if (toolName === 'memory_search') {
+        return {
+          query: clipText(output?.query || args?.query || '', 120),
+          chunkCount: Number(output?.chunkCount || 0),
+          fileCount: Number(output?.fileCount || 0),
+          scoreThreshold: Number(output?.scoreThreshold || 0),
+        };
+      }
+      if (toolName === 'memory_recall') {
+        return {
+          fileCount: Number(output?.fileCount || 0),
+          chunkCount: Number(output?.chunkCount || 0),
+        };
+      }
+      if (toolName === 'memory_forget') {
+        return {
+          fileId: clipText(output?.fileId || args?.fileId || '', 48),
+          success: Boolean(output?.success),
         };
       }
       return formatToolMeta(toolName, args);
@@ -6148,7 +6291,29 @@ app.post('/api/cowork', async (req, res) => {
           output?.fileName ? `publie ${output.fileName}` : null,
           output?.attachmentType ? `type ${output.attachmentType}` : null,
           output?.mimeType ? output.mimeType : null,
+          output?.memoryIndexed ? `memoire ${Number(output?.memoryChunkCount || 0)} chunk(s)` : null,
+          output?.memoryError ? `memoire indisponible: ${clipText(output.memoryError, 90)}` : null,
           output?.url ? clipText(output.url, 120) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'memory_search') {
+        return [
+          output?.chunkCount ? `${output.chunkCount} chunk(s)` : '0 chunk',
+          output?.fileCount ? `${output.fileCount} fichier(s)` : '0 fichier',
+          output?.summary ? clipText(output.summary, 160) : output?.message ? clipText(output.message, 160) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'memory_recall') {
+        return [
+          output?.fileCount ? `${output.fileCount} fichier(s)` : '0 fichier',
+          output?.chunkCount ? `${output.chunkCount} chunk(s)` : '0 chunk',
+          output?.message ? clipText(output.message, 160) : null,
+        ].filter(Boolean).join(' | ');
+      }
+      if (toolName === 'memory_forget') {
+        return [
+          output?.fileId ? `oublie ${output.fileId}` : null,
+          output?.message ? clipText(output.message, 160) : null,
         ].filter(Boolean).join(' | ');
       }
       if (toolName === 'web_search') {
@@ -8222,6 +8387,9 @@ app.post('/api/cowork', async (req, res) => {
           if (!fs.existsSync(absolutePath)) throw new Error(`Le fichier ${filePath} n'existe pas.`);
           const buffer = fs.readFileSync(absolutePath);
           const fileName = path.basename(filePath);
+          const fileId = randomUUID();
+          const createdAt = Date.now();
+          const label = fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
           const mimeType = getMimeType(filePath);
           const attachmentType = inferReleasedArtifactAttachmentType({
             mimeType,
@@ -8231,23 +8399,85 @@ app.post('/api/cowork', async (req, res) => {
           log.info(`Releasing file: ${filePath} (${mimeType})`);
           const uploaded = await uploadToGCSWithMetadata(buffer, fileName, mimeType);
           emitEvent('workspace_file_created', {
+            fileId,
             fileName,
             mimeType,
             attachmentType,
             storageUri: uploaded.storageUri,
             fileSizeBytes: buffer.byteLength,
             sessionId: sessionId || '',
-            label: fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+            label,
+            createdAt,
           });
+          let memoryIndexSummary:
+            | {
+                chunkCount: number;
+                totalPages?: number;
+                extractedCharacters: number;
+              }
+            | null = null;
+          let memoryIndexError: string | null = null;
+
+          if (COWORK_ENABLE_RAG && trimmedUserIdHint && supportsTextMemoryIndexing(mimeType, fileName)) {
+            try {
+              memoryIndexSummary = await indexTextLikeFileToMemory({
+                buffer,
+                fileId,
+                fileName,
+                mimeType,
+                attachmentType,
+                storageUri: uploaded.storageUri,
+                label,
+                userId: trimmedUserIdHint,
+                sessionId: sessionId || undefined,
+                createdAt,
+              }, {
+                onEmbedding: recordMemoryEmbedding,
+                onVectorSearch: recordMemoryVectorSearch,
+              });
+              syncRunMeta();
+              emitEvent('memory_indexed', {
+                iteration: iterations,
+                fileId,
+                fileName,
+                mimeType,
+                chunkCount: memoryIndexSummary.chunkCount,
+                totalPages: memoryIndexSummary.totalPages,
+                extractedCharacters: memoryIndexSummary.extractedCharacters,
+                runMeta,
+              });
+            } catch (error) {
+              memoryIndexError = error instanceof Error ? error.message : String(error);
+              syncRunMeta();
+              emitEvent('memory_index_failed', {
+                iteration: iterations,
+                fileId,
+                fileName,
+                mimeType,
+                message: memoryIndexError,
+                runMeta,
+              });
+              log.warn(`Cowork memory indexing failed for ${fileName}`, error);
+            }
+          }
+
+          syncRunMeta();
           return {
             success: true,
+            fileId,
             url: uploaded.url,
             storageUri: uploaded.storageUri,
             path: filePath,
             fileName,
+            label,
             mimeType,
             attachmentType,
             fileSizeBytes: buffer.byteLength,
+            createdAt,
+            memoryIndexed: Boolean(memoryIndexSummary),
+            memoryChunkCount: memoryIndexSummary?.chunkCount || 0,
+            memoryTotalPages: memoryIndexSummary?.totalPages,
+            ...(memoryIndexError ? { memoryError: memoryIndexError } : {}),
             message: `Fichier ${filePath} uploadé avec succès. Voici le lien de téléchargement.`,
           };
         }
@@ -8262,9 +8492,223 @@ app.post('/api/cowork', async (req, res) => {
           },
           required: ["fileId"]
         },
-        execute: ({ fileId }: { fileId: string }) => {
-          emitEvent('workspace_file_deleted', { fileId });
+        execute: async ({ fileId }: { fileId: string }) => {
+          const normalizedFileId = String(fileId || '').trim();
+          if (!normalizedFileId) {
+            throw new Error("Le fileId a supprimer est vide.");
+          }
+
+          let warning: string | null = null;
+          if (COWORK_ENABLE_RAG && trimmedUserIdHint) {
+            try {
+              await forgetMemoryFile({
+                userId: trimmedUserIdHint,
+                fileId: normalizedFileId,
+              });
+            } catch (error) {
+              warning = error instanceof Error ? error.message : String(error);
+              emitEvent('warning', {
+                iteration: iterations,
+                title: 'Nettoyage memoire incomplet',
+                message: `Le fichier ${normalizedFileId} a ete retire du workspace, mais la memoire vectorielle n'a pas pu etre nettoyee: ${warning}`,
+                meta: { fileId: normalizedFileId, feature: 'rag' },
+                runMeta,
+              });
+            }
+          }
+
+          emitEvent('workspace_file_deleted', { fileId: normalizedFileId });
+          if (warning) {
+            return {
+              success: true,
+              fileId: normalizedFileId,
+              warning,
+              message: `Fichier ${normalizedFileId} retire du workspace, mais la memoire vectorielle reste a nettoyer.`,
+            };
+          }
           return { success: true, message: `Fichier ${fileId} retiré de l'espace de travail.` };
+        }
+      },
+      {
+        name: "memory_search",
+        description: "Recherche semantiquement dans la memoire persistante de l'utilisateur pour retrouver les fichiers ou extraits pertinents.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Question ou requete de recherche semantique." },
+            topK: { type: "number", description: "Nombre maximal de chunks a remonter (1-10)." },
+            mimeTypes: {
+              type: "array",
+              description: "Filtre optionnel par types MIME.",
+              items: { type: "string" }
+            },
+            scoreThreshold: { type: "number", description: "Seuil minimal de similarite (0-1)." }
+          },
+          required: ["query"]
+        },
+        execute: async ({
+          query,
+          topK,
+          mimeTypes,
+          scoreThreshold,
+        }: {
+          query: string;
+          topK?: number;
+          mimeTypes?: string[];
+          scoreThreshold?: number;
+        }) => {
+          if (!trimmedUserIdHint) {
+            throw new Error("La memoire Cowork exige un userIdHint. Ce run ne peut pas interroger la memoire.");
+          }
+
+          const cleanedQuery = String(query || '').trim();
+          if (!cleanedQuery) {
+            throw new Error("La requete memory_search est vide.");
+          }
+
+          const normalizedTopK = Math.max(1, Math.min(10, Number(topK || ragConfig.topK) || ragConfig.topK));
+          const threshold = Number.isFinite(Number(scoreThreshold))
+            ? Number(scoreThreshold)
+            : ragConfig.scoreThreshold;
+          const chunks = await searchRelevantMemory({
+            userId: trimmedUserIdHint,
+            query: cleanedQuery,
+            topK: normalizedTopK,
+            mimeTypes,
+            scoreThreshold: threshold,
+          }, {
+            onEmbedding: recordMemoryEmbedding,
+            onVectorSearch: recordMemoryVectorSearch,
+          });
+
+          const groupedFiles = groupRelevantMemoryByFile(chunks);
+          syncRunMeta();
+
+          return {
+            success: true,
+            query: cleanedQuery,
+            topK: normalizedTopK,
+            scoreThreshold: threshold,
+            chunkCount: chunks.length,
+            fileCount: groupedFiles.length,
+            files: groupedFiles.map((group) => ({
+              fileId: group.fileId,
+              label: group.label,
+              fileName: group.fileName,
+              mimeType: group.mimeType,
+              storageUri: group.storageUri,
+              chunkCount: group.chunks.length,
+              bestScore: Math.max(...group.chunks.map(chunk => Number(chunk.score || 0))),
+              excerpt: clipText(group.chunks[0]?.sourceText || '', 500),
+            })),
+            chunks: chunks.map((chunk) => ({
+              fileId: chunk.fileId,
+              label: chunk.label,
+              mimeType: chunk.mimeType,
+              storageUri: chunk.storageUri,
+              chunkIndex: chunk.chunkIndex,
+              chunkCount: chunk.chunkCount,
+              score: chunk.score,
+              sourceText: chunk.sourceText,
+            })),
+            summary: summarizeMemorySearchResults(chunks),
+            message: chunks.length > 0
+              ? `${chunks.length} chunk(s) pertinents trouves dans ${groupedFiles.length} fichier(s).`
+              : 'Aucun souvenir pertinent trouve pour cette requete.',
+          };
+        }
+      },
+      {
+        name: "memory_recall",
+        description: "Recupere les chunks indexes pour un ou plusieurs fichiers deja presents dans la memoire Cowork.",
+        parameters: {
+          type: "object",
+          properties: {
+            fileIds: {
+              type: "array",
+              description: "Liste de fileIds a rappeler depuis la memoire.",
+              items: { type: "string" }
+            }
+          },
+          required: ["fileIds"]
+        },
+        execute: async ({ fileIds }: { fileIds: string[] }) => {
+          if (!trimmedUserIdHint) {
+            throw new Error("La memoire Cowork exige un userIdHint. Ce run ne peut pas rappeler de fichiers.");
+          }
+
+          const normalizedFileIds = Array.isArray(fileIds)
+            ? [...new Set(fileIds.map(value => String(value || '').trim()).filter(Boolean))]
+            : [];
+          if (normalizedFileIds.length === 0) {
+            throw new Error("memory_recall attend au moins un fileId valide.");
+          }
+
+          const chunks = await recallMemoryFiles({
+            userId: trimmedUserIdHint,
+            fileIds: normalizedFileIds,
+          });
+          const groupedFiles = groupRelevantMemoryByFile(chunks);
+          syncRunMeta();
+          emitEvent('memory_recalled', {
+            iteration: iterations,
+            fileIds: normalizedFileIds,
+            filesCount: groupedFiles.length,
+            chunkCount: chunks.length,
+            auto: false,
+            runMeta,
+          });
+
+          return {
+            success: true,
+            fileIds: normalizedFileIds,
+            chunkCount: chunks.length,
+            fileCount: groupedFiles.length,
+            files: groupedFiles.map((group) => ({
+              fileId: group.fileId,
+              label: group.label,
+              fileName: group.fileName,
+              mimeType: group.mimeType,
+              storageUri: group.storageUri,
+              chunkCount: group.chunks.length,
+              text: group.text,
+            })),
+            message: groupedFiles.length > 0
+              ? `${groupedFiles.length} fichier(s) rappeles depuis la memoire.`
+              : 'Aucun chunk memorise retrouve pour ces fileIds.',
+          };
+        }
+      },
+      {
+        name: "memory_forget",
+        description: "Supprime un fichier de la memoire vectorielle Cowork sans toucher au fichier source dans le workspace.",
+        parameters: {
+          type: "object",
+          properties: {
+            fileId: { type: "string", description: "Identifiant du fichier a supprimer de la memoire vectorielle." }
+          },
+          required: ["fileId"]
+        },
+        execute: async ({ fileId }: { fileId: string }) => {
+          if (!trimmedUserIdHint) {
+            throw new Error("La memoire Cowork exige un userIdHint. Ce run ne peut pas oublier un fichier.");
+          }
+
+          const normalizedFileId = String(fileId || '').trim();
+          if (!normalizedFileId) {
+            throw new Error("memory_forget attend un fileId valide.");
+          }
+
+          await forgetMemoryFile({
+            userId: trimmedUserIdHint,
+            fileId: normalizedFileId,
+          });
+
+          return {
+            success: true,
+            fileId: normalizedFileId,
+            message: `La memoire vectorielle du fichier ${normalizedFileId} a ete supprimee.`,
+          };
         }
       },
       {
@@ -9313,6 +9757,9 @@ app.post('/api/cowork', async (req, res) => {
       if (!agentDelegationEnabled && ['create_agent_blueprint', 'update_agent_blueprint', 'run_hub_agent'].includes(tool.name)) {
         return false;
       }
+      if (!COWORK_ENABLE_RAG && ['memory_search', 'memory_recall', 'memory_forget'].includes(tool.name)) {
+        return false;
+      }
       if (!runtimeToolAllowList) return true;
       return runtimeToolAllowList.has(tool.name);
     });
@@ -9347,6 +9794,7 @@ app.post('/api/cowork', async (req, res) => {
               requestClock,
               hubAgents: availableHubAgents,
               workspaceFiles: Array.isArray(workspaceFiles) ? workspaceFiles : [],
+              relevantMemorySection,
             }, {
               executionMode,
               debugReasoning: COWORK_DEBUG_REASONING,
@@ -9413,6 +9861,9 @@ app.post('/api/cowork', async (req, res) => {
       runMeta.fetchCount = successfulResearchMeta.webFetches;
       runMeta.sourcesOpened = sessionState.sourcesValidated.length;
       runMeta.domainsOpened = new Set(sessionState.sourcesValidated.map(source => source.domain).filter(Boolean)).size;
+      runMeta.embeddingCount = ragUsage.embeddingCount;
+      runMeta.embeddingTokens = ragUsage.embeddingTokens;
+      runMeta.vectorSearches = ragUsage.vectorSearches;
       runMeta.stalledTurns = sessionState.stalledTurns;
       runMeta.artifactState = latestReleasedFile?.url
         ? 'released'
@@ -9436,6 +9887,29 @@ app.post('/api/cowork', async (req, res) => {
       });
       syncRunMeta();
     };
+
+    syncRunMeta();
+
+    if (autoRelevantMemoryChunks.length > 0) {
+      emitEvent('memory_recalled', {
+        iteration: 0,
+        fileIds: [...new Set(autoRelevantMemoryChunks.map(chunk => chunk.fileId).filter(Boolean))],
+        filesCount: new Set(autoRelevantMemoryChunks.map(chunk => chunk.fileId).filter(Boolean)).size,
+        chunkCount: autoRelevantMemoryChunks.length,
+        auto: true,
+        runMeta,
+      });
+    }
+
+    if (autoRelevantMemoryWarning) {
+      emitEvent('warning', {
+        iteration: 0,
+        title: 'Memoire indisponible',
+        message: `La recherche automatique dans la memoire a echoue: ${autoRelevantMemoryWarning}`,
+        meta: { auto: true, feature: 'rag' },
+        runMeta,
+      });
+    }
 
     const buildProgressFingerprint = () => buildCoworkProgressFingerprint({
       executionMode,

@@ -1,30 +1,39 @@
 # NOW
 
 ## Objectif actuel
-- Terminer la vraie Phase 0 de Cowork v2: deployer `cowork-workers` sur Cloud Run, brancher `COWORK_WORKERS_URL` / `COWORK_WORKERS_TOKEN`, puis lancer la Phase 1A RAG text-first.
+- Fermer la vraie validation externe de la Phase 1A Cowork v2: brancher Qdrant + Vertex, rejouer l'indexation/retrieval reelle, puis lancer la Phase 1B multimodale.
 
 ## Blocage actuel
-- La fondation est verte localement, mais aucun service Cloud Run reel n'est encore deploye ni pointe par les env vars de l'app.
+- La Phase 1A est implementee et verte localement, mais aucune preuve reelle n'a encore ete jouee contre un cluster Qdrant et des embeddings Vertex actifs dans cet environnement.
 
 ## Prochaine action exacte
-- Depuis `cloud-run/cowork-workers/`, faire un premier deploy Cloud Run reel (`gcloud builds submit --config cloudbuild.yaml .` ou `gcloud run deploy --source .`), configurer `COWORK_WORKERS_TOKEN`, puis verifier:
-  1. `curl https://<service>.run.app/health`
-  2. `npx tsx test-cowork-workers.ts` avec `COWORK_WORKERS_URL` sur l'URL reelle
-  3. debut de `server/lib/embeddings.ts` + `server/lib/qdrant.ts` pour Phase 1A
+- Configurer les env vars reelles puis lancer:
+  1. `COWORK_ENABLE_RAG=1`
+  2. `COWORK_RAG_AUTOINJECT=1`
+  3. `QDRANT_URL` (+ `QDRANT_API_KEY` si besoin)
+  4. `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`, `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+  5. `COWORK_TEST_RAG=1`
+- Ensuite:
+  - `npx tsx test-cowork-rag.ts`
+  - upload d'un PDF texte via Cowork
+  - demande de rappel semantique reelle pour verifier `memory_search` + auto-injection
 
 ## Fichiers chauds
-- `server/lib/cowork-workers.ts`
-- `server/lib/config.ts`
 - `api/index.ts`
-- `cloud-run/cowork-workers/src/index.js`
-- `cloud-run/cowork-workers/cloudbuild.yaml`
-- `test-cowork-workers.ts`
+- `server/lib/cowork-memory.ts`
+- `server/lib/embeddings.ts`
+- `server/lib/qdrant.ts`
+- `src/App.tsx`
+- `src/utils/cowork.ts`
+- `src/components/MessageItem.tsx`
+- `test-cowork-rag.ts`
 
 ## Validations restantes
-- smoke Cloud Run reel sur `/health`
-- wiring env vars cote app/Vercel
-- Phase 1A RAG text-only avec un premier vrai index/retrieval
+- smoke reel `test-cowork-rag.ts`
+- run Cowork authentifie avec upload texte/PDF puis question de rappel
+- verification UI du pill `Memoire (n)` sur un vrai run avec auto-injection
 
 ## Risques immediats
-- `cloudbuild.yaml` deploie bien le service, mais la vraie auth bearer et les env vars Cloud Run restent a poser hors repo.
-- `gemini-embedding-2-preview` n'accepte pas les PDFs longs en direct comme un flux illimite: pour les docs > 6 pages, il faudra extraire/chunker le texte au lieu de compter sur l'embed PDF natif.
+- sans `userIdHint`, la memoire backend ne peut pas isoler proprement les donnees utilisateur
+- si Qdrant est indisponible, l'upload doit rester reussi mais l'indexation memoire sera seulement best-effort et visible comme warning
+- `gemini-embedding-001` reste text-only: l'image/audio/video attendront la Phase 1B

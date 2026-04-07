@@ -1,5 +1,23 @@
 # DECISIONS
 
+## 2026-04-07 - Phase 1A RAG: backend direct vers Qdrant, `userIdHint` explicite et `fileId` genere cote backend
+- Statut: adopte localement
+- Contexte: le workspace Cowork existant persistait les fichiers via Firestore cote frontend, mais la memoire semantique exige maintenant un index backend vers un vector DB. Sans identite utilisateur backend native, ni `fileId` stable connu cote serveur, l'indexation aurait ete fragile ou melangee.
+- Decision:
+  - garder Firestore workspace en mode frontend-mediated pour l'UI
+  - mais laisser le backend ecrire directement dans Qdrant pour le RAG
+  - transmettre `userIdHint` dans le body `/api/cowork`
+  - faire generer le `fileId` dans `release_file` cote backend, puis persister ce meme id cote frontend dans Firestore
+- Pourquoi:
+  - Qdrant ne peut pas dependre d'un aller-retour frontend pour chaque chunk et chaque embedding
+  - `userIdHint` est indispensable tant que le backend n'a pas d'identite Firebase utilisateur propre
+  - un `fileId` commun backend/frontend evite les index orphelins et rend `memory_recall` / `memory_forget` fiables
+- Consequence:
+  - `api/index.ts` parse `userIdHint` et `memorySearchEnabled`
+  - `release_file` emet `workspace_file_created` avec `fileId`
+  - `src/App.tsx` utilise `setDoc(..., fileId)` pour le workspace
+  - Qdrant filtre toujours par `userId`
+
 ## 2026-04-07 - Cowork v2 demarre par un unique worker Cloud Run et toutes les nouvelles capacites restent gatees
 - Statut: adopte localement
 - Contexte: le brief Cowork v2 ajoute 4 familles de capacites lourdes (RAG, sandbox, GitOps/healing, browser). Les brancher directement dans `api/index.ts` sans runtime externe recreerait les limites Vercel serverless que le projet veut justement depasser.

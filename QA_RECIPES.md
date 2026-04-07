@@ -1,5 +1,43 @@
 # QA RECIPES
 
+## Cowork v2 - Phase 1A RAG text-first
+- Objectif:
+  - verifier que Cowork indexe bien les fichiers texte/PDF dans une memoire vectorielle
+  - verifier que la recherche semantique retrouve le bon chunk
+  - verifier que `memory_recall` et `memory_forget` tiennent leur promesse
+- Validation locale sans APIs:
+  - `npm run lint`
+  - `npm run build`
+  - `npx tsx test-cowork-loop.ts`
+  - `npx tsx test-cowork-rag.ts`
+    - attendu sans envs: skip honnete, pas de faux vert
+- Validation reelle:
+  - configurer:
+    - `COWORK_ENABLE_RAG=1`
+    - `COWORK_RAG_AUTOINJECT=1`
+    - `QDRANT_URL`
+    - `QDRANT_API_KEY` si besoin
+    - `VERTEX_PROJECT_ID`
+    - `VERTEX_LOCATION`
+    - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+    - `COWORK_TEST_RAG=1`
+  - lancer:
+    - `npx tsx test-cowork-rag.ts`
+  - puis run manuel:
+    - ouvrir Cowork authentifie
+    - uploader un PDF texte via un flux qui finit par `release_file`
+    - verifier l'evenement `memory_indexed`
+    - poser une nouvelle question du type `quel est le chiffre cle du document ?`
+    - verifier l'evenement `memory_recalled`
+    - verifier dans l'UI le pill `Memoire (n)`
+- Attendus:
+  - `release_file` cree un `fileId` stable
+  - les chunks indexes sont filtres par `userId`
+  - un fichier oublie via `memory_forget` ou `workspace_delete` ne ressort plus dans `memory_recall`
+  - si Qdrant/Vertex echoue:
+    - l'upload ne doit pas mentir
+    - un warning / `memory_index_failed` doit apparaitre
+
 ## Cowork v2 - Phase 0 worker Cloud Run
 - Objectif:
   - verifier que le worker externe minimal repond bien

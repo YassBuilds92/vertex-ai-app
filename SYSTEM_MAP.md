@@ -5,6 +5,7 @@
 - `api/index.ts` : point d'entree backend unique pour Vercel/Express, boucle Cowork, runtime outille et nouveau chemin `appRuntime`.
 - `server/routes/standard.ts` : routes standard non-Cowork (`/api/chat`, media, status) + endpoints `generated-apps/create` et `generated-apps/publish`.
 - `server/lib/generated-apps.ts` : generation de manifest, rendu TSX, bundling, upload best-effort et lifecycle draft/published/failed.
+- `cloud-run/cowork-workers/src/index.js` : nouveau service Cloud Run externe pour les capacites lourdes/isolees de Cowork v2. Phase 0 expose seulement `/health` + des routes reservees `501`.
 
 ## Frontend - zones cle
 - `src/components/AgentsHub.tsx` : vue plein ecran `Cowork Apps`, type "autre app dans l'app", avec selection minimale d'apps + barre de creation en bas.
@@ -29,8 +30,13 @@
 ## Backend - logique agentique
 - `server/lib/agents.ts` : bibliotheque d'outils agents, blueprints et logique de creation/revision.
 - `server/lib/generated-apps.ts` : equivalent cote generated apps, avec source + bundle versionnes.
+- `server/lib/cowork-workers.ts` : client unique vers le worker Cloud Run (bearer auth, retry, SSE passthrough).
 - `src/utils/cowork.ts` : hydratation des evenements SSE Cowork cote frontend.
 - `src/utils/chat-parts.ts` et `server/lib/chat-parts.ts` : serialisation d'historique et pieces jointes.
+
+## Infra externe
+- `cloud-run/cowork-workers/` : sous-projet de service Cloud Run autonome, avec `Dockerfile`, `cloudbuild.yaml`, `README.md` et un runtime Node 22 minimal.
+- Les futures capacites RAG/sandbox/browser/healing doivent passer par `server/lib/cowork-workers.ts` plutot que d'appeler Cloud Run a la main depuis `api/index.ts`.
 
 ## Flux critique Generated App
 1. L'utilisateur ou Cowork demande une nouvelle app experte.
@@ -47,3 +53,4 @@
 - Changement de contrat generated app : `src/types.ts`, `server/lib/schemas.ts`, `server/lib/generated-apps.ts`, `src/utils/generatedAppSnapshots.ts`.
 - Changement runtime/Cowork : `api/index.ts`, `src/utils/cowork.ts`, `src/App.tsx`.
 - Changement de persistance/reprise : `src/utils/sessionRecovery.ts`, `src/utils/sessionShells.ts`, `firestore.rules`.
+- Changement Cowork v2 / worker externe : `server/lib/cowork-workers.ts`, `server/lib/config.ts`, `cloud-run/cowork-workers/*`, `test-cowork-workers.ts`, puis plus tard `server/lib/embeddings.ts`, `server/lib/qdrant.ts`, `server/lib/github.ts`, `server/lib/vercel.ts`.

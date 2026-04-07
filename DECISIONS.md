@@ -1,5 +1,23 @@
 # DECISIONS
 
+## 2026-04-07 - Cowork v2 demarre par un unique worker Cloud Run et toutes les nouvelles capacites restent gatees
+- Statut: adopte localement
+- Contexte: le brief Cowork v2 ajoute 4 familles de capacites lourdes (RAG, sandbox, GitOps/healing, browser). Les brancher directement dans `api/index.ts` sans runtime externe recreerait les limites Vercel serverless que le projet veut justement depasser.
+- Decision:
+  - introduire un seul service `cowork-workers` sur Cloud Run comme point d'extension transverse
+  - centraliser son appel dans `server/lib/cowork-workers.ts`
+  - etendre `RunMeta` tout de suite pour accueillir les compteurs v2
+  - garder toutes les nouvelles capacites OFF par defaut derriere `COWORK_ENABLE_*`
+- Pourquoi:
+  - un service unique simplifie le deploy, le warm pool, le bearer token et la suite des integrations
+  - un helper unique evite que `api/index.ts` accumule des `fetch` Cloud Run disparates
+  - le gating OFF par defaut permet un rollback instantane tant que les smokes reels ne sont pas faits
+- Consequence:
+  - nouveau sous-projet `cloud-run/cowork-workers/`
+  - nouveau client `server/lib/cowork-workers.ts`
+  - `api/index.ts`, `src/types.ts`, `src/utils/cowork.ts` et `src/components/MessageItem.tsx` portent deja le contrat meta v2
+  - la prochaine etape obligatoire est le deploy reel du worker avant toute Phase 1/2/3/4
+
 ## 2026-04-07 - Une instruction selectionnee depuis la galerie devient une reference de session editable depuis le panneau droit
 - Statut: adopte localement
 - Contexte: l'utilisateur veut pouvoir choisir une instruction personnalisee, la modifier pendant qu'il l'utilise, puis sauvegarder directement cette nouvelle version sans repasser par le mode `Modifier` de la galerie.

@@ -9,6 +9,34 @@
 - Cout
 - Sources officielles
 
+## 2026-04-07 - Cloud Run unique pour `cowork-workers`
+- Statut: retenu et scaffold localement
+- Date de verification: 2026-04-07
+- Technologie: Google Cloud Run (`cowork-workers`)
+- Choix:
+  - demarrer Cowork v2 avec un seul service Cloud Run Node 22
+  - exposer `/health` tout de suite, puis reserver les routes sandbox/browser/healing en `501` honnete
+  - garder le service minimal sans nouvelle dependance root pour la Phase 0
+- Pourquoi:
+  - la doc Cloud Run confirme que les deploys from source et les fonctions sont bien factures comme des services Cloud Run, ce qui reste aligne avec le runtime long-lived voulu
+  - la quickstart officielle confirme un deploy simple via `gcloud run deploy --source .`
+  - le free tier officiel reste compatible avec un premier worker de fondation (2M requests/mois, 180k vCPU-seconds, 360k GiB-seconds pour les services request-based)
+- Alternatives evaluees:
+  - rester 100% Vercel serverless
+    - Ecartee: trop serre pour les runs longs, le browser automation et le healing CI/CD
+  - Cloud Run functions / Cloud Functions style function-per-endpoint
+    - Ecartee: plus eclate, moins naturel pour partager un warm pool et un contrat SSE commun
+  - plusieurs services Cloud Run separes des la Phase 0
+    - Ecartee: possible plus tard, mais premature tant que les capacites ne sont pas stabilisees
+- Cout:
+  - free tier disponible pour la phase de fondation
+  - attention: les deploys from source consomment aussi Cloud Build / Artifact Registry hors prix Cloud Run pur
+- Sources officielles:
+  - [Cloud Run pricing](https://cloud.google.com/run/pricing)
+  - [Quickstart: Build and deploy a Node.js web app to Google Cloud with Cloud Run](https://cloud.google.com/run/docs/quickstarts/build-and-deploy/deploy-nodejs-service)
+  - [Cloud Run functions pricing overview](https://cloud.google.com/functions/pricing-overview)
+  - [Vercel Functions Limits](https://vercel.com/docs/functions/limitations)
+
 ## 2026-04-02 - `three@0.183.2` en scene hero lazy-load pour le shell
 - Statut: retenu pour la refonte empty state
 - Date de verification: 2026-04-02

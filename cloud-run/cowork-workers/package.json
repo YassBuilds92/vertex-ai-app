@@ -1,0 +1,11 @@
+{
+  "name": "cowork-workers",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  }
+}

@@ -25,6 +25,10 @@ import {
 } from '../server/pdf/latex.js';
 import {
   allowPublicSearchFallbacks,
+  COWORK_ENABLE_BROWSER,
+  COWORK_ENABLE_GIT,
+  COWORK_ENABLE_RAG,
+  COWORK_ENABLE_SANDBOX,
   COWORK_DEBUG_REASONING,
   LEGACY_COWORK_SYSTEM_INSTRUCTION,
   LONG_CONTEXT_THRESHOLD_TOKENS,
@@ -75,6 +79,7 @@ import {
 } from '../shared/released-artifacts.js';
 import { buildThinkingConfig, createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
 import { buildModelContentsFromRequest } from '../server/lib/chat-parts.js';
+import { callCoworkWorker } from '../server/lib/cowork-workers.js';
 import { log } from '../server/lib/logger.js';
 import { estimatePdfPageCount, getMimeType, resolveAndValidatePath } from '../server/lib/path-utils.js';
 import { ChatSchema } from '../server/lib/schemas.js';
@@ -257,10 +262,18 @@ type CoworkRunMeta = {
   iterations: number;
   modelCalls: number;
   toolCalls: number;
+  workerCallsCount: number;
+  workerMsTotal: number;
   searchCount: number;
   fetchCount: number;
   sourcesOpened: number;
   domainsOpened: number;
+  embeddingCount: number;
+  embeddingTokens: number;
+  vectorSearches: number;
+  pythonExecutions: number;
+  gitOps: number;
+  browserOps: number;
   artifactState: 'none' | 'drafting' | 'created' | 'released';
   stalledTurns: number;
   retryCount: number;
@@ -297,10 +310,18 @@ function createEmptyCoworkRunMeta(): CoworkRunMeta {
     iterations: 0,
     modelCalls: 0,
     toolCalls: 0,
+    workerCallsCount: 0,
+    workerMsTotal: 0,
     searchCount: 0,
     fetchCount: 0,
     sourcesOpened: 0,
     domainsOpened: 0,
+    embeddingCount: 0,
+    embeddingTokens: 0,
+    vectorSearches: 0,
+    pythonExecutions: 0,
+    gitOps: 0,
+    browserOps: 0,
     artifactState: 'none',
     stalledTurns: 0,
     retryCount: 0,
@@ -580,7 +601,15 @@ function buildCoworkSystemInstruction(
   userInstruction?: string,
   capabilities: { webSearch: boolean; executeScript: boolean } = { webSearch: true, executeScript: true },
   runtime?: { originalMessage?: string; requestClock?: RequestClock; hubAgents?: HubAgentRecord[]; workspaceFiles?: WorkspaceFileEntry[] },
-  behavior?: { executionMode?: CoworkExecutionMode; debugReasoning?: boolean; agentDelegationEnabled?: boolean }
+  behavior?: {
+    executionMode?: CoworkExecutionMode;
+    debugReasoning?: boolean;
+    agentDelegationEnabled?: boolean;
+    ragEnabled?: boolean;
+    sandboxEnabled?: boolean;
+    gitEnabled?: boolean;
+    browserEnabled?: boolean;
+  }
 ): string {
   const requestClock = runtime?.requestClock;
   const agentDelegationEnabled = Boolean(behavior?.agentDelegationEnabled);
@@ -1239,6 +1268,11 @@ export const __coworkLoopInternals = {
   assessReadablePageRelevance,
   applyRuntimeToolDefaults,
   searchWeb,
+  callCoworkWorker,
+};
+
+export const __coworkWorkerInternals = {
+  callCoworkWorker,
 };
 
 function normalizeCoworkText(value?: string): string {
@@ -9317,6 +9351,10 @@ app.post('/api/cowork', async (req, res) => {
               executionMode,
               debugReasoning: COWORK_DEBUG_REASONING,
               agentDelegationEnabled,
+              ragEnabled: COWORK_ENABLE_RAG,
+              sandboxEnabled: COWORK_ENABLE_SANDBOX,
+              gitEnabled: COWORK_ENABLE_GIT,
+              browserEnabled: COWORK_ENABLE_BROWSER,
             })
     };
     const thinkingConfig = buildThinkingConfig(modelId, {

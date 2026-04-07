@@ -1,5 +1,82 @@
 # SESSION STATE
 
+## 2026-04-07 - Cowork v2 Phase 0: worker Cloud Run minimal + helper backend + meta V2
+
+### Ce qui a ete accompli
+- Nouveau client worker `server/lib/cowork-workers.ts`:
+  - URL et bearer token lus depuis `server/lib/config.ts`
+  - retries via `retryWithBackoff()`
+  - support JSON + SSE pour la suite
+- `server/lib/config.ts` etend maintenant la config avec:
+  - `COWORK_ENABLE_RAG`
+  - `COWORK_ENABLE_SANDBOX`
+  - `COWORK_ENABLE_GIT`
+  - `COWORK_ENABLE_BROWSER`
+  - `COWORK_WORKERS_URL`
+  - `COWORK_WORKERS_TOKEN`
+  - `QDRANT_URL`
+- `api/index.ts`:
+  - `CoworkRunMeta` etendu avec les compteurs v2
+  - `createEmptyCoworkRunMeta()` alimente deja ces champs a zero
+  - `callCoworkWorker` exporte dans `__coworkLoopInternals` et `__coworkWorkerInternals`
+  - flags v2 passes a `buildCoworkSystemInstruction()` pour preparer le gating futur sans exposer de faux outils
+- Frontend/meta:
+  - `src/types.ts`, `src/utils/cowork.ts` et `src/components/MessageItem.tsx` acceptent et affichent deja les nouveaux compteurs si non nuls
+- Nouveau sous-projet `cloud-run/cowork-workers/`:
+  - `package.json`
+  - `src/auth.js`
+  - `src/index.js`
+  - `Dockerfile`
+  - `cloudbuild.yaml`
+  - `README.md`
+  - service minimal Node 22 avec `GET /health`
+  - routes futures reservees en `501` honnete
+- Nouveau smoke `test-cowork-workers.ts`:
+  - demarre le worker localement
+  - pointe `COWORK_WORKERS_URL` vers ce serveur
+  - appelle `callCoworkWorker('/health')` via `api/index.ts`
+
+### Validation locale
+- `npm run lint` : OK
+- `npm run build` : OK
+- `npx tsx test-cowork-workers.ts` : OK
+- `npx tsx test-cowork-loop.ts` : OK
+- `npx tsx test-generated-app-stream.ts` : OK
+- `npx tsx test-generated-app-manifest.ts` : OK
+
+### Ce qui reste a faire
+- deployer `cloud-run/cowork-workers/` sur un vrai service Cloud Run
+- renseigner `COWORK_WORKERS_URL` + `COWORK_WORKERS_TOKEN`
+- verifier `/health` en condition reelle
+- attaquer Phase 1A:
+  - `server/lib/embeddings.ts`
+  - `server/lib/qdrant.ts`
+  - hook d'ingestion/retrieval text-first
+
+### Decisions prises et pourquoi
+- service Cloud Run unique plutot que plusieurs services:
+  - moins de friction infra
+  - un seul bearer token
+  - warm pool partage
+- Phase 0 sans dependance root supplementaire:
+  - le worker tourne en Node natif pour poser le socle sans debat npm premature
+  - les dependances lourdes (Playwright, Octokit ou autres) seront ajoutees plus tard avec verification officielle et comparaison documentee
+
+### Pieges / points d'attention
+- `cloudbuild.yaml` deploie le service, mais ne fournit pas encore `COWORK_WORKERS_TOKEN`; cela reste une action d'env infra a faire hors repo
+- la doc officielle Gemini Embedding 2 verifiee le 2026-04-07 confirme:
+  - PDF natif limite a 6 pages
+  - video avec audio limitee a 80s
+  - video sans audio limitee a 120s
+- consequence pour la suite:
+  - les PDFs longs devront passer par extraction texte + chunking
+  - les medias longs auront besoin de fallback transcript / keyframes
+
+### Intention exacte
+- debloquer toutes les futures phases Cowork v2 sans casser l'app actuelle
+- garder une fondation honnete: aucun faux endpoint, aucun faux outil, aucun faux succes
+- faire en sorte que la prochaine session puisse commencer directement par le deploy Cloud Run reel puis l'embarquement du RAG
+
 ## 2026-04-07 - Galerie d instructions: edit fiable, icones IA retablies, sauvegarde directe
 
 ### Ce qui a ete accompli

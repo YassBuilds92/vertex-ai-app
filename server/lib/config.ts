@@ -1,5 +1,6 @@
 export const PORT = parseInt(process.env.PORT || '3000', 10);
 export const MAX_PAYLOAD = '50mb';
+export const COWORK_WORKERS_DEFAULT_TIMEOUT_MS = 30_000;
 
 export function envFlagEnabled(value?: string): boolean {
   return /^(1|true|yes|on)$/i.test(String(value || '').trim());
@@ -8,6 +9,39 @@ export function envFlagEnabled(value?: string): boolean {
 export function allowPublicSearchFallbacks(): boolean {
   return envFlagEnabled(process.env.ALLOW_PUBLIC_SEARCH_FALLBACKS);
 }
+
+function trimTrailingSlash(value?: string | null): string {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
+export function getCoworkFeatureFlags() {
+  return {
+    rag: envFlagEnabled(process.env.COWORK_ENABLE_RAG),
+    sandbox: envFlagEnabled(process.env.COWORK_ENABLE_SANDBOX),
+    git: envFlagEnabled(process.env.COWORK_ENABLE_GIT),
+    browser: envFlagEnabled(process.env.COWORK_ENABLE_BROWSER),
+  };
+}
+
+export function getCoworkWorkersConfig() {
+  return {
+    url: trimTrailingSlash(process.env.COWORK_WORKERS_URL),
+    token: String(process.env.COWORK_WORKERS_TOKEN || '').trim(),
+    timeoutMs: Number.parseInt(process.env.COWORK_WORKERS_TIMEOUT_MS || '', 10) || COWORK_WORKERS_DEFAULT_TIMEOUT_MS,
+  };
+}
+
+export function getQdrantConfig() {
+  return {
+    url: trimTrailingSlash(process.env.QDRANT_URL),
+    apiKey: String(process.env.QDRANT_API_KEY || '').trim(),
+  };
+}
+
+export const COWORK_ENABLE_RAG = getCoworkFeatureFlags().rag;
+export const COWORK_ENABLE_SANDBOX = getCoworkFeatureFlags().sandbox;
+export const COWORK_ENABLE_GIT = getCoworkFeatureFlags().git;
+export const COWORK_ENABLE_BROWSER = getCoworkFeatureFlags().browser;
 
 export const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as acces a des outils pour accomplir des taches complexes. Analyse, propose et execute.";
 export const MAX_PREVIEW_CHARS = 420;

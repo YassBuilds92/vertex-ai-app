@@ -1,5 +1,27 @@
 # QA RECIPES
 
+## Cowork v2 - Phase 0 worker Cloud Run
+- Objectif:
+  - verifier que le worker externe minimal repond bien
+  - verifier que le helper backend sait l'appeler avec le contrat futur
+  - verifier que la fondation n'introduit aucune regression frontend/backend
+- Validation locale:
+  - `npm run lint`
+  - `npm run build`
+  - `npx tsx test-cowork-workers.ts`
+  - `npx tsx test-cowork-loop.ts`
+  - `npx tsx test-generated-app-stream.ts`
+  - `npx tsx test-generated-app-manifest.ts`
+- Validation Cloud Run reelle:
+  - deployer `cloud-run/cowork-workers/`
+  - verifier `curl https://<service>.run.app/health`
+  - configurer `COWORK_WORKERS_URL` et `COWORK_WORKERS_TOKEN`
+  - rejouer `npx tsx test-cowork-workers.ts` contre l'URL reelle si besoin
+- Attendus:
+  - `/health` retourne `ok: true`
+  - les routes futures reservees retournent `501` honnete, pas un faux succes
+  - `RunMeta` accepte deja les compteurs v2 sans casser les surfaces existantes
+
 ## Shell principal - refonte hero `three.js`
 - Objectif:
   - verifier que l'accueil vide est beaucoup plus epure et moins serre

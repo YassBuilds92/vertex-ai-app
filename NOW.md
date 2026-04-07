@@ -1,29 +1,30 @@
 # NOW
 
 ## Objectif actuel
-- Fix UX des instructions personnalisees: edition fiable, generation d'icone IA compatible avec l'API actuelle, et mise a jour directe d'une instruction selectionnee depuis le panneau droit.
+- Terminer la vraie Phase 0 de Cowork v2: deployer `cowork-workers` sur Cloud Run, brancher `COWORK_WORKERS_URL` / `COWORK_WORKERS_TOKEN`, puis lancer la Phase 1A RAG text-first.
 
 ## Blocage actuel
-- Le flux complet authentifie sur de vraies `custom_prompts` Firestore n'a pas encore ete rejoue localement avec le compte utilisateur reel.
+- La fondation est verte localement, mais aucun service Cloud Run reel n'est encore deploye ni pointe par les env vars de l'app.
 
 ## Prochaine action exacte
-- Ouvrir une session connectee et verifier en conditions reelles:
-  1. `Mes Instructions` -> `Modifier` ouvre bien l'editeur
-  2. selection d'une instruction -> modification dans `Instructions systeme` -> `Mettre a jour`
-  3. creation d'une instruction sans icone -> `iconUrl` apparait apres generation IA/background
+- Depuis `cloud-run/cowork-workers/`, faire un premier deploy Cloud Run reel (`gcloud builds submit --config cloudbuild.yaml .` ou `gcloud run deploy --source .`), configurer `COWORK_WORKERS_TOKEN`, puis verifier:
+  1. `curl https://<service>.run.app/health`
+  2. `npx tsx test-cowork-workers.ts` avec `COWORK_WORKERS_URL` sur l'URL reelle
+  3. debut de `server/lib/embeddings.ts` + `server/lib/qdrant.ts` pour Phase 1A
 
 ## Fichiers chauds
-- `src/components/SystemInstructionGallery.tsx`
-- `src/components/SidebarRight.tsx`
-- `src/App.tsx`
-- `src/utils/sessionShells.ts`
-- `src/types.ts`
-- `src/utils/cowork.ts`
+- `server/lib/cowork-workers.ts`
+- `server/lib/config.ts`
+- `api/index.ts`
+- `cloud-run/cowork-workers/src/index.js`
+- `cloud-run/cowork-workers/cloudbuild.yaml`
+- `test-cowork-workers.ts`
 
 ## Validations restantes
-- QA authentifiee sur vraies donnees Firestore pour `custom_prompts`
-- verification que la mise a jour directe reste correcte apres reouverture de session
+- smoke Cloud Run reel sur `/health`
+- wiring env vars cote app/Vercel
+- Phase 1A RAG text-only avec un premier vrai index/retrieval
 
 ## Risques immediats
-- Le lien `selectedCustomPrompt` est persiste par session; si le prompt est modifie ailleurs sans etre re-selectionne, le snapshot de session ne se resynchronise qu'au prochain select/update.
-- La validation visuelle locale couvre le panneau droit via harness (`tmp/media-modes-preview.tsx`), pas la galerie authentifiee complete.
+- `cloudbuild.yaml` deploie bien le service, mais la vraie auth bearer et les env vars Cloud Run restent a poser hors repo.
+- `gemini-embedding-2-preview` n'accepte pas les PDFs longs en direct comme un flux illimite: pour les docs > 6 pages, il faudra extraire/chunker le texte au lieu de compter sur l'embed PDF natif.

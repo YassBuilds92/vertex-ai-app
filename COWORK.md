@@ -1,5 +1,41 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-07 - Cowork v2 Phase 0: socle Cloud Run, helper worker unique et meta V2
+- Retour produit:
+  - le brief Studio Pro demande un Cowork v2 avec RAG, sandbox Python, browser automation et healing long-running
+  - tout depend d'un runtime externe stable et d'un contrat unique entre `api/index.ts` et ce runtime
+- Changement applique:
+  - nouveau client `server/lib/cowork-workers.ts`
+    - URL + bearer token centralises
+    - retries partages avec `retryWithBackoff()`
+    - support JSON + SSE passthrough pour la suite
+  - `api/index.ts`
+    - `RunMeta` etendu avec les compteurs V2 (`workerCallsCount`, `workerMsTotal`, `embeddingCount`, `vectorSearches`, `pythonExecutions`, `gitOps`, `browserOps`)
+    - export de `callCoworkWorker` dans les internals de test
+    - flags v2 passes au runtime Cowork pour preparer le gating sans fausse exposition d'outils
+  - nouveau sous-projet `cloud-run/cowork-workers/`
+    - service Node 22 minimal sans dependance externe additionnelle
+    - `GET /health`
+    - routes futures reservees en `501` honnete
+    - `Dockerfile`, `cloudbuild.yaml`, `README.md`
+  - frontend
+    - `src/types.ts`, `src/utils/cowork.ts`, `src/components/MessageItem.tsx` acceptent deja les metas v2
+  - tests
+    - `test-cowork-workers.ts` demarre le worker localement puis appelle `callCoworkWorker('/health')` via `api/index.ts`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx tsx test-cowork-workers.ts` : OK
+  - `npx tsx test-cowork-loop.ts` : OK
+  - `npx tsx test-generated-app-stream.ts` : OK
+  - `npx tsx test-generated-app-manifest.ts` : OK
+- Etat produit:
+  - le socle Phase 0 est pret localement
+  - la prochaine preuve critique est le deploy Cloud Run reel + wiring des env vars
+- Point de vigilance pour Phase 1:
+  - la doc officielle Gemini Embedding 2 verifiee le 2026-04-07 confirme que l'entree PDF native est limitee a 6 pages
+  - conclusion: pour les PDFs longs, il faudra extraire/chunker le texte au lieu de compter sur un embed PDF direct
+
 ## Mise a jour 2026-04-02 - Cowork redevient non delegue par defaut, et les surfaces media gagnent enfin leur propre identite
 - Retour produit:
   - l'utilisateur veut des modes propres pour `image`, `video`, `text-to-speech` et `Lyria`

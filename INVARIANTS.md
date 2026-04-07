@@ -16,3 +16,4 @@
 - Pas de nouvelle dependance frontend si la stack existante suffit.
 - Les workspaces/apps doivent rester compatibles avec la persistance locale-first et la synchro Firestore best-effort deja en place.
 - Les `generated apps` restent Google-only cote modeles et ne peuvent appeler que les outils explicitement allowlistes par leur manifest.
+- Toute capacite Cowork v2 doit etre gated par env var et rester OFF par defaut tant qu'elle n'a pas passe ses smokes reels.

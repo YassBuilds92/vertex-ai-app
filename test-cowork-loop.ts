@@ -207,10 +207,18 @@ const baseResearch = {
       iterations: 3,
       modelCalls: 3,
       toolCalls: 2,
+      workerCallsCount: 0,
+      workerMsTotal: 0,
       searchCount: 1,
       fetchCount: 1,
       sourcesOpened: 1,
       domainsOpened: 1,
+      embeddingCount: 0,
+      embeddingTokens: 0,
+      vectorSearches: 0,
+      pythonExecutions: 0,
+      gitOps: 0,
+      browserOps: 0,
       artifactState: 'released',
       stalledTurns: 0,
       retryCount: 0,
@@ -251,7 +259,8 @@ const baseResearch = {
   const defaultHistory = buildApiHistoryFromMessages([publishedMessage]);
   assert.equal(defaultHistory[0]?.parts.length, 2);
   assert.equal(defaultHistory[0]?.parts[0]?.text, publishedMessage.content);
-  assert.equal(defaultHistory[0]?.parts[1]?.attachment?.url, publishedMessage.attachments?.[0]?.url);
+  assert.ok(defaultHistory[0]?.parts[1]?.text?.includes('opening.mp3'));
+  assert.ok(defaultHistory[0]?.parts[1]?.text?.includes('audio/mpeg'));
 
   const coworkHistory = buildApiHistoryFromMessages([publishedMessage], { includeCoworkMemory: true });
   const memoryPart = coworkHistory[0]?.parts.find((part: any) => typeof part.text === 'string' && part.text.includes('[Memoire Cowork persistante]'));

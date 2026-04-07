@@ -65,10 +65,18 @@ export interface RunMeta {
   iterations: number;
   modelCalls: number;
   toolCalls: number;
+  workerCallsCount: number;
+  workerMsTotal: number;
   searchCount: number;
   fetchCount: number;
   sourcesOpened: number;
   domainsOpened: number;
+  embeddingCount: number;
+  embeddingTokens: number;
+  vectorSearches: number;
+  pythonExecutions: number;
+  gitOps: number;
+  browserOps: number;
   artifactState: 'none' | 'drafting' | 'created' | 'released';
   stalledTurns: number;
   retryCount: number;

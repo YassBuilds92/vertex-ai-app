@@ -129,10 +129,18 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
     iterations: 0,
     modelCalls: 0,
     toolCalls: 0,
+    workerCallsCount: 0,
+    workerMsTotal: 0,
     searchCount: 0,
     fetchCount: 0,
     sourcesOpened: 0,
     domainsOpened: 0,
+    embeddingCount: 0,
+    embeddingTokens: 0,
+    vectorSearches: 0,
+    pythonExecutions: 0,
+    gitOps: 0,
+    browserOps: 0,
     artifactState: 'none' as const,
     stalledTurns: 0,
     retryCount: 0,
@@ -231,16 +239,42 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
               {costLabel ? ` | ${costLabel}` : ''}
             </div>
           )}
+          {(runMeta.workerCallsCount > 0 || runMeta.workerMsTotal > 0) && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+              <Wrench size={12} />
+              {runMeta.workerCallsCount > 0 ? `${runMeta.workerCallsCount} worker${runMeta.workerCallsCount > 1 ? 's' : ''}` : 'worker'}
+              {runMeta.workerMsTotal > 0 ? ` | ${formatDurationMs(runMeta.workerMsTotal)}` : ''}
+            </div>
+          )}
+          {(runMeta.embeddingCount > 0 || runMeta.vectorSearches > 0) && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+              <BrainCircuit size={12} />
+              {runMeta.embeddingCount > 0 ? `${runMeta.embeddingCount} embed${runMeta.embeddingCount > 1 ? 's' : ''}` : 'memoire'}
+              {runMeta.vectorSearches > 0 ? ` | ${runMeta.vectorSearches} recherche${runMeta.vectorSearches > 1 ? 's' : ''}` : ''}
+            </div>
+          )}
+          {(runMeta.pythonExecutions > 0 || runMeta.gitOps > 0 || runMeta.browserOps > 0) && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.03] text-[11px] text-[var(--app-text-muted)]">
+              <Sparkles size={12} />
+              {[
+                runMeta.pythonExecutions > 0 ? `python ${runMeta.pythonExecutions}` : null,
+                runMeta.gitOps > 0 ? `git ${runMeta.gitOps}` : null,
+                runMeta.browserOps > 0 ? `browser ${runMeta.browserOps}` : null,
+              ].filter(Boolean).join(' | ')}
+            </div>
+          )}
         </div>
 
         <div className="p-4 md:p-5 flex flex-col gap-3">
-          {!isCompactCowork && (runMeta.totalTokens > 0 || runMeta.queueWaitMs > 0 || runMeta.toolCalls > 0) && (
+          {!isCompactCowork && (runMeta.totalTokens > 0 || runMeta.queueWaitMs > 0 || runMeta.toolCalls > 0 || runMeta.workerMsTotal > 0 || runMeta.embeddingTokens > 0) && (
             <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-3 text-[12px] text-[var(--app-text-muted)]">
               <span className="text-[var(--app-text)]/88">
                 Input {formatCompactNumber(runMeta.inputTokens)} • Output {formatCompactNumber(runMeta.outputTokens)}
                 {runMeta.thoughtTokens > 0 ? ` • Reasoning ${formatCompactNumber(runMeta.thoughtTokens)}` : ''}
                 {runMeta.toolUseTokens > 0 ? ` • Outils->modele ${formatCompactNumber(runMeta.toolUseTokens)}` : ''}
                 {runMeta.modelCalls > 0 ? ` • ${runMeta.modelCalls} appel${runMeta.modelCalls > 1 ? 's' : ''} modele` : ''}
+                {runMeta.embeddingTokens > 0 ? ` • Embeddings ${formatCompactNumber(runMeta.embeddingTokens)}` : ''}
+                {runMeta.workerMsTotal > 0 ? ` • Worker ${formatDurationMs(runMeta.workerMsTotal)}` : ''}
               </span>
               {runMeta.queueWaitMs > 0 && (
                 <span className="block mt-1">

@@ -9,8 +9,34 @@
 - Cout
 - Sources officielles
 
+## 2026-04-07 - Phase 1B RAG multimodal: `gemini-embedding-2-preview`
+- Statut: retenu et valide reellement
+- Date de verification: 2026-04-07
+- Technologie: Vertex AI multimodal embeddings (`gemini-embedding-2-preview`) + resume media `gemini-3.1-flash-lite-preview`
+- Choix:
+  - utiliser `gemini-embedding-2-preview` comme modele d'embeddings par defaut de Cowork RAG
+  - garder `outputDimensionality=1536`
+  - produire un resume/transcript lisible via `gemini-3.1-flash-lite-preview` avant indexation image/audio/video
+  - fallback sur un embedding texte du resume/transcript si l'embed media direct echoue
+- Pourquoi:
+  - la doc Vertex AI officielle couvre le texte, l'image, l'audio, la video et le PDF
+  - les validations reelles de cette session ont reussi sur texte, image, audio, PDF et video
+  - le resume media rend la memoire plus explicable et plus robuste cote retrieval
+  - point de vigilance confirme par validation reelle: `gemini-embedding-2-preview` doit utiliser une region Vertex (`us-central1` ici), pas le endpoint `global`
+- Alternatives evaluees:
+  - `gemini-embedding-001`
+    - conserve comme fallback text-only / heritage de la Phase 1A, mais insuffisant pour la promesse multimodale
+  - OCR/transcription/tooling separe par modalite
+    - ecarte pour cette phase: trop de complexite alors que Gemini Embedding 2 couvre deja le besoin principal
+- Cout:
+  - payant a l'usage via Vertex AI
+  - aucune dependance npm supplementaire pour le modele lui-meme
+- Sources officielles:
+  - [Gemini Embedding 2 model page](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/embedding-2)
+  - [Get multimodal embeddings](https://cloud.google.com/vertex-ai/generative-ai/docs/embeddings/get-multimodal-embeddings)
+
 ## 2026-04-07 - Phase 1A RAG text-first: `gemini-embedding-001`
-- Statut: retenu pour l'implementation locale
+- Statut: supersede comme defaut par la Phase 1B, conserve comme fallback text-only
 - Date de verification: 2026-04-07
 - Technologie: Vertex AI text embeddings (`gemini-embedding-001`)
 - Choix:
@@ -60,15 +86,17 @@
   - [Create payload index](https://api.qdrant.tech/api-reference/indexes/create-field-index)
   - [Query points](https://api.qdrant.tech/api-reference/search/query-points)
 
-## 2026-04-07 - Extraction PDF Node: `pdf-parse`
-- Statut: retenu pour la Phase 1A
+## 2026-04-07 - Extraction PDF Node/serverless: `pdf-parse`
+- Statut: retenu pour la Phase 1A/1B, avec configuration serverless obligatoire
 - Date de verification: 2026-04-07
 - Technologie: `pdf-parse`
 - Choix:
   - utiliser `pdf-parse@2.4.5` pour extraire le texte PDF cote Node avant chunking
+  - en environnement Vercel/serverless, charger `pdf-parse/worker` avant `pdf-parse` et passer `CanvasFactory`
 - Pourquoi:
   - API plus simple et plus courte a integrer ici que `pdfjs-dist`
   - suffit au besoin Phase 1A: extraire du texte, pas rendre un canvas PDF
+  - la doc officielle `pdf-parse` couvre explicitement le cas `DOMMatrix is not defined` en serverless
 - Alternatives evaluees:
   - `pdfjs-dist`
     - Ecartee pour cette passe: plus generaliste et plus lourde alors que le besoin est seulement l'extraction texte serveur
@@ -80,6 +108,7 @@
 - Sources officielles:
   - [pdf-parse package](https://www.npmjs.com/package/pdf-parse)
   - [pdf-parse repository](https://github.com/mehmet-kozan/pdf-parse)
+  - [pdf-parse troubleshooting for DOMMatrix / serverless](https://github.com/mehmet-kozan/pdf-parse/blob/main/docs/troubleshooting.md)
 
 ## 2026-04-07 - Cloud Run unique pour `cowork-workers`
 - Statut: retenu et scaffold localement

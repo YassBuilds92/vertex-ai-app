@@ -1,5 +1,73 @@
 # QA RECIPES
 
+## Vercel prod - smoke de boot backend
+- Objectif:
+  - verifier qu'aucun import serveur ne casse toute la function Vercel au demarrage
+  - confirmer que `chat` et `cowork` repondent encore apres une modif backend profonde
+- Validation reelle:
+  - deployer:
+    - `npx vercel deploy --prod --yes`
+  - verifier:
+    - `GET https://vertex-ai-app-pearl.vercel.app/api/status`
+    - `POST /api/chat` minimal
+    - `POST /api/cowork` minimal
+  - si ca casse:
+    - `npx vercel logs vertex-ai-app-pearl.vercel.app --no-follow --limit 20 --status-code 500 --expand`
+- Attendus:
+  - `/api/status` retourne un JSON sain, pas `FUNCTION_INVOCATION_FAILED`
+  - `/api/chat` retourne `200`
+  - `/api/cowork` retourne `200` et commence un flux SSE
+  - aucun log `DOMMatrix is not defined` ou crash de boot comparable
+
+## Cowork v2 - Phase 1B RAG multimodal
+- Objectif:
+  - verifier que Cowork indexe image, audio et video dans la memoire vectorielle
+  - verifier qu'un transcript/summary lisible reste disponible pour le rappel et le debug
+  - verifier le fallback honnete si Vertex retourne un quota `429`
+- Validation reelle:
+  - configurer:
+    - `COWORK_ENABLE_RAG=1`
+    - `COWORK_RAG_AUTOINJECT=1`
+    - `QDRANT_URL`
+    - `VERTEX_PROJECT_ID`
+    - `VERTEX_LOCATION`
+    - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+    - `COWORK_TEST_RAG=1`
+  - lancer:
+    - `node node_modules/tsx/dist/cli.mjs test-cowork-rag-multimodal.ts`
+- Attendus:
+  - image: un chunk `modality=image` est retrouve
+  - audio: la recherche retrouve le transcript/signal attendu
+  - video: la recherche retrouve le fichier indexe
+  - si Vertex bloque par quota:
+    - le smoke doit `skip` honnetement
+    - il ne doit jamais mentir avec un faux vert
+
+## Cowork v2 - Phase 1A e2e `/api/cowork`
+- Objectif:
+  - verifier la vraie chaine `create/release_file -> memory_indexed -> memory_recalled` via l'API Cowork elle-meme
+- Validation reelle:
+  - configurer:
+    - `COWORK_ENABLE_RAG=1`
+    - `COWORK_RAG_AUTOINJECT=1`
+    - `QDRANT_URL`
+    - `VERTEX_PROJECT_ID`
+    - `VERTEX_LOCATION`
+    - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+    - `COWORK_TEST_RAG=1`
+  - lancer:
+    - `node node_modules/tsx/dist/cli.mjs verify-cowork-rag-e2e.ts`
+- Attendus:
+  - premier run:
+    - creation d'un PDF
+    - `release_file`
+    - `memory_indexed`
+  - second run:
+    - `memory_recalled`
+    - texte final contenant `8472`
+  - si Vertex bloque uniquement par quota:
+    - le script `skip` honnetement
+
 ## Cowork v2 - Phase 1A RAG text-first
 - Objectif:
   - verifier que Cowork indexe bien les fichiers texte/PDF dans une memoire vectorielle
@@ -22,7 +90,7 @@
     - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
     - `COWORK_TEST_RAG=1`
   - lancer:
-    - `npx tsx test-cowork-rag.ts`
+    - `node node_modules/tsx/dist/cli.mjs test-cowork-rag.ts`
   - puis run manuel:
     - ouvrir Cowork authentifie
     - uploader un PDF texte via un flux qui finit par `release_file`
@@ -54,7 +122,7 @@
   - deployer `cloud-run/cowork-workers/`
   - verifier `curl https://<service>.run.app/health`
   - configurer `COWORK_WORKERS_URL` et `COWORK_WORKERS_TOKEN`
-  - rejouer `npx tsx test-cowork-workers.ts` contre l'URL reelle si besoin
+  - rejouer `node node_modules/tsx/dist/cli.mjs test-cowork-workers.ts` si besoin
 - Attendus:
   - `/health` retourne `ok: true`
   - les routes futures reservees retournent `501` honnete, pas un faux succes

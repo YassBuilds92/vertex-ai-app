@@ -1,4 +1,7 @@
-import { PDFParse } from 'pdf-parse';
+type PdfParseRuntime = {
+  PDFParse: typeof import('pdf-parse').PDFParse;
+  CanvasFactory?: typeof import('pdf-parse/worker').CanvasFactory;
+};
 
 export type TextChunk = {
   text: string;
@@ -21,6 +24,24 @@ export type ExtractedPdfText = {
 const DEFAULT_MAX_TOKENS = 800;
 const DEFAULT_OVERLAP_TOKENS = 80;
 const DEFAULT_MIN_CHUNK_TOKENS = 120;
+
+let pdfParseRuntimePromise: Promise<PdfParseRuntime> | null = null;
+
+async function getPdfParseRuntime(): Promise<PdfParseRuntime> {
+  if (!pdfParseRuntimePromise) {
+    pdfParseRuntimePromise = (async () => {
+      const workerModule = await import('pdf-parse/worker');
+      const pdfParseModule = await import('pdf-parse');
+
+      return {
+        PDFParse: pdfParseModule.PDFParse,
+        CanvasFactory: workerModule.CanvasFactory,
+      };
+    })();
+  }
+
+  return pdfParseRuntimePromise;
+}
 
 export function normalizeTextContent(text: string): string {
   return String(text || '')
@@ -179,7 +200,11 @@ export function chunkText(text: string, options: ChunkTextOptions = {}): TextChu
 }
 
 export async function extractTextFromPdfBuffer(buffer: Buffer): Promise<ExtractedPdfText> {
-  const parser = new PDFParse({ data: buffer });
+  const { PDFParse, CanvasFactory } = await getPdfParseRuntime();
+  const parser = new PDFParse({
+    data: buffer,
+    ...(CanvasFactory ? { CanvasFactory } : {}),
+  });
 
   try {
     const result = await parser.getText();

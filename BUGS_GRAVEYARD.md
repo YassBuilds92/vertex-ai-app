@@ -1,5 +1,71 @@
 # BUGS GRAVEYARD
 
+## 2026-04-07 - Toute la prod Vercel cassait a cause de `pdf-parse` au boot
+- Statut: corrige localement, redeploye et valide en production
+- Symptome:
+  - aucun mode ne marchait cote utilisateur
+  - `GET /api/status` repondait `FUNCTION_INVOCATION_FAILED`
+  - `POST /api/chat` et `POST /api/cowork` etaient indisponibles aussi
+- Tentatives:
+  - verification du statut public via `Invoke-WebRequest https://vertex-ai-app-pearl.vercel.app/api/status`
+  - inspection des deploiements `vercel inspect`
+  - lecture des logs runtime `vercel logs ... --status-code 500 --expand`
+- Cause racine:
+  - `server/lib/chunking.ts` importait `PDFParse` de `pdf-parse` au chargement du module
+  - sur Vercel, cela declenchait `pdfjs-dist/legacy/build/pdf.mjs`
+  - sans `DOMMatrix` disponible, la function tombait avant meme d'entrer dans une route, avec `ReferenceError: DOMMatrix is not defined`
+- Resolution:
+  - remplacer l'import top-level par un chargement lazy memoise
+  - charger d'abord `pdf-parse/worker`, puis `pdf-parse`
+  - passer `CanvasFactory` au constructeur `PDFParse`
+  - redeployer ensuite en production via `vercel deploy --prod --yes`
+  - revalider:
+    - `GET /api/status` : 200
+    - `POST /api/chat` : 200
+    - `POST /api/cowork` : 200
+- Prevention:
+  - tout parser PDF ou module natif sensible doit etre verifie en runtime serverless reel, pas seulement via `npm run build`
+  - quand une function Vercel casse "avant tout", regarder d'abord les imports top-level et `vercel logs`
+
+## 2026-04-07 - `gemini-embedding-2-preview` cassait en `404` a cause d'un endpoint `global` impose
+- Statut: corrige localement, prevention documentee
+- Symptome:
+  - les embeddings texte Phase 1B renvoyaient `404 Publisher Model not found`
+  - pourtant les credentials Vertex etaient bons et d'autres modeles `preview` repondaient
+- Tentatives:
+  - reverification du projet, de la region et des credentials GCP
+  - essais directs texte/image/audio/video contre Vertex
+  - comparaison entre endpoint `global` et `us-central1`
+- Cause racine:
+  - `server/lib/google-genai.ts` forcait `global` pour tous les modeles `preview`
+  - `gemini-embedding-2-preview` ne suit pas cette regle et doit rester sur une region Vertex compatible
+- Resolution:
+  - exclure les modeles d'embedding du switch automatique vers `global`
+  - garder `VERTEX_LOCATION=us-central1` pour `gemini-embedding-2-preview`
+  - revalider ensuite texte/image/audio/PDF/video en reel
+- Prevention:
+  - ne jamais supposer que tous les modeles `preview` partagent la meme topologie reseau Vertex
+  - verifier le nom exact du modele et le endpoint requis avant de figer un helper global
+
+## 2026-04-07 - Qdrant rejetait les points memoire a cause d'un faux identifiant "stable"
+- Statut: corrige localement, prevention documentee
+- Symptome:
+  - l'upsert vers Qdrant renvoyait `value ... is not a valid point ID`
+  - la charge utile et les vecteurs semblaient pourtant corrects
+- Tentatives:
+  - verification du schema de collection et des dimensions
+  - audit du payload JSON envoye a Qdrant
+  - test de points minimaux hors pipeline Cowork
+- Cause racine:
+  - le backend generait un id hex de type SHA1
+  - Qdrant attend un UUID string ou un entier non signe, pas un hash arbitraire
+- Resolution:
+  - remplacer ce hash par `randomUUID()` dans `server/lib/cowork-memory.ts`
+  - garder les vraies cles de recall (`fileId`, `chunkIndex`, `userId`) dans le payload filtre
+- Prevention:
+  - pour Qdrant, considerer l'id de point comme une cle technique opaque
+  - ne pas chercher a encoder la logique metier dans le point id si le payload suffit
+
 ## 2026-04-02 - Le hero `three.js` mobile perdait completement sa copy en validation headless
 - Statut: corrige localement, prevention documentee
 - Symptome:

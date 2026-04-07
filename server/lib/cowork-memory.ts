@@ -1,9 +1,24 @@
-import { createHash } from 'crypto';
+import { randomUUID } from 'crypto';
 
-import { chunkPdfBuffer, chunkText, estimateTokenCount, normalizeTextContent, type TextChunk } from './chunking.js';
-import { embedText, type EmbeddingUsage } from './embeddings.js';
+import {
+  chunkPdfBuffer,
+  chunkText,
+  estimateTokenCount,
+  normalizeTextContent,
+  type TextChunk,
+} from './chunking.js';
+import {
+  embedMediaWithContext,
+  embedText,
+  type EmbeddingUsage,
+} from './embeddings.js';
 import { getCoworkRagConfig } from './config.js';
 import { log } from './logger.js';
+import {
+  detectMemoryMediaModality,
+  summarizeMediaForMemory,
+  type MemoryMediaModality,
+} from './media-understanding.js';
 import {
   deleteCoworkMemoryByFile,
   queryCoworkMemoryByVector,
@@ -29,6 +44,24 @@ export type IndexTextLikeFileInput = {
   userId: string;
   sessionId?: string;
   createdAt?: number;
+};
+
+export type IndexMultimodalFileInput = {
+  buffer?: Buffer;
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  attachmentType: string;
+  storageUri: string;
+  label: string;
+  userId: string;
+  sessionId?: string;
+  createdAt?: number;
+  videoMetadata?: {
+    fps?: number;
+    startOffset?: string;
+    endOffset?: string;
+  };
 };
 
 export type RelevantMemoryChunk = CoworkMemoryPayload & {
@@ -60,6 +93,15 @@ export function supportsTextMemoryIndexing(mimeType?: string, fileName?: string)
   return TEXT_MEMORY_MIME_TYPES.has(normalizedMimeType)
     || normalizedMimeType.startsWith('text/')
     || hasAllowedTextExtension(fileName);
+}
+
+export function supportsMultimodalMemoryIndexing(mimeType?: string, fileName?: string) {
+  return Boolean(detectMemoryMediaModality(mimeType, fileName));
+}
+
+export function supportsMemoryIndexing(mimeType?: string, fileName?: string) {
+  return supportsTextMemoryIndexing(mimeType, fileName)
+    || supportsMultimodalMemoryIndexing(mimeType, fileName);
 }
 
 function decodeTextBuffer(buffer: Buffer) {
@@ -99,9 +141,10 @@ async function extractTextChunks(
 }
 
 function buildPointId(fileId: string, chunkIndex: number, storageUri: string) {
-  return createHash('sha1')
-    .update(`${fileId}:${chunkIndex}:${storageUri}`)
-    .digest('hex');
+  void fileId;
+  void chunkIndex;
+  void storageUri;
+  return randomUUID();
 }
 
 function mapPointToRelevantChunk(point: CoworkMemoryPoint): RelevantMemoryChunk | null {
@@ -122,6 +165,8 @@ export async function indexTextLikeFileToMemory(
   chunkCount: number;
   totalPages?: number;
   extractedCharacters: number;
+  modality: 'text';
+  embeddingStrategy: 'text_chunks';
 }> {
   if (!supportsTextMemoryIndexing(input.mimeType, input.fileName)) {
     throw new Error(`Type de fichier non pris en charge pour l'indexation texte: ${input.mimeType || input.fileName}`);
@@ -162,7 +207,8 @@ export async function indexTextLikeFileToMemory(
         chunkIndex: chunk.chunkIndex,
         chunkCount: chunk.chunkCount,
         estimatedTokens: chunk.estimatedTokens,
-        modality: 'text' as const,
+        modality: 'text',
+        embeddingStrategy: 'text_chunks',
       } satisfies CoworkMemoryPayload,
     });
   }
@@ -173,7 +219,125 @@ export async function indexTextLikeFileToMemory(
     chunkCount: extracted.chunks.length,
     totalPages: extracted.totalPages,
     extractedCharacters: extracted.extractedText.length,
+    modality: 'text',
+    embeddingStrategy: 'text_chunks',
   };
+}
+
+function buildMultimodalContextText(label: string, summaryText: string) {
+  return normalizeTextContent([label, summaryText].filter(Boolean).join('\n\n'));
+}
+
+export async function indexMultimodalFileToMemory(
+  input: IndexMultimodalFileInput,
+  recorder: CoworkMemoryUsageRecorder = {},
+): Promise<{
+  chunkCount: number;
+  extractedCharacters: number;
+  modality: MemoryMediaModality;
+  summaryKind: CoworkMemoryPayload['summaryKind'];
+  embeddingStrategy: CoworkMemoryPayload['embeddingStrategy'];
+}> {
+  const modality = detectMemoryMediaModality(input.mimeType, input.fileName);
+  if (!modality) {
+    throw new Error(`Type de fichier non pris en charge pour l'indexation multimodale: ${input.mimeType || input.fileName}`);
+  }
+
+  await deleteCoworkMemoryByFile({ userId: input.userId, fileId: input.fileId }).catch((error) => {
+    log.warn(`Unable to clear prior multimodal memory points for ${input.fileId}`, error);
+  });
+
+  const mediaInputForModel = modality === 'video' && input.storageUri
+    ? { ...input, buffer: undefined }
+    : input;
+
+  const summary = await summarizeMediaForMemory({
+    buffer: mediaInputForModel.buffer,
+    storageUri: input.storageUri,
+    mimeType: input.mimeType,
+    fileName: input.fileName,
+    label: input.label,
+    videoMetadata: input.videoMetadata,
+  });
+  const contextText = buildMultimodalContextText(input.label, summary.text);
+
+  let embeddingStrategy: CoworkMemoryPayload['embeddingStrategy'] = 'multimodal';
+  let embedded;
+  try {
+    embedded = await embedMediaWithContext({
+      buffer: mediaInputForModel.buffer,
+      storageUri: input.storageUri,
+      mimeType: input.mimeType,
+      fileName: input.fileName,
+      label: input.label,
+      contextText,
+      videoMetadata: input.videoMetadata,
+    });
+  } catch (error) {
+    if (!contextText) {
+      throw error;
+    }
+    embedded = await embedText(contextText, {
+      taskType: 'RETRIEVAL_DOCUMENT',
+      title: input.label,
+      mimeType: 'text/plain',
+    });
+    embeddingStrategy = 'transcript_fallback';
+  }
+
+  recorder.onEmbedding?.(embedded.usage);
+
+  await upsertCoworkMemoryPoints([{
+    id: buildPointId(input.fileId, 0, input.storageUri),
+    vector: embedded.vector,
+    payload: {
+      userId: input.userId,
+      fileId: input.fileId,
+      fileName: input.fileName,
+      sessionId: input.sessionId,
+      mimeType: input.mimeType,
+      attachmentType: input.attachmentType,
+      label: input.label,
+      sourceText: summary.text,
+      storageUri: input.storageUri,
+      createdAt: Number(input.createdAt || Date.now()),
+      chunkIndex: 0,
+      chunkCount: 1,
+      estimatedTokens: estimateTokenCount(contextText),
+      modality,
+      summaryKind: summary.kind,
+      embeddingStrategy,
+    } satisfies CoworkMemoryPayload,
+  }]);
+
+  return {
+    chunkCount: 1,
+    extractedCharacters: summary.text.length,
+    modality,
+    summaryKind: summary.kind,
+    embeddingStrategy,
+  };
+}
+
+export async function indexFileToMemory(
+  input: IndexTextLikeFileInput | IndexMultimodalFileInput,
+  recorder: CoworkMemoryUsageRecorder = {},
+) {
+  if (supportsTextMemoryIndexing(input.mimeType, input.fileName)) {
+    if (!('buffer' in input) || !input.buffer) {
+      throw new Error(`Le fichier ${input.fileName} exige un buffer local pour l'indexation texte.`);
+    }
+    return indexTextLikeFileToMemory({
+      ...input,
+      buffer: input.buffer,
+    }, recorder);
+  }
+
+  if (supportsMultimodalMemoryIndexing(input.mimeType, input.fileName)) {
+    return indexMultimodalFileToMemory(input, recorder);
+  }
+
+  throw new Error(`Type de fichier non pris en charge pour l'indexation memoire: ${input.mimeType || input.fileName}`);
 }
 
 export async function searchRelevantMemory(
@@ -259,6 +423,8 @@ export function groupRelevantMemoryByFile(chunks: RelevantMemoryChunk[]) {
       attachmentType: fileChunks[0]?.attachmentType || '',
       storageUri: fileChunks[0]?.storageUri || '',
       createdAt: fileChunks[0]?.createdAt || 0,
+      modality: fileChunks[0]?.modality || 'text',
+      embeddingStrategy: fileChunks[0]?.embeddingStrategy,
       chunks: fileChunks.sort((left, right) => Number(left.chunkIndex || 0) - Number(right.chunkIndex || 0)),
       text: fileChunks
         .sort((left, right) => Number(left.chunkIndex || 0) - Number(right.chunkIndex || 0))
@@ -278,10 +444,12 @@ export function summarizeMemorySearchResults(chunks: RelevantMemoryChunk[]) {
     .map((chunk, index) => {
       const snippet = normalizeTextContent(String(chunk.sourceText || '')).slice(0, 220);
       const score = typeof chunk.score === 'number' ? `score ${chunk.score.toFixed(2)}` : null;
+      const modality = chunk.modality ? `modality ${chunk.modality}` : null;
       return [
         `[${index + 1}]`,
         chunk.label,
         chunk.mimeType,
+        modality,
         score,
         snippet,
       ].filter(Boolean).join(' | ');
@@ -298,7 +466,7 @@ export function buildRelevantMemorySection(chunks: RelevantMemoryChunk[], maxTok
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index];
     const snippet = normalizeTextContent(String(chunk.sourceText || '')).slice(0, 420);
-    const line = `[${index + 1}] ${chunk.label} (${chunk.mimeType}${typeof chunk.score === 'number' ? `, score ${chunk.score.toFixed(2)}` : ''}) - ${snippet} - storageUri: ${chunk.storageUri} - fileId: ${chunk.fileId}`;
+    const line = `[${index + 1}] ${chunk.label} (${chunk.mimeType}${chunk.modality ? `, ${chunk.modality}` : ''}${typeof chunk.score === 'number' ? `, score ${chunk.score.toFixed(2)}` : ''}) - ${snippet} - storageUri: ${chunk.storageUri} - fileId: ${chunk.fileId}`;
     const estimatedTokens = estimateTokenCount(line);
 
     if (lines.length > 0 && (usedTokens + estimatedTokens) > maxTokens) {

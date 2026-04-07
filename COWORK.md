@@ -1,5 +1,70 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-07 - Regression Vercel `DOMMatrix` corrigee, chat et Cowork reouverts en prod
+- Retour produit:
+  - l'utilisateur signalait que plus aucun mode ne marchait en deployment reel
+  - le besoin prioritaire n'etait donc plus la prochaine phase fonctionnelle, mais la remise en route immediate de toute l'app
+- Changement applique:
+  - diagnostic runtime via `vercel logs`
+  - cause racine isolee dans `server/lib/chunking.ts`
+    - `pdf-parse` etait importe au boot
+    - Vercel faisait alors tomber `pdfjs-dist` sur `DOMMatrix is not defined`
+  - correctif:
+    - chargement lazy memoise de `pdf-parse/worker` puis `pdf-parse`
+    - passage de `CanvasFactory` au constructeur `PDFParse`
+    - plus aucun import PDF sensible au top-level de la function
+- Validation reelle:
+  - `vercel deploy --prod --yes` : OK
+  - `GET https://vertex-ai-app-pearl.vercel.app/api/status` : OK
+  - `POST /api/chat` minimal : 200
+  - `POST /api/cowork` minimal : 200
+- Etat produit:
+  - le backend prod ne meurt plus au boot
+  - les modes `chat` et `cowork` sont de nouveau actionnables sur le domaine public
+  - la prochaine phase naturelle redevient bien la sandbox Python
+- Limites assumees:
+  - les smokes RAG locaux de cette session ont skip honnetement sans `QDRANT_URL`
+  - la config `preview` Vercel reste a brancher explicitement si elle devient necessaire
+
+## Mise a jour 2026-04-07 - Phase 0 reelle fermee, Phase 1A reelle fermee, Phase 1B multimodale complete
+- Retour produit:
+  - le brief Studio Pro demandait non seulement la memoire absolue, mais une vraie preuve reelle contre un worker Cloud Run, Vertex AI et un vector DB actif
+  - la Phase 1B devait etendre cette memoire aux images, a l'audio et a la video avec `gemini-embedding-2-preview`
+- Changement applique:
+  - infra reelle:
+    - `cowork-workers` deploye sur Cloud Run (`/health` verifie, bearer auth verifie)
+    - `qdrant-dev` deploye sur Cloud Run comme cluster de validation reelle
+    - envs Vercel branchees sur `development` et `production` pour le worker et le RAG
+  - backend memoire:
+    - `server/lib/google-genai.ts`
+      - `gemini-embedding-2-preview` n'est plus force sur `global`
+    - `server/lib/media-understanding.ts`
+      - resume image/audio/video via `gemini-3.1-flash-lite-preview`
+    - `server/lib/embeddings.ts`
+      - embeddings multimodaux text/image/audio/video
+    - `server/lib/cowork-memory.ts`
+      - `indexFileToMemory()` prend maintenant texte, PDF, image, audio, video
+      - fallback transcript/summary si l'embed media echoue
+    - `api/index.ts`
+      - `release_file` indexe tous les medias supportes
+  - tests:
+    - `test-cowork-rag.ts`
+    - `verify-cowork-rag-e2e.ts`
+    - `test-cowork-rag-multimodal.ts`
+- Validation reelle:
+  - `curl https://cowork-workers-635320914187.europe-west1.run.app/health` : OK
+  - `test-cowork-rag.ts` : OK
+  - `verify-cowork-rag-e2e.ts` : OK
+  - `test-cowork-rag-multimodal.ts` : OK
+  - Vertex embeddings verifies reellement sur texte/image/audio/PDF/video
+- Etat produit:
+  - la fondation worker Cloud Run n'est plus seulement locale
+  - Cowork sait maintenant memoriser et retrouver des medias multimodaux
+  - la prochaine phase naturelle devient la sandbox Python
+- Limites assumees:
+  - le projet Vertex actuel peut encore retourner des `429 RESOURCE_EXHAUSTED` intermittents
+  - la config `preview` Vercel n'a pas ete branchee automatiquement dans cette session
+
 ## Mise a jour 2026-04-07 - Cowork v2 Phase 1A: memoire absolue text-first et retrieval semantique localement branchés
 - Retour produit:
   - le brief Studio Pro demande que Cowork se souvienne des fichiers utilisateur et puisse les retrouver semantiquement au debut d'un run

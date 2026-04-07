@@ -85,11 +85,11 @@ import {
   buildRelevantMemorySection,
   forgetMemoryFile,
   groupRelevantMemoryByFile,
-  indexTextLikeFileToMemory,
+  indexFileToMemory,
   recallMemoryFiles,
   searchRelevantMemory,
   summarizeMemorySearchResults,
-  supportsTextMemoryIndexing,
+  supportsMemoryIndexing,
   type RelevantMemoryChunk,
 } from '../server/lib/cowork-memory.js';
 import { callCoworkWorker } from '../server/lib/cowork-workers.js';
@@ -8414,13 +8414,15 @@ app.post('/api/cowork', async (req, res) => {
                 chunkCount: number;
                 totalPages?: number;
                 extractedCharacters: number;
+                modality: string;
+                embeddingStrategy?: string;
               }
             | null = null;
           let memoryIndexError: string | null = null;
 
-          if (COWORK_ENABLE_RAG && trimmedUserIdHint && supportsTextMemoryIndexing(mimeType, fileName)) {
+          if (COWORK_ENABLE_RAG && trimmedUserIdHint && supportsMemoryIndexing(mimeType, fileName)) {
             try {
-              memoryIndexSummary = await indexTextLikeFileToMemory({
+              memoryIndexSummary = await indexFileToMemory({
                 buffer,
                 fileId,
                 fileName,
@@ -8477,6 +8479,8 @@ app.post('/api/cowork', async (req, res) => {
             memoryIndexed: Boolean(memoryIndexSummary),
             memoryChunkCount: memoryIndexSummary?.chunkCount || 0,
             memoryTotalPages: memoryIndexSummary?.totalPages,
+            memoryModality: memoryIndexSummary?.modality,
+            memoryEmbeddingStrategy: memoryIndexSummary?.embeddingStrategy,
             ...(memoryIndexError ? { memoryError: memoryIndexError } : {}),
             message: `Fichier ${filePath} uploadé avec succès. Voici le lien de téléchargement.`,
           };

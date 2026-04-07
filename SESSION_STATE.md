@@ -1,5 +1,154 @@
 # SESSION STATE
 
+## 2026-04-07 - Fix critique prod: crash Vercel `DOMMatrix` au boot, redeploye et revalide
+
+### Ce qui a ete accompli
+- Diagnostic prod reel:
+  - `GET https://vertex-ai-app-pearl.vercel.app/api/status` renvoyait `FUNCTION_INVOCATION_FAILED`
+  - `vercel logs vertex-ai-app-pearl.vercel.app --no-follow --status-code 500 --expand` a montre:
+    - `ReferenceError: DOMMatrix is not defined`
+    - stack dans `pdfjs-dist/legacy/build/pdf.mjs`
+    - impact global sur la function `api/index`
+- Correctif code:
+  - `server/lib/chunking.ts`
+    - suppression de l'import top-level direct `pdf-parse`
+    - ajout d'un helper memoise `getPdfParseRuntime()`
+    - chargement runtime de `pdf-parse/worker` puis `pdf-parse`
+    - passage de `CanvasFactory` au constructeur `PDFParse`
+- Redeploy prod:
+  - `vercel deploy --prod --yes`
+  - nouvel alias production reapplique sur `https://vertex-ai-app-pearl.vercel.app`
+
+### Validation reelle
+- Locale:
+  - `node node_modules/tsx/dist/cli.mjs -e "import('./server/lib/chunking.ts')..."` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-workers.ts` : OK
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+  - `node node_modules/tsx/dist/cli.mjs test-generated-app-stream.ts` : OK
+  - `node node_modules/tsx/dist/cli.mjs test-generated-app-manifest.ts` : OK
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-rag.ts` : SKIP honnete (`COWORK_TEST_RAG=1`, `QDRANT_URL`)
+  - `node node_modules/tsx/dist/cli.mjs verify-cowork-rag-e2e.ts` : SKIP honnete (`COWORK_TEST_RAG=1`, `QDRANT_URL`)
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-rag-multimodal.ts` : SKIP honnete (`COWORK_TEST_RAG=1`, `QDRANT_URL`)
+- Production:
+  - `GET /api/status` : 200 + JSON sain
+  - `POST /api/chat` minimal : 200
+  - `POST /api/cowork` minimal : 200 + flux SSE demarre
+
+### Ce qui reste a faire
+- pousser le meme etat sur GitHub pour resynchroniser le repo avec le deploy prod
+- repartir ensuite sur la Phase 2 (`/sandbox/python`, `/sandbox/shell`)
+
+### Decisions prises et pourquoi
+- conserver `pdf-parse` pour l'instant:
+  - la doc officielle couvre le cas Vercel/serverless
+  - le vrai probleme etait le mode de chargement, pas necessairement la librairie elle-meme
+- verifier systematiquement la prod avec `/api/status` apres toute modif backend qui introduit un parseur/document loader:
+  - `npm run build` ne suffit pas pour attraper un crash de boot serverless
+
+### Pieges / points d'attention
+- un import top-level "inoffensif" peut casser toute la function `api/index.ts`
+- sur Vercel, il faut lire les logs runtime, pas seulement les logs de build, quand un alias `Ready` renvoie quand meme `FUNCTION_INVOCATION_FAILED`
+
+### Intention exacte
+- remettre tous les modes utilisateur sur pied avant de continuer a empiler des phases Cowork v2
+- garder une trace precise du symptome et du fix pour ne pas perdre de temps sur ce meme crash plus tard
+
+## 2026-04-07 - Cowork v2: Phase 0 reelle fermee, Phase 1A reelle fermee, Phase 1B multimodale complete
+
+### Ce qui a ete accompli
+- Infra reelle:
+  - APIs GCP activees sur `gen-lang-client-0405707007`:
+    - `run.googleapis.com`
+    - `cloudbuild.googleapis.com`
+    - `artifactregistry.googleapis.com`
+  - deploy Cloud Run reel du worker:
+    - service: `cowork-workers`
+    - region: `europe-west1`
+    - URL: `https://cowork-workers-635320914187.europe-west1.run.app`
+    - `GET /health` verifie reellement
+    - bearer auth verifiee reellement (`401` sans token, `501` honnete avec token sur une route reservee)
+  - deploy Qdrant de validation sur Cloud Run:
+    - service: `qdrant-dev`
+    - region: `europe-west1`
+    - URL: `https://qdrant-dev-635320914187.europe-west1.run.app`
+    - `GET /collections` et `GET /readyz` verifies
+- Vercel envs reelles:
+  - `COWORK_WORKERS_URL`, `COWORK_WORKERS_TOKEN`, `QDRANT_URL`, `COWORK_ENABLE_RAG=1`, `COWORK_RAG_AUTOINJECT=1`
+  - branches automatiquement sur `development` et `production`
+  - `preview` non branche dans cette session car le CLI demande un `git-branch` explicite
+- Code Phase 1B:
+  - `server/lib/google-genai.ts`
+    - fix critique: `gemini-embedding-2-preview` ne doit pas etre force sur `global`
+  - `server/lib/media-understanding.ts`
+    - nouveau helper de resume/transcription media pour image/audio/video
+  - `server/lib/embeddings.ts`
+    - wrappers multimodaux via `gemini-embedding-2-preview`
+  - `server/lib/cowork-memory.ts`
+    - `indexFileToMemory()` remplace l'ancien chemin text-only
+    - image/audio/video indexes avec resume lisible + embed media contextuel
+    - fallback texte honnete si l'embed media echoue
+    - point IDs Qdrant passes en `randomUUID()`
+  - `server/lib/qdrant.ts`
+    - payload enrichi (`modality`, `summaryKind`, `embeddingStrategy`)
+  - `server/lib/config.ts`
+    - defaut RAG passe a `gemini-embedding-2-preview`
+    - ajout du `summaryModel`
+  - `api/index.ts`
+    - `release_file` indexe maintenant tous les medias supportes par la memoire
+    - sortie `release_file` enrichie avec les metas memoire
+  - `verify-cowork-rag-e2e.ts`
+    - nouveau smoke reel `/api/cowork` de bout en bout
+
+### Validation reelle
+- `npm run lint` : OK
+- `npm run build` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-workers.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs test-generated-app-stream.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs test-generated-app-manifest.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-rag.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs verify-cowork-rag-e2e.ts` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-rag-multimodal.ts` : OK
+- verification directe Vertex:
+  - texte: OK
+  - image: OK
+  - audio: OK
+  - PDF: OK
+  - video (`gs://cloud-samples-data/generative-ai/video/pixel8.mp4`): OK
+
+### Ce qui reste a faire
+- Phase 2:
+  - `/sandbox/python`
+  - `/sandbox/shell`
+  - transfert de fichiers sandbox <-> GCS
+  - tools `run_python` / `run_shell` dans `api/index.ts`
+- optionnel infra:
+  - ajouter une config `preview` Vercel si un vrai branch preview le justifie
+
+### Decisions prises et pourquoi
+- `gemini-embedding-2-preview` devient le defaut RAG:
+  - c'est le seul choix coherent avec la promesse Phase 1B multimodale
+  - il a ete valide reellement sur texte/image/audio/video
+- l'indexation multimodale passe par un resume/transcript lisible:
+  - meilleur debug
+  - meilleurs snippets dans `### MEMOIRE PERTINENTE`
+  - fallback texte propre si l'embed media tombe
+- un Qdrant self-host sur Cloud Run est accepte comme cluster de validation reelle:
+  - conforme a l'alternative prevue par le brief
+  - permet de fermer la validation sans attendre un compte Qdrant Cloud
+
+### Pieges / points d'attention
+- le projet Vertex renvoie encore des `429 RESOURCE_EXHAUSTED` intermittents
+- `verify-cowork-rag-e2e.ts` et `test-cowork-rag-multimodal.ts` sautent honnetement si le quota bloque tout
+- le service `qdrant-dev` est pratique pour la validation, pas encore un choix SaaS final fige
+
+### Intention exacte
+- clore proprement toute la promesse memoire du brief avant d'ouvrir la sandbox Python
+- garder une preuve reelle rejouable, pas seulement des helpers unitaire/integres
+- laisser la prochaine session repartir directement sur la Phase 2 sans re-auditer tout le RAG
+
 ## 2026-04-07 - Cowork v2 Phase 1A: RAG text-first local complet
 
 ### Ce qui a ete accompli

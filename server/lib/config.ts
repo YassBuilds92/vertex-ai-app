@@ -49,7 +49,8 @@ export function getCoworkRagConfig() {
   return {
     autoInject: envFlagEnabled(process.env.COWORK_RAG_AUTOINJECT),
     collectionName: String(process.env.COWORK_RAG_COLLECTION || 'cowork_memory').trim() || 'cowork_memory',
-    embeddingModel: String(process.env.COWORK_RAG_EMBEDDING_MODEL || 'gemini-embedding-001').trim() || 'gemini-embedding-001',
+    embeddingModel: String(process.env.COWORK_RAG_EMBEDDING_MODEL || 'gemini-embedding-2-preview').trim() || 'gemini-embedding-2-preview',
+    summaryModel: String(process.env.COWORK_RAG_SUMMARY_MODEL || 'gemini-3.1-flash-lite-preview').trim() || 'gemini-3.1-flash-lite-preview',
     vectorSize: Number.isFinite(requestedVectorSize) && requestedVectorSize > 0 ? requestedVectorSize : 1536,
     topK: Number.isFinite(requestedTopK) && requestedTopK > 0 ? requestedTopK : 5,
     scoreThreshold: Number.isFinite(requestedScoreThreshold) ? requestedScoreThreshold : 0.65,

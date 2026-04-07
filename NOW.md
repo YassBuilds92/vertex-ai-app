@@ -1,39 +1,33 @@
 # NOW
 
 ## Objectif actuel
-- Fermer la vraie validation externe de la Phase 1A Cowork v2: brancher Qdrant + Vertex, rejouer l'indexation/retrieval reelle, puis lancer la Phase 1B multimodale.
+- Attaquer la Phase 2 Cowork v2: sandbox Python reelle sur le worker Cloud Run deja deploye, maintenant que la regression Vercel qui cassait tous les modes est corrigee en production.
 
 ## Blocage actuel
-- La Phase 1A est implementee et verte localement, mais aucune preuve reelle n'a encore ete jouee contre un cluster Qdrant et des embeddings Vertex actifs dans cet environnement.
+- La Phase 0 reelle est fermee, la Phase 1A reelle est fermee, la Phase 1B multimodale est validee en vrai, et le crash Vercel `DOMMatrix` a ete corrige; le prochain gap produit est l'absence des endpoints `/sandbox/python` et `/sandbox/shell` dans `cowork-workers`.
+- `vercel env add ... preview` exige un `git-branch` explicite; dans cette session seuls `development` et `production` ont ete branches automatiquement.
 
 ## Prochaine action exacte
-- Configurer les env vars reelles puis lancer:
-  1. `COWORK_ENABLE_RAG=1`
-  2. `COWORK_RAG_AUTOINJECT=1`
-  3. `QDRANT_URL` (+ `QDRANT_API_KEY` si besoin)
-  4. `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`, `GOOGLE_APPLICATION_CREDENTIALS_JSON`
-  5. `COWORK_TEST_RAG=1`
-- Ensuite:
-  - `npx tsx test-cowork-rag.ts`
-  - upload d'un PDF texte via Cowork
-  - demande de rappel semantique reelle pour verifier `memory_search` + auto-injection
+- 1. Ajouter `/sandbox/python` au worker Cloud Run avec timeout, venv `uv` et streaming SSE.
+- 2. Ajouter `/sandbox/shell` avec whitelist stricte et cleanup.
+- 3. Brancher `run_python` / `run_shell` dans `api/index.ts` via `callCoworkWorker()`.
+- 4. Rejouer un smoke reel `print('hello')`, puis un run Cowork qui genere un fichier et le republie.
 
 ## Fichiers chauds
 - `api/index.ts`
-- `server/lib/cowork-memory.ts`
-- `server/lib/embeddings.ts`
-- `server/lib/qdrant.ts`
-- `src/App.tsx`
-- `src/utils/cowork.ts`
-- `src/components/MessageItem.tsx`
-- `test-cowork-rag.ts`
+- `server/lib/cowork-workers.ts`
+- `cloud-run/cowork-workers/src/index.js`
+- `cloud-run/cowork-workers/Dockerfile`
+- `server/lib/storage.ts`
+- `verify-cowork-rag-e2e.ts`
 
 ## Validations restantes
-- smoke reel `test-cowork-rag.ts`
-- run Cowork authentifie avec upload texte/PDF puis question de rappel
-- verification UI du pill `Memoire (n)` sur un vrai run avec auto-injection
+- smoke reel `run_python("print('hello')")`
+- execution Python avec generation de fichier + upload GCS de retour
+- non-regression `npm run lint`, `npm run build`, `npx tsx test-cowork-workers.ts`, `npx tsx test-cowork-loop.ts`
 
 ## Risques immediats
-- sans `userIdHint`, la memoire backend ne peut pas isoler proprement les donnees utilisateur
-- si Qdrant est indisponible, l'upload doit rester reussi mais l'indexation memoire sera seulement best-effort et visible comme warning
-- `gemini-embedding-001` reste text-only: l'image/audio/video attendront la Phase 1B
+- ne jamais reintroduire un import top-level PDF qui peut faire tomber tout le boot Vercel (`/api/status`, `/api/chat`, `/api/cowork`)
+- le projet Vertex actuel peut renvoyer des `429 RESOURCE_EXHAUSTED` intermittents; les smokes RAG sont maintenant honnetes sur ce point
+- `qdrant-dev` tourne actuellement en self-host sur Cloud Run pour la validation reelle; ce n'est pas encore la cible finale SaaS/Qdrant Cloud
+- la Phase 2 ajoute du code arbitraire: ne jamais exposer les routes sandbox sans timeout, cleanup et bearer auth

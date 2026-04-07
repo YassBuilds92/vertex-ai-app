@@ -135,7 +135,22 @@ export function createGoogleAI(modelId?: string): GoogleGenAI {
   if (!projectId || !envLocation) throw new Error('Vertex AI non configuré');
 
   let finalLocation = envLocation;
-  if (modelId && (modelId.includes('preview') || modelId.includes('3.1') || modelId.includes('3-flash') || modelId.includes('image') || modelId.includes('tts'))) {
+  const normalizedModelId = String(modelId || '').trim().toLowerCase();
+  const isEmbeddingModel =
+    normalizedModelId.includes('embedding')
+    || normalizedModelId.includes('multimodalembedding');
+
+  if (
+    normalizedModelId
+    && !isEmbeddingModel
+    && (
+      normalizedModelId.includes('preview')
+      || normalizedModelId.includes('3.1')
+      || normalizedModelId.includes('3-flash')
+      || normalizedModelId.includes('image')
+      || normalizedModelId.includes('tts')
+    )
+  ) {
     finalLocation = 'global';
   }
 

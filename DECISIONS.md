@@ -1,5 +1,38 @@
 # DECISIONS
 
+## 2026-04-07 - Sur Vercel, `pdf-parse` reste retenu mais seulement via chargement lazy + worker officiel
+- Statut: adopte localement et valide en production
+- Contexte: la prod Vercel etait integralement tombee (`/api/status`, `/api/chat`, `/api/cowork`) apres introduction du parsing PDF RAG, parce que `pdf-parse` et `pdfjs-dist` se chargeaient au boot de la function.
+- Decision:
+  - conserver `pdf-parse` plutot que changer de librairie dans l'urgence
+  - ne plus jamais l'importer au top-level
+  - charger `pdf-parse/worker` puis `pdf-parse` dans un helper runtime memoise
+  - passer `CanvasFactory` au constructeur `PDFParse`
+- Pourquoi:
+  - la doc officielle `pdf-parse` documente explicitement ce correctif pour les environnements serverless / Vercel
+  - cela corrige la panne immediate sans reouvrir un chantier de migration de dependance
+  - cela desacouple le boot de la function des besoins PDF, donc `/api/status` et les modes non-PDF restent vivants
+- Consequence:
+  - `server/lib/chunking.ts` charge maintenant le parser PDF a la demande
+  - la validation de reference n'est plus seulement `npm run build`, mais aussi un smoke prod `GET /api/status`
+
+## 2026-04-07 - Phase 1B indexe les medias via resume lisible + embed contextuel, avec fallback texte
+- Statut: adopte localement et valide reellement
+- Contexte: la Phase 1B doit memoriser image/audio/video, mais un embed media brut seul donne peu de lisibilite pour le debug et peut echouer selon la modalite, la taille ou le quota.
+- Decision:
+  - generer d'abord un resume/transcript court via `gemini-3.1-flash-lite-preview`
+  - appeler ensuite `gemini-embedding-2-preview` sur le media avec ce contexte
+  - si l'embed media echoue, fallback propre sur un embedding texte du resume/transcript
+  - stocker `summaryKind` et `embeddingStrategy` dans Qdrant
+- Pourquoi:
+  - garde une memoire lisible dans `### MEMOIRE PERTINENTE`
+  - permet un fallback honnete au lieu d'un echec silencieux
+  - simplifie le rappel de medias longs ou ambigus
+- Consequence:
+  - nouveau `server/lib/media-understanding.ts`
+  - `server/lib/cowork-memory.ts` passe par `indexFileToMemory()`
+  - `server/lib/qdrant.ts` porte un payload multimodal plus riche
+
 ## 2026-04-07 - Phase 1A RAG: backend direct vers Qdrant, `userIdHint` explicite et `fileId` genere cote backend
 - Statut: adopte localement
 - Contexte: le workspace Cowork existant persistait les fichiers via Firestore cote frontend, mais la memoire semantique exige maintenant un index backend vers un vector DB. Sans identite utilisateur backend native, ni `fileId` stable connu cote serveur, l'indexation aurait ete fragile ou melangee.

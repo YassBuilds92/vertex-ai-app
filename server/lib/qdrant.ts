@@ -15,7 +15,9 @@ export type CoworkMemoryPayload = {
   chunkIndex?: number;
   chunkCount?: number;
   estimatedTokens?: number;
-  modality: 'text';
+  modality: 'text' | 'image' | 'audio' | 'video';
+  summaryKind?: 'description' | 'transcript' | 'summary' | 'label_fallback';
+  embeddingStrategy?: 'text_chunks' | 'multimodal' | 'transcript_fallback';
 };
 
 export type UpsertCoworkMemoryPoint = {
@@ -144,7 +146,7 @@ export async function ensureCoworkMemoryCollection() {
           on_disk_payload: true,
           metadata: {
             managedBy: 'cowork',
-            phase: '1A',
+            phase: '1B',
             embeddingModel: ragConfig.embeddingModel,
           },
         }),

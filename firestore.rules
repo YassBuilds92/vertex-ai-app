@@ -100,6 +100,26 @@ service cloud.firestore {
       );
     }
 
+    function isValidSelectedCustomPrompt(data) {
+      return !('selectedCustomPrompt' in data) || data.selectedCustomPrompt == null || (
+        data.selectedCustomPrompt is map &&
+        data.selectedCustomPrompt.keys().hasOnly(['id', 'title', 'prompt', 'iconUrl']) &&
+        ('id' in data.selectedCustomPrompt) &&
+        ('title' in data.selectedCustomPrompt) &&
+        ('prompt' in data.selectedCustomPrompt) &&
+        data.selectedCustomPrompt.id is string &&
+        data.selectedCustomPrompt.id.size() <= 200 &&
+        data.selectedCustomPrompt.title is string &&
+        data.selectedCustomPrompt.title.size() <= 200 &&
+        data.selectedCustomPrompt.prompt is string &&
+        data.selectedCustomPrompt.prompt.size() <= 20000 &&
+        (!('iconUrl' in data.selectedCustomPrompt) || (
+          data.selectedCustomPrompt.iconUrl is string &&
+          data.selectedCustomPrompt.iconUrl.size() <= 4000
+        ))
+      );
+    }
+
     function isValidCoworkRunMeta(data) {
       return !('runMeta' in data) || (
         data.runMeta is map &&
@@ -107,10 +127,18 @@ service cloud.firestore {
           'iterations',
           'modelCalls',
           'toolCalls',
+          'workerCallsCount',
+          'workerMsTotal',
           'searchCount',
           'fetchCount',
           'sourcesOpened',
           'domainsOpened',
+          'embeddingCount',
+          'embeddingTokens',
+          'vectorSearches',
+          'pythonExecutions',
+          'gitOps',
+          'browserOps',
           'artifactState',
           'stalledTurns',
           'retryCount',
@@ -129,10 +157,18 @@ service cloud.firestore {
         (!('iterations' in data.runMeta) || data.runMeta.iterations is number) &&
         (!('modelCalls' in data.runMeta) || data.runMeta.modelCalls is number) &&
         (!('toolCalls' in data.runMeta) || data.runMeta.toolCalls is number) &&
+        (!('workerCallsCount' in data.runMeta) || data.runMeta.workerCallsCount is number) &&
+        (!('workerMsTotal' in data.runMeta) || data.runMeta.workerMsTotal is number) &&
         (!('searchCount' in data.runMeta) || data.runMeta.searchCount is number) &&
         (!('fetchCount' in data.runMeta) || data.runMeta.fetchCount is number) &&
         (!('sourcesOpened' in data.runMeta) || data.runMeta.sourcesOpened is number) &&
         (!('domainsOpened' in data.runMeta) || data.runMeta.domainsOpened is number) &&
+        (!('embeddingCount' in data.runMeta) || data.runMeta.embeddingCount is number) &&
+        (!('embeddingTokens' in data.runMeta) || data.runMeta.embeddingTokens is number) &&
+        (!('vectorSearches' in data.runMeta) || data.runMeta.vectorSearches is number) &&
+        (!('pythonExecutions' in data.runMeta) || data.runMeta.pythonExecutions is number) &&
+        (!('gitOps' in data.runMeta) || data.runMeta.gitOps is number) &&
+        (!('browserOps' in data.runMeta) || data.runMeta.browserOps is number) &&
         (!('artifactState' in data.runMeta) || (
           data.runMeta.artifactState is string &&
           data.runMeta.artifactState in ['none', 'drafting', 'created', 'released']
@@ -169,6 +205,7 @@ service cloud.firestore {
                'updatedAt',
                'userId',
                'systemInstruction',
+               'selectedCustomPrompt',
                'systemPromptHistory',
                'sessionKind',
                'agentWorkspace',
@@ -179,6 +216,7 @@ service cloud.firestore {
              data.updatedAt is number &&
              data.userId == request.auth.uid &&
              (!('systemInstruction' in data) || (data.systemInstruction is string && data.systemInstruction.size() <= 20000)) &&
+             isValidSelectedCustomPrompt(data) &&
              (!('systemPromptHistory' in data) || (data.systemPromptHistory is list)) &&
              isValidSessionKind(data) &&
              isValidAgentWorkspace(data) &&

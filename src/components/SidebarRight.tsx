@@ -790,6 +790,12 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                 className="studio-input h-32 resize-none rounded-lg p-4 text-[13px] leading-relaxed placeholder:text-white/10"
               />
 
+              {activeMode === 'cowork' && activeSession.sessionKind !== 'agent' && activeSession.sessionKind !== 'generated_app' && (
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100">
+                  En Cowork pur, cette instruction reste visible dans la session mais n'ecrase plus le runtime autonome.
+                </div>
+              )}
+
               {selectedCustomPrompt && (
                 <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.03] p-3">
                   <div className="flex items-start justify-between gap-3">

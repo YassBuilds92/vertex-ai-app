@@ -1,14 +1,31 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
-import { initializeFirestore, doc, collection, collectionGroup, onSnapshot, query, where, orderBy, setDoc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, getDocFromServer, Firestore } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, User } from 'firebase/auth';
+import {
+  addDoc,
+  collection,
+  collectionGroup,
+  deleteDoc,
+  doc,
+  Firestore,
+  getDoc,
+  getDocFromServer,
+  getDocs,
+  initializeFirestore,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Helper to remove undefined properties for Firestore
 export function cleanForFirestore(obj: any): any {
   if (!obj || typeof obj !== 'object') return obj;
-  
+
   const result: any = Array.isArray(obj) ? [] : {};
-  Object.keys(obj).forEach(key => {
+  Object.keys(obj).forEach((key) => {
     if (obj[key] !== undefined) {
       if (obj[key] && typeof obj[key] === 'object') {
         const cleaned = cleanForFirestore(obj[key]);
@@ -17,12 +34,10 @@ export function cleanForFirestore(obj: any): any {
         } else {
           result[key] = cleaned;
         }
+      } else if (Array.isArray(result)) {
+        result.push(obj[key]);
       } else {
-        if (Array.isArray(result)) {
-          result.push(obj[key]);
-        } else {
-          result[key] = obj[key];
-        }
+        result[key] = obj[key];
       }
     }
   });
@@ -63,7 +78,7 @@ export interface FirestoreErrorInfo {
       email: string | null;
       photoUrl: string | null;
     }[];
-  }
+  };
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
@@ -75,22 +90,24 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
       emailVerified: auth.currentUser?.emailVerified,
       isAnonymous: auth.currentUser?.isAnonymous,
       tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
+      providerInfo: auth.currentUser?.providerData.map((provider) => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
         email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
+        photoUrl: provider.photoURL,
+      })) || [],
     },
     operationType,
-    path
-  }
-  console.error('Firestore Error: ', errInfo);
+    path,
+  };
+
+  console.groupCollapsed(`[StudioDebug][firestore] ${operationType.toUpperCase()} ${path || '(unknown path)'}`);
+  console.error('Firestore Error:', errInfo);
   if (error instanceof Error) {
-    alert(`Erreur Base de données (${operationType}):\n${error.message}`);
-  } else {
-    alert(`Erreur Base de données (${operationType}):\n${String(error)}`);
+    console.error('Firestore Error Message:', error.message);
   }
+  console.trace('Firestore call trace');
+  console.groupEnd();
 }
 
 // Validate connection to Firestore
@@ -98,28 +115,28 @@ async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
-    if(error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. ");
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
     }
   }
 }
-testConnection();
+void testConnection();
 
-export { 
-  signInWithPopup, 
-  onAuthStateChanged, 
-  doc, 
-  collection, 
+export {
+  signInWithPopup,
+  onAuthStateChanged,
+  doc,
+  collection,
   collectionGroup,
-  onSnapshot, 
-  query, 
+  onSnapshot,
+  query,
   where,
-  orderBy, 
-  setDoc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  getDoc, 
-  getDocs
+  orderBy,
+  setDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  getDoc,
+  getDocs,
 };
-export type { User };
+export type { Firestore, User };

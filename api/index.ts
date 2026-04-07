@@ -9775,6 +9775,20 @@ app.post('/api/cowork', async (req, res) => {
       }))
     }] : undefined;
 
+    const ignoredCoworkSystemInstruction =
+      !runtimeApp
+      && !runtimeAgent
+      && typeof config.systemInstruction === 'string'
+      && config.systemInstruction.trim().length > 0
+      && config.systemInstruction.trim() !== LEGACY_COWORK_SYSTEM_INSTRUCTION;
+
+    if (ignoredCoworkSystemInstruction) {
+      log.warn('Ignoring custom config.systemInstruction for pure Cowork run to prevent runtime hijacking.', {
+        sessionId,
+        userId: trimmedUserIdHint || undefined,
+      });
+    }
+
     const genConfig: any = {
       temperature: config.temperature || 0.2, // Use user config or default
       topP: config.topP || 1.0,
@@ -9790,7 +9804,7 @@ app.post('/api/cowork', async (req, res) => {
               requestClock,
               formValues: runtimeAgentFormValues,
             })
-          : buildCoworkSystemInstruction(config.systemInstruction, {
+          : buildCoworkSystemInstruction(undefined, {
               webSearch: webSearchEnabled,
               executeScript: executeScriptEnabled
             }, {

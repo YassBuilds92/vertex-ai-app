@@ -65,6 +65,12 @@ import {
   buildApiAttachmentPayloads,
   buildApiHistoryFromMessages,
 } from './utils/chat-parts';
+import {
+  installStudioDebugInstrumentation,
+  logCoworkStreamEventDebug,
+  logFirestoreOperation,
+  studioDebug,
+} from './utils/client-debug';
 import { resolveAgentStudioKind } from './utils/agentStudio';
 
 function cn(...inputs: ClassValue[]) {
@@ -730,16 +736,25 @@ export default function App() {
   });
 
   useEffect(() => {
+    installStudioDebugInstrumentation();
+  }, []);
+
+  useEffect(() => {
     let authResolved = false;
     const authReadyFallback = window.setTimeout(() => {
       if (authResolved) return;
-      console.warn('Firebase auth init timed out; falling back to unauthenticated shell.');
+      studioDebug('auth', 'Firebase auth init timed out; falling back to unauthenticated shell.', undefined, 'warn');
       setIsAuthReady(true);
     }, 4000);
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       authResolved = true;
       window.clearTimeout(authReadyFallback);
+      studioDebug('auth', 'Auth state changed.', {
+        userId: u?.uid,
+        email: u?.email,
+        isAnonymous: u?.isAnonymous,
+      });
       setUser(u);
       setIsAuthReady(true);
     });
@@ -752,7 +767,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/status').then(res => res.json()).then(data => setIsVertexConfigured(data.isVertexConfigured));
+    void fetch('/api/status')
+      .then(res => res.json())
+      .then(data => {
+        studioDebug('status', 'Loaded /api/status.', data);
+        setIsVertexConfigured(data.isVertexConfigured);
+      })
+      .catch((error) => {
+        studioDebug('status', 'Failed to load /api/status.', error, 'error');
+        setIsVertexConfigured(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -773,6 +797,11 @@ export default function App() {
     const q = query(collection(db, 'users', user.uid, 'sessions'), orderBy('updatedAt', 'desc'));
     return onSnapshot(q, (snapshot) => {
       const remoteSessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), messages: [] } as ChatSession));
+      logFirestoreOperation('session-list-sync-success', {
+        userId: user.uid,
+        count: remoteSessions.length,
+        fromCache: snapshot.metadata.fromCache,
+      });
       setSessions(
         snapshot.metadata.fromCache && remoteSessions.length === 0
           ? loadLocalSessionShells(user.uid)
@@ -780,7 +809,10 @@ export default function App() {
       );
       setHasLoadedRemoteSessions(true);
     }, (error) => {
-      console.error('Session list sync failed:', error);
+      logFirestoreOperation('session-list-sync-failed', {
+        userId: user.uid,
+        error,
+      }, 'warn');
       setSessions(loadLocalSessionShells(user.uid));
       setHasLoadedRemoteSessions(true);
     });
@@ -802,11 +834,19 @@ export default function App() {
     const q = query(collection(db, 'users', user.uid, 'agents'), orderBy('updatedAt', 'desc'));
     return onSnapshot(q, (snapshot) => {
       const remoteAgents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudioAgent));
+      logFirestoreOperation('agent-list-sync-success', {
+        userId: user.uid,
+        count: remoteAgents.length,
+        fromCache: snapshot.metadata.fromCache,
+      });
       setAgents(mergeAgentsWithLocal(user.uid, remoteAgents));
       setAgentsWarning(null);
       setHasLoadedRemoteAgents(true);
     }, (error) => {
-      console.error('Agent list sync degraded, using local snapshots:', error);
+      logFirestoreOperation('agent-list-sync-degraded', {
+        userId: user.uid,
+        error,
+      }, 'warn');
       const fallbackAgents = loadLocalAgents(user.uid);
       setAgents(fallbackAgents);
       setAgentsWarning(
@@ -833,11 +873,19 @@ export default function App() {
     const q = query(collection(db, 'users', user.uid, 'generatedApps'), orderBy('updatedAt', 'desc'));
     return onSnapshot(q, (snapshot) => {
       const remoteApps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GeneratedAppManifest));
+      logFirestoreOperation('generated-app-list-sync-success', {
+        userId: user.uid,
+        count: remoteApps.length,
+        fromCache: snapshot.metadata.fromCache,
+      });
       setGeneratedApps(mergeGeneratedAppsWithLocal(user.uid, remoteApps));
       setAgentsWarning(null);
       setHasLoadedRemoteGeneratedApps(true);
     }, (error) => {
-      console.error('Generated app list sync degraded, using local snapshots:', error);
+      logFirestoreOperation('generated-app-list-sync-degraded', {
+        userId: user.uid,
+        error,
+      }, 'warn');
       const fallbackApps = loadLocalGeneratedApps(user.uid);
       setGeneratedApps(fallbackApps);
       setAgentsWarning(
@@ -921,6 +969,12 @@ export default function App() {
     const q = query(collection(db, 'users', user.uid, 'sessions', activeSessionId, 'messages'), orderBy('createdAt', 'asc'));
     return onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+      logFirestoreOperation('message-list-sync-success', {
+        userId: user.uid,
+        sessionId: activeSessionId,
+        count: fetchedMessages.length,
+        fromCache: snapshot.metadata.fromCache,
+      });
       let hydratedMessages = fetchedMessages;
       if (richSessionUsesCoworkSnapshots) {
         hydratedMessages = hydrateCoworkMessages(hydratedMessages, user.uid, activeSessionId);
@@ -948,6 +1002,11 @@ export default function App() {
       
       setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: hydratedMessages } : s));
     }, (error) => {
+      logFirestoreOperation('message-list-sync-failed', {
+        userId: user.uid,
+        sessionId: activeSessionId,
+        error,
+      }, 'warn');
       handleFirestoreError(error, OperationType.LIST, `users/${user?.uid}/sessions/${activeSessionId}/messages`);
     });
   }, [activeSessionId, richSessionUsesCoworkSnapshots, user]);
@@ -1010,7 +1069,16 @@ export default function App() {
       await updateDoc(doc(db, 'users', user.uid, 'sessions', sessionId), {
         updatedAt: Date.now(),
       });
+      logFirestoreOperation('session-touch-success', {
+        userId: user.uid,
+        sessionId,
+      });
     } catch (error) {
+      logFirestoreOperation('session-touch-failed', {
+        userId: user.uid,
+        sessionId,
+        error,
+      }, 'warn');
       console.warn('Session timestamp update failed:', error);
     }
   }, [user]);
@@ -1029,9 +1097,23 @@ export default function App() {
           userId: user.uid,
         })
       );
+      logFirestoreOperation('message-persist-success', {
+        userId: user.uid,
+        sessionId,
+        messageId: message.id,
+        role: message.role,
+        hasAttachments: Boolean(message.attachments?.length),
+      });
       clearSessionSnapshots(user.uid, sessionId, [message.id]);
       return true;
     } catch (error) {
+      logFirestoreOperation('message-persist-degraded', {
+        userId: user.uid,
+        sessionId,
+        messageId: message.id,
+        role: message.role,
+        error,
+      }, 'warn');
       console.warn('Message persistence degraded, keeping local snapshot only:', error);
       return false;
     }
@@ -1054,11 +1136,24 @@ export default function App() {
 
     if (coworkStorageModeRef.current === 'legacy') {
       await setDoc(messageRef, legacyPayload);
+      logFirestoreOperation('cowork-snapshot-persist-legacy-success', {
+        userId: target.userId,
+        sessionId: target.sessionId,
+        messageId: message.id,
+        runState: message.runState,
+      });
       return;
     }
 
     try {
       await setDoc(messageRef, richPayload);
+      logFirestoreOperation('cowork-snapshot-persist-rich-success', {
+        userId: target.userId,
+        sessionId: target.sessionId,
+        messageId: message.id,
+        runState: message.runState,
+        activityCount: message.activity?.length || 0,
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
       const isPermissionError =
@@ -1067,15 +1162,35 @@ export default function App() {
         errorMessage.includes('permission denied');
 
       if (!isPermissionError) {
+        logFirestoreOperation('cowork-snapshot-persist-rich-failed', {
+          userId: target.userId,
+          sessionId: target.sessionId,
+          messageId: message.id,
+          error,
+        }, 'error');
         throw error;
       }
 
       coworkStorageModeRef.current = 'legacy';
       if (!coworkStorageWarningShownRef.current) {
         coworkStorageWarningShownRef.current = true;
+        logFirestoreOperation('cowork-snapshot-rich-denied', {
+          userId: target.userId,
+          sessionId: target.sessionId,
+          messageId: message.id,
+          allowedKeys: Object.keys(richPayload),
+          legacyKeys: Object.keys(legacyPayload),
+          error,
+        }, 'warn');
         console.warn('Cowork Firestore rules are outdated. Falling back to legacy message persistence without activity metadata.');
       }
       await setDoc(messageRef, legacyPayload);
+      logFirestoreOperation('cowork-snapshot-persist-legacy-fallback-success', {
+        userId: target.userId,
+        sessionId: target.sessionId,
+        messageId: message.id,
+        runState: message.runState,
+      }, 'warn');
     }
   }, []);
 
@@ -1305,9 +1420,22 @@ export default function App() {
         doc(db, 'users', user.uid, 'sessions', session.id),
         cleanForFirestore(sessionPayload)
       );
+      logFirestoreOperation('session-shell-persist-success', {
+        userId: user.uid,
+        sessionId: session.id,
+        mode: session.mode,
+        sessionKind: session.sessionKind,
+      });
       saveLocalSessionShell(user.uid, session, { pendingRemote: false });
       return true;
     } catch (error) {
+      logFirestoreOperation('session-shell-persist-degraded', {
+        userId: user.uid,
+        sessionId: session.id,
+        mode: session.mode,
+        sessionKind: session.sessionKind,
+        error,
+      }, 'warn');
       console.warn('Session shell persistence degraded, keeping local state:', error);
       return false;
     }
@@ -1801,6 +1929,11 @@ export default function App() {
   ): Promise<{ url: string; storageUri?: string }> => {
     // If it's already a URL (not base64), return it
     if (attachment.url.startsWith('http') && !attachment.url.includes('base64')) {
+      studioDebug('upload', 'Attachment already has a remote URL; skipping upload.', {
+        name: attachment.name,
+        type: attachment.type,
+        mimeType: attachment.mimeType,
+      });
       return {
         url: attachment.url,
         storageUri: attachment.storageUri,
@@ -1837,6 +1970,12 @@ export default function App() {
 
       const fileExt = attachment.mimeType?.split('/')[1] || 'png';
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      studioDebug('upload', 'Uploading attachment to /api/upload.', {
+        name: attachment.name,
+        fileName,
+        type: attachment.type,
+        mimeType: attachment.mimeType || 'image/png',
+      });
       
       const response = await fetch('/api/upload', {
         method: 'POST',
@@ -1852,8 +1991,18 @@ export default function App() {
         throw new Error(`Erreur serveur lors de l'upload: ${response.statusText}`);
       }
       const { url, storageUri } = await response.json();
+      studioDebug('upload', 'Attachment uploaded successfully.', {
+        name: attachment.name,
+        fileName,
+        storageUri,
+      });
       return { url, storageUri };
     } catch (e: any) {
+      studioDebug('upload', 'Primary attachment upload failed. Trying fallback path.', {
+        name: attachment.name,
+        type: attachment.type,
+        error: e,
+      }, 'warn');
       console.warn("Storage upload failed, attempting compression fallback:", e);
       
       // FALLBACK: Store directly in Firestore if we can compress it < 1MB
@@ -1873,6 +2022,10 @@ export default function App() {
         }
         
         if (compressed.length < 1048000) {
+           studioDebug('upload', 'Attachment fallback compression succeeded.', {
+             name: attachment.name,
+             compressedLength: compressed.length,
+           }, 'warn');
            return { url: compressed };
         }
       }
@@ -1915,6 +2068,20 @@ export default function App() {
       const isGeneratedAppRun = effectiveSession.sessionKind === 'generated_app' && Boolean(effectiveSession.generatedAppWorkspace);
       isRichToolRun = isCoworkRun || isAgentRun || isGeneratedAppRun;
 
+      studioDebug('send', 'Starting handleSend.', {
+        effectiveMode,
+        sessionId: effectiveSession.id,
+        sessionKind: effectiveSession.sessionKind || 'standard',
+        overrideMessages: Boolean(overrideMessages),
+        pendingAttachments: pendingAttachments.map((attachment) => ({
+          id: attachment.id,
+          type: attachment.type,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+        })),
+        promptPreview: textToSend.slice(0, 220),
+      });
+
       let currentSessionId = runtimeSessionOverride?.id || activeSessionId;
       if (user && (currentSessionId === 'local-new' || !currentSessionId)) {
         const newId = Date.now().toString();
@@ -1934,6 +2101,12 @@ export default function App() {
         await persistSessionShell(nextSession);
         setCustomTitle(null);
         currentSessionId = newId;
+        studioDebug('session', 'Created a new client session shell.', {
+          sessionId: newId,
+          mode: effectiveMode,
+          sessionKind: nextSession.sessionKind || 'standard',
+          selectedCustomPromptId: nextSession.selectedCustomPrompt?.id,
+        });
         setActiveSessionId(newId, {
           remember: effectiveSession.sessionKind !== 'agent',
           modeOverride: effectiveMode,
@@ -2199,10 +2372,16 @@ export default function App() {
           ? (overrideMessages[overrideMessages.length - 1]?.attachments || [])
           : requestAttachments;
         const coworkSystemInstruction = effectiveConfig?.systemInstruction?.trim();
-        const sanitizedCoworkSystemInstruction =
+        const customCoworkSystemInstruction =
           coworkSystemInstruction && coworkSystemInstruction !== LEGACY_COWORK_SYSTEM_INSTRUCTION
             ? coworkSystemInstruction
             : undefined;
+        const shouldSuppressCoworkSystemInstruction =
+          isCoworkRun && !isAgentRun && !isGeneratedAppRun && Boolean(customCoworkSystemInstruction);
+        const sanitizedCoworkSystemInstruction =
+          shouldSuppressCoworkSystemInstruction
+            ? undefined
+            : customCoworkSystemInstruction;
         const agentRuntime = isAgentRun && effectiveSession.agentWorkspace
           ? {
               ...effectiveSession.agentWorkspace.agent,
@@ -2227,8 +2406,46 @@ export default function App() {
               )
             );
             workspaceFiles = wsSnap.docs.map(d => ({ fileId: d.id, ...d.data() } as WorkspaceFile));
+            logFirestoreOperation('workspace-file-list-success', {
+              userId: user.uid,
+              count: workspaceFiles.length,
+            });
           } catch { /* silencieux — l'espace de travail vide ne bloque pas */ }
         }
+
+        if (shouldSuppressCoworkSystemInstruction) {
+          studioDebug('cowork', 'Suppressed custom system instruction for pure Cowork run to avoid prompt hijacking.', {
+            sessionId: currentSessionId,
+            selectedCustomPromptId: effectiveSession.selectedCustomPrompt?.id,
+            instructionPreview: coworkSystemInstruction,
+          }, 'warn');
+        }
+
+        const runtimeLabel = isGeneratedAppRun
+          ? (effectiveSession.generatedAppWorkspace?.app.name || 'App')
+          : isAgentRun
+            ? (effectiveSession.agentWorkspace?.agent.name || 'Agent')
+            : 'Cowork';
+
+        studioDebug('cowork', 'Preparing /api/cowork request.', {
+          sessionId: currentSessionId,
+          runtimeLabel,
+          historyCount: historyForApi.length,
+          attachmentCount: currentRequestAttachments.length,
+          attachmentSummary: currentRequestAttachments.map((attachment) => ({
+            id: attachment.id,
+            type: attachment.type,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            hasStorageUri: Boolean(attachment.storageUri),
+          })),
+          workspaceFileCount: workspaceFiles.length,
+          selectedCustomPromptId: effectiveSession.selectedCustomPrompt?.id,
+          forwardedSystemInstruction: Boolean(sanitizedCoworkSystemInstruction),
+          userIdHint: isCoworkRun && !isAgentRun && !isGeneratedAppRun && user ? user.uid : undefined,
+          memorySearchEnabled: isCoworkRun && !isAgentRun && !isGeneratedAppRun,
+          promptPreview: finalPrompt.slice(0, 220),
+        });
 
         const response = await fetch('/api/cowork', {
           method: 'POST',
@@ -2276,12 +2493,6 @@ export default function App() {
         const decoder = new TextDecoder();
         let buffer = '';
 
-        const runtimeLabel = isGeneratedAppRun
-          ? (effectiveSession.generatedAppWorkspace?.app.name || 'App')
-          : isAgentRun
-            ? (effectiveSession.agentWorkspace?.agent.name || 'Agent')
-            : 'Cowork';
-
         const modelMessage: Message = {
           id: `${isGeneratedAppRun ? 'gapp' : isAgentRun ? 'agent' : 'cowork'}-${Date.now()}`,
           role: 'model',
@@ -2308,6 +2519,11 @@ export default function App() {
         coworkFlushTargetRef.current = { userId: user.uid, sessionId: currentSessionId };
         setCoworkDraft(modelMessage);
         await persistCoworkSnapshot(modelMessage, { userId: user.uid, sessionId: currentSessionId });
+        studioDebug('cowork', 'Cowork stream initialized.', {
+          sessionId: currentSessionId,
+          runtimeLabel,
+          messageId: modelMessage.id,
+        });
 
         while (true) {
           const { done, value } = await reader.read();
@@ -2321,6 +2537,7 @@ export default function App() {
             if (!chunk.startsWith('data: ')) continue;
 
             const data = JSON.parse(chunk.slice(6)) as CoworkStreamEvent & { error?: string };
+            logCoworkStreamEventDebug(data);
             if (data.error && !data.type) {
               throw new Error(data.error);
             }
@@ -2422,6 +2639,10 @@ export default function App() {
           return { ...prev, runState: 'completed' };
         });
         await flushCoworkPersist();
+        studioDebug('cowork', 'Cowork stream completed.', {
+          sessionId: currentSessionId,
+          runtimeLabel,
+        });
         return;
       }
 
@@ -2501,6 +2722,21 @@ export default function App() {
       const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
       const historyForApi = buildApiHistoryFromMessages(apiHistory);
 
+      studioDebug('chat', 'Preparing /api/chat request.', {
+        sessionId: currentSessionId,
+        historyCount: historyForApi.length,
+        attachmentCount: finalRequestAttachments.length,
+        attachmentSummary: finalRequestAttachments.map((attachment) => ({
+          id: attachment.id,
+          type: attachment.type,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          hasStorageUri: Boolean(attachment.storageUri),
+        })),
+        model: effectiveMode === 'chat' ? (effectiveConfig?.model || configs.chat.model) : configs.chat.model,
+        promptPreview: finalMessage.slice(0, 220),
+      });
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2551,6 +2787,13 @@ export default function App() {
           if (chunk.startsWith('data: ')) {
             try {
               const data = JSON.parse(chunk.slice(6));
+              studioDebug('chat:event', 'Received chat SSE event.', {
+                hasText: Boolean(data.text),
+                textPreview: typeof data.text === 'string' ? data.text.slice(0, 120) : undefined,
+                hasThoughts: Boolean(data.thoughts),
+                thoughtsPreview: typeof data.thoughts === 'string' ? data.thoughts.slice(0, 120) : undefined,
+                hasError: Boolean(data.error),
+              });
               if (data.error) {
                 throw new Error(data.error);
               }
@@ -2609,6 +2852,11 @@ export default function App() {
       }
 
       if (error.name !== 'AbortError') {
+        studioDebug('send', 'handleSend failed.', {
+          mode: activeMode,
+          sessionId: activeSessionId,
+          error,
+        }, 'error');
         console.error('Send error:', error);
         alert(`Erreur d'envoi : ${error.message || String(error)}`);
       }

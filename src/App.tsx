@@ -404,6 +404,7 @@ export default function App() {
   const coworkStorageModeRef = useRef<'rich' | 'legacy'>('rich');
   const coworkStorageWarningShownRef = useRef(false);
   const sendInFlightRef = useRef(false);
+  const workspaceFilesCacheRef = useRef<{ files: WorkspaceFile[]; ts: number } | null>(null);
   const handleSendRuntimeRef = useRef<((text: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession) => Promise<void>) | null>(null);
   const sessionRepairAttemptedRef = useRef<Record<string, boolean>>({});
 
@@ -2065,7 +2066,23 @@ export default function App() {
     const scrollContainer = parentRef.current;
     shouldAutoScrollRef.current = !scrollContainer || isScrolledNearBottom(scrollContainer) || displayedMessages.length === 0;
     setRecentlyCompletedMessageId(null);
-    
+
+    // Show the user message IMMEDIATELY before any async work so the UI never freezes.
+    // We use a stable ID so each branch below can update the same optimistic entry with
+    // clean attachment URLs once uploads complete.
+    let earlyUserMessageId: string | null = null;
+    if (!overrideMessages) {
+      earlyUserMessageId = createClientMessageId('msg');
+      setOptimisticMessages(prev => [...prev, {
+        id: earlyUserMessageId!,
+        role: 'user' as const,
+        content: textToSend,
+        createdAt: Date.now(),
+        // Show local attachment data for instant feedback; URLs are filled in after upload.
+        attachments: pendingAttachments.map(({ file: _file, ...rest }) => rest),
+      }]);
+    }
+
     // Clear old response state immediately to prevent "phantom" previous responses
     setStreamingContent('');
     setStreamingThoughts('');
@@ -2075,10 +2092,11 @@ export default function App() {
     });
     setLiveCoworkMessage(null);
     liveCoworkMessageRef.current = null;
-    
+
     sendInFlightRef.current = true;
     setIsLoading(true);
-    setStreamingThoughtsExpanded(true);
+    // Defer thoughts-panel expansion until thoughts actually arrive to avoid showing the
+    // reflection popup before the user message renders.
     setExpandedThoughts(prev => ({ ...prev, streaming: true }));
     abortControllerRef.current = new AbortController();
     let isRichToolRun = false;
@@ -2152,27 +2170,30 @@ export default function App() {
         generatedAppWorkspace: effectiveSession.generatedAppWorkspace,
         messages: effectiveSessionMessages,
       };
-      await touchSession(sessionTouchPayload);
+      // Fire-and-forget — updating updatedAt in Firestore is not critical to the request pipeline.
+      touchSession(sessionTouchPayload).catch(() => { /* non-blocking */ });
 
       // Keep a rich payload for the current request, but persist lightweight attachments only.
-      const requestAttachments: Attachment[] = [];
-      const cleanAttachments: Attachment[] = [];
-      for (const att of pendingAttachments) {
-        const { file, ...rest } = att;
-        const uploaded = await uploadAttachment(att, user.uid, currentSessionId);
-        requestAttachments.push({
-          ...rest,
-          url: uploaded.url,
-          storageUri: uploaded.storageUri,
-          base64: uploaded.storageUri ? undefined : rest.base64,
-        });
-        cleanAttachments.push({
-          ...rest,
-          url: uploaded.url,
-          storageUri: uploaded.storageUri,
-          base64: undefined,
-        });
-      }
+      // Upload all attachments in parallel to reduce latency when multiple files are attached.
+      const uploadedResults = await Promise.all(
+        pendingAttachments.map(async (att) => {
+          const { file, ...rest } = att;
+          const uploaded = await uploadAttachment(att, user.uid, currentSessionId);
+          return { rest, uploaded };
+        })
+      );
+      const requestAttachments: Attachment[] = uploadedResults.map(({ rest, uploaded }) => ({
+        ...rest,
+        url: uploaded.url,
+        storageUri: uploaded.storageUri,
+        base64: uploaded.storageUri ? undefined : rest.base64,
+      }));
+      const cleanAttachments: Attachment[] = uploadedResults.map(({ rest, uploaded }) => ({
+        ...rest,
+        url: uploaded.url,
+        storageUri: uploaded.storageUri,
+        base64: undefined,
+      }));
 
       // --- PROMPT REFINEMENT ---
       let refinedInstruction = undefined;
@@ -2214,10 +2235,11 @@ export default function App() {
         // IMAGE GENERATION FLOW
         if (!overrideMessages) {
           const userMessage: Message = {
-            id: createClientMessageId('msg'),
-            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction 
+            id: earlyUserMessageId!,
+            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction
           };
-          setOptimisticMessages(prev => [...prev, userMessage]);
+          // Update the early optimistic entry with real attachment URLs.
+          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
           await persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -2278,14 +2300,14 @@ export default function App() {
       if (effectiveMode === 'audio') {
         if (!overrideMessages) {
           const userMessage: Message = {
-            id: createClientMessageId('msg'),
+            id: earlyUserMessageId!,
             role: 'user',
             content: finalPrompt,
             createdAt: Date.now(),
             attachments: cleanAttachments,
             refinedInstruction,
           };
-          setOptimisticMessages(prev => [...prev, userMessage]);
+          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
           await persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -2335,14 +2357,14 @@ export default function App() {
       if (effectiveMode === 'lyria') {
         if (!overrideMessages) {
           const userMessage: Message = {
-            id: createClientMessageId('msg'),
+            id: earlyUserMessageId!,
             role: 'user',
             content: finalPrompt,
             createdAt: Date.now(),
             attachments: cleanAttachments,
             refinedInstruction,
           };
-          setOptimisticMessages(prev => [...prev, userMessage]);
+          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
           await persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -2391,13 +2413,13 @@ export default function App() {
       if (isCoworkRun || isAgentRun || isGeneratedAppRun) {
         if (!overrideMessages) {
           const userMessage: Message = {
-            id: createClientMessageId('msg'),
+            id: earlyUserMessageId!,
             role: 'user',
             content: finalPrompt,
             createdAt: Date.now(),
             attachments: cleanAttachments,
           };
-          setOptimisticMessages(prev => [...prev, userMessage]);
+          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
           await persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -2435,20 +2457,27 @@ export default function App() {
 
         let workspaceFiles: WorkspaceFile[] = [];
         if (isCoworkRun && !isAgentRun && !isGeneratedAppRun && user) {
-          try {
-            const wsSnap = await getDocs(
-              query(
-                collection(db, 'users', user.uid, 'workspace', 'files'),
-                orderBy('createdAt', 'desc'),
-                limit(30)
-              )
-            );
-            workspaceFiles = wsSnap.docs.map(d => ({ fileId: d.id, ...d.data() } as WorkspaceFile));
-            logFirestoreOperation('workspace-file-list-success', {
-              userId: user.uid,
-              count: workspaceFiles.length,
-            });
-          } catch { /* silencieux — l'espace de travail vide ne bloque pas */ }
+          const WORKSPACE_CACHE_TTL = 30_000; // 30 seconds
+          const now = Date.now();
+          if (workspaceFilesCacheRef.current && now - workspaceFilesCacheRef.current.ts < WORKSPACE_CACHE_TTL) {
+            workspaceFiles = workspaceFilesCacheRef.current.files;
+          } else {
+            try {
+              const wsSnap = await getDocs(
+                query(
+                  collection(db, 'users', user.uid, 'workspace', 'files'),
+                  orderBy('createdAt', 'desc'),
+                  limit(30)
+                )
+              );
+              workspaceFiles = wsSnap.docs.map(d => ({ fileId: d.id, ...d.data() } as WorkspaceFile));
+              workspaceFilesCacheRef.current = { files: workspaceFiles, ts: now };
+              logFirestoreOperation('workspace-file-list-success', {
+                userId: user.uid,
+                count: workspaceFiles.length,
+              });
+            } catch { /* silencieux — l'espace de travail vide ne bloque pas */ }
+          }
         }
 
         if (shouldSuppressCoworkSystemInstruction) {
@@ -2688,10 +2717,10 @@ export default function App() {
         // VIDEO GENERATION FLOW
         if (!overrideMessages) {
           const userMessage: Message = {
-            id: createClientMessageId('msg'),
-            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments 
+            id: earlyUserMessageId!,
+            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments
           };
-          setOptimisticMessages(prev => [...prev, userMessage]);
+          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
           await persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -2739,14 +2768,14 @@ export default function App() {
 
       if (!overrideMessages) {
         const userMessage: Message = {
-          id: createClientMessageId('msg'),
-          role: 'user', 
-          content: finalPrompt, 
-          createdAt: Date.now(), 
+          id: earlyUserMessageId!,
+          role: 'user',
+          content: finalPrompt,
+          createdAt: Date.now(),
           attachments: cleanAttachments,
           refinedInstruction
         };
-        setOptimisticMessages(prev => [...prev, userMessage]);
+        setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
         await persistSessionMessage(currentSessionId, userMessage);
         setPendingAttachments([]);
       } else {

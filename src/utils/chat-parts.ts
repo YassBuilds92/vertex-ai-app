@@ -120,10 +120,17 @@ export function buildApiMessageParts(
 
   for (const attachment of message.attachments || []) {
     if (options?.historyMode) {
-      // Replace full media data with a text reference to avoid the model re-processing
-      // historical attachments as if they were newly sent on each subsequent turn.
-      const label = [attachment.name, attachment.mimeType].filter(Boolean).join(' — ');
-      parts.push({ text: `[Pièce jointe: ${label || attachment.type || 'fichier'}]` });
+      // In history mode, pass the attachment without base64 (URL/storageUri only) so the
+      // backend can re-resolve it from storage. This preserves document content (e.g. PDFs)
+      // across multiple conversation turns without bloating the payload with inline data.
+      const payload = buildApiAttachmentPayload(attachment);
+      if (payload.url || payload.storageUri) {
+        parts.push({ attachment: { ...payload, base64: undefined } });
+      } else {
+        // No resolvable URL — fall back to a lightweight text reference.
+        const label = [attachment.name, attachment.mimeType].filter(Boolean).join(' — ');
+        parts.push({ text: `[Pièce jointe: ${label || attachment.type || 'fichier'}]` });
+      }
     } else {
       parts.push({ attachment: buildApiAttachmentPayload(attachment) });
     }

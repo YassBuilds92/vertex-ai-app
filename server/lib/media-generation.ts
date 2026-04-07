@@ -1200,48 +1200,13 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
 }
 
 export async function generateImageBinaries(options: ImageGenerationOptions): Promise<GeneratedBinaryArtifact[]> {
-  const prompt = clipText(options.prompt, 4000);
-  if (!prompt) throw new Error("Le prompt image est vide.");
-
-  const model = String(options.model || DEFAULT_IMAGE_MODEL).trim() || DEFAULT_IMAGE_MODEL;
-  const ai = createGoogleAI(model);
-  const config: any = {
-    ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
-    ...(options.numberOfImages ? { candidateCount: options.numberOfImages } : {}),
-  };
-
-  if (model.includes('gemini-3') || model.includes('nano-banana')) {
-    if (options.thinkingLevel) config.thinkingLevel = options.thinkingLevel;
-  }
-  if (model.includes('imagen') || model.includes('image-preview') || model.includes('gemini-2.5-flash-image')) {
-    if (options.personGeneration) config.personGeneration = options.personGeneration;
-    if (options.safetySetting) config.safetyFilterLevel = options.safetySetting;
-    if (options.imageSize) config.imageSize = options.imageSize;
-  }
-
-  const result = await retryWithBackoff(() => ai.models.generateContent({
-    model,
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config,
-  }));
-
-  const allParts = extractAllInlineParts(result, 'image');
-  if (allParts.length === 0) throw new Error("Le modele n'a renvoye aucune image exploitable.");
-
-  return allParts.map((part) => {
-    const mimeType = String(part.inlineData.mimeType || 'image/png');
-    return {
-      buffer: decodeBinaryData(part.inlineData.data),
-      mimeType,
-      fileExtension: guessExtensionFromMimeType(mimeType),
-      model,
-      metadata: {
-        aspectRatio: options.aspectRatio,
-        imageSize: options.imageSize,
-        requestedCandidates: options.numberOfImages,
-      },
-    };
-  });
+  // Gemini image models don't reliably support candidateCount > 1 — make N parallel
+  // independent calls instead to guarantee the requested number of images.
+  const count = Math.max(1, Math.min(options.numberOfImages || 2, 4));
+  const results = await Promise.all(
+    Array.from({ length: count }, () => generateImageBinary({ ...options, numberOfImages: 1 }))
+  );
+  return results;
 }
 
 export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promise<GeneratedBinaryArtifact> {

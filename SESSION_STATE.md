@@ -53,14 +53,33 @@
     - `contents_built`
     - `model_stream_start`
 
+### Validation reelle
+- `git push origin main` : OK (`021dfdd`)
+- `npx vercel deploy --prod --yes` : OK
+- alias prod reapplique:
+  - `https://vertex-ai-app-pearl.vercel.app`
+- `GET /api/status` prod : `200`
+- `POST /api/cowork` prod minimal :
+  - `200`
+  - `traceId` present
+  - premier chunk `: connected`
+  - premier event metier `Initialisation`
+- `POST /api/chat` prod avec PDF joint :
+  - `200`
+  - `traceId` present
+  - `request_accepted`
+  - `contents_built`
+  - `model_stream_start`
+  - `first_chunk_received`
+  - plus de silence de 300 s avant la premiere sortie
+
 ### Ce qui reste a faire
-- deployer ce lot sur Vercel
-- refaire le scenario utilisateur reel sur prod:
+- refaire le scenario utilisateur reel sur prod dans une session authentifiee navigateur:
   - mode `chat`
   - PDF joint
-  - verifier qu'on ne voit plus un `504` muet apres 300 s
-  - verifier la presence des etapes `chat:debug`
-- verifier que `session-touch-failed` disparait sur les sessions reouvertes; si non, inspecter le detail du document legacy qui resiste encore
+  - verifier que `session-touch-failed` a disparu
+- si ce warning persiste encore, inspecter le document Firestore legacy exact qui resiste
+- reprendre ensuite la Phase 2 (`/sandbox/python`, `/sandbox/shell`)
 
 ### Decisions prises et pourquoi
 - un endpoint SSE doit ouvrir la reponse HTTP avant toute etape potentiellement longue:

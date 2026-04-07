@@ -1,7 +1,7 @@
 # BUGS GRAVEYARD
 
 ## 2026-04-07 - Le mode chat avec PDF semblait "planter", mais le vrai bug etait un SSE muet jusqu'au timeout gateway
-- Statut: corrige localement, a redeployer puis revalider en production
+- Statut: corrige, pousse sur `main`, redeploye et revalide en production
 - Symptome:
   - en `chat`, envoi d'un message avec PDF joint
   - F12 montrait `POST /api/chat -> start`
@@ -36,6 +36,12 @@
   - smoke local `/api/chat` PDF:
     - `STATUS 200`
     - `request_accepted -> contents_built -> model_stream_start`
+  - validation prod:
+    - `GET /api/status` : `200`
+    - `POST /api/chat` avec PDF joint : `200`
+    - `traceId` present
+    - `request_accepted -> contents_built -> model_stream_start -> first_chunk_received`
+    - plus de `504` silencieux avant la premiere emission
   - `npm run lint` : OK
   - `npm run build` : OK
 - Prevention:

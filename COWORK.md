@@ -1,5 +1,42 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-07 - Hotfix prod SSE/traceId: plus de silence initial sur chat PDF, Cowork parle des l'initialisation
+- Retour produit:
+  - l'utilisateur voyait `Chat & Raisonnement` charger a l'infini avec PDF joint
+  - F12 montrait un `POST /api/chat` qui restait muet pendant ~300 s avant un `504`
+  - Cowork donnait aussi un ressenti "il ne fait rien" avant d'emettre quoi que ce soit
+- Cause racine confirmee:
+  - `/api/chat` ouvrait un endpoint SSE mais n'envoyait ni `flushHeaders()` ni premier chunk immediat
+  - `/api/cowork` n'ouvrait pas non plus le flux assez tot pour donner un feedback visible des l'initialisation
+  - plusieurs updates de `sessions/{id}` passaient encore par des mutations partielles fragiles sur des shells potentiellement legacy
+- Changement applique:
+  - `server/routes/standard.ts`
+    - `traceId` par requete
+    - `flushHeaders()` immediat
+    - premier event debug `request_accepted`
+    - heartbeat `: keep-alive`
+  - `server/lib/chat-parts.ts`
+    - fallback PDF text-first pour les documents textuels
+  - `api/index.ts`
+    - `ensureSseReady()` pour `/api/cowork`
+    - event `Initialisation` emis des l'ouverture
+    - `traceId` sur les events Cowork
+  - `src/App.tsx`
+    - recanonisation par `setDoc(...)` des shells `sessions/{id}`
+    - plus de dependance a `updateDoc()` pour les chemins critiques de session
+  - `src/utils/client-debug.ts`
+    - `traceId` loggue dans F12 cote fetch et SSE
+- Validation reelle:
+  - `git push origin main` : OK (`021dfdd`)
+  - `npx vercel deploy --prod --yes` : OK
+  - `GET /api/status` prod : `200`
+  - `POST /api/cowork` prod minimal : `200` + `: connected` + `Initialisation`
+  - `POST /api/chat` prod avec PDF joint : `200` + `request_accepted -> contents_built -> model_stream_start -> first_chunk_received`
+- Etat produit:
+  - le faux ressenti "l'IA ne fait rien" est fortement reduit
+  - le bug critique `504` silencieux sur chat PDF n'est plus reproductible avec le smoke prod API
+  - il reste uniquement a confirmer la disparition des warnings Firestore dans une vraie session navigateur authentifiee
+
 ## Mise a jour 2026-04-07 - Hotfix Cowork/Firestore: prompt hijack neutralise et logs F12 exhaustifs
 - Retour produit:
   - l'utilisateur voyait Cowork charger longtemps, ne pas vraiment exploiter sa piece jointe, puis repondre selon une instruction galerie hors sujet (`GEO-PALANTIR`)

@@ -1,5 +1,55 @@
 # SESSION STATE
 
+## 2026-04-09 - Replay automatique du cache local vers Firestore pour reparer la synchro multi-appareils des conversations
+
+### Ce qui a ete accompli
+- Diagnostic:
+  - les conversations ne sont pas censees etre "local only" quand l'utilisateur est connecte
+  - le vrai trou restant etait le suivant:
+    - les `session shells` pouvaient rester `pendingRemote` en local apres un echec Firestore/reseau
+    - les snapshots locaux de messages pouvaient rester sur l'appareil sans mecanisme de replay automatique
+    - resultat produit: impression d'historique "sauvegarde seulement sur cette machine"
+- Correctif applique:
+  - `src/utils/sessionShells.ts`
+    - ajout de `loadPendingLocalSessionShells(userId)`
+  - `src/utils/sessionSnapshots.ts`
+    - ajout de `loadLocalSessionSnapshotEntries(userId)` pour exposer les messages locaux en attente
+  - `src/utils/cowork.ts`
+    - ajout de `loadCoworkSessionSnapshotEntries(userId)` pour exposer les snapshots Cowork en attente locale
+  - `src/App.tsx`
+    - ajout d'un replay automatique des ecritures locales vers Firestore
+    - declenchement sur retour reseau (`online`) et retour de focus (`visibilitychange`)
+    - recreation d'une session shell via `buildRecoveredSessionShell(...)` si des messages locaux existent sans parent session connu
+    - replay sequentiel des shells, messages standard et snapshots Cowork
+  - `QA_RECIPES.md`
+    - nouvelle recette de regression multi-appareils
+
+### Validation locale
+- `npm run lint` : OK
+- `npm run build` : OK
+
+### Ce qui reste a faire
+- verifier le scenario reel sur deux appareils ou deux navigateurs avec le meme compte:
+  - appareil A cree un fil hors ligne / en echec Firestore
+  - retour reseau ou retour de focus
+  - appareil B voit le fil reapparaitre depuis Firestore
+- si la prod ne porte pas encore ce patch:
+  - redeployer frontend + rules si necessaire
+
+### Decisions prises et pourquoi
+- conserver Firestore comme source de verite de l'historique multi-appareils
+- traiter le cache local comme une file de secours rejouable, pas comme une destination finale
+- recreer une session shell avant replay des messages pour eviter un historique distant introuvable
+
+### Pieges / points d'attention
+- les snapshots Cowork locaux peuvent etre rejoues plusieurs fois tant qu'ils restent utiles a l'hydratation riche locale; verifier que cela ne cree pas de bruit excessif
+- le replay n'est pas une migration backend: il depend toujours qu'un appareil ayant le cache local revienne en ligne
+
+### Intention exacte
+- enlever l'impression produit "l'historique est local a cette machine"
+- faire converger automatiquement le cache local vers Firestore des que l'app retrouve des conditions normales
+- laisser une recette QA explicite pour ne plus regresser sur la synchro multi-appareils
+
 ## 2026-04-08 - Fluidite globale, studios media premium et fix critique Cowork multi-tour fermes localement
 
 ### Ce qui a ete accompli

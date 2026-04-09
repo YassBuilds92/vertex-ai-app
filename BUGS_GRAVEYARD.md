@@ -1,5 +1,33 @@
 # BUGS GRAVEYARD
 
+## 2026-04-09 - Une conversation pouvait rester de fait locale si Firestore echouait au mauvais moment
+- Statut: corrige localement, a revalider en session connectee multi-appareils
+- Symptome:
+  - une conversation creee pendant une degradation Firestore ou hors ligne restait visible sur l'appareil courant
+  - le meme compte sur un autre appareil ne recuperait pas ce fil
+  - l'impression produit pouvait devenir: "les historiques sont sauvegardes localement sur chaque machine"
+- Tentatives:
+  - verification que les conversations sont bien censees vivre dans Firestore
+  - relecture du flux `session shell -> messages -> snapshots locaux`
+  - comparaison entre le cache local de secours et les vrais chemins de replay existants
+- Cause racine:
+  - le produit gardait un bon filet de securite local (`pendingRemote`, snapshots de messages, snapshots Cowork)
+  - mais ne rejouait pas automatiquement ces ecritures vers Firestore une fois le reseau revenu
+  - consequence: un echec transitoire pouvait devenir un etat quasi permanent tant que l'utilisateur ne recreait pas le fil ou ne declenchait pas manuellement autre chose
+- Resolution:
+  - ajout de `loadPendingLocalSessionShells()` dans `src/utils/sessionShells.ts`
+  - ajout de `loadLocalSessionSnapshotEntries()` dans `src/utils/sessionSnapshots.ts`
+  - ajout de `loadCoworkSessionSnapshotEntries()` dans `src/utils/cowork.ts`
+  - ajout dans `src/App.tsx` d'un replay automatique sur retour reseau / retour de focus
+  - recreation d'une `session shell` via `buildRecoveredSessionShell(...)` quand des messages locaux existent sans parent session connu
+  - ajout d'une recette de regression dediee dans `QA_RECIPES.md`
+- Preuve:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+- Prevention:
+  - tout cache local de secours doit etre pense comme une file de rejeu, pas seulement comme une hydratation locale
+  - un mode degrade sans mecanisme de replay finit toujours par ressembler a du "local only"
+
 ## 2026-04-08 - Cowork repartait sur la premiere requete et ignorait le follow-up courant
 - Statut: corrige localement
 - Symptome:

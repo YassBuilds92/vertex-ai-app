@@ -1,38 +1,39 @@
 # NOW
 
 ## Objectif actuel
-- Lot "fluidite + media studios + Cowork multi-tour" ferme localement et pret pour retest reel / redeploiement.
-- Ce lot couvre maintenant:
-  - Cowork qui traite en priorite le dernier follow-up au lieu de repartir sur la requete precedente
-  - la persistance exacte `prompt` / `refinedPrompt` / modele / profil de raffineur sur image/audio/video/lyria
-  - la galerie image hero + copie fiable des prompts
-  - le player audio custom avec preview plus premium
-  - les raffineurs IA par mode avec profils et consignes perso
-  - plusieurs sources de jank frontend (transitions globales, updates streaming trop frequentes, gros shell trop lourd)
+- Verrouiller la resynchronisation multi-appareils des historiques quand une session ou des messages sont restes seulement dans le cache local apres un echec Firestore/reseau.
+- Le fix local ajoute:
+  - le replay automatique des `session shells` restes `pendingRemote`
+  - le replay des snapshots de messages standards vers Firestore
+  - le replay des snapshots Cowork au retour reseau / retour de focus
+  - la recreation d'une coquille de session avant replay si seul l'historique local subsiste
 
 ## Blocage actuel
-- Aucun blocage technique majeur.
-- La prochaine preuve critique n'est plus le code local mais le retest utilisateur reel:
-  - conversation Cowork longue puis follow-up court
-  - generation image/audio sur session normale
-  - redeploiement si on veut projeter ce lot sur l'environnement public
+- Aucun blocage code majeur.
+- La preuve critique restante est un retest reel en session connectee:
+  - creer un fil hors ligne ou avec Firestore degrade sur appareil A
+  - laisser l'app replay au retour reseau / retour de focus
+  - verifier l'apparition du fil sur appareil B avec le meme compte
 
 ## Prochaine action exacte
-- rejouer les flows critiques en contexte reel apres push:
-  - Cowork multi-tour
-  - image studio avec copie de prompt
-  - audio/Lyria studio avec player custom
-- si le retest est bon, reprendre le prochain chantier prioritaire (Phase 3 V1 ou lot produit suivant)
+- rejouer la recette `Historique - synchro multi-appareils apres echec local puis reprise reseau`
+- si le retest est bon:
+  - redeployer si l'environnement public n'a pas encore ce fix
+  - reprendre ensuite les retests media/Cowork deja notes
 
 ## Fichiers chauds
 - `api/index.ts`
 - `src/App.tsx`
+- `src/utils/sessionShells.ts`
+- `src/utils/sessionSnapshots.ts`
+- `src/utils/cowork.ts`
 - `src/components/ImageStudio.tsx`
 - `src/components/AudioStudio.tsx`
 - `src/components/LyriaStudio.tsx`
 - `src/components/VideoStudio.tsx`
 - `src/components/StudioAudioPlayer.tsx`
 - `src/components/SidebarRight.tsx`
+- `QA_RECIPES.md`
 - `src/utils/chat-parts.ts`
 - `src/utils/media-gallery-history.ts`
 - `src/utils/instruction-gallery.ts`
@@ -42,7 +43,8 @@
 
 ## Validations restantes
 - a faire:
-  - retest utilisateur reel / redeploiement si souhaite
+  - retest utilisateur reel multi-appareils sur compte connecte
+  - redeploiement si souhaite / si prod n'a pas encore ce fix
 - deja faits sur ce lot:
   - `npm run lint`
   - `npm run build`
@@ -52,6 +54,8 @@
   - QA visuelle locale via Vite source + Playwright CLI / Edge sur les studios image/audio/lyria et le panneau Cowork
 
 ## Risques immediats
+- surveiller un replay inutilement trop frequent des snapshots Cowork locaux
+- ne pas perdre une session sans shell distant quand seuls des snapshots locaux restent encore a rejouer
 - ne pas reintroduire un historique Cowork trop massif sur les runs multi-tour
 - ne pas perdre `generationMeta` lors de sanitization/persistence des attachments
 - ne pas refaire du lecteur audio natif brut sur les surfaces premium

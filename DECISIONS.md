@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-04-09 - Le cache local des conversations devient une file de replay vers Firestore, pas une persistance terminale
+- Statut: adopte localement
+- Contexte: meme avec Firestore branche comme source de verite, une conversation pouvait rester de fait prisonniere d'un appareil si le `session shell` ou les messages echouaient a s'ecrire au mauvais moment puis restaient seulement dans le cache local.
+- Decision:
+  - conserver le cache local comme filet de securite
+  - exposer explicitement les `session shells` en `pendingRemote` et les snapshots locaux de messages
+  - rejouer automatiquement ces ecritures vers Firestore au retour reseau ou retour de focus
+  - recreer une session shell si des messages locaux existent encore sans parent distant connu
+- Pourquoi:
+  - un cache de secours sans replay se transforme fonctionnellement en stockage mono-appareil
+  - Firestore doit rester la source de verite de l'historique multi-appareils
+  - la correction doit vivre dans le produit lui-meme, pas dans une procedure manuelle
+- Consequence:
+  - `src/App.tsx` orchestre maintenant ce replay automatique
+  - `src/utils/sessionShells.ts`, `src/utils/sessionSnapshots.ts` et `src/utils/cowork.ts` exposent les files locales necessaires
+  - `QA_RECIPES.md` porte une regression dediee multi-appareils
+
 ## 2026-04-08 - Cowork multi-tour doit etre pilote par le dernier message, pas par le poids de l'historique
 - Statut: adopte localement
 - Contexte: sur des runs Cowork longs et riches en recherche, un follow-up court pouvait etre noye sous l'historique precedent. Le modele repartait alors sur le premier dossier, relancait des recherches deja faites et ignorait la nouvelle question de l'utilisateur.

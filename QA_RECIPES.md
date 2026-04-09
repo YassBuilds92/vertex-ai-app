@@ -1,5 +1,27 @@
 # QA RECIPES
 
+## Historique - synchro multi-appareils apres echec local puis reprise reseau
+- Objectif:
+  - verifier qu'une conversation creee pendant une degradation Firestore ou hors ligne n'est plus prisonniere du cache local
+  - verifier que l'app rejoue automatiquement les sessions/messages en attente vers Firestore quand la page redevient active ou quand le reseau revient
+- Repro:
+  - ouvrir l'app connectee sur l'appareil A
+  - couper temporairement le reseau ou provoquer un echec Firestore visible
+  - creer une nouvelle conversation et envoyer au moins un message utilisateur puis attendre une reponse
+  - verifier que la conversation existe localement dans la sidebar
+  - retablir le reseau puis soit:
+    - remettre l'onglet au premier plan
+    - soit laisser l'evenement `online` se declencher
+  - ouvrir l'appareil B avec le meme compte
+- Attendus:
+  - l'appareil A rejoue automatiquement la session shell en attente vers `users/{uid}/sessions/{sessionId}`
+  - les snapshots de messages locaux sont re-emis vers Firestore
+  - si une session n'avait plus de shell mais a encore des messages locaux, une coquille de session est recreee avant replay
+  - l'appareil B voit la conversation apparaitre sans intervention manuelle ni recreation du fil
+- Validation locale:
+  - `npm run lint`
+  - `npm run build`
+
 ## Cowork - follow-up court ne doit plus rerunner le premier dossier
 - Objectif:
   - verifier qu'un run Cowork long peut etre suivi d'une deuxieme question differente sans que le modele reparte sur la premiere mission

@@ -33,12 +33,14 @@ import {
   CoworkStreamEvent,
   createEmptyRunMeta,
   hydrateCoworkMessages,
+  loadCoworkSessionSnapshotEntries,
   sanitizeCoworkMessageForStorage,
   saveCoworkSessionSnapshot,
 } from './utils/cowork';
 import {
   clearSessionSnapshots,
   hydrateSessionMessages,
+  loadLocalSessionSnapshotEntries,
   saveSessionSnapshot,
 } from './utils/sessionSnapshots';
 import {
@@ -47,6 +49,7 @@ import {
 } from './utils/sessionRecovery';
 import {
   loadLocalSessionShells,
+  loadPendingLocalSessionShells,
   mergeSessionsWithLocal,
   saveLocalSessionShell,
 } from './utils/sessionShells';
@@ -399,6 +402,7 @@ export default function App() {
   const [hasLoadedRemoteAgents, setHasLoadedRemoteAgents] = useState(false);
   const [hasLoadedRemoteGeneratedApps, setHasLoadedRemoteGeneratedApps] = useState(false);
   const [selectedCustomPrompt, setSelectedCustomPrompt] = useState<SelectedCustomPromptRef | null>(null);
+  const [localSyncTick, setLocalSyncTick] = useState(0);
 
   const activeSessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -414,6 +418,8 @@ export default function App() {
   const workspaceFilesCacheRef = useRef<{ files: WorkspaceFile[]; ts: number } | null>(null);
   const handleSendRuntimeRef = useRef<((text: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession, mediaRequest?: MediaGenerationRequest) => Promise<void>) | null>(null);
   const sessionRepairAttemptedRef = useRef<Record<string, boolean>>({});
+  const localSyncAttemptRef = useRef<Record<string, string>>({});
+  const localSyncInFlightRef = useRef<Record<string, boolean>>({});
 
   const activeSessionFromList = sessions.find(s => s.id === activeSessionId) || null;
   const activeSession = activeSessionFromList || {
@@ -788,12 +794,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const triggerReplay = () => setLocalSyncTick((prev) => prev + 1);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        triggerReplay();
+      }
+    };
+
+    window.addEventListener('online', triggerReplay);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('online', triggerReplay);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!user) {
       setSessions([]);
       setHasLoadedRemoteSessions(false);
       setHasLoadedRemoteAgents(false);
       setHasLoadedRemoteGeneratedApps(false);
       sessionRepairAttemptedRef.current = {};
+      localSyncAttemptRef.current = {};
+      localSyncInFlightRef.current = {};
       return;
     }
 
@@ -1473,6 +1498,109 @@ export default function App() {
       saveLocalSessionShell(user.uid, session, { pendingRemote: options?.pendingRemote });
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !hasLoadedRemoteSessions || !hasLoadedRemoteAgents || !hasLoadedRemoteGeneratedApps) return;
+
+    const pendingShells = loadPendingLocalSessionShells(user.uid);
+    const standardSnapshotEntries = loadLocalSessionSnapshotEntries(user.uid);
+    const coworkSnapshotEntries = loadCoworkSessionSnapshotEntries(user.uid);
+    const fingerprint = JSON.stringify({
+      localSyncTick,
+      shellIds: pendingShells.map((session) => `${session.id}:${session.updatedAt}`),
+      standardSnapshotIds: standardSnapshotEntries.map((entry) => `${entry.sessionId}:${entry.messages.map((message) => message.id).join(',')}`),
+      coworkSnapshotIds: coworkSnapshotEntries.map((entry) => `${entry.sessionId}:${entry.messages.map((message) => message.id).join(',')}`),
+    });
+
+    const hasPendingReplay =
+      pendingShells.length > 0 || standardSnapshotEntries.length > 0 || coworkSnapshotEntries.length > 0;
+
+    if (!hasPendingReplay) {
+      localSyncAttemptRef.current[user.uid] = '';
+      return;
+    }
+
+    if (localSyncInFlightRef.current[user.uid]) return;
+    if (localSyncAttemptRef.current[user.uid] === fingerprint) return;
+
+    localSyncAttemptRef.current[user.uid] = fingerprint;
+    localSyncInFlightRef.current[user.uid] = true;
+    let cancelled = false;
+
+    const replayLocalSync = async () => {
+      const knownSessionIds = new Set(sessions.map((session) => session.id));
+      const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
+      const generatedAppsById = new Map(generatedApps.map((app) => [app.id, app]));
+
+      const ensureSessionShell = async (sessionId: string, messages: Message[]) => {
+        if (knownSessionIds.has(sessionId)) return;
+
+        const recoveredSession = buildRecoveredSessionShell(
+          sessionId,
+          user.uid,
+          messages,
+          agentsById,
+          generatedAppsById
+        );
+        if (!recoveredSession) return;
+
+        await persistSessionShell(recoveredSession);
+        knownSessionIds.add(sessionId);
+      };
+
+      try {
+        for (const session of pendingShells) {
+          if (cancelled) return;
+          await persistSessionShell(session);
+          knownSessionIds.add(session.id);
+        }
+
+        for (const entry of standardSnapshotEntries) {
+          if (cancelled) return;
+          await ensureSessionShell(entry.sessionId, entry.messages);
+          for (const message of entry.messages) {
+            if (cancelled) return;
+            await persistSessionMessage(entry.sessionId, message);
+          }
+        }
+
+        for (const entry of coworkSnapshotEntries) {
+          if (cancelled) return;
+          await ensureSessionShell(entry.sessionId, entry.messages);
+          for (const message of entry.messages) {
+            if (cancelled) return;
+            if (message.role !== 'model') continue;
+            await persistCoworkSnapshot(message, { userId: user.uid, sessionId: entry.sessionId });
+          }
+        }
+      } catch (error) {
+        logFirestoreOperation('local-sync-replay-failed', {
+          userId: user.uid,
+          error,
+        }, 'warn');
+      } finally {
+        localSyncInFlightRef.current[user.uid] = false;
+      }
+    };
+
+    void replayLocalSync();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    agents,
+    generatedApps,
+    hasLoadedRemoteAgents,
+    hasLoadedRemoteGeneratedApps,
+    hasLoadedRemoteSessions,
+    localSyncTick,
+    persistCoworkSnapshot,
+    persistSessionMessage,
+    persistSessionShell,
+    sessions,
+    user,
+  ]);
 
   useEffect(() => {
     if (!user || !hasLoadedRemoteSessions || !hasLoadedRemoteAgents || !hasLoadedRemoteGeneratedApps) return;

@@ -142,3 +142,23 @@ export function hydrateSessionMessages(messages: Message[], userId: string, sess
 
   return Array.from(merged.values()).sort((left, right) => left.createdAt - right.createdAt);
 }
+
+export function loadLocalSessionSnapshotEntries(userId: string): Array<{ sessionId: string; messages: Message[] }> {
+  if (!userId) return [];
+
+  const store = readSessionLocalSnapshots();
+  const userSnapshots = store[userId];
+  if (!userSnapshots) return [];
+
+  return Object.entries(userSnapshots)
+    .map(([sessionId, messagesById]) => ({
+      sessionId,
+      messages: Object.values(messagesById).sort((left, right) => left.createdAt - right.createdAt),
+    }))
+    .filter((entry) => entry.messages.length > 0)
+    .sort((left, right) => {
+      const leftUpdatedAt = left.messages[left.messages.length - 1]?.createdAt || 0;
+      const rightUpdatedAt = right.messages[right.messages.length - 1]?.createdAt || 0;
+      return rightUpdatedAt - leftUpdatedAt;
+    });
+}

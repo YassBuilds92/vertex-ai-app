@@ -130,6 +130,15 @@ export function loadLocalSessionShells(userId: string): ChatSession[] {
     .sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
+export function loadPendingLocalSessionShells(userId: string): ChatSession[] {
+  if (!userId) return [];
+
+  return Object.values(readUserSessionShellRecords(userId))
+    .filter((record) => Boolean(record?.pendingRemote))
+    .map((record) => normalizeSessionShell(record.session))
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
 export function saveLocalSessionShell(
   userId: string,
   session: ChatSession,

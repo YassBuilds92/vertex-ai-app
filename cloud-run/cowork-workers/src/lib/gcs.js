@@ -1,9 +1,21 @@
 import { Storage } from '@google-cloud/storage';
 
+function parseGcsUri(storageUri) {
+  const normalized = String(storageUri || '').trim();
+  const match = normalized.match(/^gs:\/\/([^/]+)(?:\/(.*))?$/i);
+  if (!match) return null;
+
+  return {
+    bucketName: String(match[1] || '').trim(),
+    objectPath: String(match[2] || '').replace(/^\/+/, ''),
+  };
+}
+
 const DEFAULT_BUCKET_NAME = String(
   process.env.COWORK_WORKSPACE_BUCKET
   || process.env.WORKSPACE_GCS_BUCKET
-  || 'videosss92'
+  || parseGcsUri(process.env.VERTEX_GCS_OUTPUT_URI)?.bucketName
+  || ''
 ).trim();
 
 let storageClient = null;
@@ -47,20 +59,9 @@ export function buildGcsUri(objectPath, bucketName = DEFAULT_BUCKET_NAME) {
   return normalizedPath ? `gs://${bucketName}/${normalizedPath}` : `gs://${bucketName}`;
 }
 
-export function parseGcsUri(storageUri) {
-  const normalized = String(storageUri || '').trim();
-  const match = normalized.match(/^gs:\/\/([^/]+)\/(.+)$/i);
-  if (!match) return null;
-
-  return {
-    bucketName: match[1],
-    objectPath: String(match[2] || '').replace(/^\/+/, ''),
-  };
-}
-
 export async function downloadFromGcs(storageUri) {
   const location = parseGcsUri(storageUri);
-  if (!location) {
+  if (!location?.bucketName || !location.objectPath) {
     throw new Error(`Storage URI invalide: ${storageUri}`);
   }
 

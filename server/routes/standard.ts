@@ -27,7 +27,7 @@ import {
   UploadSchema,
   VideoGenSchema,
 } from '../lib/schemas.js';
-import { getServiceAccountEmail, uploadToGCSWithMetadata } from '../lib/storage.js';
+import { downloadFromGCSWithMetadata, getGoogleAuthMode, getServiceAccountEmail, uploadToGCSWithMetadata } from '../lib/storage.js';
 import { buildModelContentsFromRequest } from '../lib/chat-parts.js';
 import { buildPromptRefinerSystemPrompt, type PromptRefinerMode } from '../../shared/prompt-refiners.js';
 
@@ -197,9 +197,34 @@ export function registerStandardApiRoutes(app: Express) {
         baseUrl: resolveLatexProviderBaseUrl(latexProvider, process.env.LATEX_RENDER_BASE_URL),
         timeoutMs: Number(process.env.LATEX_RENDER_TIMEOUT_MS || 30000),
       },
+      googleAuthMode: getGoogleAuthMode(),
       serviceAccount: getServiceAccountEmail(),
       envKeys: Object.keys(process.env).filter(k => ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS_JSON', 'LATEX_RENDER_PROVIDER', 'LATEX_RENDER_BASE_URL', 'LATEX_RENDER_TIMEOUT_MS'].includes(k))
     });
+  });
+
+  app.get('/api/storage/object', async (req, res) => {
+    try {
+      const storageUri = String(req.query.uri || '').trim();
+      if (!storageUri) {
+        res.status(400).json({ error: 'Storage URI manquante' });
+        return;
+      }
+
+      const downloaded = await downloadFromGCSWithMetadata(storageUri);
+      if (downloaded.contentType) {
+        res.setHeader('Content-Type', downloaded.contentType);
+      }
+      if (typeof downloaded.size === 'number') {
+        res.setHeader('Content-Length', String(downloaded.size));
+      }
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.send(downloaded.buffer);
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.error('Storage proxy error', cleanError);
+      res.status(500).json({ error: 'Storage proxy failed', message: cleanError });
+    }
   });
 
   app.post('/api/refine', async (req, res) => {

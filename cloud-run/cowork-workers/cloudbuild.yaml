@@ -3,6 +3,7 @@ substitutions:
   _REGION: europe-west1
   _REPOSITORY: cowork-workers
   _IMAGE_TAG: manual
+  _WORKSPACE_BUCKET: project-82b8c612-ea3d-49f5-864-studio-output
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -34,7 +35,7 @@ steps:
       - --timeout
       - "300"
       - --update-env-vars
-      - COWORK_SANDBOX_PERSIST_SESSIONS=1,COWORK_SANDBOX_PERSIST_BUCKET=videosss92,COWORK_WORKSPACE_BUCKET=videosss92
+      - COWORK_SANDBOX_PERSIST_SESSIONS=1,COWORK_SANDBOX_PERSIST_BUCKET=${_WORKSPACE_BUCKET},COWORK_WORKSPACE_BUCKET=${_WORKSPACE_BUCKET}
       - --allow-unauthenticated
 
 images:

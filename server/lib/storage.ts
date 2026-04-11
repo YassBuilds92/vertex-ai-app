@@ -21,7 +21,7 @@ export type DownloadedGcsObject = {
 let gcpCredentials: any = null;
 let storage: Storage | null = null;
 let serviceAccountEmail: string | null = null;
-let googleAuthMode: 'service-account-json' | 'application-default' | null = null;
+let googleAuthMode: 'service-account-json' | 'authorized-user-json' | 'application-default' | null = null;
 
 type GcsLocation = {
   bucketName: string;
@@ -35,8 +35,9 @@ try {
     try {
       gcpCredentials = JSON.parse(rawCredentials);
       storage = new Storage({ credentials: gcpCredentials });
-      serviceAccountEmail = gcpCredentials.client_email || null;
-      googleAuthMode = 'service-account-json';
+      const credentialType = String(gcpCredentials?.type || '').trim().toLowerCase();
+      serviceAccountEmail = credentialType === 'service_account' ? (gcpCredentials.client_email || null) : null;
+      googleAuthMode = credentialType === 'authorized_user' ? 'authorized-user-json' : 'service-account-json';
       log.success(
         `GCP SDKs initialized (${googleAuthMode}${serviceAccountEmail ? `, ${serviceAccountEmail}` : ''})`,
       );

@@ -1,5 +1,92 @@
 # QA RECIPES
 
+## Production Vercel - smoke apres switch de projet GCP
+- Objectif:
+  - verifier que la prod Vercel ne parle plus a un ancien projet GCP
+  - verifier que Vertex texte et GCS passent bien sur `project-82b8c612-ea3d-49f5-864`
+- Validation:
+  - `GET https://vertex-ai-app-pearl.vercel.app/api/status`
+  - `POST https://vertex-ai-app-pearl.vercel.app/api/chat`
+  - `POST https://vertex-ai-app-pearl.vercel.app/api/upload`
+  - `GET https://vertex-ai-app-pearl.vercel.app/api/storage/object?uri=...`
+- Attendus:
+  - `/api/status`:
+    - `googleAuthMode: "authorized-user-json"` ou le mode explicitement attendu
+    - aucune trace de l'ancien projet `gen-lang-client-0405707007`
+  - `/api/chat`:
+    - SSE 200
+    - au moins un chunk `text` valide
+    - pas d'erreur `BILLING_DISABLED`
+  - `/api/upload`:
+    - `storageUri` commence par `gs://project-82b8c612-ea3d-49f5-864-studio-output/output/`
+  - `/api/storage/object`:
+    - renvoie bien le contenu precedemment upload
+- Note:
+  - si `/api/status` est bon mais que `/api/chat` casse encore, verifier le payload exact du test avant d'incriminer Vertex
+
+## Auth Google local - gcloud uniquement
+- Objectif:
+  - verifier que le backend tourne sans `Vertex Express` ni API key Gemini
+  - verifier que Gemini et GCS utilisent bien les `application-default credentials` locales
+  - verifier que le bon compte GCP est utilise (pas forcement le meme que Firebase)
+- Preparation:
+  - `.env`:
+    - `VERTEX_PROJECT_ID`
+    - `VERTEX_LOCATION`
+    - `VERTEX_GCS_OUTPUT_URI`
+    - `GOOGLE_APPLICATION_CREDENTIALS_JSON=""`
+  - terminal:
+    - `gcloud config set project <VERTEX_PROJECT_ID>`
+    - `gcloud auth login <compte-gcp> --update-adc`
+- Validation:
+  - lancer `npm run lint`
+  - lancer `npm run build`
+  - lancer le backend puis appeler `GET /api/status`
+- Attendus:
+  - `googleAuthMode: "application-default"`
+  - `isVertexConfigured: true`
+  - pas d'erreur `Vertex AI non configure`
+  - pas d'erreur `Storage non configure` sur un endpoint qui upload un fichier genere
+  - si un appel reel Vertex ou GCS renvoie `BILLING_DISABLED`, le blocage restant est infra/projet et non un probleme d'auth locale
+
+## Session visible puis disparait - regression rules/schema
+- Objectif:
+  - verifier qu'une conversation nouvellement creee reste visible dans la sidebar apres sync distante et apres refresh
+  - verifier que `users/{uid}/sessions/{sessionId}` est bien cree en meme temps que `messages/{messageId}`
+- Repro:
+  - ouvrir `https://vertex-ai-app-pearl.vercel.app`
+  - se connecter
+  - ouvrir F12
+  - creer un nouveau fil et envoyer un message court
+  - attendre la reponse puis recharger la page avec `F5`
+- Attendus:
+  - la session reste presente dans la sidebar apres la reponse
+  - la session reste presente apres `F5`
+  - absence de `Missing or insufficient permissions` sur `users/{uid}/sessions/{sessionId}`
+  - absence d'un `session-list-sync-success` avec `count: 0` pour un compte qui vient juste d'ecrire un fil
+
+## Hard reset global - historique et stockages
+- Objectif:
+  - verifier qu'un reset global efface l'historique distant et les stockages navigateur locaux
+  - verifier qu'aucun appareil ne ressuscite des sessions fantomes apres reload
+- Repro:
+  - deployer la build qui sert `public/storage-reset.json`
+  - vider Firestore sous `users/*` et les fichiers bucket associes
+  - ouvrir l'app sur chaque machine avec le domaine de production
+  - laisser la page charger le marker `/storage-reset.json`
+  - remettre la fenetre au premier plan si besoin
+- Attendus:
+  - a la premiere ouverture apres changement de version du marker, l'app vide:
+    - `localStorage`
+    - `sessionStorage`
+    - IndexedDB du navigateur pour l'origine
+    - Cache Storage
+    - cookies accessibles en JS
+  - la page peut se recharger une fois automatiquement
+  - apres reconnexion, la sidebar repart vide sur chaque appareil
+  - aucun compteur de sessions ne reapparait depuis un cache local ancien
+  - `users/*/sessions/*`, `messages`, `agents`, `generatedApps`, `custom_prompts` et `workspace/files` sont absents du cloud
+
 ## Historique - synchro multi-appareils apres echec local puis reprise reseau
 - Objectif:
   - verifier qu'une conversation creee pendant une degradation Firestore ou hors ligne n'est plus prisonniere du cache local
@@ -18,6 +105,8 @@
   - les snapshots de messages locaux sont re-emis vers Firestore
   - si une session n'avait plus de shell mais a encore des messages locaux, une coquille de session est recreee avant replay
   - l'appareil B voit la conversation apparaitre sans intervention manuelle ni recreation du fil
+  - apres reception d'un snapshot Firestore serveur, les deux appareils convergent vers le meme compteur de sessions
+  - un appareil qui avait des shells locaux anciens ne doit plus afficher plus de sessions que le cloud
 - Validation locale:
   - `npm run lint`
   - `npm run build`

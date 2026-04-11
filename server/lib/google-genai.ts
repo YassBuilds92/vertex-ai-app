@@ -20,9 +20,11 @@ export type RetryOptions = {
   }) => void | Promise<void>;
 };
 
+let loggedLegacyAuthWarning = false;
+
 export function getVertexConfig() {
-  const projectId = process.env.VERTEX_PROJECT_ID;
-  const location = process.env.VERTEX_LOCATION;
+  const projectId = String(process.env.VERTEX_PROJECT_ID || '').trim();
+  const location = String(process.env.VERTEX_LOCATION || '').trim();
   return { isConfigured: !!(projectId && location), projectId, location };
 }
 
@@ -36,14 +38,14 @@ export function parseApiError(error: any): string {
         const parsed = JSON.parse(jsonPart);
         if (parsed.error && parsed.error.message) {
           let msg = parsed.error.message;
-          if (parsed.error.code === 429 || parsed.error.status === "RESOURCE_EXHAUSTED") {
-            msg = "Quota dépassé (429). Trop de demandes simultanées ou limite quotidienne atteinte. Réessayez dans quelques minutes.";
+          if (parsed.error.code === 429 || parsed.error.status === 'RESOURCE_EXHAUSTED') {
+            msg = 'Quota depasse (429). Trop de demandes simultanees ou limite quotidienne atteinte. Reessayez dans quelques minutes.';
           }
           return msg;
         }
       }
     } catch (e) {
-      log.debug("Failed to parse ApiError JSON", e);
+      log.debug('Failed to parse ApiError JSON', e);
     }
   }
   return errStr;
@@ -110,7 +112,7 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
         const delayMs = Math.min(16_000, Math.round(exponentialDelay + jitter));
 
         log.warn(`Transient ${classified.kind} failure. Retrying in ${delayMs}ms... (Attempt ${i + 1}/${maxRetries})`, {
-          message: classified.message
+          message: classified.message,
         });
 
         await options.onRetry?.({
@@ -118,7 +120,7 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
           maxRetries,
           delayMs,
           kind: classified.kind,
-          message: classified.message
+          message: classified.message,
         });
 
         await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -132,7 +134,24 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
 
 export function createGoogleAI(modelId?: string): GoogleGenAI {
   const { projectId, location: envLocation } = getVertexConfig();
-  if (!projectId || !envLocation) throw new Error('Vertex AI non configuré');
+
+  if (!loggedLegacyAuthWarning) {
+    loggedLegacyAuthWarning = true;
+
+    if (/^(1|true|yes|on)$/i.test(String(process.env.VERTEX_EXPRESS || '').trim())) {
+      log.warn('VERTEX_EXPRESS est ignore. Ce backend utilise uniquement Vertex AI via gcloud auth / ADC.');
+    }
+
+    if (String(process.env.GEMINI_API_KEY || '').trim()) {
+      log.warn('GEMINI_API_KEY est ignore cote backend. Ce projet utilise uniquement Vertex AI via gcloud auth / ADC.');
+    }
+  }
+
+  if (!projectId || !envLocation) {
+    throw new Error(
+      "Vertex AI non configure. Renseigne VERTEX_PROJECT_ID / VERTEX_LOCATION puis connecte-toi avec 'gcloud auth application-default login'.",
+    );
+  }
 
   let finalLocation = envLocation;
   const normalizedModelId = String(modelId || '').trim().toLowerCase();

@@ -1,5 +1,116 @@
 # DECISIONS
 
+## 2026-04-11 - La prod Vercel tourne desormais sur `project-82b8c612-ea3d-49f5-864` via un JSON ADC `authorized_user`
+- Statut: adopte en production
+- Contexte: la prod etait bien deployee avec le dernier code, mais `/api/status` montrait encore un `serviceAccount` sur l'ancien projet `gen-lang-client-0405707007`, ce qui expliquait les erreurs de billing utilisateur. Le remplacement par une nouvelle cle de service account sur le bon projet a ensuite ete bloque par la policy `constraints/iam.disableServiceAccountKeyCreation`.
+- Decision:
+  - remplacer en Vercel `GOOGLE_APPLICATION_CREDENTIALS_JSON` par le JSON ADC `authorized_user` issu de `gcloud auth application-default login` sur le compte `yassinebenks5@gmail.com`
+  - remplacer aussi `VERTEX_PROJECT_ID` et `VERTEX_GCS_OUTPUT_URI` en `production` et `preview`
+  - faire distinguer cote code `authorized-user-json` et `service-account-json` dans `server/lib/storage.ts`
+  - trim `VERTEX_PROJECT_ID` / `VERTEX_LOCATION` dans `server/lib/google-genai.ts`
+- Pourquoi:
+  - corrige reellement la prod Vercel sans revenir sur le mauvais projet
+  - respecte au mieux la contrainte utilisateur "gcloud auth only" dans un contexte Vercel
+  - contourne proprement l'interdiction de creer une nouvelle cle de service account
+- Consequence:
+  - `/api/status` prod affiche maintenant `googleAuthMode: "authorized-user-json"`
+  - `/api/chat` prod ne renvoie plus l'erreur de billing sur `gen-lang-client-0405707007`
+  - les uploads GCS prod ecrivent maintenant dans `gs://project-82b8c612-ea3d-49f5-864-studio-output/output`
+  - une evolution future vers Workload Identity Federation reste souhaitable si on veut une auth serveur plus stricte
+
+## 2026-04-11 - Le projet GCP final est `project-82b8c612-ea3d-49f5-864`, et le mode ADC utilisateur utilise un proxy fichier si GCS ne peut pas signer
+- Statut: adopte localement
+- Contexte: apres plusieurs clarifications utilisateur, le vrai projet cible est `My First Project` (`project-82b8c612-ea3d-49f5-864`) avec le compte `yassinebenks5@gmail.com`. Sur ce projet, Vertex fonctionne bien et un bucket dedie peut etre cree, mais `@google-cloud/storage` ne peut pas generer de signed URL classique avec des ADC utilisateur simples (`Cannot sign data without client_email`).
+- Decision:
+  - garder `project-82b8c612-ea3d-49f5-864` comme projet GCP cible
+  - creer un bucket dedie `project-82b8c612-ea3d-49f5-864-studio-output`
+  - faire deriver les uploads runtime de `VERTEX_GCS_OUTPUT_URI`
+  - conserver les ADC utilisateur (`gcloud auth only`) et, quand la signature GCS echoue, servir les fichiers via une route proxy backend `/api/storage/object`
+- Pourquoi:
+  - respecte exactement la contrainte utilisateur "pas de JSON service account"
+  - garde Vertex et GCS sur la meme identite runtime
+  - transforme un blocage technique des signed URLs en chemin applicatif compatible avec le backend existant
+- Consequence:
+  - `.env` cible maintenant `project-82b8c612-ea3d-49f5-864` + `gs://project-82b8c612-ea3d-49f5-864-studio-output/output`
+  - `server/lib/storage.ts` fallback sur un proxy applicatif au lieu d'echouer
+  - `server/routes/standard.ts` expose `GET /api/storage/object`
+  - le worker Cloud Run reference aussi ce nouveau bucket
+
+## 2026-04-11 - Seul `yassinebenks5@gmail.com` porte l'identite GCP, et les uploads derivent maintenant de `VERTEX_GCS_OUTPUT_URI`
+- Statut: adopte localement
+- Contexte: l'utilisateur a precise que `yayaben92y@gmail.com` ne sert qu'au volet Firebase et qu'il est normal qu'il n'ait aucun acces au projet GCP. En parallele, le backend principal envoyait encore ses uploads vers le bucket hardcode `videosss92`, ce qui contredisait le changement de projet.
+- Decision:
+  - utiliser `yassinebenks5@gmail.com` comme seule identite `gcloud` / ADC pour `famous-design-492918-s7`
+  - laisser `yayaben92y@gmail.com` hors du scope GCP/Vertex
+  - faire deriver les uploads runtime du bucket + prefix definis dans `VERTEX_GCS_OUTPUT_URI`
+  - aligner aussi le worker Cloud Run sur ce bucket cible plutot que sur `videosss92`
+- Pourquoi:
+  - clarifie la separation de responsabilites entre Firebase et GCP
+  - supprime un faux diagnostic recurrent base sur le mauvais compte Google
+  - garantit que le changement de projet modifie aussi la cible GCS reelle, pas seulement le project id Vertex
+- Consequence:
+  - `gcloud auth login yassinebenks5@gmail.com --update-adc`
+  - `.env` cible maintenant `gs://famous-design-492918-s7-studio-output/output`
+  - `server/lib/storage.ts` et `cloud-run/cowork-workers/src/lib/gcs.js` derivent le bucket depuis l'env
+  - blocage restant explicitement isole sur la facturation du projet (`BILLING_DISABLED`)
+
+## 2026-04-11 - Le backend Studio utilise uniquement Vertex AI via `gcloud auth` / ADC
+- Statut: adopte localement
+- Contexte: l'utilisateur ne veut plus aucun chemin `Vertex Express` / API key. Le backend GenAI fonctionnait deja en Vertex AI classique, mais le client GCS restait encore lie a `GOOGLE_APPLICATION_CREDENTIALS_JSON`, ce qui cassait les uploads/media des qu'on voulait tourner uniquement avec `gcloud auth application-default login`.
+- Decision:
+  - garder un seul mode backend: `Vertex AI` + `application-default credentials` (`gcloud auth`) ou, en override explicite uniquement, un JSON service account
+  - ignorer `VERTEX_EXPRESS` et `GEMINI_API_KEY` cote backend
+  - initialiser `@google-cloud/storage` aussi en mode ADC pour que GCS et Gemini partagent le meme socle d'auth
+  - retirer l'injection de variables Google inutiles dans le bundle frontend
+- Pourquoi:
+  - un mode d'auth unique reduit les faux diagnostics et la dette de configuration
+  - Gemini et GCS doivent converger sur la meme identite runtime pour eviter les cas "chat OK, upload KO"
+  - exposer des variables Google au frontend sans usage reel n'apporte rien et augmente le bruit/secrets surface
+- Consequence:
+  - `server/lib/storage.ts` tombe maintenant sur ADC si `GOOGLE_APPLICATION_CREDENTIALS_JSON` est vide
+  - `server/lib/google-genai.ts` journalise qu'`Express/API key` est ignore cote backend
+  - `/api/status` expose `googleAuthMode`
+  - `vite.config.ts` n'injecte plus `GEMINI_API_KEY` / `VERTEX_*` dans le client
+  - `.env.example` documente un flux unique `gcloud config set project` + `gcloud auth application-default login`
+
+## 2026-04-09 - Les shells de session Firestore ne doivent jamais republier `id`, et l'auth navigateur Google passe en redirect
+- Statut: adopte localement, rules redeployees et frontend redeploye en production
+- Contexte: un fil pouvait apparaitre puis disparaitre parce que `ChatSession.id` etait republié dans `users/{uid}/sessions/{sessionId}` alors que `firestore.rules` ne l'acceptait pas. En parallele, le login Google popup etait casse sur le fixe par un blocage COOP autour de `window.closed`.
+- Decision:
+  - projeter explicitement `ChatSession` vers un payload Firestore sans `id` ni `messages`
+  - garder temporairement `id` tolere dans `firestore.rules` pour couvrir les bundles deja en cache
+  - migrer le login navigateur de `signInWithPopup` vers `signInWithRedirect`
+- Pourquoi:
+  - le document parent `sessions/{id}` doit rester strictement conforme au schema Firestore reel
+  - accepter temporairement `id` cote rules evite une panne residuelle tant que tous les clients n'ont pas recharge
+  - `signInWithRedirect` est plus robuste que le popup dans les navigateurs qui imposent COOP
+- Consequence:
+  - `src/App.tsx` porte maintenant `toSessionFirestorePayload()`
+  - `firestore.rules` accepte `id` de facon defensive
+  - `src/firebase.ts` et `src/App.tsx` utilisent maintenant le couple `signInWithRedirect` / `getRedirectResult`
+
+## 2026-04-09 - Un reset global doit combiner purge cloud et reset navigateur versionne
+- Statut: adopte localement et deploye en production
+- Contexte: l'utilisateur a demande une remise a zero totale. Effacer seulement Firestore ou seulement `localStorage` ne suffit pas, car des sous-collections orphelines peuvent survivre cote cloud et un navigateur peut garder IndexedDB/caches.
+- Decision:
+  - purger Firestore par `collectionGroup` (`messages`, `files`, `agents`, `generatedApps`, `custom_prompts`, `sessions`) avant reverification de `users`
+  - vider aussi le bucket GCS applicatif
+  - servir un marker `/storage-reset.json` cote frontend
+  - faire vider par le client:
+    - `localStorage`
+    - `sessionStorage`
+    - IndexedDB
+    - Cache Storage
+    - cookies accessibles en JS
+  - versionner la cle de marker de reset pour qu'un ancien build ne puisse pas acquitter un reset plus fort qu'il ne sait pas executer
+- Pourquoi:
+  - un reset "partiel" recree exactement le probleme de divergence et de fantomes que l'utilisateur veut eliminer
+  - la remise a zero doit etre robuste meme si un onglet ancien est encore ouvert sur une machine
+- Consequence:
+  - `src/utils/storageReset.ts` porte maintenant un marker `v2`
+  - `public/storage-reset.json` force un reset global navigateur
+  - la recette de verif dediee vit dans `QA_RECIPES.md`
+
 ## 2026-04-09 - Le cache local des conversations devient une file de replay vers Firestore, pas une persistance terminale
 - Statut: adopte localement
 - Contexte: meme avec Firestore branche comme source de verite, une conversation pouvait rester de fait prisonniere d'un appareil si le `session shell` ou les messages echouaient a s'ecrire au mauvais moment puis restaient seulement dans le cache local.
@@ -16,6 +127,21 @@
   - `src/App.tsx` orchestre maintenant ce replay automatique
   - `src/utils/sessionShells.ts`, `src/utils/sessionSnapshots.ts` et `src/utils/cowork.ts` exposent les files locales necessaires
   - `QA_RECIPES.md` porte une regression dediee multi-appareils
+
+## 2026-04-09 - Un snapshot Firestore serveur a autorite sur les shells locaux deja synchronises
+- Statut: adopte localement
+- Contexte: une fois le replay local ajoute, une divergence restait possible entre machines si la liste des sessions continuait a fusionner des shells locaux deja synchronises mais absents du cloud.
+- Decision:
+  - distinguer explicitement un snapshot Firestore de cache et un snapshot Firestore autoritaire
+  - quand le snapshot est autoritaire (`fromCache === false`), ne conserver localement hors cloud que les shells encore `pendingRemote`
+  - purger du store local les shells deja synchronises mais absents du serveur
+- Pourquoi:
+  - sinon chaque appareil peut entretenir ses propres sessions fantomes
+  - le compteur de sessions ne converge jamais vraiment entre machines
+  - Firestore doit rester la source de verite finale des listes de sessions
+- Consequence:
+  - `src/utils/sessionShells.ts` porte maintenant cette notion via `remoteIsAuthoritative`
+  - `src/App.tsx` l'active dans le listener `onSnapshot(users/{uid}/sessions)`
 
 ## 2026-04-08 - Cowork multi-tour doit etre pilote par le dernier message, pas par le poids de l'historique
 - Statut: adopte localement

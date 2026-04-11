@@ -1,5 +1,120 @@
 # BUGS GRAVEYARD
 
+## 2026-04-11 - La prod Vercel disait encore "billing disabled" sur `gen-lang-client-0405707007` alors que le bon projet etait deja `project-82b8c612-ea3d-49f5-864`
+- Statut: corrige en production
+- Symptome:
+  - l'utilisateur voit en prod une erreur du type:
+    - `This API method requires billing to be enabled ... project #gen-lang-client-0405707007`
+  - cote local, pourtant:
+    - le bon projet `project-82b8c612-ea3d-49f5-864` repond
+    - le bucket `project-82b8c612-ea3d-49f5-864-studio-output` existe
+    - les smokes Vertex + GCS passent
+- Tentatives:
+  - verification du git push et du deploiement prod
+  - verification de `/api/status` en prod
+  - tentative de creation d'une nouvelle cle de service account dediee Vercel
+- Cause racine:
+  - la prod Vercel etait bien sur le nouveau code, mais ses variables runtime pointaient encore vers l'ancien projet:
+    - `VERTEX_PROJECT_ID=gen-lang-client-0405707007`
+    - `VERTEX_GCS_OUTPUT_URI=gs://gen-lang-client-0405707007.firebasestorage.app/output`
+    - `GOOGLE_APPLICATION_CREDENTIALS_JSON` d'un service account `google-ai-studio@gen-lang-client-0405707007.iam.gserviceaccount.com`
+  - ensuite, la voie "nouvelle service account key" a ete bloquee par la policy `constraints/iam.disableServiceAccountKeyCreation`
+- Resolution:
+  - remplacement des variables Vercel `production` et `preview` par:
+    - `VERTEX_PROJECT_ID=project-82b8c612-ea3d-49f5-864`
+    - `VERTEX_GCS_OUTPUT_URI=gs://project-82b8c612-ea3d-49f5-864-studio-output/output`
+    - `GOOGLE_APPLICATION_CREDENTIALS_JSON=<JSON ADC authorized_user du compte yassinebenks5@gmail.com>`
+  - correction code:
+    - `server/lib/storage.ts` distingue `authorized-user-json` vs `service-account-json`
+    - `server/lib/google-genai.ts` trim les envs Vertex critiques
+  - redeploiement:
+    - `vercel deploy --prod --yes`
+- Preuve:
+  - `/api/status` prod -> `googleAuthMode: "authorized-user-json"`
+  - `/api/chat` prod -> repond `ok`
+  - `/api/upload` prod -> ecrit dans `gs://project-82b8c612-ea3d-49f5-864-studio-output/...`
+  - `/api/storage/object` prod -> renvoie `vercel-gcs-ok`
+- Prevention:
+  - apres tout switch de projet GCP, verifier immediatement la prod via `/api/status`
+  - ne jamais deduire "prod corrigee" d'un push git seul quand des env Vercel portent encore l'ancienne identite
+  - si la creation de cle de service account est interdite, tester explicitement le JSON ADC `authorized_user` avant de repartir en boucle sur IAM
+
+## 2026-04-09 - Une session apparaissait une seconde puis disparaissait parce que le document parent `sessions/{id}` etait refuse
+- Statut: corrige localement, rules redeployees, frontend redeploye en production, retest utilisateur reel en attente
+- Symptome:
+  - l'utilisateur envoie un message
+  - le fil apparait dans la sidebar
+  - apres sync distante ou refresh, la conversation disparait
+  - `session-list-sync-success` peut remonter `count: 0` alors que des messages existent deja
+- Tentatives:
+  - suspicion initiale sur des rules Firestore "pas a jour"
+  - relecture du listener de sessions et du merge local/distants
+  - comparaison du schema `ChatSession` avec `firestore.rules`
+- Cause racine:
+  - `src/App.tsx` envoyait le champ `id` de `ChatSession` dans les `setDoc()` sur `users/{uid}/sessions/{sessionId}`
+  - `firestore.rules` n'autorisait pas ce champ
+  - les sous-documents `messages/{messageId}` pouvaient tout de meme etre persistés, laissant des sous-collections orphelines sans document parent `sessions/{sessionId}`
+  - le rendu local montrait donc le fil juste avant que le snapshot Firestore distant ne l'evince
+- Resolution:
+  - ajout du helper `toSessionFirestorePayload()` dans `src/App.tsx` pour retirer `id` et `messages` avant chaque ecriture de session
+  - ajout defensif de `id` dans `isValidSession()` dans `firestore.rules` pour tolerer les clients deja deploies
+  - `npm run deploy-rules`
+  - `npx vercel deploy --prod --yes`
+- Preuve:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `firebase deploy --only firestore:rules` : OK
+  - alias prod redeploye: `https://vertex-ai-app-pearl.vercel.app`
+- Prevention:
+  - ne jamais republier directement un objet `ChatSession` complet vers Firestore
+  - maintenir un helper unique de projection `UI -> Firestore` pour les shells de session
+  - quand un fil "disparait", verifier tout de suite si le parent `sessions/{id}` est refuse alors que `messages/*` passent
+
+## 2026-04-09 - Un hard reset pouvait sembler fait alors que Firestore gardait des orphelins et qu'un vieux client n'effacait pas tout
+- Statut: corrige localement, deploye en production
+- Symptome:
+  - `GET /documents/users` pouvait paraitre vide alors que des `sessions` et `messages` restaient encore visibles via `collectionGroup`
+  - un onglet deja ouvert sur un ancien build pouvait lire le nouveau marker `/storage-reset.json`, vider seulement `localStorage`, puis marquer le reset comme "applique"
+  - resultat produit possible:
+    - impression que le reset a marche
+    - mais resurrection de donnees depuis IndexedDB/caches ou depuis des sous-collections Firestore orphelines
+- Tentatives:
+  - essai `npx firebase firestore:delete users --recursive --force ...`
+  - controle de la collection racine `users`
+  - verification collection group par collection
+  - audit de la cle de marker utilisee par le frontend
+- Cause racine:
+  - un delete de documents parents ne garantit pas la suppression des sous-collections Firestore
+  - reutiliser la meme cle de marker entre un vieux reset faible et un reset plus fort permet a l'ancien client d'acquitter un nettoyage qu'il ne sait pas faire
+- Resolution:
+  - purge Firestore par `collectionGroup`:
+    - `messages`
+    - `files`
+    - `agents`
+    - `generatedApps`
+    - `custom_prompts`
+    - `sessions`
+  - reverification explicite que `users`, `sessions`, `messages`, `agents`, `generatedApps`, `custom_prompts`, `files` sont vides
+  - vidage du bucket `videosss92`
+  - verification que Qdrant ne porte plus de collection
+  - dans `src/utils/storageReset.ts`, passage a une cle de marker `v2` et reset navigateur complet
+  - bump de `public/storage-reset.json` puis redeploiement prod
+- Preuve:
+  - Firestore:
+    - `messages`: `2387` supprimes
+    - `sessions`: `292` supprimes
+    - `agents`: `2` supprimes
+    - `custom_prompts`: `10` supprimes
+    - verification finale: tout `EMPTY`
+  - bucket `videosss92`:
+    - `588` objets supprimes
+    - `0` restant
+  - prod:
+    - `GET /storage-reset.json` -> version `2026-04-09T10:25:00Z-hard-reset-browser-storage-v3`
+- Prevention:
+  - pour un hard reset Firestore, verifier les `collectionGroup`, pas seulement les parents
+  - si la semantique du reset change, faire evoluer la cle de marker en plus de sa valeur
+
 ## 2026-04-09 - Une conversation pouvait rester de fait locale si Firestore echouait au mauvais moment
 - Statut: corrige localement, a revalider en session connectee multi-appareils
 - Symptome:
@@ -13,6 +128,7 @@
 - Cause racine:
   - le produit gardait un bon filet de securite local (`pendingRemote`, snapshots de messages, snapshots Cowork)
   - mais ne rejouait pas automatiquement ces ecritures vers Firestore une fois le reseau revenu
+  - et meme une fois Firestore revenu, le merge des listes re-injectait encore des shells locaux absents du cloud alors qu'ils etaient deja `pendingRemote: false`
   - consequence: un echec transitoire pouvait devenir un etat quasi permanent tant que l'utilisateur ne recreait pas le fil ou ne declenchait pas manuellement autre chose
 - Resolution:
   - ajout de `loadPendingLocalSessionShells()` dans `src/utils/sessionShells.ts`
@@ -20,6 +136,7 @@
   - ajout de `loadCoworkSessionSnapshotEntries()` dans `src/utils/cowork.ts`
   - ajout dans `src/App.tsx` d'un replay automatique sur retour reseau / retour de focus
   - recreation d'une `session shell` via `buildRecoveredSessionShell(...)` quand des messages locaux existent sans parent session connu
+  - durcissement de `mergeSessionsWithLocal(...)` pour qu'un snapshot Firestore autoritaire purge les shells locaux synchronises mais absents du distant
   - ajout d'une recette de regression dediee dans `QA_RECIPES.md`
 - Preuve:
   - `npm run lint` : OK

@@ -1,5 +1,23 @@
 # DECISIONS
 
+## 2026-04-11 - `Cowork Apps` est retire du shell principal
+- Statut: adopte localement
+- Contexte: l'utilisateur a demande une suppression nette de `Cowork Apps`. La surface etait encore exposee a plusieurs endroits frontend: bouton d'entree dans le header `Cowork`, CTA secondaire dans l'empty state, overlay plein ecran, section `Apps` dans la sidebar et harness de preview dedie.
+- Decision:
+  - retirer les points d'entree `Cowork Apps` du shell principal
+  - supprimer les composants frontend specifiques `src/components/AgentsHub.tsx` et `src/components/CoworkCreationChat.tsx`
+  - retirer aussi le harness `tmp/cowork-apps-preview.*`
+  - laisser le backend/generated-app lifecycle en place pour l'instant, mais ne plus l'exposer dans la navigation principale
+  - rediriger une session `generated_app` historique vers `Cowork` au lieu d'ouvrir une surface app dediee
+- Pourquoi:
+  - repond exactement a la demande utilisateur sans lancer une migration backend plus large et plus risquee
+  - supprime la surface produit visible, les doublons UX et les retours vers un hub qui n'existe plus
+  - garde une marche arriere technique possible si l'utilisateur veut ensuite supprimer aussi le lifecycle backend
+- Consequence:
+  - le mode `Cowork` revient a une entree simple basee sur mission + conversation
+  - la sidebar ne montre plus de section `Apps`
+  - les composants/generated apps legacy restent dans le repo mais ne sont plus accessibles depuis le shell principal
+
 ## 2026-04-11 - La prod Vercel tourne desormais sur `project-82b8c612-ea3d-49f5-864` via un JSON ADC `authorized_user`
 - Statut: adopte en production
 - Contexte: la prod etait bien deployee avec le dernier code, mais `/api/status` montrait encore un `serviceAccount` sur l'ancien projet `gen-lang-client-0405707007`, ce qui expliquait les erreurs de billing utilisateur. Le remplacement par une nouvelle cle de service account sur le bon projet a ensuite ete bloque par la policy `constraints/iam.disableServiceAccountKeyCreation`.

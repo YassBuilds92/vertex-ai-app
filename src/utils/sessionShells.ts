@@ -9,6 +9,9 @@ type SessionShellRecord = {
 };
 
 type SessionShellStore = Record<string, Record<string, SessionShellRecord>>;
+type MergeSessionsOptions = {
+  remoteIsAuthoritative?: boolean;
+};
 
 function canUseLocalStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -122,6 +125,18 @@ function readUserSessionShellRecords(userId: string) {
   return readSessionShellStore()[userId] || {};
 }
 
+function writeUserSessionShellRecords(userId: string, recordsById: Record<string, SessionShellRecord>) {
+  if (!userId) return;
+
+  const store = readSessionShellStore();
+  if (Object.keys(recordsById).length === 0) {
+    delete store[userId];
+  } else {
+    store[userId] = pruneSessionShellsByUser(recordsById);
+  }
+  writeSessionShellStore(store);
+}
+
 export function loadLocalSessionShells(userId: string): ChatSession[] {
   if (!userId) return [];
 
@@ -174,7 +189,11 @@ export function removeLocalSessionShell(userId: string, sessionId: string) {
   writeSessionShellStore(store);
 }
 
-export function mergeSessionsWithLocal(userId: string, remoteSessions: ChatSession[]): ChatSession[] {
+export function mergeSessionsWithLocal(
+  userId: string,
+  remoteSessions: ChatSession[],
+  options?: MergeSessionsOptions
+): ChatSession[] {
   const remoteById = new Map<string, ChatSession>();
   for (const session of remoteSessions) {
     remoteById.set(session.id, normalizeSessionShell(session));
@@ -182,16 +201,40 @@ export function mergeSessionsWithLocal(userId: string, remoteSessions: ChatSessi
 
   const localRecords = readUserSessionShellRecords(userId);
   const merged = new Map<string, ChatSession>();
+  const nextLocalRecords: Record<string, SessionShellRecord> = {};
+  const remoteIsAuthoritative = Boolean(options?.remoteIsAuthoritative);
 
   for (const [sessionId, record] of Object.entries(localRecords)) {
-    if (record?.session && !remoteById.has(sessionId)) {
-      merged.set(sessionId, normalizeSessionShell(record.session));
+    if (!record?.session) continue;
+
+    const normalizedSession = normalizeSessionShell(record.session);
+    const pendingRemote = Boolean(record.pendingRemote);
+
+    if (!remoteById.has(sessionId)) {
+      if (!remoteIsAuthoritative || pendingRemote) {
+        merged.set(sessionId, normalizedSession);
+        nextLocalRecords[sessionId] = {
+          session: normalizedSession,
+          pendingRemote,
+        };
+      }
     }
   }
 
   for (const session of remoteById.values()) {
     merged.set(session.id, session);
-    saveLocalSessionShell(userId, session, { pendingRemote: false });
+    nextLocalRecords[session.id] = {
+      session,
+      pendingRemote: false,
+    };
+  }
+
+  if (remoteIsAuthoritative) {
+    writeUserSessionShellRecords(userId, nextLocalRecords);
+  } else {
+    for (const session of remoteById.values()) {
+      saveLocalSessionShell(userId, session, { pendingRemote: false });
+    }
   }
 
   return Array.from(merged.values()).sort((left, right) => right.updatedAt - left.updatedAt);

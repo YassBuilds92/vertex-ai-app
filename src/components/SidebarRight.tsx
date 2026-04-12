@@ -31,13 +31,17 @@ import {
   modelSupportsGeminiTtsMultiSpeaker,
 } from '../../shared/gemini-tts.js';
 import {
+  IMAGE_MODEL_LABELS,
+  IMAGE_MODEL_OPTIONS,
+} from '../../shared/image-models.js';
+import {
   getDefaultPromptRefinerProfileId,
   getPromptRefinerProfile,
   getPromptRefinerProfiles,
 } from '../../shared/prompt-refiners.js';
 import { db, auth, cleanForFirestore } from '../firebase';
 import { useStore } from '../store/useStore';
-import { ChatSession, CustomPrompt, SelectedCustomPromptRef } from '../types';
+import { AppMode, ChatSession, CustomPrompt, SelectedCustomPromptRef } from '../types';
 
 const SystemInstructionGallery = React.lazy(async () => {
   const module = await import('./SystemInstructionGallery');
@@ -60,9 +64,7 @@ const modelNameMap: Record<string, string> = {
   'gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
   'gemini-3.1-flash-lite-preview': 'Gemini 3.1 Flash Lite',
   'gemini-3-flash-preview': 'Gemini 3 Flash',
-  'gemini-3.1-flash-image-preview': 'Nano Banana 2',
-  'gemini-3-pro-image-preview': 'Nano Banana Pro',
-  'gemini-2.5-flash-image': 'Nano Banana',
+  ...IMAGE_MODEL_LABELS,
   'veo-3.1-generate-001': 'Veo 3.1 Video',
   'gemini-2.5-flash-tts': 'Gemini Flash TTS',
   'gemini-2.5-flash-lite-preview-tts': 'Gemini Flash Lite TTS',
@@ -132,9 +134,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
     { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', info: 'Intelligence avancee', modes: ['chat', 'cowork'] },
     { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', info: 'Ultra rapide et econome', modes: ['chat', 'cowork'] },
     { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', info: 'Rapide avec vrai raisonnement', modes: ['chat', 'cowork'] },
-    { id: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', info: 'Image rapide et scalable', modes: ['image'] },
-    { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', info: 'Image premium', modes: ['image'] },
-    { id: 'gemini-2.5-flash-image', label: 'Nano Banana', info: 'Polyvalent et stable', modes: ['image'] },
+    ...IMAGE_MODEL_OPTIONS.map((model) => ({ ...model, modes: ['image'] as AppMode[] })),
     { id: 'veo-3.1-generate-001', label: 'Veo 3.1 Video', info: 'Video cine', modes: ['video'] },
     { id: 'lyria-002', label: 'Lyria 2', info: 'Mode stable et robuste', modes: ['lyria'] },
     { id: 'lyria-3-clip-preview', label: 'Lyria 3 Clip', info: 'Preview courte et nerveuse', modes: ['lyria'] },

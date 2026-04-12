@@ -44,8 +44,8 @@ const modeCopy: Record<AppMode, EmptyStateContent> = {
   },
   cowork: {
     eyebrow: 'Cowork',
-    title: 'Construis des apps expertes.',
-    body: 'Decris une mission et laisse Cowork creer une app dediee.',
+    title: 'Lance une mission experte.',
+    body: 'Decris le resultat vise et laisse Cowork prendre la mission en charge.',
     suggestions: ['Creer une app PDF premium', 'Transformer une veille en mini-site', 'Lancer une recherche profonde'],
     primaryLabel: 'Lancer une mission',
     icon: BrainCircuit,
@@ -89,7 +89,6 @@ interface StudioEmptyStateProps {
   isAuthenticated: boolean;
   onPrimaryAction: () => void;
   onQuickPrompt: (prompt: string) => void;
-  onOpenAgentsHub?: () => void;
 }
 
 export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
@@ -97,7 +96,6 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
   isAuthenticated,
   onPrimaryAction,
   onQuickPrompt,
-  onOpenAgentsHub,
 }) => {
   const content = modeCopy[mode];
   const Icon = content.icon;
@@ -142,12 +140,6 @@ export const StudioEmptyState: React.FC<StudioEmptyStateProps> = ({
                 <Sparkles size={14} />
                 {content.primaryLabel}
               </button>
-              {mode === 'cowork' && onOpenAgentsHub && (
-                <button onClick={onOpenAgentsHub} className="studio-button-secondary">
-                  <BrainCircuit size={14} />
-                  Cowork Apps
-                </button>
-              )}
             </>
           )}
         </div>

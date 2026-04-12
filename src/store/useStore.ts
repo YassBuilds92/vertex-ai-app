@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { AppMode, ModelConfig, ChatSession } from '../types';
+import { DEFAULT_IMAGE_MODEL } from '../../shared/image-models.js';
 import { getDefaultPromptRefinerProfileId } from '../../shared/prompt-refiners.js';
 
 interface AppState {
@@ -44,7 +45,7 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     maxThoughtTokens: 4096,
   },
   image: {
-    model: 'gemini-2.5-flash-image',
+    model: DEFAULT_IMAGE_MODEL,
     temperature: 1.0,
     topP: 1.0,
     topK: 40,

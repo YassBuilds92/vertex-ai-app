@@ -2,7 +2,7 @@ import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react
 import { flushSync } from 'react-dom';
 import { 
   MessageSquare, Plus, Send, 
-  Bot, User, Database, Image as ImageIcon, 
+  User, Database, Image as ImageIcon, 
   Film, Mic, Sparkles, Globe, SlidersHorizontal, Paperclip,
   Loader2, ChevronRight, X, Youtube, FileText, Music, Video, BrainCircuit, ChevronDown, AlertCircle,
   Menu, LogOut, LogIn, Play, Check, Zap, Crown, Gauge, Copy, Pencil, RotateCcw, Square, Brain, History,
@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 import {
-  auth, db, googleProvider, signInWithPopup, onAuthStateChanged,
+  auth, db, googleProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged,
   doc, collection, collectionGroup, onSnapshot, query, where, orderBy, setDoc, addDoc, updateDoc, deleteDoc, getDoc, getDocs,
   OperationType, handleFirestoreError, User as FirebaseUser, cleanForFirestore
 } from './firebase';
@@ -76,24 +76,69 @@ import {
   studioDebug,
 } from './utils/client-debug';
 import { resolveAgentStudioKind } from './utils/agentStudio';
+import {
+  clearAllStudioBrowserStorage,
+  getAppliedStorageResetVersion,
+  setAppliedStorageResetVersion,
+} from './utils/storageReset';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const MIME_EXTENSION_MAP: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/avif': 'avif',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'audio/webm': 'webm',
+  'audio/ogg': 'ogg',
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'application/pdf': 'pdf',
+};
+
+function normalizeAttachmentMimeType(value?: string | null) {
+  const normalized = String(value || '').split(';')[0].trim().toLowerCase();
+  return normalized || '';
+}
+
+function extractMimeTypeFromDataUrl(value?: string | null) {
+  const match = /^data:([^;,]+)(?:;[^,]*)?,/i.exec(String(value || ''));
+  return normalizeAttachmentMimeType(match?.[1]);
+}
+
+function guessAttachmentExtension(input: { mimeType?: string | null; name?: string | null }) {
+  const mimeType = normalizeAttachmentMimeType(input.mimeType);
+  if (mimeType && MIME_EXTENSION_MAP[mimeType]) {
+    return MIME_EXTENSION_MAP[mimeType];
+  }
+
+  const name = String(input.name || '').trim();
+  const explicitExtension = name.includes('.') ? name.split('.').pop()?.trim().toLowerCase() : '';
+  if (explicitExtension) {
+    return explicitExtension;
+  }
+
+  if (!mimeType) return 'bin';
+  const subtype = mimeType.split('/')[1] || '';
+  return subtype.replace(/[^a-z0-9]+/g, '') || 'bin';
+}
+
+function toSessionFirestorePayload(session: ChatSession) {
+  const { id: _sessionId, messages: _messages, ...sessionPayload } = session;
+  return sessionPayload;
+}
+
 const AgentWorkspacePanel = React.lazy(async () => {
   const module = await import('./components/AgentWorkspacePanel');
   return { default: module.AgentWorkspacePanel };
-});
-
-const AgentsHub = React.lazy(async () => {
-  const module = await import('./components/AgentsHub');
-  return { default: module.AgentsHub };
-});
-
-const GeneratedAppHost = React.lazy(async () => {
-  const module = await import('./components/GeneratedAppHost');
-  return { default: module.GeneratedAppHost };
 });
 
 const ImageStudio = React.lazy(async () => {
@@ -391,13 +436,12 @@ export default function App() {
   const [titleInput, setTitleInput] = useState('');
   const [customTitle, setCustomTitle] = useState<string | null>(null);
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
-  const [showAgentsHub, setShowAgentsHub] = useState(false);
   const [latestCreatedAgent, setLatestCreatedAgent] = useState<StudioAgent | null>(null);
   const [latestCreatedGeneratedApp, setLatestCreatedGeneratedApp] = useState<GeneratedAppManifest | null>(null);
   const [generatedAppCreationRun, setGeneratedAppCreationRun] = useState<GeneratedAppCreationRun | null>(null);
   const [agentsWarning, setAgentsWarning] = useState<string | null>(null);
-  const [isRunningHubAgent, setIsRunningHubAgent] = useState(false);
   const [isPublishingGeneratedApp, setIsPublishingGeneratedApp] = useState(false);
+  const [isStorageResetReady, setIsStorageResetReady] = useState(false);
   const [hasLoadedRemoteSessions, setHasLoadedRemoteSessions] = useState(false);
   const [hasLoadedRemoteAgents, setHasLoadedRemoteAgents] = useState(false);
   const [hasLoadedRemoteGeneratedApps, setHasLoadedRemoteGeneratedApps] = useState(false);
@@ -420,6 +464,7 @@ export default function App() {
   const sessionRepairAttemptedRef = useRef<Record<string, boolean>>({});
   const localSyncAttemptRef = useRef<Record<string, string>>({});
   const localSyncInFlightRef = useRef<Record<string, boolean>>({});
+  const storageResetCheckInFlightRef = useRef(false);
 
   const activeSessionFromList = sessions.find(s => s.id === activeSessionId) || null;
   const activeSession = activeSessionFromList || {
@@ -524,11 +569,11 @@ export default function App() {
 
   const persistAgentBlueprint = useCallback(async (
     blueprint: AgentBlueprint,
-    overrides?: Partial<StudioAgent> & { openHub?: boolean }
+    overrides?: Partial<StudioAgent>
   ) => {
     if (!user) return null;
 
-    const { openHub, ...materialOverrides } = overrides || {};
+    const materialOverrides = overrides || {};
     const nextAgent = materializeAgentBlueprint(blueprint, materialOverrides);
 
     setAgents(prev => {
@@ -537,9 +582,6 @@ export default function App() {
     });
 
     setLatestCreatedAgent(nextAgent);
-    if (openHub) {
-      setShowAgentsHub(true);
-    }
 
     saveLocalAgent(user.uid, nextAgent);
 
@@ -550,16 +592,13 @@ export default function App() {
       );
     } catch (error) {
       console.error('Agent persistence degraded, keeping local snapshot only:', error);
-      setAgentsWarning("Cowork Apps ne peut pas se synchroniser avec Firestore pour l'instant. Les apps restent disponibles sur cet appareil.");
+      setAgentsWarning("Le catalogue local des apps ne peut pas se synchroniser avec Firestore pour l'instant. Les apps restent disponibles sur cet appareil.");
     }
 
     return nextAgent;
   }, [materializeAgentBlueprint, user]);
 
-  const persistGeneratedAppManifest = useCallback(async (
-    manifest: GeneratedAppManifest,
-    options?: { openHub?: boolean }
-  ) => {
+  const persistGeneratedAppManifest = useCallback(async (manifest: GeneratedAppManifest) => {
     if (!user) return null;
 
     const nextManifest = normalizeGeneratedApp({
@@ -574,9 +613,6 @@ export default function App() {
     });
 
     setLatestCreatedGeneratedApp(nextManifest);
-    if (options?.openHub) {
-      setShowAgentsHub(true);
-    }
 
     saveLocalGeneratedApp(user.uid, nextManifest);
 
@@ -587,7 +623,7 @@ export default function App() {
       );
     } catch (error) {
       console.error('Generated app persistence degraded, keeping local snapshot only:', error);
-      setAgentsWarning("Cowork Apps ne peut pas se synchroniser completement avec Firestore pour l'instant. Les apps restent disponibles sur cet appareil.");
+      setAgentsWarning("Le catalogue local des apps ne peut pas se synchroniser completement avec Firestore pour l'instant. Les apps restent disponibles sur cet appareil.");
     }
 
     return nextManifest;
@@ -648,21 +684,10 @@ export default function App() {
     lyria: 'Nouveau morceau',
   }[activeMode];
 
-  const activeSurfaceLabel = isAgentSession || isGeneratedAppSession
+  const activeSurfaceLabel = isAgentSession
     ? 'App Cowork'
     : activeModeLabel;
-  const isCoworkAppsView = Boolean(user && activeMode === 'cowork' && showAgentsHub);
   const isDedicatedAgentStudioView = Boolean(user && activeAgentWorkspace && activeAgentStudioKind !== 'default');
-  const coworkStoreAgents = React.useMemo(
-    () => [
-      ...generatedApps.map(adaptGeneratedAppToStudioAgent),
-      ...agents,
-    ].sort((left, right) => right.updatedAt - left.updatedAt),
-    [agents, generatedApps]
-  );
-  const latestCreatedStorePreview = latestCreatedGeneratedApp
-    ? adaptGeneratedAppToStudioAgent(latestCreatedGeneratedApp)
-    : latestCreatedAgent;
 
   const getPreferredSessionsForMode = useCallback((mode: AppMode) => (
     sessions.filter((session) => session.mode === mode && !(mode === 'chat' && (session.sessionKind === 'agent' || session.sessionKind === 'generated_app')))
@@ -670,7 +695,7 @@ export default function App() {
 
   const handleGoogleLogin = useCallback(async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithRedirect(auth, googleProvider);
     } catch (error: any) {
       console.error("Login error:", error);
       alert(`Erreur de connexion : ${error.message || String(error)}`);
@@ -714,11 +739,15 @@ export default function App() {
     setActiveSessionId('local-new', { remember: false, modeOverride: mode });
   }, [getPreferredSessionsForMode, lastSessionIdsByMode, setActiveMode, setActiveSessionId]);
 
-  const openCoworkAppsHome = useCallback(() => {
+  const returnToChatHome = useCallback(() => {
     setSelectedImage(null);
-    activateMode('cowork');
-    setShowAgentsHub(true);
+    activateMode('chat');
   }, [activateMode]);
+
+  useEffect(() => {
+    if (activeSession.sessionKind !== 'generated_app') return;
+    activateMode('cowork');
+  }, [activateMode, activeSession.sessionKind]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -741,11 +770,15 @@ export default function App() {
 
   // Audio Hook
   const { isRecording, recordingTime, toggleRecording } = useAudioRecorder((dataUrl) => {
+    const mimeType = normalizeAttachmentMimeType(extractMimeTypeFromDataUrl(dataUrl)) || 'audio/webm';
+    const extension = guessAttachmentExtension({ mimeType, name: 'enregistrement' });
     setPendingAttachments(prev => [...prev, {
       id: Date.now().toString(),
       type: 'audio',
       url: dataUrl,
-      name: `Enregistrement vocal`
+      base64: dataUrl,
+      mimeType,
+      name: `Enregistrement vocal.${extension}`,
     }]);
   });
 
@@ -754,12 +787,73 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const maybeApplyStorageReset = async () => {
+      if (storageResetCheckInFlightRef.current) return;
+      storageResetCheckInFlightRef.current = true;
+
+      try {
+        const response = await fetch(`/storage-reset.json?ts=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) return;
+
+        const payload = await response.json().catch(() => null) as { version?: string; reason?: string } | null;
+        const version = typeof payload?.version === 'string' ? payload.version : '';
+        if (!version) return;
+
+        if (getAppliedStorageResetVersion() === version) return;
+
+        const resetSummary = await clearAllStudioBrowserStorage();
+        setAppliedStorageResetVersion(version);
+
+        studioDebug('reset', 'Applied storage reset marker from deployment.', {
+          version,
+          resetSummary,
+          reason: payload?.reason,
+        });
+
+        if (resetSummary.hadStoredState && !cancelled) {
+          window.location.reload();
+          return;
+        }
+      } catch (error) {
+        studioDebug('reset', 'Unable to load storage reset marker.', error, 'warn');
+      } finally {
+        storageResetCheckInFlightRef.current = false;
+        if (!cancelled) {
+          setIsStorageResetReady(true);
+        }
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        void maybeApplyStorageReset();
+      }
+    };
+
+    const handleWindowFocus = () => {
+      void maybeApplyStorageReset();
+    };
+
+    void maybeApplyStorageReset();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, []);
+
+  useEffect(() => {
     let authResolved = false;
     const authReadyFallback = window.setTimeout(() => {
       if (authResolved) return;
       studioDebug('auth', 'Firebase auth init timed out; falling back to unauthenticated shell.', undefined, 'warn');
       setIsAuthReady(true);
-    }, 4000);
+    }, 10000);
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       authResolved = true;
@@ -778,6 +872,18 @@ export default function App() {
       window.clearTimeout(authReadyFallback);
       unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    getRedirectResult(auth).then((result) => {
+      if (result) {
+        studioDebug('auth', 'Redirect sign-in completed.', { userId: result.user?.uid });
+      }
+    }).catch((error) => {
+      if (error?.code && error.code !== 'auth/null-user') {
+        studioDebug('auth', 'Redirect sign-in error.', error, 'warn');
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -811,6 +917,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!isStorageResetReady) return;
     if (!user) {
       setSessions([]);
       setHasLoadedRemoteSessions(false);
@@ -838,7 +945,9 @@ export default function App() {
       setSessions(
         snapshot.metadata.fromCache && remoteSessions.length === 0
           ? loadLocalSessionShells(user.uid)
-          : mergeSessionsWithLocal(user.uid, remoteSessions)
+          : mergeSessionsWithLocal(user.uid, remoteSessions, {
+              remoteIsAuthoritative: !snapshot.metadata.fromCache,
+            })
       );
       setHasLoadedRemoteSessions(true);
     }, (error) => {
@@ -849,9 +958,10 @@ export default function App() {
       setSessions(loadLocalSessionShells(user.uid));
       setHasLoadedRemoteSessions(true);
     });
-  }, [user]);
+  }, [isStorageResetReady, user]);
 
   useEffect(() => {
+    if (!isStorageResetReady) return;
     if (!user) {
       setAgents([]);
       setAgentsWarning(null);
@@ -884,14 +994,15 @@ export default function App() {
       setAgents(fallbackAgents);
       setAgentsWarning(
         fallbackAgents.length > 0
-          ? "Cowork Apps n'a pas pu se synchroniser avec Firestore. Affichage du cache local sur cet appareil."
-          : "Cowork Apps n'a pas pu se synchroniser avec Firestore. Les prochaines apps seront gardees localement sur cet appareil."
+          ? "Le catalogue local des apps n'a pas pu se synchroniser avec Firestore. Affichage du cache local sur cet appareil."
+          : "Le catalogue local des apps n'a pas pu se synchroniser avec Firestore. Les prochaines apps seront gardees localement sur cet appareil."
       );
       setHasLoadedRemoteAgents(true);
     });
-  }, [user]);
+  }, [isStorageResetReady, user]);
 
   useEffect(() => {
+    if (!isStorageResetReady) return;
     if (!user) {
       setGeneratedApps([]);
       setHasLoadedRemoteGeneratedApps(false);
@@ -923,24 +1034,12 @@ export default function App() {
       setGeneratedApps(fallbackApps);
       setAgentsWarning(
         fallbackApps.length > 0
-          ? "Cowork Apps n'a pas pu se synchroniser completement avec Firestore. Affichage du cache local sur cet appareil."
-          : "Cowork Apps n'a pas pu se synchroniser avec Firestore. Les prochaines apps resteront disponibles localement."
+          ? "Le catalogue local des apps n'a pas pu se synchroniser completement avec Firestore. Affichage du cache local sur cet appareil."
+          : "Le catalogue local des apps n'a pas pu se synchroniser avec Firestore. Les prochaines apps resteront disponibles localement."
       );
       setHasLoadedRemoteGeneratedApps(true);
     });
   }, [user]);
-
-  useEffect(() => {
-    if (activeMode !== 'cowork') {
-      setShowAgentsHub(false);
-    }
-  }, [activeMode]);
-
-  useEffect(() => {
-    if (!showAgentsHub) return;
-    setLeftSidebarVisible(false);
-    setRightSidebarVisible(false);
-  }, [setLeftSidebarVisible, setRightSidebarVisible, showAgentsHub]);
 
   useEffect(() => {
     setRecentlyCompletedMessageId(null);
@@ -986,6 +1085,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (!isStorageResetReady) return;
     if (!user) {
       setCurrentMessages([]);
       setOptimisticMessages([]);
@@ -1046,7 +1146,7 @@ export default function App() {
       }, 'warn');
       handleFirestoreError(error, OperationType.LIST, `users/${user?.uid}/sessions/${activeSessionId}/messages`);
     });
-  }, [activeSessionId, richSessionUsesCoworkSnapshots, user]);
+  }, [activeSessionId, isStorageResetReady, richSessionUsesCoworkSnapshots, user]);
 
 
 
@@ -1106,12 +1206,10 @@ export default function App() {
       ...session,
       updatedAt: Date.now(),
     };
-    const { messages, ...sessionPayload } = nextSession;
-
     try {
       await setDoc(
         doc(db, 'users', user.uid, 'sessions', nextSession.id),
-        cleanForFirestore(sessionPayload)
+        cleanForFirestore(toSessionFirestorePayload(nextSession))
       );
       saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
       logFirestoreOperation('session-touch-success', {
@@ -1415,8 +1513,6 @@ export default function App() {
         createdBy: 'manual',
         sourcePrompt: cleanedBrief || finalManifest.sourcePrompt,
         sourceSessionId: activeSessionId && activeSessionId !== 'local-new' ? activeSessionId : undefined,
-      }, {
-        openHub: true,
       });
 
       setGeneratedAppCreationRun(prev => ({
@@ -1459,13 +1555,12 @@ export default function App() {
   const persistSessionShell = useCallback(async (session: ChatSession) => {
     if (!user) return false;
 
-    const { messages, ...sessionPayload } = session;
     saveLocalSessionShell(user.uid, session, { pendingRemote: true });
 
     try {
       await setDoc(
         doc(db, 'users', user.uid, 'sessions', session.id),
-        cleanForFirestore(sessionPayload)
+        cleanForFirestore(toSessionFirestorePayload(session))
       );
       logFirestoreOperation('session-shell-persist-success', {
         userId: user.uid,
@@ -1497,9 +1592,10 @@ export default function App() {
     if (user) {
       saveLocalSessionShell(user.uid, session, { pendingRemote: options?.pendingRemote });
     }
-  }, [user]);
+  }, [isStorageResetReady, user]);
 
   useEffect(() => {
+    if (!isStorageResetReady) return;
     if (!user || !hasLoadedRemoteSessions || !hasLoadedRemoteAgents || !hasLoadedRemoteGeneratedApps) return;
 
     const pendingShells = loadPendingLocalSessionShells(user.uid);
@@ -1594,6 +1690,7 @@ export default function App() {
     hasLoadedRemoteAgents,
     hasLoadedRemoteGeneratedApps,
     hasLoadedRemoteSessions,
+    isStorageResetReady,
     localSyncTick,
     persistCoworkSnapshot,
     persistSessionMessage,
@@ -1603,6 +1700,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (!isStorageResetReady) return;
     if (!user || !hasLoadedRemoteSessions || !hasLoadedRemoteAgents || !hasLoadedRemoteGeneratedApps) return;
     if (sessionRepairAttemptedRef.current[user.uid]) return;
 
@@ -1649,10 +1747,9 @@ export default function App() {
         if (recoveredSessions.length === 0) return;
 
         await Promise.all(recoveredSessions.map(async (session) => {
-          const { messages, ...sessionPayload } = session;
           await setDoc(
             doc(db, 'users', user.uid, 'sessions', session.id),
-            cleanForFirestore(sessionPayload)
+            cleanForFirestore(toSessionFirestorePayload(session))
           );
           saveLocalSessionShell(user.uid, session, { pendingRemote: false });
         }));
@@ -1679,7 +1776,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [agents, generatedApps, hasLoadedRemoteAgents, hasLoadedRemoteGeneratedApps, hasLoadedRemoteSessions, sessions, user]);
+  }, [agents, generatedApps, hasLoadedRemoteAgents, hasLoadedRemoteGeneratedApps, hasLoadedRemoteSessions, isStorageResetReady, sessions, user]);
 
   const updateAgentWorkspaceValues = useCallback(async (nextValues: AgentFormValues) => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeAgentWorkspace) return;
@@ -1707,10 +1804,9 @@ export default function App() {
     saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
 
     try {
-      const { messages, ...sessionPayload } = nextSession;
       await setDoc(
         doc(db, 'users', user.uid, 'sessions', activeSessionId),
-        cleanForFirestore(sessionPayload)
+        cleanForFirestore(toSessionFirestorePayload(nextSession))
       );
       saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
     } catch (error) {
@@ -1744,7 +1840,7 @@ export default function App() {
     saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
 
     try {
-      const { messages, ...sessionPayload } = nextSession;
+      const sessionPayload = toSessionFirestorePayload(nextSession);
       await setDoc(
         doc(db, 'users', user.uid, 'sessions', activeSessionId),
         cleanForFirestore({
@@ -1787,7 +1883,6 @@ export default function App() {
     setActiveMode('cowork');
     setActiveSessionId(sessionId, { modeOverride: 'cowork' });
     setCustomTitle(null);
-    setShowAgentsHub(false);
 
     const editPrompt = [
       `Modifie l'app existante du store "${agent.name}" (id: ${agent.id}, slug: ${agent.slug}).`,
@@ -1838,7 +1933,6 @@ export default function App() {
     setActiveMode('cowork');
     setActiveSessionId(sessionId, { modeOverride: 'cowork' });
     setCustomTitle(null);
-    setShowAgentsHub(false);
 
     const editPrompt = [
       `Modifie l'app experte existante "${app.name}" (id: ${app.id}, slug: ${app.slug}).`,
@@ -1891,7 +1985,6 @@ export default function App() {
     setActiveMode('chat');
     setActiveSessionId(sessionId, { remember: false, modeOverride: 'chat' });
     setCustomTitle(null);
-    setShowAgentsHub(false);
 
     if (options?.autoRun !== false && handleSendRuntimeRef.current) {
       await handleSendRuntimeRef.current(launchPrompt, undefined, session);
@@ -1929,7 +2022,6 @@ export default function App() {
     setActiveMode('chat');
     setActiveSessionId(sessionId, { remember: false, modeOverride: 'chat' });
     setCustomTitle(null);
-    setShowAgentsHub(false);
 
     if (options?.autoRun !== false && handleSendRuntimeRef.current) {
       await handleSendRuntimeRef.current(launchPrompt, undefined, session);
@@ -2091,17 +2183,25 @@ export default function App() {
     attachment: Attachment,
     userId: string,
     sessionId: string,
-  ): Promise<{ url: string; storageUri?: string }> => {
+  ): Promise<{ url: string; storageUri?: string; mimeType?: string }> => {
+    const normalizedMimeType = normalizeAttachmentMimeType(attachment.mimeType)
+      || extractMimeTypeFromDataUrl(attachment.base64)
+      || extractMimeTypeFromDataUrl(attachment.url)
+      || undefined;
+    const sourceDataUrl = attachment.base64
+      || (attachment.url.startsWith('data:') ? attachment.url : undefined);
+
     // If it's already a URL (not base64), return it
     if (attachment.url.startsWith('http') && !attachment.url.includes('base64')) {
       studioDebug('upload', 'Attachment already has a remote URL; skipping upload.', {
         name: attachment.name,
         type: attachment.type,
-        mimeType: attachment.mimeType,
+        mimeType: normalizedMimeType,
       });
       return {
         url: attachment.url,
         storageUri: attachment.storageUri,
+        mimeType: normalizedMimeType,
       };
     }
     
@@ -2109,15 +2209,15 @@ export default function App() {
       let blob: Blob;
       if (attachment.file) {
         blob = attachment.file;
-      } else if (attachment.base64) {
+      } else if (sourceDataUrl) {
         // More robust conversion using fetch for data URLs
         try {
-          const res = await fetch(attachment.base64);
+          const res = await fetch(sourceDataUrl);
           blob = await res.blob();
         } catch (convError) {
           console.warn("Manual blob conversion fallback for:", attachment.name);
-          const base64Data = attachment.base64.split(',')[1] || attachment.base64;
-          const mimeType = attachment.mimeType || 'image/png';
+          const base64Data = sourceDataUrl.split(',')[1] || sourceDataUrl;
+          const mimeType = normalizedMimeType || 'application/octet-stream';
           const byteCharacters = atob(base64Data);
           const byteNumbers = new Array(byteCharacters.length);
           for (let i = 0; i < byteCharacters.length; i++) {
@@ -2130,38 +2230,47 @@ export default function App() {
         return {
           url: attachment.url,
           storageUri: attachment.storageUri,
+          mimeType: normalizedMimeType,
         };
       }
 
-      const fileExt = attachment.mimeType?.split('/')[1] || 'png';
+      const requestMimeType = normalizedMimeType || normalizeAttachmentMimeType(blob.type) || 'application/octet-stream';
+      const fileExt = guessAttachmentExtension({
+        mimeType: requestMimeType,
+        name: attachment.name,
+      });
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
       studioDebug('upload', 'Uploading attachment to /api/upload.', {
         name: attachment.name,
         fileName,
         type: attachment.type,
-        mimeType: attachment.mimeType || 'image/png',
+        mimeType: requestMimeType,
       });
       
       const response = await fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          base64: attachment.base64 || attachment.url,
+          base64: sourceDataUrl || attachment.url,
           fileName,
-          mimeType: attachment.mimeType || 'image/png'
+          mimeType: requestMimeType,
         })
       });
 
       if (!response.ok) {
         throw new Error(`Erreur serveur lors de l'upload: ${response.statusText}`);
       }
-      const { url, storageUri } = await response.json();
+      const { url, storageUri, mimeType } = await response.json();
       studioDebug('upload', 'Attachment uploaded successfully.', {
         name: attachment.name,
         fileName,
         storageUri,
       });
-      return { url, storageUri };
+      return {
+        url,
+        storageUri,
+        mimeType: normalizeAttachmentMimeType(mimeType) || requestMimeType,
+      };
     } catch (e: any) {
       studioDebug('upload', 'Primary attachment upload failed. Trying fallback path.', {
         name: attachment.name,
@@ -2171,11 +2280,13 @@ export default function App() {
       console.warn("Storage upload failed, attempting compression fallback:", e);
       
       // FALLBACK: Store directly in Firestore if we can compress it < 1MB
-      if (attachment.base64 || (attachment.url && attachment.url.startsWith('data:'))) {
-        const sourceData = attachment.base64 || attachment.url;
+      if (sourceDataUrl) {
+        const sourceData = sourceDataUrl;
         
         // If it's already small enough, just return it
-        if (sourceData.length < 800000) return { url: sourceData };
+        if (sourceData.length < 800000) {
+          return { url: sourceData, mimeType: normalizedMimeType };
+        }
 
         // Otherwise, compress it
         console.info("Compressing image for Firestore storage...");
@@ -2191,7 +2302,10 @@ export default function App() {
              name: attachment.name,
              compressedLength: compressed.length,
            }, 'warn');
-           return { url: compressed };
+           return {
+             url: compressed,
+             mimeType: normalizeAttachmentMimeType(extractMimeTypeFromDataUrl(compressed)) || normalizedMimeType,
+           };
         }
       }
 
@@ -2340,12 +2454,14 @@ export default function App() {
         ...rest,
         url: uploaded.url,
         storageUri: uploaded.storageUri,
+        mimeType: uploaded.mimeType || rest.mimeType,
         base64: uploaded.storageUri ? undefined : rest.base64,
       }));
       const cleanAttachments: Attachment[] = uploadedResults.map(({ rest, uploaded }) => ({
         ...rest,
         url: uploaded.url,
         storageUri: uploaded.storageUri,
+        mimeType: uploaded.mimeType || rest.mimeType,
         base64: undefined,
       }));
 
@@ -3242,26 +3358,6 @@ export default function App() {
     }
   }, [activeGeneratedAppWorkspace, activeSession, activeSessionId, isPublishingGeneratedApp, persistGeneratedAppManifest, persistSessionShell, upsertSessionLocal, user]);
 
-  const handleRunAgentFromHub = useCallback(async (
-    agent: StudioAgent,
-    values: AgentFormValues
-  ) => {
-    if (isLoading || sendInFlightRef.current) return;
-
-    setIsRunningHubAgent(true);
-
-    try {
-      const matchedGeneratedApp = generatedApps.find(app => app.id === agent.id);
-      if (matchedGeneratedApp) {
-        await openGeneratedAppWorkspace(matchedGeneratedApp, values, { autoRun: false });
-      } else {
-        await openAgentWorkspace(agent, values, { autoRun: false });
-      }
-    } finally {
-      setIsRunningHubAgent(false);
-    }
-  }, [generatedApps, isLoading, openAgentWorkspace, openGeneratedAppWorkspace]);
-
   const handleRetry = async (idx: number) => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading || sendInFlightRef.current) return;
     
@@ -3337,11 +3433,10 @@ export default function App() {
         title: titleInput,
         updatedAt: Date.now(),
       };
-      const { messages, ...sessionPayload } = nextSession;
       saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
       await setDoc(
         doc(db, 'users', user.uid, 'sessions', activeSessionId),
-        cleanForFirestore(sessionPayload)
+        cleanForFirestore(toSessionFirestorePayload(nextSession))
       );
       saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
       setSessions(prev => prev.map((session) => session.id === activeSessionId ? nextSession : session));
@@ -3400,11 +3495,10 @@ export default function App() {
               title: aiTitle,
               updatedAt: Date.now(),
             };
-            const { messages, ...sessionPayload } = nextSession;
             saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
             await setDoc(
               doc(db, 'users', user.uid, 'sessions', activeSessionId),
-              cleanForFirestore(sessionPayload)
+              cleanForFirestore(toSessionFirestorePayload(nextSession))
             );
             saveLocalSessionShell(user.uid, nextSession, { pendingRemote: false });
             setSessions(prev => prev.map((session) => session.id === activeSessionId ? nextSession : session));
@@ -3431,31 +3525,6 @@ export default function App() {
     </div>
   );
 
-
-  if (isCoworkAppsView) {
-    return (
-      <div
-        className={cn(
-          "studio-shell flex h-[100dvh] w-full overflow-hidden transition-colors duration-300 font-sans",
-          "bg-[var(--app-bg)] text-[var(--app-text)]"
-        )}
-      >
-        <AgentsHub
-          isOpen={showAgentsHub}
-          agents={coworkStoreAgents}
-          isCreating={isCreatingAgent}
-          creationRun={generatedAppCreationRun}
-          isRunningAgent={isRunningHubAgent || isLoading}
-          latestCreatedAgent={latestCreatedStorePreview}
-          warningMessage={agentsWarning}
-          onClose={() => setShowAgentsHub(false)}
-          onCreateAgent={handleCreateAgent}
-          onRunAgent={handleRunAgentFromHub}
-        />
-      </div>
-    );
-  }
-
   if (isDedicatedAgentStudioView && activeAgentWorkspace && activeAgentStudioKind === 'nasheed') {
     return (
       <>
@@ -3477,7 +3546,7 @@ export default function App() {
               request,
               activeAgentWorkspace.formValues
             )}
-            onBackToHub={openCoworkAppsHome}
+            onBackToHub={returnToChatHome}
             setSelectedImage={setSelectedImage}
           />
         </Suspense>
@@ -3487,34 +3556,6 @@ export default function App() {
           </div>
         )}
       </>
-    );
-  }
-
-  if (activeGeneratedAppWorkspace) {
-    return (
-      <Suspense fallback={<div className="flex h-[100dvh] w-full items-center justify-center bg-[var(--app-bg)] px-6"><StudioSurfaceFallback label="Ouverture de l'app autonome..." /></div>}>
-        <GeneratedAppHost
-          manifest={activeGeneratedAppWorkspace.app}
-          formValues={activeGeneratedAppWorkspace.formValues}
-          messages={displayedMessages}
-          isRunning={isLoading}
-          isPublishing={isPublishingGeneratedApp}
-          onFieldChange={(fieldId, value) => {
-            void updateGeneratedAppWorkspaceValues({
-              ...activeGeneratedAppWorkspace.formValues,
-              [fieldId]: value,
-            });
-          }}
-          onRunApp={() => rerunActiveGeneratedAppWorkspace()}
-          onPublishApp={() => publishActiveGeneratedAppWorkspace()}
-          onAskCowork={(request) => requestCoworkGeneratedAppEdit(
-            activeGeneratedAppWorkspace.app,
-            request,
-            activeGeneratedAppWorkspace.formValues
-          )}
-          onBackToHub={openCoworkAppsHome}
-        />
-      </Suspense>
     );
   }
 
@@ -3616,10 +3657,10 @@ export default function App() {
                         <div className="truncate text-sm font-medium text-[var(--app-text)]">{activeSession.title}</div>
                         <div className="flex items-center gap-1.5">
                           <span className="truncate text-[10px] text-[var(--app-text-muted)]">{activeSurfaceLabel}</span>
-                         {(activeSession.sessionKind === 'agent' || activeSession.sessionKind === 'generated_app') && (
-                           <span className="rounded-md bg-[var(--app-accent-soft)] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[var(--app-accent)]">App</span>
-                         )}
-                       </div>
+                          {activeSession.sessionKind === 'agent' && (
+                            <span className="rounded-md bg-[var(--app-accent-soft)] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[var(--app-accent)]">App</span>
+                          )}
+                        </div>
                      </div>
                      <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/title:opacity-100">
                         <button onClick={() => { setTitleInput(activeSession.title); setIsEditingTitle(true); }} className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors" title="Modifier"><Pencil size={12} /></button>
@@ -3628,44 +3669,13 @@ export default function App() {
                    </>
                  )}
                </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-               {activeMode === 'cowork' && user && (
-                 <button onClick={() => setShowAgentsHub(true)} className="hidden items-center gap-1.5 rounded-lg bg-[var(--app-accent-soft)] px-2.5 py-1.5 text-xs font-medium text-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] sm:inline-flex" title="Cowork Apps">
-                   <Bot size={13} />
-                   <span className="hidden sm:inline">Apps</span>
-                   {coworkStoreAgents.length > 0 && (<span className="rounded-md bg-[var(--app-accent)]/20 px-1.5 py-0.5 text-[10px]">{coworkStoreAgents.length}</span>)}
-                 </button>
-               )}
+             </div>
+             <div className="flex shrink-0 items-center gap-1">
                <button onClick={() => setShowSearch(!showSearch)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><Search size={15}/></button>
                <button onClick={() => handleExport('md')} className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><Download size={15}/></button>
                <button onClick={() => setRightSidebarVisible(!isRightSidebarVisible)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><SlidersHorizontal size={15}/></button>
-            </div>
-          </header>
-
-          {activeMode === 'cowork' && user && !showAgentsHub && (latestCreatedStorePreview || agentsWarning) && (
-            <div className="border-b border-[var(--app-border)] px-3 py-2 sm:px-4">
-              <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2">
-                {latestCreatedStorePreview && (
-                  <button onClick={() => setShowAgentsHub(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--app-accent-soft)] px-2.5 py-1.5 text-xs font-medium text-[var(--app-accent)] transition-colors hover:bg-[var(--app-accent-soft)]">
-                    <Bot size={12} />
-                    <span className="max-w-[12rem] truncate">{latestCreatedStorePreview.name} prete</span>
-                  </button>
-                )}
-                {agentsWarning && (
-                  <button onClick={() => setShowAgentsHub(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-400 transition-colors">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                    Local
-                  </button>
-                )}
-                {latestCreatedStorePreview && (
-                  <button onClick={() => { setLatestCreatedAgent(null); setLatestCreatedGeneratedApp(null); }} className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors" title="Masquer">
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+             </div>
+           </header>
 
           {!user ? (
             <main className="relative flex-1 min-h-0 overflow-hidden">
@@ -3678,23 +3688,6 @@ export default function App() {
             </main>
           ) : (
             <>
-              {showAgentsHub && (
-                <Suspense fallback={<div className="absolute inset-0 z-[90] flex items-center justify-center bg-[rgb(var(--app-bg-rgb))] px-6"><StudioSurfaceFallback label="Ouverture de Cowork Apps..." /></div>}>
-                  <AgentsHub
-                    isOpen={showAgentsHub}
-                    agents={coworkStoreAgents}
-                    isCreating={isCreatingAgent}
-                    creationRun={generatedAppCreationRun}
-                    isRunningAgent={isRunningHubAgent || isLoading}
-                    latestCreatedAgent={latestCreatedStorePreview}
-                    warningMessage={agentsWarning}
-                    onClose={() => setShowAgentsHub(false)}
-                    onCreateAgent={handleCreateAgent}
-                    onRunAgent={handleRunAgentFromHub}
-                  />
-                </Suspense>
-              )}
-
               {/* --- MEDIA STUDIO MODES (image / video / audio / lyria) --- */}
               {(activeMode === 'image' || activeMode === 'video' || activeMode === 'audio' || activeMode === 'lyria') && !isAgentSession && !isGeneratedAppSession ? (
                 <main className="relative flex-1 min-h-0 overflow-hidden">
@@ -3753,7 +3746,6 @@ export default function App() {
                     isAuthenticated={true}
                     onPrimaryAction={() => handleQuickStartPrompt("Commence une nouvelle mission dans ce mode.")}
                     onQuickPrompt={handleQuickStartPrompt}
-                    onOpenAgentsHub={activeMode === 'cowork' ? () => setShowAgentsHub(true) : undefined}
                   />
                 )}
                 {!shouldShowEmptyState && (

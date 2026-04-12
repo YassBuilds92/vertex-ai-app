@@ -509,14 +509,16 @@ export function registerStandardApiRoutes(app: Express) {
   app.post('/api/upload', async (req, res) => {
     try {
       const { base64, fileName, mimeType } = UploadSchema.parse(req.body);
+      const normalizedMimeType = String(mimeType || '').split(';')[0].trim().toLowerCase() || 'application/octet-stream';
 
       const pureBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
       const buffer = Buffer.from(pureBase64, 'base64');
-      const uploaded = await uploadToGCSWithMetadata(buffer, fileName, mimeType);
+      const uploaded = await uploadToGCSWithMetadata(buffer, fileName, normalizedMimeType);
 
       res.json({
         url: uploaded.url,
         storageUri: uploaded.storageUri,
+        mimeType: normalizedMimeType,
       });
     } catch (error) {
       log.error('Upload error', error);

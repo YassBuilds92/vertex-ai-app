@@ -406,7 +406,6 @@ function PreviewApp() {
         isAuthenticated
         onPrimaryAction={() => {}}
         onQuickPrompt={() => {}}
-        onOpenAgentsHub={mode === 'cowork' ? () => {} : undefined}
       />
     </div>
   );

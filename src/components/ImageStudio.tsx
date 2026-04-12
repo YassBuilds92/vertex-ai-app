@@ -16,6 +16,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+import {
+  getImageModelLabel,
+  IMAGE_MODEL_OPTIONS,
+} from '../../shared/image-models.js';
 import { getPromptRefinerProfile } from '../../shared/prompt-refiners.js';
 import { useStore } from '../store/useStore';
 import { MediaGenerationRequest, Message } from '../types';
@@ -25,18 +29,6 @@ import { buildImageHistory } from '../utils/media-gallery-history';
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
-const modelNameMap: Record<string, string> = {
-  'gemini-3.1-flash-image-preview': 'Nano Banana 2',
-  'gemini-3-pro-image-preview': 'Nano Banana Pro',
-  'gemini-2.5-flash-image': 'Nano Banana',
-};
-
-const imageModels = [
-  { id: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', info: 'Rapide et scalable' },
-  { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', info: 'Image premium' },
-  { id: 'gemini-2.5-flash-image', label: 'Nano Banana', info: 'Polyvalent et stable' },
-];
 
 const aspectRatios = [
   { value: '', label: 'Auto' },
@@ -88,24 +80,29 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [hiddenImageIds, setHiddenImageIds] = useState<string[]>([]);
 
   const [isRefining, setIsRefining] = useState(false);
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
   const [originalPrompt, setOriginalPrompt] = useState('');
 
   const allImages = useMemo(() => buildImageHistory(messages), [messages]);
+  const visibleImages = useMemo(
+    () => allImages.filter((image) => !hiddenImageIds.includes(image.id)),
+    [allImages, hiddenImageIds],
+  );
   const featuredImage = useMemo(
-    () => allImages.find((image) => image.id === selectedImageId) || allImages[0] || null,
-    [allImages, selectedImageId],
+    () => visibleImages.find((image) => image.id === selectedImageId) || visibleImages[0] || null,
+    [visibleImages, selectedImageId],
   );
   const galleryRail = useMemo(
-    () => allImages.filter((image) => image.id !== featuredImage?.id),
-    [allImages, featuredImage?.id],
+    () => visibleImages.filter((image) => image.id !== featuredImage?.id),
+    [visibleImages, featuredImage?.id],
   );
   const optimizedPromptGallery = useMemo(() => {
     const seen = new Set<string>();
 
-    return allImages
+    return visibleImages
       .filter((image) => image.refinedPrompt)
       .filter((image) => {
         const key = String(image.refinedPrompt).trim().toLowerCase();
@@ -114,22 +111,27 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         return true;
       })
       .slice(0, 8);
-  }, [allImages]);
+  }, [visibleImages]);
   const featuredRefinerProfile = useMemo(
     () => getPromptRefinerProfile('image', featuredImage?.refinerProfileId || config.refinerProfileId),
     [config.refinerProfileId, featuredImage?.refinerProfileId],
   );
+  const hiddenLegacyCount = Math.max(0, allImages.length - visibleImages.length);
 
   useEffect(() => {
-    if (!allImages.length) {
+    if (!visibleImages.length) {
       setSelectedImageId(null);
       return;
     }
 
-    if (!selectedImageId || !allImages.some((image) => image.id === selectedImageId)) {
-      setSelectedImageId(allImages[0].id);
+    if (!selectedImageId || !visibleImages.some((image) => image.id === selectedImageId)) {
+      setSelectedImageId(visibleImages[0].id);
     }
-  }, [allImages, selectedImageId]);
+  }, [selectedImageId, visibleImages]);
+
+  useEffect(() => {
+    setHiddenImageIds((current) => current.filter((id) => allImages.some((image) => image.id === id)));
+  }, [allImages]);
 
   const copyPrompt = async (value: string, promptId: string) => {
     if (!value.trim()) return;
@@ -137,6 +139,10 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     if (!copied) return;
     setCopiedPromptId(promptId);
     window.setTimeout(() => setCopiedPromptId((current) => (current === promptId ? null : current)), 1400);
+  };
+
+  const hideImage = (imageId: string) => {
+    setHiddenImageIds((current) => (current.includes(imageId) ? current : [...current, imageId]));
   };
 
   const handleSubmit = async () => {
@@ -213,7 +219,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               className="flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3.5 py-2 text-[12px] font-semibold text-[var(--app-text)] transition-colors hover:border-[var(--app-border-strong)]"
             >
               <ImageIcon size={13} className="text-[var(--app-accent)]" />
-              {modelNameMap[config.model] || config.model}
+              {getImageModelLabel(config.model)}
               <ChevronDown size={12} className={cn('text-[var(--app-text-muted)] transition-transform', showModelPicker && 'rotate-180')} />
             </button>
 
@@ -225,7 +231,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                   exit={{ opacity: 0, y: -4 }}
                   className="absolute left-0 top-full z-20 mt-1.5 w-64 rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface-strong)] p-2 shadow-xl backdrop-blur-xl"
                 >
-                  {imageModels.map((model) => (
+                  {IMAGE_MODEL_OPTIONS.map((model) => (
                     <button
                       key={model.id}
                       onClick={() => {
@@ -419,7 +425,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                       <Loader2 size={28} className="animate-spin text-[var(--app-accent)]" />
                     </div>
                   ) : featuredImage ? (
-                    <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_340px]">
+                    <div className="grid gap-0 lg:grid-cols-[minmax(0,1.1fr)_340px]">
                       <button
                         onClick={() => onImageClick(featuredImage.url)}
                         className="group relative min-h-[420px] overflow-hidden bg-black"
@@ -429,17 +435,28 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                           alt={featuredImage.prompt || 'Image generee'}
                           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.015]"
                           loading="lazy"
+                          onError={() => hideImage(featuredImage.id)}
                         />
+                        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between px-5 pt-5">
+                          <div className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-white/72 backdrop-blur-sm">
+                            Image phare
+                          </div>
+                          <div className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/72 backdrop-blur-sm">
+                            {getImageModelLabel(featuredImage.model)}
+                          </div>
+                        </div>
                         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/40 to-transparent px-6 pb-6 pt-24 text-left">
-                          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/60">Image hero</div>
-                          <div className="mt-2 max-w-xl text-lg font-semibold text-white">Derniere generation mise en avant</div>
+                          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/60">Direction retenue</div>
+                          <div className="mt-2 max-w-xl text-lg font-semibold text-white">
+                            {featuredImage.refinedPrompt || featuredImage.prompt || 'Derniere generation mise en avant'}
+                          </div>
                         </div>
                       </button>
 
                       <div className="flex flex-col gap-4 border-t border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(8,8,12,0.82))] p-5 lg:border-t-0 lg:border-l">
                         <div>
                           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
-                            Prompt utilise
+                            Prompt directeur
                           </div>
                           <p className="mt-3 text-[13px] leading-relaxed text-[var(--app-text)]">
                             {featuredImage.refinedPrompt || featuredImage.prompt || 'Prompt indisponible pour cette image historique.'}
@@ -487,22 +504,25 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
 
                         <div className="rounded-[1.4rem] border border-white/8 bg-white/[0.03] p-4">
                           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
-                            Raffineur actif
+                            Signature de rendu
                           </div>
                           <div className="mt-3 text-[12px] font-semibold text-[var(--app-text)]">
-                            {featuredRefinerProfile?.title || 'Profil par defaut'}
+                            {getImageModelLabel(featuredImage.model)}
                           </div>
                           <p className="mt-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                            {featuredRefinerProfile?.summary || 'Refinage image standard.'}
+                            Raffineur: {featuredRefinerProfile?.title || 'Profil par defaut'}
                           </p>
                           {featuredImage?.refinerCustomInstructions && (
                             <p className="mt-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
                               Consigne perso: {featuredImage.refinerCustomInstructions}
                             </p>
                           )}
-                          {featuredImage?.model && (
-                            <p className="mt-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                              Modele: {modelNameMap[featuredImage.model] || featuredImage.model}
+                          <p className="mt-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                            {featuredRefinerProfile?.summary || 'Refinage image standard.'}
+                          </p>
+                          {hiddenLegacyCount > 0 && (
+                            <p className="mt-3 rounded-[1rem] border border-amber-400/20 bg-amber-500/8 px-3 py-2 text-[11px] leading-relaxed text-amber-100/88">
+                              {hiddenLegacyCount} rendu(x) introuvable(s) masque(s) car l'ancien bucket ne repond plus.
                             </p>
                           )}
                         </div>
@@ -513,11 +533,16 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
 
                 <div className="flex flex-col gap-4">
                   <div className="rounded-[2rem] border border-[var(--app-border)] bg-white/[0.03] p-4">
-                    <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
-                      Galerie rapide
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
+                        Planche contact
+                      </div>
+                      <div className="text-[11px] text-[var(--app-text-muted)]">
+                        {visibleImages.length} rendu(x)
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      {isLoading && !allImages.length && Array.from({ length: config.numberOfImages || 1 }).map((_, index) => (
+                      {isLoading && !visibleImages.length && Array.from({ length: config.numberOfImages || 1 }).map((_, index) => (
                         <div key={`loading-${index}`} className="aspect-square animate-pulse rounded-[1.2rem] border border-[var(--app-border)] bg-[var(--app-surface)]" />
                       ))}
                       {[featuredImage, ...galleryRail].filter(Boolean).slice(0, 8).map((image) => {
@@ -534,7 +559,13 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                                 : 'border-[var(--app-border)] hover:border-[var(--app-border-strong)]',
                             )}
                           >
-                            <img src={image.url} alt={image.prompt || 'Image generee'} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" loading="lazy" />
+                            <img
+                              src={image.url}
+                              alt={image.prompt || 'Image generee'}
+                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                              loading="lazy"
+                              onError={() => hideImage(image.id)}
+                            />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
                             <div className="absolute bottom-0 left-0 right-0 px-3 py-2 text-left">
                               <div className="line-clamp-2 text-[10px] leading-relaxed text-white/88">
@@ -551,11 +582,14 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                     <div className="rounded-[2rem] border border-[var(--app-border)] bg-white/[0.03] p-4">
                       <div className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
                         <Sparkles size={12} className="text-[var(--app-accent)]" />
-                        Prompts optimises
+                        Carnet de prompts
                       </div>
                       <div className="space-y-3">
                         {optimizedPromptGallery.map((image) => (
                           <div key={`optimized-${image.id}`} className="rounded-[1.4rem] border border-white/8 bg-white/[0.03] p-4">
+                            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                              {getImageModelLabel(image.model)}
+                            </div>
                             <p className="text-[12px] leading-relaxed text-[var(--app-text)]">{image.refinedPrompt}</p>
                             {image.prompt && image.prompt !== image.refinedPrompt && (
                               <p className="mt-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">Original: {image.prompt}</p>
@@ -584,16 +618,22 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                 </div>
               </section>
 
-              {galleryRail.length > 0 && (
+              {visibleImages.length > 0 && (
                 <section className="rounded-[2rem] border border-[var(--app-border)] bg-white/[0.02] p-4">
                   <div className="mb-4 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
-                    Toutes les generations recentes
+                    Archive visuelle
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    {allImages.map((image) => (
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {visibleImages.map((image) => (
                       <div key={`card-${image.id}`} className="overflow-hidden rounded-[1.5rem] border border-[var(--app-border)] bg-[var(--app-surface)]/60">
                         <button onClick={() => setSelectedImageId(image.id)} className="block w-full bg-black">
-                          <img src={image.url} alt={image.prompt || 'Image generee'} className="aspect-[4/3] w-full object-cover transition-transform duration-500 hover:scale-[1.03]" loading="lazy" />
+                          <img
+                            src={image.url}
+                            alt={image.prompt || 'Image generee'}
+                            className="aspect-[4/3] w-full object-cover transition-transform duration-500 hover:scale-[1.03]"
+                            loading="lazy"
+                            onError={() => hideImage(image.id)}
+                          />
                         </button>
                         <div className="space-y-3 p-4">
                           <p className="line-clamp-3 text-[12px] leading-relaxed text-[var(--app-text)]">

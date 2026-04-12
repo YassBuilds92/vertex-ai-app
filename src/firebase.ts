@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, User } from 'firebase/auth';
+import { getAuth, getRedirectResult, GoogleAuthProvider, onAuthStateChanged, signInWithRedirect, User } from 'firebase/auth';
 import {
   addDoc,
   collection,
@@ -123,7 +123,8 @@ async function testConnection() {
 void testConnection();
 
 export {
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   onAuthStateChanged,
   doc,
   collection,

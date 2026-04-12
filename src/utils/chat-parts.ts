@@ -15,14 +15,24 @@ function stripDataUrlPrefix(value?: string) {
   return commaIndex >= 0 ? value.slice(commaIndex + 1) : value;
 }
 
+function extractDataUrlMimeType(value?: string) {
+  const match = /^data:([^;,]+)(?:;[^,]*)?,/i.exec(String(value || ''));
+  return match?.[1]?.trim().toLowerCase() || undefined;
+}
+
 export function buildApiAttachmentPayload(attachment: Attachment): ApiAttachmentPayload {
+  const dataUrlValue = attachment.base64
+    || (attachment.url.startsWith('data:') ? attachment.url : undefined);
+
   return {
     type: attachment.type,
     url: attachment.url,
     storageUri: attachment.storageUri,
-    mimeType: attachment.mimeType,
+    mimeType: attachment.mimeType
+      || extractDataUrlMimeType(attachment.base64)
+      || extractDataUrlMimeType(attachment.url),
     name: attachment.name,
-    base64: stripDataUrlPrefix(attachment.base64),
+    base64: stripDataUrlPrefix(dataUrlValue),
     thumbnail: attachment.thumbnail,
     videoMetadata: attachment.videoMetadata,
   };

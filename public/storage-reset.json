@@ -1,0 +1,4 @@
+{
+  "version": "2026-04-09T10:25:00Z-hard-reset-browser-storage-v3",
+  "reason": "Global hard reset requested to wipe browser storage and cloud-backed history before a fresh start."
+}

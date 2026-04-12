@@ -161,7 +161,6 @@ export function buildImageHistory(messages: Message[]) {
   return buildMediaHistory(messages, {
     attachmentType: 'image',
     fallbackMode: 'image',
-    includeLegacyField: 'images',
     modeFilter: 'image',
   });
 }

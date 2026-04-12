@@ -1,9 +1,48 @@
 import assert from 'node:assert/strict';
 
-import { buildApiHistoryFromMessages } from './src/utils/chat-parts.ts';
+import {
+  buildApiAttachmentPayload,
+  buildApiHistoryFromMessages,
+} from './src/utils/chat-parts.ts';
 import { buildModelContentsFromRequest } from './server/lib/chat-parts.ts';
 
 type Message = import('./src/types.ts').Message;
+
+{
+  const audioBase64 = Buffer.from('fake webm audio payload', 'utf8').toString('base64');
+  const payload = buildApiAttachmentPayload({
+    id: 'audio-data-url',
+    type: 'audio',
+    url: `data:audio/webm;codecs=opus;base64,${audioBase64}`,
+    name: 'voice-note',
+  });
+
+  assert.equal(payload.mimeType, 'audio/webm');
+  assert.equal(payload.base64, audioBase64);
+}
+
+{
+  const audioBase64 = Buffer.from('fake webm audio payload', 'utf8').toString('base64');
+  const contents = await buildModelContentsFromRequest({
+    history: [],
+    message: 'Transcris cet enregistrement.',
+    attachments: [
+      buildApiAttachmentPayload({
+        id: 'audio-inline',
+        type: 'audio',
+        url: `data:audio/webm;codecs=opus;base64,${audioBase64}`,
+        name: 'voice-note',
+      }),
+    ],
+  });
+
+  assert.deepEqual(contents[0]?.parts[1], {
+    inlineData: {
+      mimeType: 'audio/webm',
+      data: audioBase64,
+    },
+  });
+}
 
 {
   const contents = await buildModelContentsFromRequest({

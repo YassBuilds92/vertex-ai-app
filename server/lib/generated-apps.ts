@@ -5,6 +5,11 @@ import {
   isOptionalGeneratedAppBundleIssue,
   normalizeGeneratedAppBundleState,
 } from '../../shared/generated-app-bundle.js';
+import {
+  IMAGE_MODEL_OPTIONS,
+  normalizeImageModelId,
+  SUPPORTED_IMAGE_MODEL_IDS,
+} from '../../shared/image-models.js';
 
 import { DEFAULT_IMAGE_MODEL, DEFAULT_LYRIA_MODEL, DEFAULT_TTS_MODEL } from './media-generation.js';
 import { createGoogleAI, parseApiError, retryWithBackoff } from './google-genai.js';
@@ -218,9 +223,12 @@ const TOOL_LIBRARY = [
 type GeneratedAppToolName = typeof TOOL_LIBRARY[number];
 
 const TEXT_MODELS = ['gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview'] as const;
-const IMAGE_MODELS = [DEFAULT_IMAGE_MODEL] as const;
+const IMAGE_MODELS = SUPPORTED_IMAGE_MODEL_IDS;
 const MUSIC_MODELS = [DEFAULT_LYRIA_MODEL, 'lyria-3-pro-preview', 'lyria-3-clip-preview', 'lyria-002'] as const;
 const TTS_MODELS = [DEFAULT_TTS_MODEL, 'gemini-2.5-pro-tts', 'gemini-2.5-flash-tts'] as const;
+const IMAGE_MODEL_PROMPT_LIST = IMAGE_MODEL_OPTIONS
+  .map((model) => `${model.id} (${model.label})`)
+  .join(', ');
 
 const PLANNER_PROMPT = `Retourne UNIQUEMENT un JSON valide pour la prochaine etape de creation d'une app experte Cowork.
 Deux sorties possibles:
@@ -232,7 +240,7 @@ Champs obligatoires dans definition: name, slug, tagline, summary, mission, when
 outputKind autorise pour compatibilite store: pdf | html | music | podcast | code | research | automation | image.
 Outils autorises: ${TOOL_LIBRARY.join(', ')}.
 Modeles texte: ${TEXT_MODELS.join(', ')}.
-Modeles image: ${IMAGE_MODELS.join(', ')}.
+Modeles image: ${IMAGE_MODEL_PROMPT_LIST}.
 Modeles musique: ${MUSIC_MODELS.join(', ')}.
 Modeles TTS: ${TTS_MODELS.join(', ')}.
 3 a 8 champs UI max. Ecris en francais. L'app peut etre hybride. outputKind est seulement un tag legacy pour le store, pas une contrainte de conception.
@@ -501,6 +509,13 @@ function sanitizeModelProfile(
     const text = typeof value === 'string' ? value.trim() : '';
     return library.includes(text) ? text : undefined;
   };
+  const pickOptionalImageModel = (value: unknown, library: readonly string[]) => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (!text) return undefined;
+
+    const normalized = normalizeImageModelId(text, '');
+    return library.includes(normalized) ? normalized : undefined;
+  };
   const reasoningLevel = ['minimal', 'low', 'medium', 'high'].includes(String(source.reasoningLevel || ''))
     ? String(source.reasoningLevel) as GeneratedAppModelProfile['reasoningLevel']
     : 'medium';
@@ -508,7 +523,7 @@ function sanitizeModelProfile(
   return {
     textModel: pickModel(source.textModel, TEXT_MODELS, 'gemini-3.1-flash-lite-preview'),
     reasoningLevel,
-    imageModel: pickOptionalModel(source.imageModel, IMAGE_MODELS),
+    imageModel: pickOptionalImageModel(source.imageModel, IMAGE_MODELS),
     musicModel: pickOptionalModel(source.musicModel, MUSIC_MODELS),
     ttsModel: pickOptionalModel(source.ttsModel, TTS_MODELS),
     videoModel: undefined,

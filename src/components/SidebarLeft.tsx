@@ -76,10 +76,6 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
     ? sessions.filter((session) => session.sessionKind === 'agent').sort((a, b) => b.updatedAt - a.updatedAt)
     : [];
 
-  const appSessions = activeMode === 'chat'
-    ? sessions.filter((session) => session.sessionKind === 'generated_app').sort((a, b) => b.updatedAt - a.updatedAt)
-    : [];
-
   const renderSessionList = (items: ChatSession[], options?: { badgeLabel?: string }) => (
     <div className="space-y-0.5">
       {items.map((session) => (
@@ -208,11 +204,11 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
         <div className="mb-2 flex items-center justify-between px-1">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Historique</div>
           <span className="text-[10px] tabular-nums text-[var(--app-text-muted)]">
-            {standardModeSessions.length + agentSessions.length + appSessions.length}
+            {standardModeSessions.length + agentSessions.length}
           </span>
         </div>
 
-        {standardModeSessions.length === 0 && agentSessions.length === 0 && appSessions.length === 0 && (
+        {standardModeSessions.length === 0 && agentSessions.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             {React.createElement(modeConfig[activeMode].icon, { size: 16, className: 'text-[var(--app-text-muted)]/40' })}
             <p className="text-xs text-[var(--app-text-muted)]">
@@ -227,13 +223,6 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
           <div className="mt-3">
             <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Agents</div>
             {renderSessionList(agentSessions, { badgeLabel: 'Agent' })}
-          </div>
-        )}
-
-        {appSessions.length > 0 && (
-          <div className="mt-3">
-            <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Apps</div>
-            {renderSessionList(appSessions, { badgeLabel: 'App' })}
           </div>
         )}
       </div>

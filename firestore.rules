@@ -200,6 +200,7 @@ service cloud.firestore {
     function isValidSession(data) {
       return hasRequiredFields(['title', 'mode', 'updatedAt', 'userId']) &&
              hasOnlyAllowedFields([
+               'id',
                'title',
                'mode',
                'updatedAt',
@@ -215,6 +216,7 @@ service cloud.firestore {
              data.mode is string && data.mode.size() <= 50 &&
              data.updatedAt is number &&
              data.userId == request.auth.uid &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 200)) &&
              (!('systemInstruction' in data) || (data.systemInstruction is string && data.systemInstruction.size() <= 20000)) &&
              isValidSelectedCustomPrompt(data) &&
              (!('systemPromptHistory' in data) || (data.systemPromptHistory is list)) &&

@@ -1,26 +1,27 @@
 # NOW
 
 ## Objectif actuel
-- Garder la prod Vercel alignee sur `project-82b8c612-ea3d-49f5-864` pour Vertex + GCS.
+- Garder `Cowork` sans surface `Cowork Apps` dans le shell principal.
 
 ## Blocage actuel
-- Aucun blocage infra immediat cote Vercel:
-  - `GET https://vertex-ai-app-pearl.vercel.app/api/status` -> `googleAuthMode: "authorized-user-json"`
-  - `POST /api/chat` -> repond `ok`
-  - `POST /api/upload` + `GET /api/storage/object` -> OK sur `gs://project-82b8c612-ea3d-49f5-864-studio-output/...`
-- Reste seulement une validation UX manuelle si l'utilisateur veut rejouer le flow complet dans l'interface.
+- Aucun blocage build/runtime local:
+  - `npm run lint` -> OK
+  - `npm run build` -> OK
+  - capture visuelle locale du mode `Cowork` vide -> OK (`tmp/cowork-empty-after-removal.png`)
+- Il reste seulement une validation connectee si l'utilisateur veut verifier le shell reel avec ses sessions Firebase.
 
 ## Prochaine action exacte
-- Rejouer un envoi reel dans l'UI de production et verifier qu'aucune erreur de billing n'apparait.
+- Ouvrir une session connectee, passer en mode `Cowork`, puis verifier qu'aucun bouton/overlay/section `Apps` n'apparait encore dans le shell.
 
 ## Fichiers chauds
-- `server/lib/storage.ts`
-- `server/lib/google-genai.ts`
-- `QA_RECIPES.md`
+- `src/App.tsx`
+- `src/components/StudioEmptyState.tsx`
+- `src/components/SidebarLeft.tsx`
+- `SYSTEM_MAP.md`
 
 ## Validations restantes
-- smoke UX manuel dans l'app de prod
-- si besoin, aligner aussi les autres environnements/deploiements annexes sur le meme projet bucket
+- smoke visuel connecte du shell principal
+- si souhaite par l'utilisateur: decider si le lifecycle backend `generated-apps` doit lui aussi etre retire, ou seulement masque cote UI
 
 ## Risques immediats
-- l'auth Vercel repose maintenant sur un JSON `authorized_user` ADC; si on veut un mode plus strict/serveur a long terme, migrer plus tard vers Workload Identity Federation
+- des sessions `generated_app` historiques peuvent encore exister en stockage local/Firestore, meme si le shell les redirige maintenant vers `Cowork`

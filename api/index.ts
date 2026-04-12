@@ -7232,12 +7232,12 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "generate_image_asset",
-        description: "Genere une image locale avec le modele image de ton choix, l'ecrit dans '/tmp/' et renvoie le chemin du fichier. Utile pour une cover, une illustration, un visuel ou une vignette avant publication via 'release_file'.",
+        description: "Genere une image locale avec le modele image de ton choix, l'ecrit dans '/tmp/' et renvoie le chemin du fichier. Aliases acceptes pour `model`: `Nano Banana` -> `gemini-2.5-flash-image`, `Nano Banana 2` -> `gemini-3.1-flash-image-preview`, `Nano Banana Pro` -> `gemini-3-pro-image-preview`. Utile pour une cover, une illustration, un visuel ou une vignette avant publication via 'release_file'.",
         parameters: {
           type: "object",
           properties: {
             prompt: { type: "string", description: "Prompt image exact." },
-            model: { type: "string", description: "Modele image explicite, ex: gemini-2.5-flash-image." },
+            model: { type: "string", description: "Modele image explicite ou alias user-friendly. Ex: `gemini-2.5-flash-image`, `gemini-3.1-flash-image-preview`, `gemini-3-pro-image-preview`, `Nano Banana`, `Nano Banana 2`, `Nano Banana Pro`." },
             filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/." },
             aspectRatio: { type: "string", description: "Format optionnel, ex: 1:1, 16:9, 9:16." },
             imageSize: { type: "string", description: "Taille optionnelle, ex: 1K." },

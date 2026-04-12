@@ -1,19 +1,18 @@
 # SYSTEM MAP
 
 ## Points d'entree
-- `src/App.tsx` : shell principal, routing de modes, sessions, Cowork Apps, runtime chat/cowork/agent/generated_app.
+- `src/App.tsx` : shell principal, routing de modes, sessions et runtime chat/cowork/agent. Les anciennes sessions `generated_app` sont maintenant redirigees vers `Cowork` au lieu d'ouvrir une surface `Cowork Apps`.
 - `api/index.ts` : point d'entree backend unique pour Vercel/Express, boucle Cowork, runtime outille et nouveau chemin `appRuntime`.
 - `server/routes/standard.ts` : routes standard non-Cowork (`/api/chat`, media, status) + endpoints `generated-apps/create` et `generated-apps/publish`.
 - `server/lib/generated-apps.ts` : generation de manifest, rendu TSX, bundling, upload best-effort et lifecycle draft/published/failed.
 - `cloud-run/cowork-workers/src/index.js` : nouveau service Cloud Run externe pour les capacites lourdes/isolees de Cowork v2. Phase 0 expose seulement `/health` + des routes reservees `501`.
 
 ## Frontend - zones cle
-- `src/components/AgentsHub.tsx` : vue plein ecran `Cowork Apps`, type "autre app dans l'app", avec selection minimale d'apps + barre de creation en bas.
 - `src/components/AgentAppPreview.tsx` : bibliotheque de previews/studios par famille d'app (`pdf`, `html`, `music`, `podcast`, `code`, `research`, `automation`) avec palettes derivees par app.
 - `src/components/AgentWorkspacePanel.tsx` : studio dedie d'une app ouverte, distinct du shell Cowork general.
-- `src/components/GeneratedAppHost.tsx` : host plein ecran d'une generated app, charge son bundle draft et expose run/publish/evolution.
+- `src/components/GeneratedAppHost.tsx` : host legacy d'une generated app. Il reste dans le repo mais n'est plus expose par le shell principal.
 - `src/components/NasheedStudioWorkspace.tsx` : surface plein ecran specialisee pour les apps musicales/Nasheed, sans timeline de chat visible.
-- `src/components/SidebarLeft.tsx` : navigation, historique, sections chat/agents.
+- `src/components/SidebarLeft.tsx` : navigation, historique, sections chat/agents. Les sessions `generated_app` ne sont plus listees dans la navigation.
 - `src/components/SidebarRight.tsx` : modele, capacites et reglages.
 - `src/components/MessageItem.tsx` / `ChatInput.tsx` : conversation et composition.
 - `src/generated-app-sdk.tsx` : mini-SDK frontend partage rendu par les bundles generes.
@@ -46,14 +45,14 @@
 1. L'utilisateur ou Cowork demande une nouvelle app experte.
 2. `server/lib/generated-apps.ts` genere un `GeneratedAppManifest`, puis `sourceCode` TSX et `bundleCode` ESM.
 3. Le frontend persiste cette app localement puis en best effort vers `users/{uid}/generatedApps/{appId}`.
-4. Depuis `Cowork Apps`, l'utilisateur ouvre l'app : `App.tsx` cree une session `sessionKind='generated_app'`.
-5. `GeneratedAppHost` charge le bundle draft et rend l'interface via `src/generated-app-sdk.tsx`.
+4. Le shell principal n'expose plus de launcher `Cowork Apps`; une session `generated_app` historique est maintenant renvoyee vers `Cowork`.
+5. `GeneratedAppHost` reste disponible comme composant legacy mais n'est plus route depuis le shell principal.
 6. Un run passe par `/api/cowork` avec `appRuntime` ; le backend remplace la posture Cowork generale par le `systemInstruction` specialise, la `toolAllowList` et le `modelProfile` de l'app.
 7. `Publier la draft` recopie `draftVersion` vers `publishedVersion`.
 8. Une demande d'evolution via Cowork emet un nouvel evenement `generated_app_manifest` et regenere une draft sur le meme `id`, sans casser la version live.
 
 ## Fichiers chauds par type de changement
-- Refonte visuelle hub/app plein ecran : `src/components/AgentsHub.tsx`, `src/components/AgentAppPreview.tsx`, `src/components/GeneratedAppHost.tsx`, `src/generated-app-sdk.tsx`, `src/components/NasheedStudioWorkspace.tsx`, `src/App.tsx`, `src/index.css`.
+- Refonte visuelle Cowork/app plein ecran : `src/components/AgentAppPreview.tsx`, `src/components/GeneratedAppHost.tsx`, `src/generated-app-sdk.tsx`, `src/components/NasheedStudioWorkspace.tsx`, `src/App.tsx`, `src/index.css`.
 - Changement de contrat generated app : `src/types.ts`, `server/lib/schemas.ts`, `server/lib/generated-apps.ts`, `src/utils/generatedAppSnapshots.ts`.
 - Changement runtime/Cowork : `api/index.ts`, `src/utils/cowork.ts`, `src/App.tsx`.
 - Changement de persistance/reprise : `src/utils/sessionRecovery.ts`, `src/utils/sessionShells.ts`, `firestore.rules`.

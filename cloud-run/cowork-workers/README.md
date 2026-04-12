@@ -27,7 +27,7 @@ Service Cloud Run pour les capacites longues ou isolees de Cowork v2.
 - `COWORK_WORKERS_TOKEN`
 - `COWORK_WORKSPACE_BUCKET`
   - bucket GCS de destination pour les fichiers generes
-  - defaut actuel: `videosss92`
+  - si absent, le worker retombe sur le bucket derive de `VERTEX_GCS_OUTPUT_URI`
 - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
   - utile surtout en local
   - sur Cloud Run, ADC/service account suffit si le service a acces au bucket
@@ -82,7 +82,7 @@ gcloud run deploy cowork-workers --source . --region europe-west1 --allow-unauth
 Puis configure le bearer token sur le service :
 
 ```bash
-gcloud run services update cowork-workers --region europe-west1 --set-env-vars COWORK_WORKERS_TOKEN=ton_token,COWORK_WORKSPACE_BUCKET=videosss92
+gcloud run services update cowork-workers --region europe-west1 --set-env-vars COWORK_WORKERS_TOKEN=ton_token,COWORK_WORKSPACE_BUCKET=project-82b8c612-ea3d-49f5-864-studio-output
 ```
 
 ## Smoke tests

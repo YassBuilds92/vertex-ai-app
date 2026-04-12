@@ -1,5 +1,39 @@
 # SESSION STATE
 
+## 2026-04-11 - `Cowork Apps` retire du shell principal, fallback `Cowork` restaure
+
+### Ce qui a ete accompli
+- Suppression frontend de la surface `Cowork Apps`:
+  - retrait du bouton header dans `src/App.tsx`
+  - retrait de l'overlay plein ecran et des retours vers le hub
+  - retrait du CTA secondaire `Cowork Apps` dans `src/components/StudioEmptyState.tsx`
+  - retrait de la section `Apps` dans `src/components/SidebarLeft.tsx`
+- Nettoyage code:
+  - suppression de `src/components/AgentsHub.tsx`
+  - suppression de `src/components/CoworkCreationChat.tsx`
+  - suppression du harness `tmp/cowork-apps-preview.tsx` et `tmp/cowork-apps-preview.html`
+  - mise a jour de `tmp/media-modes-preview.tsx` pour le nouveau contrat `StudioEmptyState`
+- Comportement de repli:
+  - une session `generated_app` existante ne doit plus rouvrir une surface app dediee
+  - `src/App.tsx` redirige maintenant ces sessions historiques vers `Cowork`
+
+### Validation reelle
+- `npm run lint` -> OK
+- `npm run build` -> OK
+- verification visuelle locale via Edge headless:
+  - capture: `tmp/cowork-empty-after-removal.png`
+  - attendu confirme:
+    - plus de bouton `Cowork Apps`
+    - plus de wording `Construis des apps expertes`
+    - empty state `Cowork` recentre sur une mission simple
+
+### Ce qu'il reste a faire
+- verifier une session Firebase connectee si l'utilisateur veut confirmer le comportement avec son historique reel
+- decider plus tard si le backend `generated-apps` doit aussi etre retire ou seulement laisse en legacy non expose
+
+### Intention exacte
+- retirer la surface produit visible `Cowork Apps` sans casser le shell principal ni forcer une purge backend plus large dans la meme passe
+
 ## 2026-04-11 - Production Vercel recablee vers `project-82b8c612-ea3d-49f5-864`, ancien projet `gen-lang-client-0405707007` elimine
 
 ### Ce qui a ete accompli

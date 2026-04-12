@@ -1,5 +1,20 @@
 # QA RECIPES
 
+## Cowork - shell sans `Cowork Apps`
+- Objectif:
+  - verifier que le shell principal `Cowork` ne montre plus de surface `Cowork Apps`
+- Validation:
+  - lancer le frontend local
+  - ouvrir le mode `Cowork`
+  - verifier l'empty state et le header
+- Attendus:
+  - aucun bouton `Apps` dans le header
+  - aucun CTA secondaire `Cowork Apps` dans l'empty state
+  - aucune section `Apps` dans la sidebar
+  - le titre vide affiche `Lance une mission experte.`
+- Preuve locale deja capturee:
+  - `tmp/cowork-empty-after-removal.png`
+
 ## Production Vercel - smoke apres switch de projet GCP
 - Objectif:
   - verifier que la prod Vercel ne parle plus a un ancien projet GCP

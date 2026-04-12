@@ -12,10 +12,14 @@ import {
   normalizeGeminiTtsModelId,
   normalizeGeminiTtsVoiceName,
 } from '../../shared/gemini-tts.js';
+import {
+  DEFAULT_IMAGE_MODEL as SHARED_DEFAULT_IMAGE_MODEL,
+  normalizeImageModelId,
+} from '../../shared/image-models.js';
 import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './google-genai.js';
 import { getGcpCredentials } from './storage.js';
 
-export const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+export const DEFAULT_IMAGE_MODEL = SHARED_DEFAULT_IMAGE_MODEL;
 export const DEFAULT_TTS_MODEL = 'gemini-2.5-flash-tts';
 export const DEFAULT_TTS_VOICE = 'Kore';
 export const DEFAULT_LYRIA_MODEL = 'lyria-002';
@@ -1156,7 +1160,10 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
     throw new Error("Le prompt image est vide.");
   }
 
-  const model = String(options.model || DEFAULT_IMAGE_MODEL).trim() || DEFAULT_IMAGE_MODEL;
+  const model = normalizeImageModelId(
+    String(options.model || DEFAULT_IMAGE_MODEL).trim() || DEFAULT_IMAGE_MODEL,
+    DEFAULT_IMAGE_MODEL,
+  );
   const ai = createGoogleAI(model);
   const config: any = {
     ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),

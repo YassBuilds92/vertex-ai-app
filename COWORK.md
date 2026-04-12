@@ -1,5 +1,24 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-11 - `Cowork Apps` retire du shell principal
+- Retour produit:
+  - l'utilisateur demande explicitement de supprimer `Cowork Apps`
+  - le shell devait revenir a un mode `Cowork` simple, sans launcher/store ni overlay dedie
+- Changement applique:
+  - retrait des points d'entree `Cowork Apps` dans `src/App.tsx`
+  - retrait du CTA secondaire dans `src/components/StudioEmptyState.tsx`
+  - retrait de la section `Apps` dans `src/components/SidebarLeft.tsx`
+  - suppression des composants `src/components/AgentsHub.tsx` et `src/components/CoworkCreationChat.tsx`
+  - suppression du harness `tmp/cowork-apps-preview.*`
+- Validation locale:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - capture Edge headless:
+    - `tmp/cowork-empty-after-removal.png`
+- Etat produit:
+  - `Cowork` repasse par une entree missionnelle simple
+  - les generated apps restent supportees en legacy cote code, mais ne sont plus exposees par la navigation principale
+
 ## Mise a jour 2026-04-08 - Cowork multi-tour recentre sur la derniere demande, prompt systeme rafraichi et studios media relies a la vraie source de prompt
 - Retour produit:
   - l'utilisateur signalait un bug critique de comportement: apres une grosse reponse Cowork, une deuxieme question differente pouvait etre ignoree et Cowork repartait sur la premiere mission

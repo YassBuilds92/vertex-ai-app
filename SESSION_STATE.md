@@ -1,5 +1,60 @@
 # SESSION STATE
 
+## 2026-04-15 - Prompt system immediat + contexte reset au bon moment, mode video recable sur Veo
+
+### Ce qui a ete accompli
+- Correction du bug `prompt system stale`:
+  - `src/App.tsx`
+    - ajout d'helpers pour resoudre l'instruction systeme active et le prompt selectionne
+    - `handleSend()` utilise maintenant la config visible comme source d'autorite immediate pour les sessions `standard`
+    - ajout d'un commit `systemPromptHistory` au moment du send
+    - le premier envoi apres changement de prompt part sans reutiliser l'historique precedent
+    - `touchSession()` remet aussi a jour l'etat local immediatement au lieu d'attendre seulement Firestore
+- Correction du mode video:
+  - `server/routes/standard.ts`
+    - remplacement du `501` par une vraie route Veo
+    - appel `client.models.generateVideos(...)`
+    - polling `client.operations.getVideosOperation(...)`
+    - retour frontend avec `url`, `storageUri`, `model`
+  - `server/lib/storage.ts`
+    - ajout de `resolveStorageObjectUrl(storageUri)` pour signer ou proxyfier un objet GCS deja genere
+  - `server/lib/schemas.ts`
+    - `VideoGenSchema` accepte maintenant `model`
+  - `src/App.tsx`
+    - le frontend envoie aussi le modele video courant
+  - `src/components/VideoStudio.tsx` / `src/types.ts`
+    - `4k` n'est expose que pour un modele `preview`
+
+### Validation locale
+- `npm run build` -> OK
+- import module runtime:
+  - `server/lib/storage.ts` -> OK
+  - `server/lib/schemas.ts` -> OK
+  - `server/routes/standard.ts` -> OK
+- `npm run lint` -> toujours KO, mais pour 2 erreurs preexistantes hors scope:
+  - `server/lib/generated-apps.ts`
+  - `shared/image-models.ts`
+
+### Ce qu'il reste a faire
+- smoke utilisateur reel:
+  - changer le prompt system d'une session standard
+  - envoyer tout de suite un message
+  - verifier que le premier tour n'utilise plus l'ancien contexte
+- smoke Veo reel:
+  - lancer une video courte
+  - confirmer que l'artefact revient avec une URL lisible
+- si la cible principale reste Vercel/serverless:
+  - reevaluer plus tard un flux async persiste si le polling Veo depasse les limites runtime
+
+### Decisions prises pendant la session
+- le changement de prompt system doit etre committe au moment du send, pas a chaque frappe
+- le contexte visible en UI peut rester affiche, mais le contexte envoye au modele doit etre borne au prompt system courant
+- pour la video, priorite a un vrai flux Veo minimal sans nouvelle dependance plutot qu'a un placeholder UX
+
+### Intention exacte
+- supprimer la sensation produit la plus irritante: "je change le prompt system mais le premier message repart encore comme avant"
+- transformer le mode `video` de facade UI en chemin backend reel, tout en restant compatible avec l'auth Vertex/GCS deja en place
+
 ## 2026-04-11 - `Cowork Apps` retire du shell principal, fallback `Cowork` restaure
 
 ### Ce qui a ete accompli

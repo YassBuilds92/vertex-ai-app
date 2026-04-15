@@ -9,6 +9,24 @@
 - Cout
 - Sources officielles
 
+## 2026-04-15 - Veo 3.1 via `@google/genai` sur Vertex AI
+- Statut: retenu localement pour le mode `video`
+- Date de verification: 2026-04-15
+- Technologie: Vertex AI Veo 3.1 + `@google/genai`
+- Choix:
+  - conserver `@google/genai` deja present dans le repo plutot que rajouter un SDK/video dedie
+  - utiliser `veo-3.1-generate-001` comme modele stable par defaut dans le produit
+  - sortir les artefacts via `outputGcsUri` vers le bucket derive de `VERTEX_GCS_OUTPUT_URI`
+- Alternatives evaluees:
+  - appel REST `predictLongRunning` direct: plus verbeux, plus de plomberie auth/polling manuelle, aucun gain reel ici
+  - laisser le mode video en `501`: refuse car le shell expose deja une surface video complete
+  - passer tout de suite a un job async persiste: plus robuste en serverless strict, mais trop large pour ce correctif cible
+- Cout:
+  - payant selon la facturation Vertex AI / Veo
+- Sources officielles:
+  - Google Cloud, `Generate videos with Veo on Vertex AI from text prompts`, verifie le 2026-04-15
+  - sample Node.js `client.models.generateVideos(...)` + `client.operations.getVideosOperation(...)`, verifie le 2026-04-15
+
 ## 2026-04-07 - Phase 2 worker images: Artifact Registry regional pour `cowork-workers`
 - Statut: retenu et valide reellement
 - Date de verification: 2026-04-07

@@ -198,6 +198,31 @@ export async function uploadToGCS(buffer: Buffer, fileName: string, contentType:
   return uploaded.url;
 }
 
+export async function resolveStorageObjectUrl(storageUri: string): Promise<string> {
+  if (!storage) throw new Error('Storage non configure');
+
+  const location = parseGcsUri(storageUri);
+  if (!location?.bucketName || !location.objectPath) {
+    throw new Error(`Storage URI invalide: ${storageUri}`);
+  }
+
+  const file = storage.bucket(location.bucketName).file(location.objectPath);
+
+  try {
+    const [signedUrl] = await file.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
+    return signedUrl;
+  } catch (error) {
+    log.warn(
+      `Signed URL indisponible pour ${storageUri}. Fallback sur proxy applicatif.`,
+      error,
+    );
+    return buildAppUrl(buildStorageProxyPath(storageUri));
+  }
+}
+
 export async function downloadFromGCS(storageUri: string): Promise<Buffer> {
   const downloaded = await downloadFromGCSWithMetadata(storageUri);
   return downloaded.buffer;

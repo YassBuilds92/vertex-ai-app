@@ -391,7 +391,7 @@ export interface ModelConfig {
   ttsVoice?: string;
   ttsLanguageCode?: string;
   ttsStyleInstructions?: string;
-  videoResolution?: '720p' | '1080p';
+  videoResolution?: '720p' | '1080p' | '4k';
   videoAspectRatio?: '16:9' | '9:16';
   autoSystemInstruction?: boolean;
   personGeneration?: string;

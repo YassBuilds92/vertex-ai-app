@@ -1,5 +1,36 @@
 # DECISIONS
 
+## 2026-04-15 - Un changement de prompt system sur une session standard ouvre un nouveau contexte logique au prochain envoi
+- Statut: adopte localement
+- Contexte: l'utilisateur changeait l'instruction systeme puis envoyait un message, mais le premier tour repartait encore avec l'ancien prompt et l'ancien historique. Le symptome disparaissait seulement apres un envoi annule puis relance, signe d'un ordre de priorite d'etat incorrect entre `config` visible et `session shell`.
+- Decision:
+  - prendre la config visible de la sidebar comme source d'autorite immediate pour `systemInstruction` sur les sessions `standard`
+  - commit ce prompt dans `systemPromptHistory` au moment du `send`, pas a chaque frappe
+  - couper l'historique envoye au modele a partir du dernier commit du prompt courant
+- Pourquoi:
+  - un prompt system modifie doit avoir un effet immediat et net des le premier tour
+  - on veut eviter de gonfler `systemPromptHistory` a chaque caractere tape
+  - le contexte precedent doit rester visible dans l'UI mais ne plus contaminer le run suivant si le cadre systeme a change
+- Consequence:
+  - `src/App.tsx` resout maintenant `activeSystemInstruction` via helper
+  - le premier send apres changement de prompt part avec un historique vide cote API
+  - les tours suivants reutilisent uniquement l'historique cree sous ce nouveau prompt
+
+## 2026-04-15 - Le mode video utilise maintenant un flux Veo synchrone avec sortie GCS
+- Statut: adopte localement
+- Contexte: l'UI `video` etait exposee mais `/api/generate-video` renvoyait encore un `501 Non implemente`.
+- Decision:
+  - implementer `/api/generate-video` via `@google/genai` + `client.models.generateVideos(...)`
+  - poller l'operation via `client.operations.getVideosOperation(...)`
+  - retourner au frontend une URL lisible a partir du `gs://...` genere, avec fallback proxy si la signed URL n'est pas disponible
+- Pourquoi:
+  - corrige le trou fonctionnel le plus visible sans rajouter de dependance
+  - reutilise le bucket de sortie et l'auth Vertex AI deja verifies dans le projet
+- Consequence:
+  - `server/routes/standard.ts` porte maintenant un vrai flux Veo
+  - `server/lib/storage.ts` sait transformer un `storageUri` existant en URL lisible
+  - le risque restant se concentre sur la duree du polling en environnement serverless strict
+
 ## 2026-04-11 - `Cowork Apps` est retire du shell principal
 - Statut: adopte localement
 - Contexte: l'utilisateur a demande une suppression nette de `Cowork Apps`. La surface etait encore exposee a plusieurs endroits frontend: bouton d'entree dans le header `Cowork`, CTA secondaire dans l'empty state, overlay plein ecran, section `Apps` dans la sidebar et harness de preview dedie.

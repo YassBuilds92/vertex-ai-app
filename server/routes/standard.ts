@@ -27,7 +27,15 @@ import {
   UploadSchema,
   VideoGenSchema,
 } from '../lib/schemas.js';
-import { downloadFromGCSWithMetadata, getGoogleAuthMode, getServiceAccountEmail, uploadToGCSWithMetadata } from '../lib/storage.js';
+import {
+  buildGcsUri,
+  downloadFromGCSWithMetadata,
+  getGoogleAuthMode,
+  getServiceAccountEmail,
+  parseGcsUri,
+  resolveStorageObjectUrl,
+  uploadToGCSWithMetadata,
+} from '../lib/storage.js';
 import { buildModelContentsFromRequest } from '../lib/chat-parts.js';
 import { buildPromptRefinerSystemPrompt, type PromptRefinerMode } from '../../shared/prompt-refiners.js';
 
@@ -98,6 +106,34 @@ function writeSseData(res: Response, data: unknown) {
 
 function createTraceId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clipVideoPrompt(value: string, max = 4000) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+
+function buildVideoOutputGcsUri() {
+  const configured = parseGcsUri(process.env.VERTEX_GCS_OUTPUT_URI);
+  if (!configured?.bucketName) {
+    throw new Error(
+      'VERTEX_GCS_OUTPUT_URI manquant ou invalide. La generation video Veo requiert un prefixe GCS de sortie.',
+    );
+  }
+
+  const objectPath = [
+    configured.objectPath,
+    'generated-video',
+    new Date().toISOString().slice(0, 10),
+    `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  ].filter(Boolean).join('/');
+
+  return buildGcsUri(objectPath, configured.bucketName);
 }
 
 function normalizeRefinerMode(value?: string): PromptRefinerMode {
@@ -402,10 +438,105 @@ export function registerStandardApiRoutes(app: Express) {
 
   app.post('/api/generate-video', async (req, res) => {
     try {
-      VideoGenSchema.parse(req.body);
-      res.status(501).json({ error: 'Non implemente', message: 'La generation video Veo necessite une configuration GCS specifique.' });
+      const {
+        prompt,
+        model,
+        videoResolution,
+        videoAspectRatio,
+        videoDurationSeconds,
+      } = VideoGenSchema.parse(req.body);
+
+      const promptText = clipVideoPrompt(prompt);
+      if (!promptText) {
+        res.status(400).json({ error: 'Video failed', message: 'Prompt video vide.' });
+        return;
+      }
+
+      const modelId = String(model || 'veo-3.1-generate-001').trim() || 'veo-3.1-generate-001';
+      const requestedResolution = String(videoResolution || '720p').trim() || '720p';
+      if (requestedResolution === '4k' && !/preview/i.test(modelId)) {
+        res.status(400).json({
+          error: 'Video failed',
+          message: 'La resolution 4k est reservee aux modeles Veo preview. Utilise 720p/1080p ou un modele preview.',
+        });
+        return;
+      }
+
+      const outputGcsUri = buildVideoOutputGcsUri();
+      const client = createGoogleAI(modelId);
+      const traceId = createTraceId('video');
+
+      log.info('Starting Veo video generation', {
+        traceId,
+        model: modelId,
+        outputGcsUri,
+        aspectRatio: videoAspectRatio || '16:9',
+        resolution: requestedResolution,
+        durationSeconds: videoDurationSeconds || 6,
+      });
+
+      let operation: any = await retryWithBackoff(
+        () => client.models.generateVideos({
+          model: modelId,
+          prompt: promptText,
+          config: {
+            outputGcsUri,
+            aspectRatio: videoAspectRatio || '16:9',
+            durationSeconds: videoDurationSeconds || 6,
+            resolution: requestedResolution,
+            numberOfVideos: 1,
+            enhancePrompt: true,
+          },
+        }),
+        {
+          maxRetries: 2,
+          baseDelayMs: 1500,
+        },
+      );
+
+      const maxPollAttempts = 36;
+      let pollAttempt = 0;
+
+      while (!operation?.done) {
+        pollAttempt += 1;
+        if (pollAttempt > maxPollAttempts) {
+          throw new Error(
+            "La generation video a depasse le delai d'attente serveur. Reessaie avec un prompt plus court ou relance la generation.",
+          );
+        }
+
+        await sleep(10000);
+        operation = await client.operations.getVideosOperation({ operation });
+        log.info('Polling Veo video generation', {
+          traceId,
+          pollAttempt,
+          done: Boolean(operation?.done),
+          operationName: operation?.name,
+        });
+      }
+
+      const generatedVideoUri = operation?.response?.generatedVideos?.[0]?.video?.uri;
+      if (!generatedVideoUri) {
+        throw new Error('Veo a termine sans retourner de video exploitable.');
+      }
+
+      const url = await resolveStorageObjectUrl(generatedVideoUri);
+
+      res.json({
+        url,
+        storageUri: generatedVideoUri,
+        mimeType: 'video/mp4',
+        model: modelId,
+        operationName: operation?.name,
+      });
     } catch (error) {
-      res.status(500).json({ error: 'Video failed', message: String(error) });
+      const cleanError = parseApiError(error);
+      log.error('Video gen error', cleanError);
+      res.status(500).json({
+        error: 'Video failed',
+        message: "Echec de la generation video",
+        details: cleanError,
+      });
     }
   });
 

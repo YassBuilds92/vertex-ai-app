@@ -228,6 +228,7 @@ export const MusicGenRequestSchema = z.object({
 
 export const VideoGenSchema = z.object({
   prompt: z.string(),
+  model: z.string().optional(),
   videoResolution: z.string().optional(),
   videoAspectRatio: z.string().optional(),
   videoDurationSeconds: z.number().optional(),

@@ -1,27 +1,34 @@
 # NOW
 
 ## Objectif actuel
-- Garder `Cowork` sans surface `Cowork Apps` dans le shell principal.
+- Valider en conditions reelles le correctif `prompt system -> nouveau contexte` et le nouveau flux `video -> Veo`.
 
 ## Blocage actuel
-- Aucun blocage build/runtime local:
-  - `npm run lint` -> OK
+- Pas de blocage code local sur le correctif livre:
   - `npm run build` -> OK
-  - capture visuelle locale du mode `Cowork` vide -> OK (`tmp/cowork-empty-after-removal.png`)
-- Il reste seulement une validation connectee si l'utilisateur veut verifier le shell reel avec ses sessions Firebase.
+  - import serveur `server/routes/standard.ts` -> OK
+- Limites restantes:
+  - `npm run lint` est encore rouge a cause de 2 erreurs preexistantes hors scope sur la normalisation des modeles image (`server/lib/generated-apps.ts`, `shared/image-models.ts`)
+  - aucun smoke Veo reel n'a ete lance pour eviter un cout/billing inutile sans validation utilisateur
 
 ## Prochaine action exacte
-- Ouvrir une session connectee, passer en mode `Cowork`, puis verifier qu'aucun bouton/overlay/section `Apps` n'apparait encore dans le shell.
+- Ouvrir une session standard, modifier l'instruction systeme, envoyer un message et verifier que:
+  - le premier envoi part sans historique precedent
+  - le nouveau prompt system est applique des le premier tour
+- Puis lancer un vrai prompt video court pour confirmer le flux Veo + GCS.
 
 ## Fichiers chauds
 - `src/App.tsx`
-- `src/components/StudioEmptyState.tsx`
-- `src/components/SidebarLeft.tsx`
-- `SYSTEM_MAP.md`
+- `server/routes/standard.ts`
+- `server/lib/storage.ts`
+- `src/components/VideoStudio.tsx`
+- `TECH_RADAR.md`
 
 ## Validations restantes
-- smoke visuel connecte du shell principal
-- si souhaite par l'utilisateur: decider si le lifecycle backend `generated-apps` doit lui aussi etre retire, ou seulement masque cote UI
+- smoke UX reelle du reset de contexte apres changement de prompt system
+- smoke Veo reel avec bucket de sortie configure
+- optionnel: nettoyer les 2 erreurs TypeScript preexistantes hors scope image-models
 
 ## Risques immediats
-- des sessions `generated_app` historiques peuvent encore exister en stockage local/Firestore, meme si le shell les redirige maintenant vers `Cowork`
+- la route video attend potentiellement plusieurs minutes; sur un runtime serverless strict le polling peut encore etre trop long
+- si une session a ete editee sans envoi ensuite, Firestore peut encore afficher l'ancien `systemInstruction` jusqu'au prochain `touchSession`

@@ -32,6 +32,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const { configs, setConfig } = useStore();
   const config = configs.video;
   const [prompt, setPrompt] = useState('');
+  const videoResolutionOptions = /preview/i.test(config.model || '')
+    ? ['720p', '1080p', '4k']
+    : ['720p', '1080p'];
 
   // Refiner preview state
   const [isRefining, setIsRefining] = useState(false);
@@ -211,7 +214,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               ))}
               <span className="mx-1 h-4 w-px bg-[var(--app-border)]" />
               {/* Resolution */}
-              {['720p', '1080p', '4k'].map((res) => (
+              {videoResolutionOptions.map((res) => (
                 <button
                   key={res}
                   onClick={() => setConfig({ videoResolution: res as any })}
@@ -222,7 +225,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                       : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
                   )}
                 >
-                  {res}
+                  {res === '4k' ? '4K' : res}
                 </button>
               ))}
               <span className="mx-1 h-4 w-px bg-[var(--app-border)]" />

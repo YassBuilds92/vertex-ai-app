@@ -1,5 +1,32 @@
 # BUGS GRAVEYARD
 
+## 2026-04-15 - Le premier send apres edition du prompt system repartait encore avec l'ancien cadre et l'ancien contexte
+- Statut: corrige localement
+- Symptome:
+  - l'utilisateur modifie le prompt system dans la sidebar
+  - il envoie aussitot un message
+  - la reponse continue a suivre l'ancien prompt system et l'ancienne conversation
+  - en pratique, un `send -> cancel -> resend` etait souvent necessaire pour que le nouveau prompt soit enfin pris en compte
+- Tentatives:
+  - verification du textarea et du store Zustand
+  - verification de la persistance Firestore des sessions
+  - audit du payload final envoye a `/api/chat`
+- Cause racine:
+  - `src/App.tsx` prioritait `effectiveSession.systemInstruction` avant `configs[mode].systemInstruction`
+  - la session locale n'etait pas resynchronisee assez vite pour le tout premier envoi
+  - meme quand le prompt etait enfin correct, l'historique complet d'avant changement continuait a etre envoye au modele
+- Resolution:
+  - ajout d'une resolution explicite `resolveSessionSystemInstruction(...)`
+  - commit du prompt courant en `systemPromptHistory` au moment du send
+  - filtrage de `historyForApi` pour ne garder que les messages apres le dernier commit du prompt actif
+  - `touchSession()` met maintenant aussi a jour l'etat local immediatement
+- Preuve:
+  - `npm run build` : OK
+  - import runtime `server/routes/standard.ts` : OK
+- Prevention:
+  - ne jamais laisser un `session shell` stale avoir priorite sur la config visible pour un parametre critique
+  - tout changement de prompt system doit aussi redefinir la fenetre d'historique envoyee au modele
+
 ## 2026-04-11 - La prod Vercel disait encore "billing disabled" sur `gen-lang-client-0405707007` alors que le bon projet etait deja `project-82b8c612-ea3d-49f5-864`
 - Statut: corrige en production
 - Symptome:

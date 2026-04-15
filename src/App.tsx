@@ -136,6 +136,99 @@ function toSessionFirestorePayload(session: ChatSession) {
   return sessionPayload;
 }
 
+const SYSTEM_PROMPT_HISTORY_LIMIT = 16;
+
+function normalizeSystemInstructionText(value?: string | null) {
+  return String(value || '').replace(/\r\n/g, '\n').trim();
+}
+
+function isPromptScopedSession(session?: Pick<ChatSession, 'sessionKind'> | null) {
+  return !session?.sessionKind || session.sessionKind === 'standard';
+}
+
+function resolveSessionSystemInstruction(
+  session: Pick<ChatSession, 'sessionKind' | 'systemInstruction'>,
+  modeInstruction?: string,
+  fallbackInstruction = '',
+) {
+  if (session.sessionKind === 'agent' || session.sessionKind === 'generated_app') {
+    return String(session.systemInstruction || modeInstruction || fallbackInstruction || '');
+  }
+
+  if (typeof modeInstruction === 'string') {
+    return modeInstruction;
+  }
+
+  return String(session.systemInstruction || fallbackInstruction || '');
+}
+
+function resolveSessionSelectedCustomPrompt(
+  session: Pick<ChatSession, 'sessionKind' | 'selectedCustomPrompt'>,
+  selectedPrompt: SelectedCustomPromptRef | null,
+) {
+  if (session.sessionKind === 'agent' || session.sessionKind === 'generated_app') {
+    return session.selectedCustomPrompt || undefined;
+  }
+
+  return selectedPrompt || session.selectedCustomPrompt || undefined;
+}
+
+function buildCommittedSystemPromptHistory(
+  session: Pick<ChatSession, 'systemInstruction' | 'systemPromptHistory'>,
+  nextInstruction: string,
+  timestamp: number,
+): SystemPromptVersion[] | undefined {
+  const normalizedNextInstruction = normalizeSystemInstructionText(nextInstruction);
+  const normalizedCurrentInstruction = normalizeSystemInstructionText(session.systemInstruction);
+  const currentHistory = Array.isArray(session.systemPromptHistory)
+    ? session.systemPromptHistory.filter((entry) =>
+      Number.isFinite(entry?.version)
+      && typeof entry?.prompt === 'string'
+      && Number.isFinite(entry?.timestamp))
+    : [];
+
+  if (normalizedNextInstruction === normalizedCurrentInstruction) {
+    return currentHistory.length > 0 ? currentHistory : undefined;
+  }
+
+  const latestEntry = currentHistory[currentHistory.length - 1];
+  if (latestEntry && normalizeSystemInstructionText(latestEntry.prompt) === normalizedNextInstruction) {
+    return currentHistory;
+  }
+
+  const nextEntry: SystemPromptVersion = {
+    version: (latestEntry?.version || 0) + 1,
+    prompt: nextInstruction,
+    timestamp,
+  };
+
+  return [...currentHistory, nextEntry].slice(-SYSTEM_PROMPT_HISTORY_LIMIT);
+}
+
+function getSystemPromptCutoffTimestamp(
+  session: Pick<ChatSession, 'systemPromptHistory'>,
+  activeInstruction: string,
+): number | null {
+  const normalizedActiveInstruction = normalizeSystemInstructionText(activeInstruction);
+  const currentHistory = Array.isArray(session.systemPromptHistory)
+    ? session.systemPromptHistory
+    : [];
+
+  for (let index = currentHistory.length - 1; index >= 0; index -= 1) {
+    const entry = currentHistory[index];
+    if (!entry || typeof entry.prompt !== 'string') continue;
+    if (normalizeSystemInstructionText(entry.prompt) !== normalizedActiveInstruction) continue;
+    return Number.isFinite(entry.timestamp) ? entry.timestamp : null;
+  }
+
+  return null;
+}
+
+function filterMessagesAfterPromptCommit(messages: Message[], cutoffTimestamp: number | null) {
+  if (!cutoffTimestamp) return messages;
+  return messages.filter((message) => (Number.isFinite(message.createdAt) ? message.createdAt : 0) >= cutoffTimestamp);
+}
+
 const AgentWorkspacePanel = React.lazy(async () => {
   const module = await import('./components/AgentWorkspacePanel');
   return { default: module.AgentWorkspacePanel };
@@ -1206,6 +1299,11 @@ export default function App() {
       ...session,
       updatedAt: Date.now(),
     };
+    setSessions(prev => {
+      const withoutCurrent = prev.filter(existing => existing.id !== nextSession.id);
+      return [nextSession, ...withoutCurrent].sort((left, right) => right.updatedAt - left.updatedAt);
+    });
+    saveLocalSessionShell(user.uid, nextSession, { pendingRemote: true });
     try {
       await setDoc(
         doc(db, 'users', user.uid, 'sessions', nextSession.id),
@@ -2369,6 +2467,7 @@ export default function App() {
     let isRichToolRun = false;
 
     try {
+      const requestStartedAt = Date.now();
       const effectiveSession = runtimeSessionOverride || activeSession;
       const effectiveMode = runtimeSessionOverride?.mode || activeMode;
       const effectiveConfig = configs[effectiveMode];
@@ -2378,11 +2477,28 @@ export default function App() {
       const isGeneratedAppRun = effectiveSession.sessionKind === 'generated_app' && Boolean(effectiveSession.generatedAppWorkspace);
       const isMediaMode = MEDIA_MODES.includes(effectiveMode as MediaGenerationMode);
       isRichToolRun = isCoworkRun || isAgentRun || isGeneratedAppRun;
+      const activeSystemInstruction = resolveSessionSystemInstruction(
+        effectiveSession,
+        effectiveConfig?.systemInstruction,
+        configs.chat?.systemInstruction || '',
+      );
+      const activeSelectedPrompt = resolveSessionSelectedCustomPrompt(effectiveSession, selectedCustomPrompt);
+      const hasPendingSystemPromptCommit =
+        !overrideMessages
+        && !isCoworkRun
+        && !isAgentRun
+        && !isGeneratedAppRun
+        && isPromptScopedSession(effectiveSession)
+        && normalizeSystemInstructionText(effectiveSession.systemInstruction) !== normalizeSystemInstructionText(activeSystemInstruction);
+      const committedSystemPromptHistory = hasPendingSystemPromptCommit
+        ? buildCommittedSystemPromptHistory(effectiveSession, activeSystemInstruction, requestStartedAt)
+        : effectiveSession.systemPromptHistory;
 
       studioDebug('send', 'Starting handleSend.', {
         effectiveMode,
         sessionId: effectiveSession.id,
         sessionKind: effectiveSession.sessionKind || 'standard',
+        hasPendingSystemPromptCommit,
         overrideMessages: Boolean(overrideMessages),
         pendingAttachments: pendingAttachments.map((attachment) => ({
           id: attachment.id,
@@ -2403,10 +2519,12 @@ export default function App() {
           updatedAt: Date.now(),
           mode: effectiveMode,
           userId: user.uid,
-          systemInstruction: effectiveSession.systemInstruction || effectiveConfig?.systemInstruction || configs.chat?.systemInstruction || '',
-          selectedCustomPrompt: effectiveSession.selectedCustomPrompt || selectedCustomPrompt || undefined,
+          systemInstruction: activeSystemInstruction,
+          selectedCustomPrompt: activeSelectedPrompt,
+          systemPromptHistory: committedSystemPromptHistory,
           sessionKind: effectiveSession.sessionKind || 'standard',
           agentWorkspace: effectiveSession.agentWorkspace,
+          generatedAppWorkspace: effectiveSession.generatedAppWorkspace,
         };
         upsertSessionLocal(nextSession, { pendingRemote: true });
         void persistSessionShell(nextSession);
@@ -2431,8 +2549,9 @@ export default function App() {
         updatedAt: Date.now(),
         mode: effectiveMode,
         userId: user.uid,
-        systemInstruction: effectiveSession.systemInstruction || effectiveConfig?.systemInstruction || configs.chat?.systemInstruction || '',
-        selectedCustomPrompt: effectiveSession.selectedCustomPrompt || selectedCustomPrompt || undefined,
+        systemInstruction: activeSystemInstruction,
+        selectedCustomPrompt: activeSelectedPrompt,
+        systemPromptHistory: committedSystemPromptHistory,
         sessionKind: effectiveSession.sessionKind || 'standard',
         agentWorkspace: effectiveSession.agentWorkspace,
         generatedAppWorkspace: effectiveSession.generatedAppWorkspace,
@@ -3034,6 +3153,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: generationPrompt,
+            model: effectiveConfig?.model || configs.video.model,
             videoResolution: effectiveConfig?.videoResolution || '720p',
             videoAspectRatio: effectiveConfig?.videoAspectRatio || '16:9',
             videoDurationSeconds: effectiveConfig?.videoDurationSeconds || 6
@@ -3092,11 +3212,30 @@ export default function App() {
       }
 
       const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
-      const historyForApi = buildApiHistoryFromMessages(apiHistory);
+      const scopedApiHistory = overrideMessages
+        ? apiHistory
+        : (
+          !isCoworkRun
+          && !isAgentRun
+          && !isGeneratedAppRun
+          && isPromptScopedSession(effectiveSession)
+            ? filterMessagesAfterPromptCommit(
+              apiHistory,
+              hasPendingSystemPromptCommit
+                ? requestStartedAt
+                : getSystemPromptCutoffTimestamp(
+                  { systemPromptHistory: committedSystemPromptHistory },
+                  activeSystemInstruction,
+                ),
+            )
+            : apiHistory
+        );
+      const historyForApi = buildApiHistoryFromMessages(scopedApiHistory);
 
       studioDebug('chat', 'Preparing /api/chat request.', {
         sessionId: currentSessionId,
         historyCount: historyForApi.length,
+        totalHistoryMessages: apiHistory.length,
         attachmentCount: finalRequestAttachments.length,
         attachmentSummary: finalRequestAttachments.map((attachment) => ({
           id: attachment.id,
@@ -3123,7 +3262,7 @@ export default function App() {
             topP: effectiveConfig?.topP ?? 0.95,
             topK: effectiveConfig?.topK ?? 40,
             maxOutputTokens: effectiveConfig?.maxOutputTokens || 8192,
-            systemInstruction: effectiveConfig?.systemInstruction || configs.chat.systemInstruction || '',
+            systemInstruction: activeSystemInstruction,
             googleSearch: !!effectiveConfig?.googleSearch,
             codeExecution: !!effectiveConfig?.codeExecution,
             thinkingLevel: effectiveConfig?.thinkingLevel || 'high'

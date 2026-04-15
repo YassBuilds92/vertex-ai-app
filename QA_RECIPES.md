@@ -1,5 +1,46 @@
 # QA RECIPES
 
+## TTS - Gemini 3.1 Flash dans le mode voix et Cowork
+- Objectif:
+  - verifier que `gemini-3.1-flash-tts-preview` est bien expose dans le mode `audio`
+  - verifier que le runtime Cowork sait l'utiliser en single-speaker et en duo
+- Validation locale:
+  - `npm run lint`
+  - `npm run build`
+- Smoke backend reel:
+  - single-speaker:
+    - `node node_modules/tsx/dist/cli.mjs -r dotenv/config -`
+    - importer `generateGeminiTtsBinary(...)`
+    - appeler avec:
+      - `model: 'gemini-3.1-flash-tts-preview'`
+      - `voice: 'Kore'`
+      - `languageCode: 'fr-FR'`
+      - un prompt court
+  - multi-speaker:
+    - meme helper
+    - `model: 'gemini-3.1-flash-tts-preview'`
+    - `speakers` avec exactement 2 objets (`Kore`, `Puck`)
+    - texte avec labels `Nom:`
+- Validation UI:
+  - ouvrir le mode `Text-to-Speech`
+  - verifier que `Gemini 3.1 Flash TTS` apparait dans le picker modele
+  - verifier que la note multi-speaker change bien selon le modele choisi
+  - generer une voix courte en `fr-FR`
+- Validation Cowork:
+  - lancer `generate_tts_audio` avec `model='gemini-3.1-flash-tts-preview'`
+  - puis lancer un run duo avec exactement 2 `speakers`
+- Attendus:
+  - single-speaker:
+    - `mimeType: audio/wav`
+    - `voice: Kore`
+    - `languageCode: fr-FR`
+    - `sampleRateHz: 24000`
+  - duo:
+    - `speakerMode: duo`
+    - 2 noms et 2 voix distinctes dans les metas
+  - UI:
+    - le nouveau modele est selectionnable sans fallback silencieux vers un ancien id
+
 ## Cowork - shell sans `Cowork Apps`
 - Objectif:
   - verifier que le shell principal `Cowork` ne montre plus de surface `Cowork Apps`

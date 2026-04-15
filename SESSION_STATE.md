@@ -1,5 +1,67 @@
 # SESSION STATE
 
+## 2026-04-15 - Gemini 3.1 Flash TTS branche dans le mode voix et Cowork, avec smoke reel single + duo
+
+### Ce qui a ete accompli
+- Catalogue TTS partage:
+  - `shared/gemini-tts.ts`
+    - ajout du modele officiel `gemini-3.1-flash-tts-preview`
+    - ajout d'un alias `gemini-3.1-flash-tts`
+    - marquage multi-speaker pour `3.1 Flash TTS`
+    - centralisation des labels/options TTS
+- Mode voix:
+  - `src/store/useStore.ts`
+    - defaut `audio.model` -> `gemini-3.1-flash-tts-preview`
+  - `src/components/AudioStudio.tsx`
+  - `src/components/SidebarRight.tsx`
+    - pickers modeles recables sur le catalogue partage
+    - labels audio et message multi-speaker mis a jour
+- Cowork / backend:
+  - `server/lib/media-generation.ts`
+    - `DEFAULT_TTS_MODEL` -> `gemini-3.1-flash-tts-preview`
+    - messages d'erreur multi-speaker mis a jour
+  - `server/lib/generated-apps.ts`
+  - `server/lib/agents.ts`
+  - `api/index.ts`
+    - liste de modeles, prompts et descriptions outils TTS/podcast mis a jour
+- Hygiene TypeScript:
+  - `shared/image-models.ts`
+    - correction du type du fallback pour `normalizeImageModelId(...)`
+  - `tmp/media-modes-preview.tsx`
+    - ajout du callback manquant `onSessionInstructionChange`
+
+### Validation locale
+- `npm run lint` -> OK
+- `npm run build` -> OK
+
+### Validation reelle
+- smoke single-speaker via `generateGeminiTtsBinary(...)` charge avec `dotenv/config`:
+  - `model: "gemini-3.1-flash-tts-preview"`
+  - `mimeType: "audio/wav"`
+  - `voice: "Kore"`
+  - `languageCode: "fr-FR"`
+  - `sampleRateHz: 24000`
+- smoke duo via `generateGeminiTtsBinary(...)`:
+  - `model: "gemini-3.1-flash-tts-preview"`
+  - `speakerMode: "duo"`
+  - `speakerNames: "Yassine | Nora"`
+  - `speakerVoices: "Kore | Puck"`
+
+### Ce qu'il reste a faire
+- smoke manuel depuis l'interface `audio` pour verifier le rendu utilisateur final
+- smoke Cowork en conditions reelles via les outils `generate_tts_audio` et `create_podcast_episode`
+- redeployer si l'utilisateur veut pousser cette integration sur son environnement public
+
+### Decisions prises pendant la session
+- `Gemini 3.1 Flash TTS` devient le defaut pour la voix generique
+- `Gemini 2.5 Pro TTS` reste le defaut podcast pour ne pas changer brutalement la signature du chemin long-form
+- la source de verite TTS doit vivre dans `shared/` pour eviter les listes divergentes entre UI et backend
+
+### Intention exacte
+- integrer le nouveau modele TTS Google pour de vrai, pas seulement l'afficher
+- garantir qu'il soit utilisable autant depuis le mode voix que depuis le runtime Cowork
+- verrouiller la realite de l'API avec une verification doc officielle + un smoke Vertex reel
+
 ## 2026-04-15 - Prompt system immediat + contexte reset au bon moment, mode video recable sur Veo
 
 ### Ce qui a ete accompli

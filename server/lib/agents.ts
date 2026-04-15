@@ -105,7 +105,7 @@ Regles:
 - Si le brief parle de nasheed, de chanson, de composition musicale, de bed instrumental, de beat, de refrain, de chant ou d'une app Lyria, utilise \`outputKind: "music"\` et prefere \`generate_music_audio\`. Ajoute \`generate_image_asset\` et \`release_file\` si la cover ou l'export final sont utiles.
 - Si le brief parle de podcast, de narration, de chronique ou de voix-off avec habillage sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Pour la synthese Gemini TTS: choisis une seule voix pour narration, voix-off, chronique, flash info ou explication; choisis 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
-- Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
+- Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-3.1-flash-tts-preview\`, \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
 - En duo, impose 2 voix distinctes et 2 styles de jeu vraiment contrastes; n'utilise jamais la meme voix pour les 2 intervenants.
 - Pense aux style instructions globales et par intervenant pour preciser ton, rythme, accent, energie et emotion.
 - Quand des noms propres ou mots etrangers apparaissent dans un script TTS/podcast, ecris-les dans leur ecriture d'origine quand cela ameliore la fluidite orale.
@@ -156,7 +156,7 @@ Regles:
 - Si la mission parle de nasheed, de chanson, de composition musicale, de bed instrumental, de beat, de refrain, de chant ou d'une app Lyria, utilise \`outputKind: "music"\` et prefere \`generate_music_audio\`. Ajoute \`generate_image_asset\` et \`release_file\` si la cover ou l'export final sont utiles.
 - Si la mission parle de narration, de chronique, de podcast ou de voix-off avec habillage sonore, prefere \`create_podcast_episode\` pour livrer un master final unique. Garde \`generate_tts_audio\` et \`generate_music_audio\` pour les cas ou l'utilisateur demande explicitement des composants separes.
 - Pour la synthese Gemini TTS: garde 1 voix pour narration, voix-off, chronique, flash info ou explication; passe a 2 intervenants pour sketch, interview, duo de presentation ou conversation. Plus de 2 intervenants n'est pas supporte nativement.
-- Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
+- Le multi-speaker Gemini TTS demande exactement 2 speakers configures et marche avec \`gemini-3.1-flash-tts-preview\`, \`gemini-2.5-pro-tts\` ou \`gemini-2.5-flash-tts\`, pas avec \`gemini-2.5-flash-lite-preview-tts\`.
 - En duo, impose 2 voix distinctes et 2 styles de jeu vraiment contrastes; n'utilise jamais la meme voix pour les 2 intervenants.
 - Pense aux style instructions globales et par intervenant pour preciser ton, rythme, accent, energie et emotion.
 - Quand des noms propres ou mots etrangers apparaissent dans un script TTS/podcast, ecris-les dans leur ecriture d'origine quand cela ameliore la fluidite orale.

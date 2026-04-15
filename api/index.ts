@@ -725,7 +725,7 @@ ${ragEnabled
   : ''}  - Pour Gemini TTS: prefere 1 seule voix pour narration, flash info, voix-off, explication, monologue ou chronique solo.
   - Pour Gemini TTS: prefere 2 intervenants pour sketch, interview, duo de presentation, dispute, Q/R vivante ou conversation ecrite avec 2 roles explicites.
   - Le multi-speaker Gemini TTS supporte exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants, pas plus. Si le besoin depasse 2 voix, fusionne en 2 roles max ou repasse en narrateur unique.
-  - Les modeles multi-speaker utiles sont 'gemini-2.5-pro-tts' et 'gemini-2.5-flash-tts'. 'gemini-2.5-flash-lite-preview-tts' reste single-speaker seulement.
+  - Les modeles multi-speaker utiles sont 'gemini-3.1-flash-tts-preview', 'gemini-2.5-pro-tts' et 'gemini-2.5-flash-tts'. 'gemini-2.5-flash-lite-preview-tts' reste single-speaker seulement.
   - En duo TTS/podcast, choisis toujours 2 voix distinctes et 2 styles de jeu contrastes. Ne garde jamais la meme voix pour les 2 intervenants.
   - Quand un script contient des noms propres ou mots etrangers relevant d'une autre ecriture, garde cette ecriture d'origine si cela fluidifie la prononciation.
   - Pour la musique podcast, 'lyria-002' reste le defaut robuste. 'lyria-3-clip-preview' et 'lyria-3-pro-preview' sont des options preview a utiliser seulement si le besoin le justifie.
@@ -7313,7 +7313,7 @@ app.post('/api/cowork', async (req, res) => {
           type: "object",
           properties: {
             text: { type: "string", description: "Texte exact a dire. En duo, chaque ligne doit utiliser un label `Nom:` qui correspond aux speakers. Pour les noms propres et mots etrangers, garde l'ecriture du pays d'origine quand cela fluidifie la prononciation." },
-            model: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-flash-tts ou gemini-2.5-pro-tts. Pour 2 intervenants, n'utilise pas gemini-2.5-flash-lite-preview-tts." },
+            model: { type: "string", description: "Modele TTS explicite, ex: gemini-3.1-flash-tts-preview, gemini-2.5-flash-tts ou gemini-2.5-pro-tts. Pour 2 intervenants, n'utilise pas gemini-2.5-flash-lite-preview-tts." },
             voice: { type: "string", description: "Nom de voix prebuilt Gemini pour le mode single-speaker, ex: Kore." },
             styleInstructions: { type: "string", description: "Consignes de jeu globales: ton, rythme, accent, energie, emotion, etc." },
             speakers: {
@@ -7492,11 +7492,11 @@ app.post('/api/cowork', async (req, res) => {
       },
       {
         name: "create_podcast_episode",
-        description: "Fabrique un episode podcast audio complet dans '/tmp/': un script original est prepare, narre via Gemini 2.5 Pro TTS par defaut, puis melange a un fond sonore Lyria quand il est disponible. Le resultat reste un seul master final pret a publier, avec fallback voix seule si le bed ou le mix local sont indisponibles. Gere le single-speaker et le duo a 2 intervenants. Choisis 1 voix pour narration, chronique, flash info, explication ou voix-off. Choisis 2 intervenants pour sketch, interview, duo de presentation, dispute ou conversation, avec 2 voix clairement distinctes et 2 styles de jeu contrastes. Plus de 2 intervenants n'est pas supporte par Gemini TTS multi-speaker. `lyria-002` reste le defaut robuste; les variantes Lyria 3 restent des previews optionnelles. Si tu fournis `script`, il sera narre tel quel.",
+        description: "Fabrique un episode podcast audio complet dans '/tmp/': un script original est prepare, narre via Gemini 2.5 Pro TTS par defaut, puis melange a un fond sonore Lyria quand il est disponible. Tu peux aussi forcer `gemini-3.1-flash-tts-preview` si tu privilegies la latence et le controle fin de la voix. Le resultat reste un seul master final pret a publier, avec fallback voix seule si le bed ou le mix local sont indisponibles. Gere le single-speaker et le duo a 2 intervenants. Choisis 1 voix pour narration, chronique, flash info, explication ou voix-off. Choisis 2 intervenants pour sketch, interview, duo de presentation, dispute ou conversation, avec 2 voix clairement distinctes et 2 styles de jeu contrastes. Plus de 2 intervenants n'est pas supporte par Gemini TTS multi-speaker. `lyria-002` reste le defaut robuste; les variantes Lyria 3 restent des previews optionnelles. Si tu fournis `script`, il sera narre tel quel.",
         parameters: {
           type: "object",
           properties: {
-            brief: { type: "string", description: "Brief haut niveau du podcast si tu veux que Gemini 2.5 Pro TTS cree aussi le texte parle." },
+            brief: { type: "string", description: "Brief haut niveau du podcast si tu veux que Gemini TTS cree aussi le texte parle avant narration." },
             script: { type: "string", description: "Script exact a narrer si tu veux garder le controle total sur le texte. En duo, utilise des lignes `Nom:` conformes aux `speakers`. Pour les noms propres et mots etrangers, garde l'ecriture du pays d'origine quand cela fluidifie la prononciation." },
             title: { type: "string", description: "Titre de l'episode ou angle editorial." },
             hostStyle: { type: "string", description: "Style de l'animateur ou ton editorial souhaite." },
@@ -7516,7 +7516,7 @@ app.post('/api/cowork', async (req, res) => {
               }
             },
             languageCode: { type: "string", description: "Locale de narration, ex: fr-FR." },
-            ttsModel: { type: "string", description: "Modele TTS explicite, ex: gemini-2.5-pro-tts. Pour 2 intervenants, utilise gemini-2.5-pro-tts ou gemini-2.5-flash-tts; gemini-2.5-flash-lite-preview-tts reste mono." },
+            ttsModel: { type: "string", description: "Modele TTS explicite, ex: gemini-3.1-flash-tts-preview ou gemini-2.5-pro-tts. Pour 2 intervenants, utilise gemini-3.1-flash-tts-preview, gemini-2.5-pro-tts ou gemini-2.5-flash-tts; gemini-2.5-flash-lite-preview-tts reste mono." },
             musicPrompt: { type: "string", description: "Prompt musical explicite pour Lyria. Recommande en anglais pour maximiser la qualite." },
             musicModel: { type: "string", description: "Modele Lyria explicite, ex: lyria-002, lyria-3-clip-preview, lyria-3-pro-preview. Garde `lyria-002` comme choix robuste par defaut; utilise Lyria 3 seulement si le besoin le justifie." },
             negativeMusicPrompt: { type: "string", description: "Prompt negatif Lyria optionnel." },

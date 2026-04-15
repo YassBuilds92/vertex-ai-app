@@ -393,6 +393,7 @@ function PreviewApp() {
             activeSession={previewSession}
             selectedCustomPrompt={previewSelectedPrompt}
             onSelectedCustomPromptChange={() => {}}
+            onSessionInstructionChange={() => {}}
           />
         </div>
       </div>

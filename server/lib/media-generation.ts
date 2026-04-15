@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { GoogleAuth } from 'google-auth-library';
 
 import {
+  DEFAULT_GEMINI_TTS_MODEL,
   DEFAULT_GEMINI_TTS_DUO_VOICES,
   MAX_GEMINI_TTS_MULTI_SPEAKERS,
   modelSupportsGeminiTtsMultiSpeaker,
@@ -20,7 +21,7 @@ import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from
 import { getGcpCredentials } from './storage.js';
 
 export const DEFAULT_IMAGE_MODEL = SHARED_DEFAULT_IMAGE_MODEL;
-export const DEFAULT_TTS_MODEL = 'gemini-2.5-flash-tts';
+export const DEFAULT_TTS_MODEL = DEFAULT_GEMINI_TTS_MODEL;
 export const DEFAULT_TTS_VOICE = 'Kore';
 export const DEFAULT_LYRIA_MODEL = 'lyria-002';
 export const DEFAULT_PODCAST_TTS_MODEL = 'gemini-2.5-pro-tts';
@@ -1227,7 +1228,7 @@ export async function generateGeminiTtsBinary(options: GeminiTtsOptions): Promis
   const speakers = normalizeGeminiTtsSpeakers(options.speakers, DEFAULT_GEMINI_TTS_DUO_VOICES);
   if (speakers.length > 0) {
     if (!modelSupportsGeminiTtsMultiSpeaker(model)) {
-      throw new Error(`Le modele ${model} ne supporte pas le multi-speaker. Utilise gemini-2.5-pro-tts ou gemini-2.5-flash-tts.`);
+      throw new Error(`Le modele ${model} ne supporte pas le multi-speaker. Utilise gemini-3.1-flash-tts-preview, gemini-2.5-pro-tts ou gemini-2.5-flash-tts.`);
     }
     if (speakers.length !== MAX_GEMINI_TTS_MULTI_SPEAKERS) {
       throw new Error(`Gemini TTS multi-speaker exige exactement ${MAX_GEMINI_TTS_MULTI_SPEAKERS} intervenants configures.`);
@@ -1452,7 +1453,7 @@ export async function generatePodcastEpisode(options: PodcastGenerationOptions):
     || DEFAULT_PODCAST_TTS_MODEL;
   const resolvedSpeakers = resolvePodcastSpeakers(options);
   if (resolvedSpeakers.length === MAX_GEMINI_TTS_MULTI_SPEAKERS && !modelSupportsGeminiTtsMultiSpeaker(ttsModel)) {
-    throw new Error(`Le modele ${ttsModel} ne supporte pas le multi-speaker. Pour deux intervenants, utilise gemini-2.5-pro-tts ou gemini-2.5-flash-tts.`);
+    throw new Error(`Le modele ${ttsModel} ne supporte pas le multi-speaker. Pour deux intervenants, utilise gemini-3.1-flash-tts-preview, gemini-2.5-pro-tts ou gemini-2.5-flash-tts.`);
   }
 
   const narrationScript = options.script

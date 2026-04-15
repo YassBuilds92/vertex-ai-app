@@ -1,5 +1,22 @@
 # DECISIONS
 
+## 2026-04-15 - Le mode voix standard passe sur `gemini-3.1-flash-tts-preview`, mais le podcast garde `gemini-2.5-pro-tts`
+- Statut: adopte localement
+- Contexte: l'utilisateur demande d'inclure le nouveau modele TTS `Gemini 3.1 Flash TTS` dans le mode voix et Cowork. Le repo utilisait deja Gemini TTS, mais seulement via les familles 2.5, avec duplication des listes de modeles entre UI, backend et prompts Cowork.
+- Decision:
+  - centraliser le catalogue TTS partage dans `shared/gemini-tts.ts`
+  - exposer `gemini-3.1-flash-tts-preview` dans le mode `audio`, dans Cowork et dans les generated apps
+  - en faire le defaut pour la generation voix generique
+  - conserver `gemini-2.5-pro-tts` comme defaut du chemin podcast
+- Pourquoi:
+  - `3.1 Flash TTS` est la nouvelle offre officielle Google pour une TTS expressive, controllable et basse latence
+  - le mode voix court gagne a suivre le modele le plus recent
+  - le chemin podcast a deja une promesse plus premium et plus longue, donc on evite une bascule brusque de sa signature sonore sans besoin produit explicite
+- Consequence:
+  - l'UI audio et le runtime Cowork partagent maintenant la meme source de verite pour les modeles TTS
+  - le multi-speaker est explicitement autorise pour `gemini-3.1-flash-tts-preview`
+  - les alias utilisateur du type `gemini-3.1-flash-tts` sont normalises vers l'identifiant officiel `gemini-3.1-flash-tts-preview`
+
 ## 2026-04-15 - Un changement de prompt system sur une session standard ouvre un nouveau contexte logique au prochain envoi
 - Statut: adopte localement
 - Contexte: l'utilisateur changeait l'instruction systeme puis envoyait un message, mais le premier tour repartait encore avec l'ancien prompt et l'ancien historique. Le symptome disparaissait seulement apres un envoi annule puis relance, signe d'un ordre de priorite d'etat incorrect entre `config` visible et `session shell`.

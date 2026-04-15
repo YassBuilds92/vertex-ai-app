@@ -6,6 +6,33 @@ export type GeminiTtsVoiceOption = {
   style: string;
 };
 
+export const DEFAULT_GEMINI_TTS_MODEL = 'gemini-3.1-flash-tts-preview' as const;
+
+export const GEMINI_TTS_MODEL_OPTIONS = [
+  {
+    id: DEFAULT_GEMINI_TTS_MODEL,
+    label: 'Gemini 3.1 Flash TTS',
+    info: 'Nouveau, expressif, faible latence',
+  },
+  {
+    id: 'gemini-2.5-flash-tts',
+    label: 'Gemini 2.5 Flash TTS',
+    info: 'Rapide et stable',
+  },
+  {
+    id: 'gemini-2.5-flash-lite-preview-tts',
+    label: 'Gemini 2.5 Flash Lite TTS',
+    info: 'Eco et mono',
+  },
+  {
+    id: 'gemini-2.5-pro-tts',
+    label: 'Gemini 2.5 Pro TTS',
+    info: 'Voix premium',
+  },
+] as const;
+
+export type SupportedGeminiTtsModelId = typeof GEMINI_TTS_MODEL_OPTIONS[number]['id'];
+
 export const GEMINI_TTS_VOICES: readonly GeminiTtsVoiceOption[] = [
   { name: 'Achernar', gender: 'female', style: 'Soft' },
   { name: 'Achird', gender: 'male', style: 'Friendly' },
@@ -40,6 +67,7 @@ export const GEMINI_TTS_VOICES: readonly GeminiTtsVoiceOption[] = [
 ] as const;
 
 export const GEMINI_TTS_MULTI_SPEAKER_MODELS = [
+  DEFAULT_GEMINI_TTS_MODEL,
   'gemini-2.5-flash-tts',
   'gemini-2.5-pro-tts',
 ] as const;
@@ -48,9 +76,26 @@ export const GEMINI_TTS_SINGLE_SPEAKER_ONLY_MODELS = [
   'gemini-2.5-flash-lite-preview-tts',
 ] as const;
 
-export const GEMINI_TTS_MODEL_ALIASES: Record<string, string> = {
+export const SUPPORTED_GEMINI_TTS_MODEL_IDS = GEMINI_TTS_MODEL_OPTIONS.map((model) => model.id) as SupportedGeminiTtsModelId[];
+
+export const GEMINI_TTS_MODEL_LABELS: Record<string, string> = Object.fromEntries(
+  GEMINI_TTS_MODEL_OPTIONS.map((model) => [model.id, model.label]),
+);
+
+function normalizeModelAliasKey(value?: string | null): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+const GEMINI_TTS_MODEL_ALIASES: Record<string, SupportedGeminiTtsModelId> = {
+  'gemini-3.1-flash-tts': DEFAULT_GEMINI_TTS_MODEL,
+  'gemini 3.1 flash tts': DEFAULT_GEMINI_TTS_MODEL,
   'gemini-2.5-flash-preview-tts': 'gemini-2.5-flash-tts',
+  'gemini 2.5 flash preview tts': 'gemini-2.5-flash-tts',
   'gemini-2.5-pro-preview-tts': 'gemini-2.5-pro-tts',
+  'gemini 2.5 pro preview tts': 'gemini-2.5-pro-tts',
 };
 
 export const MAX_GEMINI_TTS_MULTI_SPEAKERS = 2;
@@ -60,12 +105,21 @@ export const DEFAULT_GEMINI_TTS_DUO_VOICES = ['Kore', 'Puck'] as const;
 export function normalizeGeminiTtsModelId(model: string | null | undefined): string {
   const raw = String(model || '').trim();
   if (!raw) return '';
-  return GEMINI_TTS_MODEL_ALIASES[raw] || raw;
+  const aliasMatch = GEMINI_TTS_MODEL_ALIASES[normalizeModelAliasKey(raw)];
+  if (aliasMatch) return aliasMatch;
+  return raw;
 }
 
 export function modelSupportsGeminiTtsMultiSpeaker(model: string | null | undefined): boolean {
   const normalized = normalizeGeminiTtsModelId(model);
   return GEMINI_TTS_MULTI_SPEAKER_MODELS.includes(normalized as (typeof GEMINI_TTS_MULTI_SPEAKER_MODELS)[number]);
+}
+
+export function getGeminiTtsModelLabel(model: string | null | undefined): string {
+  const raw = String(model || '').trim();
+  if (!raw) return GEMINI_TTS_MODEL_LABELS[DEFAULT_GEMINI_TTS_MODEL];
+  const normalized = normalizeGeminiTtsModelId(raw);
+  return GEMINI_TTS_MODEL_LABELS[normalized] || raw;
 }
 
 export function findGeminiTtsVoice(name: string | null | undefined): GeminiTtsVoiceOption | null {

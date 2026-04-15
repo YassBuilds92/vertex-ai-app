@@ -15,6 +15,7 @@ import { twMerge } from 'tailwind-merge';
 
 import {
   findGeminiTtsVoice,
+  GEMINI_TTS_MODEL_OPTIONS,
   GEMINI_TTS_VOICES,
 } from '../../shared/gemini-tts.js';
 import { getPromptRefinerProfile } from '../../shared/prompt-refiners.js';
@@ -26,12 +27,6 @@ import { StudioAudioPlayer } from './StudioAudioPlayer';
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
-const ttsModels = [
-  { id: 'gemini-2.5-flash-tts', label: 'Flash TTS', info: 'Rapide et naturel' },
-  { id: 'gemini-2.5-flash-lite-preview-tts', label: 'Flash Lite TTS', info: 'Eco et leger' },
-  { id: 'gemini-2.5-pro-tts', label: 'Pro TTS', info: 'Voix premium' },
-];
 
 interface AudioStudioProps {
   onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
@@ -140,7 +135,7 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
               className="flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3.5 py-2 text-[12px] font-semibold text-[var(--app-text)] transition-colors hover:border-[var(--app-border-strong)]"
             >
               <FileAudio size={13} className="text-[var(--app-accent)]" />
-              {ttsModels.find((model) => model.id === config.model)?.label || config.model}
+              {GEMINI_TTS_MODEL_OPTIONS.find((model) => model.id === config.model)?.label || config.model}
               <ChevronDown size={12} className={cn('text-[var(--app-text-muted)] transition-transform', showModelPicker && 'rotate-180')} />
             </button>
             <AnimatePresence>
@@ -151,7 +146,7 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
                   exit={{ opacity: 0, y: -4 }}
                   className="absolute left-0 top-full z-20 mt-1.5 w-56 rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface-strong)] p-2 shadow-xl backdrop-blur-xl"
                 >
-                  {ttsModels.map((model) => (
+                  {GEMINI_TTS_MODEL_OPTIONS.map((model) => (
                     <button
                       key={model.id}
                       onClick={() => {

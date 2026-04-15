@@ -9,6 +9,31 @@
 - Cout
 - Sources officielles
 
+## 2026-04-15 - Gemini 3.1 Flash TTS Preview pour le mode voix et Cowork
+- Statut: retenu localement et valide reellement
+- Date de verification: 2026-04-15
+- Technologie: Gemini TTS via `@google/genai` / Vertex AI avec `gemini-3.1-flash-tts-preview`
+- Choix:
+  - exposer `gemini-3.1-flash-tts-preview` dans le mode `audio` et dans les chemins TTS Cowork
+  - en faire le defaut pour la generation voix generique (`generate_tts_audio` / mode voix)
+  - conserver `gemini-2.5-pro-tts` comme defaut podcast, car le cas d'usage podcast reste plus premium/long-form et deja cadre autour de ce profil
+  - garder le meme SDK `@google/genai` et le meme contrat `generateContent` / `speechConfig`, sans nouvelle dependance
+- Alternatives evaluees:
+  - rester sur `gemini-2.5-flash-tts`:
+    - ecartee comme defaut principal: moins recente et moins alignee avec la nouvelle offre Google, meme si elle reste valable et moins chere
+  - basculer tout sur `gemini-2.5-pro-tts`:
+    - ecartee comme defaut global: plus couteuse et pas necessaire pour chaque voix-off courte ou generation rapide
+  - garder `gemini-2.5-flash-lite-preview-tts`:
+    - ecartee comme defaut Cowork/duo: single-speaker seulement, donc trop limitante pour les usages narration + dialogue
+- Cout:
+  - la page officielle Gemini API pricing affiche au 2026-04-15 un free tier et un paid tier a $1.00 / 1M tokens input texte et $20.00 / 1M tokens output audio pour `gemini-3.1-flash-tts-preview`
+  - ce repo tourne sur Vertex AI: verifier tout de meme la facturation effective du projet GCP actif avant une montee en charge, meme si le modele et la syntaxe sont confirmes
+- Sources officielles:
+  - Google AI for Developers, [Text-to-speech generation (TTS)](https://ai.google.dev/gemini-api/docs/speech-generation), verifie le 2026-04-15
+  - Google Cloud, [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts), verifie le 2026-04-15
+  - Google AI for Developers, [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), verifie le 2026-04-15
+  - Google Workspace Updates, [New more expressive AI voiceovers in Google Vids, and 16 additional languages, powered by Gemini 3.1 Flash TTS](https://workspaceupdates.googleblog.com/2026/), verifie le 2026-04-15
+
 ## 2026-04-15 - Veo 3.1 via `@google/genai` sur Vertex AI
 - Statut: retenu localement pour le mode `video`
 - Date de verification: 2026-04-15

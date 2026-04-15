@@ -57,7 +57,7 @@ registerAlias('gemini 3 pro image preview', 'gemini-3-pro-image-preview');
 
 export function normalizeImageModelId(
   model: string | null | undefined,
-  fallback = DEFAULT_IMAGE_MODEL,
+  fallback: string = DEFAULT_IMAGE_MODEL,
 ): string {
   const raw = String(model || '').trim();
   if (!raw) return fallback;

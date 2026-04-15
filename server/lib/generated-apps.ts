@@ -10,6 +10,7 @@ import {
   normalizeImageModelId,
   SUPPORTED_IMAGE_MODEL_IDS,
 } from '../../shared/image-models.js';
+import { SUPPORTED_GEMINI_TTS_MODEL_IDS } from '../../shared/gemini-tts.js';
 
 import { DEFAULT_IMAGE_MODEL, DEFAULT_LYRIA_MODEL, DEFAULT_TTS_MODEL } from './media-generation.js';
 import { createGoogleAI, parseApiError, retryWithBackoff } from './google-genai.js';
@@ -225,7 +226,7 @@ type GeneratedAppToolName = typeof TOOL_LIBRARY[number];
 const TEXT_MODELS = ['gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview'] as const;
 const IMAGE_MODELS = SUPPORTED_IMAGE_MODEL_IDS;
 const MUSIC_MODELS = [DEFAULT_LYRIA_MODEL, 'lyria-3-pro-preview', 'lyria-3-clip-preview', 'lyria-002'] as const;
-const TTS_MODELS = [DEFAULT_TTS_MODEL, 'gemini-2.5-pro-tts', 'gemini-2.5-flash-tts'] as const;
+const TTS_MODELS = SUPPORTED_GEMINI_TTS_MODEL_IDS;
 const IMAGE_MODEL_PROMPT_LIST = IMAGE_MODEL_OPTIONS
   .map((model) => `${model.id} (${model.label})`)
   .join(', ');

@@ -27,6 +27,8 @@ import { twMerge } from 'tailwind-merge';
 
 import {
   findGeminiTtsVoice,
+  GEMINI_TTS_MODEL_LABELS,
+  GEMINI_TTS_MODEL_OPTIONS,
   GEMINI_TTS_VOICES,
   modelSupportsGeminiTtsMultiSpeaker,
 } from '../../shared/gemini-tts.js';
@@ -66,9 +68,7 @@ const modelNameMap: Record<string, string> = {
   'gemini-3-flash-preview': 'Gemini 3 Flash',
   ...IMAGE_MODEL_LABELS,
   'veo-3.1-generate-001': 'Veo 3.1 Video',
-  'gemini-2.5-flash-tts': 'Gemini Flash TTS',
-  'gemini-2.5-flash-lite-preview-tts': 'Gemini Flash Lite TTS',
-  'gemini-2.5-pro-tts': 'Gemini Pro TTS',
+  ...GEMINI_TTS_MODEL_LABELS,
   'lyria-002': 'Lyria 2',
   'lyria-3-clip-preview': 'Lyria 3 Clip',
   'lyria-3-pro-preview': 'Lyria 3 Pro',
@@ -141,9 +141,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
     { id: 'lyria-002', label: 'Lyria 2', info: 'Mode stable et robuste', modes: ['lyria'] },
     { id: 'lyria-3-clip-preview', label: 'Lyria 3 Clip', info: 'Preview courte et nerveuse', modes: ['lyria'] },
     { id: 'lyria-3-pro-preview', label: 'Lyria 3 Pro', info: 'Preview plus ambitieuse', modes: ['lyria'] },
-    { id: 'gemini-2.5-flash-tts', label: 'Gemini Flash TTS', info: 'Rapide et naturel', modes: ['audio'] },
-    { id: 'gemini-2.5-flash-lite-preview-tts', label: 'Gemini Flash Lite TTS', info: 'Eco et leger', modes: ['audio'] },
-    { id: 'gemini-2.5-pro-tts', label: 'Gemini Pro TTS', info: 'Voix premium', modes: ['audio'] },
+    ...GEMINI_TTS_MODEL_OPTIONS.map((model) => ({ ...model, modes: ['audio'] as AppMode[] })),
   ].filter((model) => model.modes.includes(activeMode))), [activeMode]);
 
   const isTextMode = activeMode === 'chat' || activeMode === 'cowork';
@@ -618,7 +616,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                 <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
                   {audioSupportsMultiSpeaker
                     ? 'Le modele audio choisi supporte le multi-speaker Gemini TTS a 2 intervenants.'
-                    : 'Le modele audio choisi reste single-speaker. Pour un duo, bascule sur Gemini Flash TTS ou Gemini Pro TTS.'}
+                    : 'Le modele audio choisi reste single-speaker. Pour un duo, bascule sur Gemini 3.1 Flash TTS, Gemini 2.5 Flash TTS ou Gemini 2.5 Pro TTS.'}
                 </div>
               </div>
             </div>

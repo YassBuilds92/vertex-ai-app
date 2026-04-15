@@ -1,5 +1,43 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-15 - Gemini 3.1 Flash TTS ajoute au mode voix et au runtime Cowork
+- Retour produit:
+  - l'utilisateur veut brancher le nouveau modele TTS Google dans le mode voix et dans Cowork, avec verification web de la vraie API actuelle
+- Changement applique:
+  - catalogue partage:
+    - `shared/gemini-tts.ts`
+      - ajout du modele officiel `gemini-3.1-flash-tts-preview`
+      - alias `gemini-3.1-flash-tts` -> `gemini-3.1-flash-tts-preview`
+      - multi-speaker marque comme supporte pour ce modele
+  - mode voix:
+    - `src/store/useStore.ts`
+      - le defaut `audio.model` passe a `gemini-3.1-flash-tts-preview`
+    - `src/components/AudioStudio.tsx`
+    - `src/components/SidebarRight.tsx`
+      - le nouveau modele apparait dans les pickers et les labels
+  - Cowork / generated apps:
+    - `server/lib/media-generation.ts`
+      - `DEFAULT_TTS_MODEL` passe a `gemini-3.1-flash-tts-preview`
+    - `api/index.ts`, `server/lib/agents.ts`, `server/lib/generated-apps.ts`
+      - prompts, descriptions outils et liste de modeles TTS mis a jour
+  - hygiene annexe:
+    - correction de 2 erreurs TypeScript image-models/harness qui gardaient `npm run lint` rouge
+- Validation reelle:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - smoke single-speaker reel via helper backend:
+    - modele: `gemini-3.1-flash-tts-preview`
+    - sortie: `audio/wav`, `voice=Kore`, `languageCode=fr-FR`, `sampleRateHz=24000`
+  - smoke multi-speaker reel via helper backend:
+    - modele: `gemini-3.1-flash-tts-preview`
+    - `speakerMode=duo`
+    - `speakerNames=Yassine | Nora`
+    - `speakerVoices=Kore | Puck`
+- Etat produit:
+  - le mode voix peut maintenant cibler `Gemini 3.1 Flash TTS`
+  - Cowork sait aussi l'utiliser par defaut pour les generations TTS standard, tout en gardant `2.5 Pro TTS` pour le chemin podcast
+  - la doc officielle confirme que `3.1 Flash TTS` supporte bien single-speaker et multi-speaker
+
 ## Mise a jour 2026-04-11 - `Cowork Apps` retire du shell principal
 - Retour produit:
   - l'utilisateur demande explicitement de supprimer `Cowork Apps`

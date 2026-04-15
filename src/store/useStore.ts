@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { AppMode, ModelConfig, ChatSession } from '../types';
+import { DEFAULT_GEMINI_TTS_MODEL } from '../../shared/gemini-tts.js';
 import { DEFAULT_IMAGE_MODEL } from '../../shared/image-models.js';
 import { getDefaultPromptRefinerProfileId } from '../../shared/prompt-refiners.js';
 
@@ -73,7 +74,7 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     videoDurationSeconds: 6,
   },
   audio: {
-    model: 'gemini-2.5-flash-tts',
+    model: DEFAULT_GEMINI_TTS_MODEL,
     temperature: 1.0,
     topP: 1.0,
     topK: 40,

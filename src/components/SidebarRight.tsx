@@ -88,6 +88,7 @@ interface SidebarRightProps {
   activeSession: ChatSession;
   selectedCustomPrompt: SelectedCustomPromptRef | null;
   onSelectedCustomPromptChange: (prompt: SelectedCustomPromptRef | null) => void;
+  onSessionInstructionChange: (instruction: string, options?: { selectedCustomPrompt?: SelectedCustomPromptRef | null }) => void;
 }
 
 function buildSelectedPromptSnapshot(
@@ -109,6 +110,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
   activeSession,
   selectedCustomPrompt,
   onSelectedCustomPromptChange,
+  onSessionInstructionChange,
 }) => {
   const {
     activeMode,
@@ -180,6 +182,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
     instruction: string,
     options?: { selectedCustomPrompt?: SelectedCustomPromptRef | null }
   ) => {
+    onSessionInstructionChange(instruction, options);
     if (!user || !activeSession.id || activeSession.id === 'local-new') return;
     updateDoc(
       doc(db, 'users', user.uid, 'sessions', activeSession.id),

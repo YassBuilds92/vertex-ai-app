@@ -173,6 +173,21 @@ function resolveSessionSelectedCustomPrompt(
   return selectedPrompt || session.selectedCustomPrompt || undefined;
 }
 
+function buildSessionInstructionDraft(
+  session: ChatSession,
+  instruction: string,
+  selectedPrompt?: SelectedCustomPromptRef | null,
+): ChatSession {
+  return {
+    ...session,
+    systemInstruction: instruction,
+    selectedCustomPrompt: selectedPrompt === undefined
+      ? session.selectedCustomPrompt
+      : selectedPrompt || undefined,
+    updatedAt: Date.now(),
+  };
+}
+
 function buildCommittedSystemPromptHistory(
   session: Pick<ChatSession, 'systemInstruction' | 'systemPromptHistory'>,
   nextInstruction: string,
@@ -1691,6 +1706,19 @@ export default function App() {
       saveLocalSessionShell(user.uid, session, { pendingRemote: options?.pendingRemote });
     }
   }, [isStorageResetReady, user]);
+
+  const commitSessionInstructionDraft = useCallback((
+    instruction: string,
+    options?: { selectedCustomPrompt?: SelectedCustomPromptRef | null },
+  ) => {
+    if (!activeSessionFromList || activeSessionFromList.id === 'local-new') return;
+    const nextSession = buildSessionInstructionDraft(
+      activeSessionFromList,
+      instruction,
+      options?.selectedCustomPrompt,
+    );
+    upsertSessionLocal(nextSession, { pendingRemote: true });
+  }, [activeSessionFromList, upsertSessionLocal]);
 
   useEffect(() => {
     if (!isStorageResetReady) return;
@@ -3530,7 +3558,19 @@ export default function App() {
     clearCoworkSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
     clearSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
 
-    handleSend('', historyToProcess);
+    const runtimeSessionOverride = activeSessionFromList
+      ? buildSessionInstructionDraft(
+        activeSessionFromList,
+        resolveSessionSystemInstruction(
+          activeSessionFromList,
+          configs[activeMode]?.systemInstruction,
+          configs.chat?.systemInstruction || '',
+        ),
+        selectedCustomPrompt,
+      )
+      : undefined;
+
+    handleSend('', historyToProcess, runtimeSessionOverride);
   };
 
   const handleEdit = async (idx: number, newText: string) => {
@@ -3549,7 +3589,18 @@ export default function App() {
     clearSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
 
     const historyToProcess = [...currentMessages.slice(0, idx), { ...targetMsg, content: newText }];
-    handleSend('', historyToProcess);
+    const runtimeSessionOverride = activeSessionFromList
+      ? buildSessionInstructionDraft(
+        activeSessionFromList,
+        resolveSessionSystemInstruction(
+          activeSessionFromList,
+          configs[activeMode]?.systemInstruction,
+          configs.chat?.systemInstruction || '',
+        ),
+        selectedCustomPrompt,
+      )
+      : undefined;
+    handleSend('', historyToProcess, runtimeSessionOverride);
   };
 
   const handleManualTitleUpdate = async () => {
@@ -4022,6 +4073,7 @@ export default function App() {
         activeSession={activeSession as ChatSession}
         selectedCustomPrompt={selectedCustomPrompt}
         onSelectedCustomPromptChange={setSelectedCustomPrompt}
+        onSessionInstructionChange={commitSessionInstructionDraft}
       />
       
       {/* Search Overlay */}

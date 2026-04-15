@@ -41,6 +41,7 @@
   - envoyer tout de suite un message
   - verifier que le premier tour n'utilise plus l'ancien contexte
   - refaire le meme test via le bouton `Renvoyer`
+  - refaire aussi le test via `Modifier`
 - smoke Veo reel:
   - lancer une video courte
   - confirmer que l'artefact revient avec une URL lisible
@@ -52,6 +53,7 @@
 - le contexte visible en UI peut rester affiche, mais le contexte envoye au modele doit etre borne au prompt system courant
 - pour la video, priorite a un vrai flux Veo minimal sans nouvelle dependance plutot qu'a un placeholder UX
 - la logique de borne de contexte doit couvrir aussi les chemins `overrideMessages` (`Renvoyer`, `Modifier`), pas seulement l'envoi simple
+- la session locale doit etre mise a jour immediatement quand la sidebar change le prompt system, sinon certaines actions repartent d'un shell stale
 
 ### Intention exacte
 - supprimer la sensation produit la plus irritante: "je change le prompt system mais le premier message repart encore comme avant"

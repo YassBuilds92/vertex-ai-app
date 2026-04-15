@@ -40,6 +40,7 @@
   - changer le prompt system d'une session standard
   - envoyer tout de suite un message
   - verifier que le premier tour n'utilise plus l'ancien contexte
+  - refaire le meme test via le bouton `Renvoyer`
 - smoke Veo reel:
   - lancer une video courte
   - confirmer que l'artefact revient avec une URL lisible
@@ -50,6 +51,7 @@
 - le changement de prompt system doit etre committe au moment du send, pas a chaque frappe
 - le contexte visible en UI peut rester affiche, mais le contexte envoye au modele doit etre borne au prompt system courant
 - pour la video, priorite a un vrai flux Veo minimal sans nouvelle dependance plutot qu'a un placeholder UX
+- la logique de borne de contexte doit couvrir aussi les chemins `overrideMessages` (`Renvoyer`, `Modifier`), pas seulement l'envoi simple
 
 ### Intention exacte
 - supprimer la sensation produit la plus irritante: "je change le prompt system mais le premier message repart encore comme avant"

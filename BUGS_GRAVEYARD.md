@@ -15,11 +15,13 @@
   - `src/App.tsx` prioritait `effectiveSession.systemInstruction` avant `configs[mode].systemInstruction`
   - la session locale n'etait pas resynchronisee assez vite pour le tout premier envoi
   - meme quand le prompt etait enfin correct, l'historique complet d'avant changement continuait a etre envoye au modele
+  - le chemin `Renvoyer` / `Modifier` passait via `overrideMessages` et bypassait encore cette coupure d'historique
 - Resolution:
   - ajout d'une resolution explicite `resolveSessionSystemInstruction(...)`
   - commit du prompt courant en `systemPromptHistory` au moment du send
   - filtrage de `historyForApi` pour ne garder que les messages apres le dernier commit du prompt actif
   - `touchSession()` met maintenant aussi a jour l'etat local immediatement
+  - meme filtrage applique maintenant au chemin `overrideMessages` pour couvrir `Renvoyer` et `Modifier`
 - Preuve:
   - `npm run build` : OK
   - import runtime `server/routes/standard.ts` : OK

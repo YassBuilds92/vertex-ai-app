@@ -2484,8 +2484,7 @@ export default function App() {
       );
       const activeSelectedPrompt = resolveSessionSelectedCustomPrompt(effectiveSession, selectedCustomPrompt);
       const hasPendingSystemPromptCommit =
-        !overrideMessages
-        && !isCoworkRun
+        !isCoworkRun
         && !isAgentRun
         && !isGeneratedAppRun
         && isPromptScopedSession(effectiveSession)
@@ -3212,24 +3211,22 @@ export default function App() {
       }
 
       const apiHistory = overrideMessages ? overrideMessages.slice(0, -1) : effectiveSessionMessages;
-      const scopedApiHistory = overrideMessages
-        ? apiHistory
-        : (
-          !isCoworkRun
-          && !isAgentRun
-          && !isGeneratedAppRun
-          && isPromptScopedSession(effectiveSession)
-            ? filterMessagesAfterPromptCommit(
-              apiHistory,
-              hasPendingSystemPromptCommit
-                ? requestStartedAt
-                : getSystemPromptCutoffTimestamp(
-                  { systemPromptHistory: committedSystemPromptHistory },
-                  activeSystemInstruction,
-                ),
-            )
-            : apiHistory
-        );
+      const shouldScopeApiHistoryToCurrentPrompt =
+        !isCoworkRun
+        && !isAgentRun
+        && !isGeneratedAppRun
+        && isPromptScopedSession(effectiveSession);
+      const scopedApiHistory = shouldScopeApiHistoryToCurrentPrompt
+        ? filterMessagesAfterPromptCommit(
+          apiHistory,
+          hasPendingSystemPromptCommit
+            ? requestStartedAt
+            : getSystemPromptCutoffTimestamp(
+              { systemPromptHistory: committedSystemPromptHistory },
+              activeSystemInstruction,
+            ),
+        )
+        : apiHistory;
       const historyForApi = buildApiHistoryFromMessages(scopedApiHistory);
 
       studioDebug('chat', 'Preparing /api/chat request.', {

@@ -1,5 +1,47 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-16 - Boucle consciente v1 pour Cowork pur: clarification, pause propre, verification d'artefact et memoire degradee lisible
+- Retour produit:
+  - l'utilisateur voulait que Cowork se comporte davantage comme Codex / Claude Code / Claude Cowork:
+    - progression visible et frequente
+    - clarification ciblee si une ambiguite bloque vraiment la qualite
+    - aucune livraison sans verification reelle
+    - fin du rendu "bloc de telemetrie moche"
+- Changement applique:
+  - backend `api/index.ts`:
+    - nouveau flag runtime `COWORK_ENABLE_CONSCIOUS_LOOP` (OFF par defaut)
+    - nouveau tool `ask_user_clarification`
+    - nouvel etat `clarification` + run `paused`
+    - reprise multi-tour: si le dernier message Cowork etait en pause, la reponse utilisateur suivante est traitee comme reponse a clarification en cours sans casser l'invariant "dernier message utilisateur prioritaire"
+    - `publish_status` et `report_progress` exposes en runtime conscient
+    - hard blockers ajoutes:
+      - pas de cloture factualisee/current sans lecture validante
+      - pas de cloture si un artefact cree n'a pas ete verifie
+      - pas de cloture si une clarification est encore en attente
+    - verification d'artefact avant publication:
+      - PDF: existence + taille + signature `%PDF` + pages detectees
+      - image: existence + taille + coherence mime/signature
+      - audio/podcast: existence + taille + mime, avec duree verifiee quand elle est disponible/inferable
+    - `release_file` refuse maintenant de publier un fichier non verifie quand le mode conscient est actif
+  - frontend:
+    - `RunState` supporte maintenant `paused`
+    - SSE `clarification_requested` gere cote client
+    - la question de clarification devient une vraie prise de parole visible dans la conversation
+    - le placeholder du composer s'adapte quand Cowork attend une precision
+    - la timeline garde les micro-messages utiles inline et replie les details outils
+  - memoire / RAG:
+    - `server/lib/qdrant.ts` parse maintenant defensivement les reponses HTML/non-JSON
+    - l'echec memoire remonte un message lisible de capacite degradee au lieu de `Unexpected token '<'`
+- Validation locale:
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `node node_modules/tsx/dist/cli.mjs verify-cowork-rag-e2e.ts` : skip honnete (`COWORK_TEST_RAG=1`, `QDRANT_URL`, `GOOGLE_APPLICATION_CREDENTIALS_JSON` manquants)
+- Etat produit:
+  - la v1 du mode conscient est branchee pour `Cowork` pur seulement
+  - la feature reste desactivee par defaut tant que les smokes de bout en bout en environnement cible ne sont pas joues
+  - les `Hub Agents` et `generated apps` ne sont pas encore migrés sur ce contrat de pause/verification
+
 ## Mise a jour 2026-04-15 - Gemini 3.1 Flash TTS ajoute au mode voix et au runtime Cowork
 - Retour produit:
   - l'utilisateur veut brancher le nouveau modele TTS Google dans le mode voix et dans Cowork, avec verification web de la vraie API actuelle

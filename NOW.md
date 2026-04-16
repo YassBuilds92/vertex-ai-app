@@ -1,32 +1,37 @@
 # NOW
 
 ## Objectif actuel
-- Finaliser la bascule `gemini-3.1-flash-tts-preview` dans le mode voix et Cowork, puis verifier le comportement utilisateur final.
+- Finaliser la v1 de la boucle consciente de `Cowork` pur:
+  - clarification ciblee
+  - pause/reprise propre
+  - verification d'artefact avant publication
+  - memoire degradee lisible
 
 ## Blocage actuel
-- Aucun blocage code local:
-  - `npm run lint` -> OK
-  - `npm run build` -> OK
-  - smoke Vertex reel single-speaker `gemini-3.1-flash-tts-preview` -> OK
-  - smoke Vertex reel duo `gemini-3.1-flash-tts-preview` -> OK
+- Aucun blocage code local.
+- La fonctionnalite est implementee mais reste gatee par `COWORK_ENABLE_CONSCIOUS_LOOP`, OFF par defaut.
+- Les smokes bout-en-bout avec vrai RAG/Vertex sur environnement cible restent a rejouer avec les envs adequats.
 
 ## Prochaine action exacte
-- Ouvrir le mode `audio`, verifier visuellement que `Gemini 3.1 Flash TTS` apparait et lancer une generation courte en `fr-FR`.
-- Puis lancer un test Cowork avec `generate_tts_audio` et, si besoin, un duo 2-speakers pour confirmer l'UX de bout en bout avant redeploiement.
+- Activer `COWORK_ENABLE_CONSCIOUS_LOOP=1` sur un environnement de test.
+- Jouer 3 smokes manuels:
+  - clarification puis reprise
+  - creation podcast/PDF puis verification puis `release_file`
+  - memoire degradee avec message propre
 
 ## Fichiers chauds
-- `shared/gemini-tts.ts`
-- `src/components/AudioStudio.tsx`
-- `src/components/SidebarRight.tsx`
-- `server/lib/media-generation.ts`
 - `api/index.ts`
-- `TECH_RADAR.md`
+- `server/lib/qdrant.ts`
+- `src/utils/cowork.ts`
+- `src/components/MessageItem.tsx`
+- `src/App.tsx`
+- `COWORK.md`
 
 ## Validations restantes
-- smoke UI manuel du mode voix
-- smoke Cowork manuel sur `generate_tts_audio` / `create_podcast_episode`
-- redeploiement si l'utilisateur veut cette bascule sur son environnement public
+- smoke UI/produit reel avec `COWORK_ENABLE_CONSCIOUS_LOOP=1`
+- smoke RAG e2e avec `COWORK_TEST_RAG=1`, `QDRANT_URL` et credentials Google disponibles
 
 ## Risques immediats
-- `gemini-3.1-flash-tts-preview` reste un modele preview: quotas, latence et comportement peuvent encore bouger
-- la doc Cloud TTS montre encore beaucoup d'exemples avec `location=global`; garder ce routing tant que Google ne stabilise pas un autre endpoint recommande
+- le mode conscient peut augmenter legerement le nombre de tours sur des demandes ambiguës ou factualisees
+- la v1 ne couvre pas encore `Hub Agents` ni `generated apps`
+- la verification audio reste best-effort pour certains formats non-WAV quand la duree n'est pas directement inferable

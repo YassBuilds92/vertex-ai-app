@@ -71,7 +71,7 @@ export interface Message {
   createdAt: number;
 }
 
-export type RunState = 'running' | 'completed' | 'failed' | 'aborted';
+export type RunState = 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
 
 export interface RunMeta {
   iterations: number;

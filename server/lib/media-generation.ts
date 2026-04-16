@@ -525,7 +525,7 @@ function parseWaveBuffer(buffer: Buffer): ParsedWaveAudio {
   };
 }
 
-function getWaveDurationSeconds(buffer: Buffer): number {
+export function getWaveDurationSeconds(buffer: Buffer): number {
   const audio = parseWaveBuffer(buffer);
   return audio.frameCount / audio.sampleRate;
 }

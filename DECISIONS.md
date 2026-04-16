@@ -1,5 +1,27 @@
 # DECISIONS
 
+## 2026-04-16 - Cowork pur adopte une boucle consciente explicite, mais gatee par flag
+- Statut: adopte localement
+- Contexte: le comportement courant de Cowork pouvait encore livrer trop vite, poser une question sans vrai etat de pause, ou publier un artefact sans verification reelle. L'utilisateur demandait une experience plus proche de Codex / Claude Code / Claude Cowork: progression visible, pause propre, clarification ciblee, et preuve avant cloture.
+- Decision:
+  - introduire `COWORK_ENABLE_CONSCIOUS_LOOP` et laisser la feature OFF par defaut
+  - restreindre cette v1 a `Cowork` pur seulement
+  - ajouter un vrai tool `ask_user_clarification` qui met le run en `paused` au lieu de traiter une question comme une livraison
+  - promouvoir `publish_status` et `report_progress` dans ce mode conscient, tout en gardant `report_progress` non expose brutement en UI
+  - bloquer la cloture sur:
+    - demande factualisee/current sans lecture validante
+    - artefact cree mais non verifie
+    - clarification encore en attente
+  - refuser `release_file` si le fichier n'a pas passe la verification d'artefact
+- Pourquoi:
+  - garder Cowork modele-led sans figer sa strategie
+  - rendre la pause/reprise et la verification natives plutot que heuristiques ou cosmetiques
+  - limiter le risque produit en gardant une activation progressive
+- Consequence:
+  - `api/index.ts` porte maintenant un vrai etat `clarification` + `runState=paused`
+  - la conversation frontend sait afficher une clarification comme une vraie prise de parole assistant
+  - la memoire de conversation transporte assez d'etat pour reprendre correctement apres pause
+
 ## 2026-04-15 - Le mode voix standard passe sur `gemini-3.1-flash-tts-preview`, mais le podcast garde `gemini-2.5-pro-tts`
 - Statut: adopte localement
 - Contexte: l'utilisateur demande d'inclure le nouveau modele TTS `Gemini 3.1 Flash TTS` dans le mode voix et Cowork. Le repo utilisait deja Gemini TTS, mais seulement via les familles 2.5, avec duplication des listes de modeles entre UI, backend et prompts Cowork.

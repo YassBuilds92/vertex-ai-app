@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 
 process.env.VERCEL = '1';
+process.env.COWORK_ENABLE_CONSCIOUS_LOOP = '1';
 
 const { __coworkLoopInternals } = await import('./api/index.ts');
 const { __coworkPdfInternals } = await import('./api/index.ts');
 const { retryWithBackoff } = await import('./server/lib/google-genai.ts');
 const { pickHubAgentRecord, sanitizeHubAgentRecord, summarizeHubAgentsForPrompt } = await import('./server/lib/agents.ts');
 const { buildApiHistoryFromMessages } = await import('./src/utils/chat-parts.ts');
+const { __qdrantInternals } = await import('./server/lib/qdrant.ts');
 type Message = import('./src/types.ts').Message;
 
 const {
@@ -32,6 +34,7 @@ const {
   applyRuntimeToolDefaults,
   searchWeb,
 } = __coworkLoopInternals;
+const { parseQdrantEnvelope } = __qdrantInternals;
 
 const {
   resolvePdfTheme,
@@ -317,6 +320,7 @@ const baseResearch = {
   });
   assert.equal(notReleased.effectiveTaskComplete, false);
   assert.ok(notReleased.blockers.some((blocker: any) => blocker.code === 'artifact_not_released'));
+  assert.ok(notReleased.blockers.some((blocker: any) => blocker.code === 'artifact_not_verified'));
 
   const notCreated = computeCompletionState({
     originalMessage: 'Cree-moi un PDF de test',
@@ -336,6 +340,59 @@ const baseResearch = {
   assert.equal(markVisibleDeliveryAttempt(state, 'autonomous', 'Voici la version finale.'), true);
   assert.equal(state.modelTaskComplete, true);
   assert.equal(state.phase, 'delivery');
+}
+
+{
+  const state = createEmptyCoworkSessionState();
+  assert.equal(
+    markVisibleDeliveryAttempt(state, 'autonomous', 'Peux-tu me dire si tu preferes un PDF ou un podcast avant que je continue ?'),
+    true,
+  );
+  assert.equal(state.modelTaskComplete, false);
+  assert.equal(state.phase, 'clarification');
+  assert.equal(state.pendingClarification?.question?.includes('PDF ou un podcast'), true);
+}
+
+{
+  const state = createEmptyCoworkSessionState();
+  state.modelTaskComplete = true;
+  state.phase = 'delivery';
+
+  const result = computeCompletionState({
+    originalMessage: "Donne-moi les actualites du jour sur l'Iran.",
+    requestClock,
+    state,
+    research: baseResearch,
+    latestCreatedArtifactPath: null,
+    latestReleasedFile: null,
+    latestApprovedPdfReviewSignature: null,
+  });
+
+  assert.equal(result.effectiveTaskComplete, false);
+  assert.ok(result.blockers.some((blocker: any) => blocker.code === 'missing_validating_reads'));
+}
+
+{
+  const state = createEmptyCoworkSessionState();
+  state.modelTaskComplete = true;
+  state.phase = 'clarification';
+  state.pendingClarification = {
+    question: 'Tu veux plutot un format PDF ou audio ?',
+    whyBlocking: 'Le format change completement le livrable.',
+  };
+
+  const result = computeCompletionState({
+    originalMessage: 'Fais-moi un briefing premium.',
+    requestClock,
+    state,
+    research: baseResearch,
+    latestCreatedArtifactPath: null,
+    latestReleasedFile: null,
+    latestApprovedPdfReviewSignature: null,
+  });
+
+  assert.equal(result.effectiveTaskComplete, false);
+  assert.ok(result.blockers.some((blocker: any) => blocker.code === 'awaiting_user_clarification'));
 }
 
 {
@@ -853,6 +910,25 @@ assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les 
   });
   assert.equal(mismatchedSignature.ok, true);
   assert.equal(Boolean(mismatchedSignature.warning), true);
+}
+
+{
+  const parsed = parseQdrantEnvelope({
+    path: '/collections/test',
+    status: 200,
+    contentType: 'application/json',
+    text: '{"status":"ok","result":{"points":[]}}',
+  });
+  assert.equal(parsed?.status, 'ok');
+}
+
+{
+  assert.throws(() => parseQdrantEnvelope({
+    path: '/collections/test',
+    status: 502,
+    contentType: 'text/html; charset=utf-8',
+    text: '<html><head><title>Bad gateway</title></head><body>proxy</body></html>',
+  }), /HTML\/non-JSON/i);
 }
 
 console.log('Cowork loop internals OK');

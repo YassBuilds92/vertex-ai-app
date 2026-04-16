@@ -20,6 +20,7 @@ export function getCoworkFeatureFlags() {
     sandbox: envFlagEnabled(process.env.COWORK_ENABLE_SANDBOX),
     git: envFlagEnabled(process.env.COWORK_ENABLE_GIT),
     browser: envFlagEnabled(process.env.COWORK_ENABLE_BROWSER),
+    consciousLoop: envFlagEnabled(process.env.COWORK_ENABLE_CONSCIOUS_LOOP),
   };
 }
 
@@ -64,6 +65,7 @@ export const COWORK_ENABLE_RAG = getCoworkFeatureFlags().rag;
 export const COWORK_ENABLE_SANDBOX = getCoworkFeatureFlags().sandbox;
 export const COWORK_ENABLE_GIT = getCoworkFeatureFlags().git;
 export const COWORK_ENABLE_BROWSER = getCoworkFeatureFlags().browser;
+export const COWORK_ENABLE_CONSCIOUS_LOOP = getCoworkFeatureFlags().consciousLoop;
 export const COWORK_RAG_AUTOINJECT = getCoworkRagConfig().autoInject;
 
 export const LEGACY_COWORK_SYSTEM_INSTRUCTION = "Tu es un agent autonome en mode Cowork. Tu as acces a des outils pour accomplir des taches complexes. Analyse, propose et execute.";

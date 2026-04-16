@@ -108,10 +108,11 @@ interface ChatInputProps {
   pendingAttachments: Attachment[];
   setPendingAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
   setSelectedImage: (url: string) => void;
+  placeholder?: string;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
-  onSend, onStop, isLoading, isRecording, recordingTime, onToggleRecording, processFiles, pendingAttachments, setPendingAttachments, setSelectedImage
+  onSend, onStop, isLoading, isRecording, recordingTime, onToggleRecording, processFiles, pendingAttachments, setPendingAttachments, setSelectedImage, placeholder
 }) => {
   const [text, setText] = useState('');
   const [youtubeSettingsDraft, setYoutubeSettingsDraft] = useState<YouTubeSettingsDraft | null>(null);
@@ -393,7 +394,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               }
             }}
             onPaste={handlePaste}
-            placeholder={isRecording ? "Enregistrement…" : placeholderByMode[activeMode]}
+            placeholder={isRecording ? "Enregistrement…" : (placeholder || placeholderByMode[activeMode])}
             disabled={isRecording}
             className="w-full max-h-[200px] min-h-[36px] bg-transparent border-none focus:ring-0 resize-none py-2 px-2 text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 text-sm leading-6 outline-none disabled:opacity-40"
             rows={1}

@@ -72,6 +72,7 @@ const ThinkingBox = ({ thoughts, live = false }: { thoughts: string; live?: bool
 
 const runStateMeta = {
   running: { label: 'En cours', className: 'text-indigo-300 bg-indigo-500/12 border-indigo-500/25', icon: Loader2 },
+  paused: { label: 'En pause', className: 'text-amber-200 bg-amber-500/12 border-amber-500/25', icon: AlertCircle },
   completed: { label: 'Termine', className: 'text-emerald-300 bg-emerald-500/12 border-emerald-500/25', icon: CheckCircle2 },
   failed: { label: 'Echec', className: 'text-rose-300 bg-rose-500/12 border-rose-500/25', icon: AlertTriangle },
   aborted: { label: 'Arrete', className: 'text-amber-300 bg-amber-500/12 border-amber-500/25', icon: AlertCircle },
@@ -180,7 +181,8 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
       : runMeta.estimatedCostUsd > 0
         ? `~$${runMeta.estimatedCostUsd < 0.1 ? runMeta.estimatedCostUsd.toFixed(3) : runMeta.estimatedCostUsd.toFixed(2)}`
         : null;
-  const visibleItems = items.filter((item) => item.kind !== 'tool_call' && (!isCompactCowork || item.kind !== 'reasoning'));
+  const inlineItems = items.filter((item) => item.kind !== 'tool_call' && item.kind !== 'tool_result' && (!isCompactCowork || item.kind !== 'reasoning'));
+  const toolItems = items.filter((item) => item.kind === 'tool_call' || item.kind === 'tool_result');
   const latestInjectedMemory = [...items].reverse().find((item) => item.meta?.auto === true && Number(item.meta?.chunks || 0) > 0);
   const injectedMemoryChunks = latestInjectedMemory ? Number(latestInjectedMemory.meta?.chunks || 0) : 0;
 
@@ -292,12 +294,12 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
               )}
             </div>
           )}
-          {visibleItems.length === 0 ? (
+          {inlineItems.length === 0 ? (
             <div className="rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3 text-sm text-[var(--app-text-muted)] italic">
               Initialisation de l'activite Cowork...
             </div>
           ) : (
-            visibleItems.map((item, index) => {
+            inlineItems.map((item, index) => {
               const Icon = getActivityIcon(item);
               const tone =
                 item.kind === 'warning'
@@ -316,7 +318,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
 
               return (
                 <div key={item.id} className="relative pl-10">
-                  {index < visibleItems.length - 1 && (
+                  {index < inlineItems.length - 1 && (
                     <div className="absolute left-[15px] top-6 bottom-[-18px] w-px bg-gradient-to-b from-indigo-500/30 to-transparent" />
                   )}
                   <div className="absolute left-0 top-2 w-8 h-8 rounded-2xl border border-white/8 bg-black/30 flex items-center justify-center text-[var(--app-text-muted)]">
@@ -363,6 +365,51 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                 </div>
               );
             })
+          )}
+
+          {toolItems.length > 0 && (
+            <details className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3 text-sm text-[var(--app-text-muted)]">
+              <summary className="cursor-pointer list-none select-none text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                {toolItems.length} detail{toolItems.length > 1 ? 's' : ''} outil{toolItems.length > 1 ? 's' : ''}
+              </summary>
+              <div className="mt-3 flex flex-col gap-2.5">
+                {toolItems.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                      {item.toolName || item.title || 'Outil'}
+                    </div>
+                    {item.message && (
+                      <div className="message-copy mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--app-text)]/82">
+                        {item.message}
+                      </div>
+                    )}
+                    {item.argsPreview && (
+                      <div className="message-copy mt-2 rounded-lg border border-white/6 bg-black/25 px-3 py-2 font-mono text-[12px] text-sky-200/85 break-words">
+                        {item.argsPreview}
+                      </div>
+                    )}
+                    {item.resultPreview && (
+                      <div className="message-copy mt-2 rounded-lg border border-white/6 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[var(--app-text)]/78 whitespace-pre-wrap">
+                        {item.resultPreview}
+                      </div>
+                    )}
+                    {item.meta && Object.keys(item.meta).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {Object.entries(item.meta).map(([key, value]) => (
+                          <span
+                            key={`${item.id}-${key}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-white/8 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[var(--app-text-muted)]"
+                          >
+                            <span className="uppercase tracking-[0.14em]">{key}</span>
+                            <span className="text-[var(--app-text)]/85 normal-case tracking-normal">{String(value)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
         </div>
       </div>

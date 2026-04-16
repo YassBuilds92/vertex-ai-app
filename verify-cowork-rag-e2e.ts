@@ -48,6 +48,16 @@ function isQuotaExhausted(text: string) {
   return /429|resource exhausted|quota depasse|quota exceeded/i.test(text);
 }
 
+function assertReadableMemoryFailures(events: CoworkSseEvent[]) {
+  for (const event of events) {
+    if (event.type !== 'memory_index_failed') continue;
+    assert.ok(
+      !/Unexpected token '<'|is not valid JSON/i.test(String(event.message || '')),
+      `memory_index_failed doit remonter un message lisible, pas un parse JSON brut: ${event.message}`,
+    );
+  }
+}
+
 async function runCowork(baseUrl: string, bodyBase: Record<string, unknown>, message: string) {
   const response = await fetch(`${baseUrl}/api/cowork`, {
     method: 'POST',
@@ -124,6 +134,7 @@ try {
     released = firstEvents.find((event) => event.type === 'tool_result' && event.toolName === 'release_file');
     memoryIndexed = firstEvents.find((event) => event.type === 'memory_indexed');
     firstQuotaSignals = collectQuotaSignals(firstEvents);
+    assertReadableMemoryFailures(firstEvents);
 
     if (released && memoryIndexed) {
       break;
@@ -164,6 +175,7 @@ try {
       .join('')
       .trim();
     secondSignals = collectQuotaSignals(secondEvents);
+    assertReadableMemoryFailures(secondEvents);
 
     if (/8472/.test(secondText)) {
       break;

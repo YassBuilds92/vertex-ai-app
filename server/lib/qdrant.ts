@@ -39,6 +39,55 @@ type QdrantEnvelope<T> = {
 
 let ensuredCollectionKey: string | null = null;
 
+function clipText(value: string, max = 180): string {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+
+function looksLikeHtmlBody(text: string): boolean {
+  const normalized = String(text || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized.startsWith('<!doctype html')
+    || normalized.startsWith('<html')
+    || normalized.startsWith('<head')
+    || normalized.startsWith('<body')
+    || normalized.includes('<html');
+}
+
+function parseQdrantEnvelope<T>(options: {
+  path: string;
+  status: number;
+  contentType: string;
+  text: string;
+}): QdrantEnvelope<T> | null {
+  const { path, contentType, text } = options;
+  const raw = String(text || '');
+  if (!raw.trim()) return null;
+
+  const normalizedContentType = String(contentType || '').toLowerCase();
+  const htmlBody = looksLikeHtmlBody(raw);
+
+  if (htmlBody || normalizedContentType.includes('text/html')) {
+    throw new Error(
+      `Qdrant a renvoye du HTML/non-JSON sur ${path}`
+      + (normalizedContentType ? ` (content-type: ${normalizedContentType})` : '')
+      + `. Corps: ${clipText(raw)}`
+    );
+  }
+
+  try {
+    return JSON.parse(raw) as QdrantEnvelope<T>;
+  } catch (error) {
+    const parseMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Qdrant a renvoye une reponse non-JSON exploitable sur ${path}`
+      + (normalizedContentType ? ` (content-type: ${normalizedContentType})` : '')
+      + `: ${parseMessage}. Corps: ${clipText(raw)}`
+    );
+  }
+}
+
 function getCollectionName() {
   return getCoworkRagConfig().collectionName;
 }
@@ -80,7 +129,12 @@ async function qdrantRequest<T>(
     }
 
     const text = await response.text();
-    const data = text ? (JSON.parse(text) as QdrantEnvelope<T>) : null;
+    const data = parseQdrantEnvelope<T>({
+      path,
+      status: response.status,
+      contentType: response.headers.get('content-type') || '',
+      text,
+    });
 
     if (!response.ok) {
       const message =
@@ -98,6 +152,11 @@ async function qdrantRequest<T>(
     jitter: false,
   });
 }
+
+export const __qdrantInternals = {
+  looksLikeHtmlBody,
+  parseQdrantEnvelope,
+};
 
 async function createPayloadIndex(fieldName: string, fieldSchema: string) {
   const collectionName = getCollectionName();

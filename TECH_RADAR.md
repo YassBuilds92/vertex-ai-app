@@ -9,6 +9,40 @@
 - Cout
 - Sources officielles
 
+## 2026-04-16 - Pattern "boucle consciente" benchmarke sur Codex / Claude Code / Claude Cowork, sans nouvelle dependance
+- Statut: retenu localement pour `Cowork` pur
+- Date de verification: 2026-04-16
+- Technologie: contrat runtime interne Cowork (`api/index.ts` + SSE + UI existante), sans ajout npm
+- Choix:
+  - ne pas ajouter d'orchestrateur externe ou de nouvelle lib agentique
+  - implementer la boucle consciente avec l'infra deja presente:
+    - SSE existant
+    - types frontend existants
+    - guardrails backend existants
+    - outils locaux Cowork
+  - reprendre les patterns produits retenus dans la veille:
+    - Codex: progression visible et verification avant cloture
+    - Claude Code: clarification ciblee, pause propre, petites verifications successives
+    - Claude Cowork: repere produit, mais details publics moins fins; benchmark concret aligne surtout sur les docs officielles Claude Code
+- Alternatives evaluees:
+  - ajouter une dependance d'orchestration agentique tierce:
+    - ecartee: dette inutile pour une v1, aucune necessite technique forte, risque d'alourdir le runtime
+  - rendre tout le chain-of-thought visible:
+    - ecartee: contraire au contrat produit et a la securite UX voulue
+  - activer le mode conscient par defaut des maintenant:
+    - ecartee: trop risquee avant smokes bout-en-bout complets sur l'environnement cible
+- Cout:
+  - gratuit cote dependances: aucune nouvelle lib npm
+  - cout runtime marginal uniquement via quelques tours/outils en plus quand la clarification ou la verification sont vraiment necessaires
+- Sources officielles:
+  - OpenAI, [Introducing Codex](https://openai.com/de-DE/index/introducing-codex/), verifie le 2026-04-16
+  - OpenAI, [Harness engineering](https://openai.com/index/harness-engineering/), verifie le 2026-04-16
+  - OpenAI, [How OpenAI uses Codex](https://cdn.openai.com/pdf/6a2631dc-783e-479b-b1a4-af0cfbd38630/how-openai-uses-codex.pdf), verifie le 2026-04-16
+  - Anthropic, [Claude Code common workflows](https://code.claude.com/docs/en/common-workflows), verifie le 2026-04-16
+  - Anthropic, [Claude Code hooks](https://code.claude.com/docs/en/hooks), verifie le 2026-04-16
+  - Anthropic, [Claude apps release notes](https://docs.anthropic.com/ko/release-notes/claude-apps), verifie le 2026-04-16
+  - Anthropic, [Introducing Anthropic Labs](https://www.anthropic.com/news/introducing-anthropic-labs), verifie le 2026-04-16
+
 ## 2026-04-15 - Gemini 3.1 Flash TTS Preview pour le mode voix et Cowork
 - Statut: retenu localement et valide reellement
 - Date de verification: 2026-04-15

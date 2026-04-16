@@ -758,6 +758,17 @@ export default function App() {
     () => (hiddenMessagesCount > 0 ? displayedMessages.slice(-MESSAGE_VISIBILITY_LIMIT) : displayedMessages),
     [displayedMessages, hiddenMessagesCount]
   );
+  const pendingCoworkClarificationMessage = React.useMemo(
+    () => [...displayedMessages].reverse().find((message) => (
+      message.role === 'model'
+      && message.runState === 'paused'
+      && Boolean(message.runMeta?.mode || (message.activity?.length ?? 0) > 0)
+    )) || null,
+    [displayedMessages]
+  );
+  const coworkInputPlaceholder = pendingCoworkClarificationMessage
+    ? 'Réponds à la précision demandée pour reprendre Cowork…'
+    : undefined;
 
   const hasRenderableConversation = React.useMemo(
     () => displayedMessages.some(hasRenderableMessage),
@@ -3153,6 +3164,7 @@ export default function App() {
         setCoworkDraft(prev => {
           if (!prev) return prev;
           if (prev.runState && prev.runState !== 'running') return prev;
+          if (prev.runState === 'paused') return prev;
           return { ...prev, runState: 'completed' };
         });
         await flushCoworkPersist();
@@ -4059,7 +4071,7 @@ export default function App() {
 
               <div className="border-t border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))]/80 backdrop-blur-md px-3 pb-3 pt-3 sm:px-4">
                 <div className="mx-auto max-w-3xl">
-                  <ChatInput onSend={handleSend} onStop={() => abortControllerRef.current?.abort()} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} />
+                  <ChatInput onSend={handleSend} onStop={() => abortControllerRef.current?.abort()} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} placeholder={coworkInputPlaceholder} />
                 </div>
               </div>
               </>

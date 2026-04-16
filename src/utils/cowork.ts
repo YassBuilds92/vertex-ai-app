@@ -19,6 +19,16 @@ export type CoworkStreamEvent =
       runMeta?: Partial<RunMeta>;
     }
   | {
+      type: 'clarification_requested';
+      timestamp?: number;
+      iteration?: number;
+      question?: string;
+      whyBlocking?: string;
+      assumedDefault?: string;
+      runState?: RunState;
+      runMeta?: Partial<RunMeta>;
+    }
+  | {
       type: 'reasoning';
       timestamp?: number;
       iteration?: number;
@@ -347,6 +357,36 @@ export function applyCoworkEventToMessage(message: Message, event: CoworkStreamE
         );
       }
       return next;
+
+    case 'clarification_requested': {
+      next.runState = event.runState || 'paused';
+      const question = clipText(event.question, 500);
+      next = pushActivity(
+        next,
+        createActivityItem(next, 'status', iteration, timestamp, {
+          title: 'Clarification',
+          message: question || "Une precision utilisateur est attendue avant de continuer.",
+          meta: sanitizeMeta({
+            why: event.whyBlocking,
+            default: event.assumedDefault,
+          }),
+          status: 'warning',
+        })
+      );
+      if (question) {
+        const currentContent = String(next.content || '').trim();
+        const shouldAppend =
+          !currentContent
+          || !currentContent.endsWith(question);
+        if (shouldAppend) {
+          next = {
+            ...next,
+            content: currentContent ? `${currentContent}\n\n${question}` : question,
+          };
+        }
+      }
+      return next;
+    }
 
     case 'reasoning':
       return pushActivity(

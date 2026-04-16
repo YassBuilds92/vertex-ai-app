@@ -1,5 +1,87 @@
 # SESSION STATE
 
+## 2026-04-16 - Cowork conscient v1 implemente localement, avec pause clarification et gate verification
+
+### Ce qui a ete accompli
+- Backend `api/index.ts`:
+  - ajout du flag `COWORK_ENABLE_CONSCIOUS_LOOP`
+  - ajout du tool `ask_user_clarification`
+  - ajout de la phase `clarification`
+  - un run Cowork peut maintenant finir en `paused`
+  - reprise multi-tour: si le dernier message Cowork precedent etait en pause, le prompt du tour suivant injecte une note interne courte pour signaler que l'utilisateur repond a une clarification en attente
+  - `publish_status` et `report_progress` sont exposes dans le mode conscient
+  - `computeCompletionState()` bloque maintenant:
+    - une cloture factualisee/current sans lecture validante
+    - un artefact cree mais non verifie
+    - une clarification encore en attente
+  - verification d'artefact branchee avant toute publication:
+    - PDF: header `%PDF` + pages detectees
+    - image: coherence mime/signature
+    - audio/podcast: mime/taille + duree quand disponible/inferable
+  - `release_file` refuse maintenant un fichier non verifie quand le mode conscient est actif
+- Frontend:
+  - `src/types.ts`: `RunState` supporte `paused`
+  - `src/utils/cowork.ts`: nouvel event `clarification_requested`, qui ajoute la question dans la conversation et laisse le run en pause
+  - `src/App.tsx`: ne force plus `completed` a la fin du flux si le run est deja `paused`; placeholder adapte quand Cowork attend une precision
+  - `src/components/ChatInput.tsx`: placeholder overridable
+  - `src/components/MessageItem.tsx`: statut `paused` + details outils replieables, avec micro-messages inline gardes visibles
+- Memoire / Qdrant:
+  - `server/lib/qdrant.ts` parse maintenant defensivement les reponses HTML/non-JSON
+  - un helper interne de test expose le parseur pour les unitaires
+- Tests:
+  - `test-cowork-loop.ts` couvre maintenant:
+    - clarification non comptee comme livraison
+    - blocage `missing_validating_reads`
+    - blocage `awaiting_user_clarification`
+    - blocage `artifact_not_verified`
+    - message Qdrant HTML/non-JSON lisible
+  - `verify-cowork-rag-e2e.ts` verifie qu'un event `memory_index_failed` n'expose plus le parse error brut `Unexpected token '<'`
+
+### Validation locale
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` -> OK
+- `npm run lint` -> OK
+- `npm run build` -> OK
+- `node node_modules/tsx/dist/cli.mjs verify-cowork-rag-e2e.ts` -> skip honnete (`COWORK_TEST_RAG=1`, `QDRANT_URL`, `GOOGLE_APPLICATION_CREDENTIALS_JSON` manquants)
+
+### Ce qu'il reste a faire
+- activer `COWORK_ENABLE_CONSCIOUS_LOOP=1` sur un environnement de test complet
+- jouer un smoke UI manuel:
+  - clarification puis reprise
+  - podcast/PDF verifie puis publie
+  - memoire degradee propre
+- etendre plus tard ce contrat conscient aux `Hub Agents` et `generated apps` si le retour utilisateur est bon
+
+### Fichiers modifies
+- `api/index.ts`
+- `server/lib/config.ts`
+- `server/lib/media-generation.ts`
+- `server/lib/qdrant.ts`
+- `src/App.tsx`
+- `src/components/ChatInput.tsx`
+- `src/components/MessageItem.tsx`
+- `src/types.ts`
+- `src/utils/cowork.ts`
+- `test-cowork-loop.ts`
+- `verify-cowork-rag-e2e.ts`
+- `COWORK.md`
+- `DECISIONS.md`
+- `TECH_RADAR.md`
+- `QA_RECIPES.md`
+- `NOW.md`
+
+### Decisions prises pendant la session
+- la boucle consciente reste OFF par defaut tant que les smokes bout-en-bout ne sont pas confirmes
+- aucune nouvelle dependance n'a ete ajoutee
+- `report_progress` reste un outil de structure interne; la conversation n'expose pas le chain-of-thought brut
+
+### Pieges / points d'attention
+- la verification audio est plus forte sur WAV que sur certains formats compresses quand la duree n'est pas disponible
+- la reprise clarification depend de la memoire d'historique Cowork envoyee cote frontend; ne pas enlever la part `[Memoire Cowork persistante]` pour les messages modeles Cowork
+
+### Intention exacte du dernier changement
+- transformer la pause, la clarification et la verification en etats runtime natifs plutot qu'en effets de bord
+- rapprocher Cowork d'un comportement "conscient" type Codex / Claude Code tout en gardant le runtime simple, local et sans nouvelle dette dependance
+
 ## 2026-04-15 - Gemini 3.1 Flash TTS branche dans le mode voix et Cowork, avec smoke reel single + duo
 
 ### Ce qui a ete accompli

@@ -1,5 +1,41 @@
 # QA RECIPES
 
+## Cowork - boucle consciente v1
+- Objectif:
+  - verifier la pause clarification, la reprise, la verification d'artefact avant `release_file`, et le message memoire degradee propre
+- Flags:
+  - activer `COWORK_ENABLE_CONSCIOUS_LOOP=1`
+- Validation locale minimale:
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts`
+  - `npm run lint`
+  - `npm run build`
+- Smoke clarification:
+  - prompt 1:
+    - `Fais-moi un briefing premium sur les startups IA francaises, mais choisis toi-meme le meilleur format entre podcast et PDF.`
+  - attendu:
+    - Cowork emet `clarification_requested`
+    - `runState: paused`
+    - la question apparait comme une vraie prise de parole assistant
+    - le placeholder du composer invite a repondre a la precision
+  - prompt 2:
+    - `PDF magazine, ton sobre, 5 startups maximum.`
+  - attendu:
+    - reprise normale du meme fil
+    - plus de `paused`
+    - livrable final coherent avec la clarification
+- Smoke verification d'artefact:
+  - lancer un run PDF ou podcast avec creation d'artefact
+  - attendu:
+    - un statut `Verification` apparait avant toute publication
+    - si la verification echoue, `release_file` n'est pas execute avec succes
+    - le run reste en correction/reprise au lieu de livrer un faux succes
+- Smoke memoire degradee:
+  - provoquer une reponse HTML/non-JSON de Qdrant (proxy, login page, mauvais endpoint)
+  - attendu:
+    - message lisible du type `Qdrant a renvoye du HTML/non-JSON`
+    - pas de `Unexpected token '<'`
+    - le run Cowork continue en capacite degradee
+
 ## TTS - Gemini 3.1 Flash dans le mode voix et Cowork
 - Objectif:
   - verifier que `gemini-3.1-flash-tts-preview` est bien expose dans le mode `audio`

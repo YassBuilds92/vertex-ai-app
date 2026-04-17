@@ -135,8 +135,7 @@ function buildInlineReferenceImages(attachments: Attachment[]) {
         data: base64Payload,
       };
     })
-    .filter((attachment): attachment is { mimeType: string; data: string } => Boolean(attachment))
-    .slice(0, 3);
+    .filter((attachment): attachment is { mimeType: string; data: string } => Boolean(attachment));
 }
 
 function guessAttachmentExtension(input: { mimeType?: string | null; name?: string | null }) {

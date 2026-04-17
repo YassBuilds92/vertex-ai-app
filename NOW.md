@@ -1,31 +1,38 @@
 # NOW
 
 ## Objectif actuel
-- Stabiliser le demarrage de `Cowork` quand l'auto-memoire RAG tombe.
-- Garder la memoire en best-effort sans warning technique inline pour un incident Qdrant transitoire.
+- Valider en conditions reelles le nouveau flow `Image Studio`:
+  - une seule invite
+  - refs image illimitees
+  - plan auto adapte par produit
+  - scroll corrige desktop + mobile
 
 ## Blocage actuel
 - Aucun blocage code local.
-- Le correctif local est pose, mais le smoke reel avec un vrai `503` Qdrant sur l'environnement cible reste a rejouer.
+- Le refactor est pose et valide en build/preview, mais pas encore rejoue dans une session authentifiee avec de vraies refs produit et une vraie generation backend.
 
 ## Prochaine action exacte
-- Rejouer un run Cowork avec auto-memoire active et un Qdrant qui renvoie du HTML `503`.
+- Ouvrir le mode `image` dans l'app reelle.
+- Uploader plus de 3 photos produit.
 - Verifier:
-  - absence de warning technique inline au debut du run
-  - logs serveur toujours explicites
-  - message court seulement si le probleme est non transitoire/configuration
+  - plus aucun preset visible
+  - toutes les refs restent visibles
+  - la molette et le scroll mobile descendent sur toute la page
+  - le lancement cree bien un pack auto adapte au produit
 
 ## Fichiers chauds
-- `api/index.ts`
-- `server/lib/qdrant.ts`
-- `test-cowork-loop.ts`
-- `QA_RECIPES.md`
-- `COWORK.md`
+- `src/components/ImageStudio.tsx`
+- `shared/listing-pack.ts`
+- `server/lib/schemas.ts`
+- `server/lib/media-generation.ts`
+- `src/App.tsx`
+- `tmp/media-modes-preview.tsx`
 
 ## Validations restantes
-- smoke Cowork reel avec Qdrant transitoirement indisponible
-- smoke RAG e2e avec `COWORK_TEST_RAG=1`, `QDRANT_URL` et credentials Google disponibles
+- smoke manuel authentifie du mode `image`
+- smoke backend reel avec plus de 3 refs image
+- controle UX final sur un vrai produit mal classe ou peu explicite
 
 ## Risques immediats
-- un incident Qdrant durable mais non transitoire remontera encore un message court cote UI, ce qui est voulu
-- le correctif ne reduit pas a lui seul la latence si l'instance doit quand meme tenter un auto-retrieval avant echec
+- l'inference produit/style repose encore sur `prompt + noms de fichiers`; certains cas ambigus peuvent tomber sur une famille trop generique
+- le preview local prouve la composition et le scroll, mais pas encore le rendu final d'une vraie generation remote

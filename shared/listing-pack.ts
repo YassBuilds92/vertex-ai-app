@@ -74,6 +74,17 @@ export type ListingPackShot = {
   prompt: string;
 };
 
+export type ListingPackAutoPlan = {
+  productType: ListingPackProductType;
+  productLabel: string;
+  styleId: ListingPackStyleId;
+  styleLabel: string;
+  shotCount: number;
+  summary: string;
+  rationale: string;
+  shots: ListingPackShot[];
+};
+
 export type ListingPackPlanInput = {
   productType: ListingPackProductType;
   styleId: ListingPackStyleId;
@@ -195,7 +206,7 @@ const PRODUCT_SHOT_LIBRARY: Record<ListingPackProductType, ShotBlueprint[]> = {
     },
     {
       id: 'carry-context',
-      label: 'Porté discret',
+      label: 'Porte discret',
       shortLabel: 'Contexte',
       direction:
         'Create a minimal carry-context photo cropped on hand, arm, or torso only, with no face and no distracting props.',
@@ -218,7 +229,7 @@ const PRODUCT_SHOT_LIBRARY: Record<ListingPackProductType, ShotBlueprint[]> = {
     },
     {
       id: 'worn-crop',
-      label: 'Porté crop',
+      label: 'Porte crop',
       shortLabel: 'Porte',
       direction:
         'Create a subtle worn crop on wrist, neck, or ear only, keeping the product dominant and avoiding full-face portrait framing.',
@@ -353,17 +364,206 @@ const PRODUCT_SHOT_LIBRARY: Record<ListingPackProductType, ShotBlueprint[]> = {
   ],
 };
 
+const PRODUCT_SHOT_COMPLEMENTS: Record<ListingPackProductType, ShotBlueprint[]> = {
+  clothing: [
+    {
+      id: 'proof-detail',
+      label: 'Detail preuve',
+      shortLabel: 'Preuve',
+      direction:
+        'Create an honest proof-detail shot focused on label area, stitching, sleeve finish, hem, or a strong quality marker that reassures resale buyers.',
+    },
+  ],
+  shoes: [
+    {
+      id: 'sole-proof',
+      label: 'Semelle preuve',
+      shortLabel: 'Preuve',
+      direction:
+        'Create a clean proof-detail focused on outsole, heel wear, stitching, or tongue details to reinforce trust and condition clarity.',
+    },
+  ],
+  bag: [
+    {
+      id: 'strap-proof',
+      label: 'Anse detail',
+      shortLabel: 'Preuve',
+      direction:
+        'Create a precise proof-detail of strap attachment, handle finish, corners, or hardware edges with honest resale fidelity.',
+    },
+  ],
+  jewelry: [
+    {
+      id: 'clasp-proof',
+      label: 'Fermoir detail',
+      shortLabel: 'Preuve',
+      direction:
+        'Create a clean proof-detail around clasp, chain links, engraving, or stone setting to support quality and authenticity reading.',
+    },
+  ],
+  beauty: [
+    {
+      id: 'usage-proof',
+      label: 'Bouchon detail',
+      shortLabel: 'Preuve',
+      direction:
+        'Create a reassuring proof-detail focused on cap, nozzle, texture of packaging, or applicator finish with clean resale clarity.',
+    },
+  ],
+  home: [
+    {
+      id: 'finish-proof',
+      label: 'Finition detail',
+      shortLabel: 'Preuve',
+      direction:
+        'Create a proof-detail on weave, grain, glaze, stitching, or finishing detail that helps buyers trust material quality.',
+    },
+  ],
+  tech: [
+    {
+      id: 'connector-proof',
+      label: 'Connectique detail',
+      shortLabel: 'Preuve',
+      direction:
+        'Create a proof-detail showing buttons, ports, connectors, texture, or edge finish with crisp honest realism.',
+    },
+  ],
+  other: [
+    {
+      id: 'trust-detail',
+      label: 'Detail preuve',
+      shortLabel: 'Preuve',
+      direction:
+        'Create a reassuring proof-detail focused on texture, finish, seams, or a high-value visible feature that supports trust.',
+    },
+  ],
+};
+
+const PRODUCT_KEYWORDS: Record<ListingPackProductType, string[]> = {
+  clothing: ['vetement', 'robe', 'robee', 'dress', 'top', 'tee', 't-shirt', 'shirt', 'chemise', 'hoodie', 'sweat', 'jean', 'jeans', 'pantalon', 'pant', 'skirt', 'jupe', 'veste', 'jacket', 'coat', 'pull', 'cardigan', 'blouse'],
+  shoes: ['chaussure', 'chaussures', 'shoe', 'shoes', 'sneaker', 'sneakers', 'basket', 'baskets', 'boot', 'boots', 'botte', 'bottes', 'heel', 'heels', 'sandale', 'sandales', 'loafer', 'mocassin'],
+  bag: ['sac', 'bag', 'handbag', 'tote', 'pochette', 'clutch', 'backpack', 'cartable', 'mini bag', 'shoulder bag', 'crossbody'],
+  jewelry: ['bijou', 'bijoux', 'jewelry', 'jewellery', 'ring', 'bague', 'necklace', 'collier', 'bracelet', 'earring', 'boucle', 'pendant', 'broche'],
+  beauty: ['beaute', 'beauty', 'parfum', 'perfume', 'skincare', 'serum', 'creme', 'cream', 'lipstick', 'gloss', 'makeup', 'cosmetic', 'cosmetique'],
+  home: ['maison', 'home', 'deco', 'decor', 'decoration', 'vase', 'cushion', 'coussin', 'lampe', 'lamp', 'candle', 'bougie', 'mug', 'plate', 'linge'],
+  tech: ['tech', 'iphone', 'phone', 'smartphone', 'airpods', 'headphone', 'casque', 'camera', 'cam', 'console', 'gaming', 'charger', 'macbook', 'ipad', 'keyboard', 'mouse', 'device'],
+  other: [],
+};
+
+const STYLE_KEYWORDS: Record<ListingPackStyleId, string[]> = {
+  soft_daylight: ['daylight', 'naturel', 'natural', 'soft', 'doux', 'douce', 'clair', 'light', 'clean daylight'],
+  studio_clean: ['studio', 'packshot', 'fond propre', 'fond blanc', 'clean', 'neutral', 'neutre', 'seamless'],
+  editorial_minimal: ['editorial', 'premium', 'luxe', 'luxury', 'campaign', 'magazine', 'brand', 'haut de gamme'],
+  cozy_home: ['cozy', 'home', 'maison', 'interieur', 'apartment', 'warm', 'domestic', 'lived-in'],
+};
+
+const DEFAULT_STYLE_BY_PRODUCT: Record<ListingPackProductType, ListingPackStyleId> = {
+  clothing: 'soft_daylight',
+  shoes: 'studio_clean',
+  bag: 'editorial_minimal',
+  jewelry: 'editorial_minimal',
+  beauty: 'studio_clean',
+  home: 'cozy_home',
+  tech: 'studio_clean',
+  other: 'soft_daylight',
+};
+
+const DEFAULT_SHOT_COUNT_BY_PRODUCT: Record<ListingPackProductType, number> = {
+  clothing: 5,
+  shoes: 5,
+  bag: 5,
+  jewelry: 5,
+  beauty: 4,
+  home: 4,
+  tech: 5,
+  other: 4,
+};
+
 function sanitizeUserNotes(value?: string) {
   return String(value || '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function getProductLabel(productType: ListingPackProductType) {
+function normalizeDetectionText(value?: string) {
+  return sanitizeUserNotes(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ' ');
+}
+
+function scoreKeywordMatches(haystack: string, keywords: string[]) {
+  return keywords.reduce((score, keyword) => {
+    if (!keyword) return score;
+    return haystack.includes(normalizeDetectionText(keyword)) ? score + 1 : score;
+  }, 0);
+}
+
+function inferProductType(notes?: string, fileNames: string[] = []): ListingPackProductType {
+  const haystack = normalizeDetectionText([notes || '', ...fileNames].join(' '));
+  if (!haystack) return 'other';
+
+  let bestType: ListingPackProductType = 'other';
+  let bestScore = 0;
+  (Object.keys(PRODUCT_KEYWORDS) as ListingPackProductType[]).forEach((productType) => {
+    const score = scoreKeywordMatches(haystack, PRODUCT_KEYWORDS[productType]);
+    if (score > bestScore) {
+      bestType = productType;
+      bestScore = score;
+    }
+  });
+
+  return bestType;
+}
+
+function inferStyleId(notes: string | undefined, productType: ListingPackProductType): ListingPackStyleId {
+  const haystack = normalizeDetectionText(notes);
+  if (!haystack) return DEFAULT_STYLE_BY_PRODUCT[productType];
+
+  let bestStyle: ListingPackStyleId = DEFAULT_STYLE_BY_PRODUCT[productType];
+  let bestScore = 0;
+  (Object.keys(STYLE_KEYWORDS) as ListingPackStyleId[]).forEach((styleId) => {
+    const score = scoreKeywordMatches(haystack, STYLE_KEYWORDS[styleId]);
+    if (score > bestScore) {
+      bestStyle = styleId;
+      bestScore = score;
+    }
+  });
+
+  return bestStyle;
+}
+
+function inferShotCount(
+  productType: ListingPackProductType,
+  notes: string | undefined,
+  imageCount = 0,
+) {
+  const haystack = normalizeDetectionText(notes);
+  let shotCount = DEFAULT_SHOT_COUNT_BY_PRODUCT[productType];
+
+  if (/\b(detail|details|macro|texture|matiere|proof|preuve|echelle|scale|angles|plusieurs vues|tous les angles)\b/.test(haystack)) {
+    shotCount += 1;
+  }
+
+  if (imageCount >= 5) {
+    shotCount += 1;
+  }
+
+  return Math.max(4, Math.min(shotCount, 5));
+}
+
+function getShotBlueprints(productType: ListingPackProductType) {
+  return [
+    ...(PRODUCT_SHOT_LIBRARY[productType] || PRODUCT_SHOT_LIBRARY.other),
+    ...(PRODUCT_SHOT_COMPLEMENTS[productType] || PRODUCT_SHOT_COMPLEMENTS.other),
+  ];
+}
+
+export function getProductLabel(productType: ListingPackProductType) {
   return LISTING_PACK_PRODUCT_OPTIONS.find((option) => option.id === productType)?.label || 'Produit';
 }
 
-function getStyleLabel(styleId: ListingPackStyleId) {
+export function getStyleLabel(styleId: ListingPackStyleId) {
   return LISTING_PACK_STYLE_OPTIONS.find((option) => option.id === styleId)?.label || 'Style';
 }
 
@@ -394,15 +594,15 @@ export function buildListingPackSummary(input: ListingPackPlanInput) {
     `Pack Vinted auto`,
     getProductLabel(input.productType),
     getStyleLabel(input.styleId),
-    `${Math.max(3, Math.min(input.shotCount || 4, 4))} vues`,
+    `${Math.max(3, Math.min(input.shotCount || 4, 5))} vues`,
     notes ? `Note: ${notes}` : '',
   ].filter(Boolean).join(' | ');
 }
 
 export function buildListingPackPlan(input: ListingPackPlanInput): ListingPackShot[] {
-  const shotCount = Math.max(3, Math.min(input.shotCount || 4, 4));
+  const shotCount = Math.max(3, Math.min(input.shotCount || 4, 5));
   const basePrompt = buildBasePrompt(input);
-  const library = PRODUCT_SHOT_LIBRARY[input.productType] || PRODUCT_SHOT_LIBRARY.other;
+  const library = getShotBlueprints(input.productType);
 
   return library.slice(0, shotCount).map((shot) => ({
     id: shot.id,
@@ -410,4 +610,50 @@ export function buildListingPackPlan(input: ListingPackPlanInput): ListingPackSh
     shortLabel: shot.shortLabel,
     prompt: `${basePrompt} ${shot.direction}`,
   }));
+}
+
+function buildAutoPlanRationale(
+  productType: ListingPackProductType,
+  styleId: ListingPackStyleId,
+  shotCount: number,
+  imageCount: number,
+) {
+  const productLabel = getProductLabel(productType);
+  const styleLabel = getStyleLabel(styleId);
+  const referenceLabel = imageCount > 0 ? `${imageCount} ref${imageCount > 1 ? 's' : ''}` : 'brief libre';
+  return `${productLabel} detecte, rendu ${styleLabel.toLowerCase()}, ${shotCount} angles utiles a partir de ${referenceLabel}.`;
+}
+
+export function buildAdaptiveListingPack(input: {
+  notes?: string;
+  imageCount?: number;
+  fileNames?: string[];
+}): ListingPackAutoPlan {
+  const productType = inferProductType(input.notes, input.fileNames || []);
+  const styleId = inferStyleId(input.notes, productType);
+  const shotCount = inferShotCount(productType, input.notes, input.imageCount || 0);
+  const shots = buildListingPackPlan({
+    productType,
+    styleId,
+    notes: input.notes,
+    shotCount,
+  });
+  const productLabel = getProductLabel(productType);
+  const styleLabel = getStyleLabel(styleId);
+
+  return {
+    productType,
+    productLabel,
+    styleId,
+    styleLabel,
+    shotCount,
+    summary: [
+      'Plan auto',
+      productLabel,
+      styleLabel,
+      `${shotCount} vues`,
+    ].join(' - '),
+    rationale: buildAutoPlanRationale(productType, styleId, shotCount, input.imageCount || 0),
+    shots,
+  };
 }

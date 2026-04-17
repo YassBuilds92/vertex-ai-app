@@ -1,5 +1,24 @@
 # DECISIONS
 
+## 2026-04-17 - Le mode image devient un flow unique `prompt + photos + plan auto`, sans presets visibles
+- Statut: adopte localement
+- Contexte: l'utilisateur ne veut plus choisir de `mode predefini`, de type de produit ou de style avant de commencer. Il veut une seule invite, la possibilite de mettre autant de photos qu'il veut, puis des plans auto adaptes a chaque produit. Il a aussi signale un bug de scroll a la molette et sur mobile.
+- Decision:
+  - retirer le switch de workflow et les presets visibles du studio image
+  - faire basculer automatiquement le studio en logique `listing pack` des qu'au moins une photo source est presente
+  - inferer produit/style/shot count a partir du prompt et des noms de fichiers
+  - lever la limite de 3 refs image cote frontend et backend
+  - faire du studio un seul conteneur scrollable au niveau page
+- Pourquoi:
+  - colle exactement au flux souhaite par l'utilisateur
+  - supprime une friction de parametrage inutile avant la premiere action visible
+  - corrige en meme temps un vrai bug UX de scroll structurel
+- Consequence:
+  - `src/components/ImageStudio.tsx` est refondu autour d'une seule scene
+  - `shared/listing-pack.ts` porte maintenant l'adaptation auto
+  - `server/lib/schemas.ts`, `server/lib/media-generation.ts` et `src/App.tsx` n'imposent plus 3 refs max
+  - `tmp/media-modes-preview.tsx` sert de preuve visuelle locale pour le nouveau flow
+
 ## 2026-04-17 - Les echecs transitoires de l'auto-memoire ne doivent plus devenir des warnings inline
 - Statut: adopte localement
 - Contexte: Cowork auto-injecte la memoire au debut d'un run quand le RAG est actif. Quand Qdrant repondait avec une page HTML `503`, la conversation affichait un warning technique long et anxiogene alors que la fonctionnalite est best-effort et que le run peut continuer sans memoire.

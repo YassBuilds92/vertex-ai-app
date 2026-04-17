@@ -1,5 +1,83 @@
 # SESSION STATE
 
+## 2026-04-17 - Image Studio refondu en flow unique `prompt + photos + plan auto`
+
+### Ce qui a ete accompli
+- `src/components/ImageStudio.tsx`:
+  - suppression du flow a presets `workflowMode`
+  - nouvelle surface unique centree sur:
+    - une invite libre
+    - l'ajout de photos source
+    - un plan auto adapte au produit detecte
+  - correction du scroll:
+    - le studio est maintenant un seul conteneur scrollable (`overflow-y-auto`) au niveau page
+    - ajout de `touch-pan-y` pour mieux expliciter l'intention tactile
+  - upload image sans limite visible cote UI
+  - affichage d'un plan auto compact:
+    - resume
+    - chips produit/style/vues
+    - cartes de vues a generer
+- `shared/listing-pack.ts`:
+  - ajout de `buildAdaptiveListingPack(...)`
+  - inference produit/style a partir du prompt + noms de fichiers
+  - extension des packs auto a 5 vues quand utile
+  - export de `getStyleLabel(...)` / `getProductLabel(...)`
+- `server/lib/schemas.ts`:
+  - suppression de la limite `max(3)` sur `referenceImages`
+- `server/lib/media-generation.ts`:
+  - suppression du `slice(0, 3)` sur les refs inline
+- `src/App.tsx`:
+  - suppression du `slice(0, 3)` lors de la construction des refs inline envoyees au backend
+- `tmp/media-modes-preview.tsx`:
+  - harness de preview image enrichi avec vraies refs factices
+  - ajout d'un scroll de QA pilotable par query string
+
+### Validation locale
+- `npm run lint` -> OK
+- `npm run build` -> OK
+- preview local source via Vite:
+  - `http://127.0.0.1:4173/tmp/media-modes-preview.html?mode=image&surface=studio`
+  - captures locales:
+    - `tmp/image-studio-preview-desktop.png`
+    - `tmp/image-studio-preview-mobile.png`
+    - `tmp/image-studio-preview-desktop-bottom.png`
+    - `tmp/image-studio-preview-mobile-bottom.png`
+
+### Ce qu'il reste a faire
+- rejouer le mode `image` dans l'app authentifiee avec de vraies photos produit
+- lancer une vraie generation pack avec plus de 3 refs
+- verifier au moins un cas ambigu de produit pour juger la qualite de l'inference auto
+
+### Fichiers modifies
+- `src/components/ImageStudio.tsx`
+- `shared/listing-pack.ts`
+- `server/lib/schemas.ts`
+- `server/lib/media-generation.ts`
+- `src/App.tsx`
+- `tmp/media-modes-preview.tsx`
+- `NOW.md`
+- `SESSION_STATE.md`
+- `DECISIONS.md`
+- `QA_RECIPES.md`
+
+### Decisions prises pendant la session
+- le mode image ne doit plus exposer de presets ou de categories visibles avant l'action utilisateur
+- si des refs sont presentes, le studio bascule automatiquement en logique pack produit
+- la limite de 3 refs image est retiree du frontend et du backend
+- le scroll doit se faire sur toute la scene studio, pas sur un sous-panneau secondaire
+
+### Pieges / points d'attention
+- l'inference auto est volontairement heuristique et peut rester trop generique pour certains produits mal decrits
+- le preview local valide la scene, pas la qualite creative du modele image sur un vrai prompt
+- les screenshots de QA dans `tmp/` ne sont pas des assets produit, seulement des preuves locales
+
+### Intention exacte du dernier changement
+- coller au besoin utilisateur reel:
+  - moins de blabla
+  - zero preset a choisir
+  - une invite, des photos, puis des plans utiles
+- remettre le mode `image` au service d'un usage produit rapide et beau, avec une navigation fluide sur desktop comme sur mobile
+
 ## 2026-04-17 - Auto-memoire Qdrant rendue silencieuse pour les pannes transitoires
 
 ### Ce qui a ete accompli

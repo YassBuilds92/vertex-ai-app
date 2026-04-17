@@ -1,5 +1,42 @@
 # QA RECIPES
 
+## Image Studio - flow `prompt + photos + plan auto`
+- Objectif:
+  - verifier que le mode `image` ne montre plus de presets visibles
+  - verifier que l'ajout de refs image est illimite
+  - verifier que la scene scrolle bien a la molette et sur mobile
+  - verifier que le plan auto s'adapte au produit detecte
+- Validation code:
+  - `npm run lint`
+  - `npm run build`
+- Preview source locale:
+  - lancer:
+    - `npm exec vite -- --host 127.0.0.1 --port 4173`
+  - ouvrir:
+    - `http://127.0.0.1:4173/tmp/media-modes-preview.html?mode=image&surface=studio`
+    - `http://127.0.0.1:4173/tmp/media-modes-preview.html?mode=image&surface=studio&scroll=bottom`
+- Attendus preview:
+  - une seule invite visible
+  - aucune selection de `mode predefini`, `produit`, `style` avant action
+  - les refs source s'affichent toutes
+  - un bloc `Plan adapte` apparait avec resume + vues
+  - le scroll descend correctement sur toute la scene
+- Smoke reel app:
+  - ouvrir le mode `image`
+  - uploader plus de 3 photos d'un vrai produit
+  - ajouter ou non une note libre
+  - lancer la generation
+- Attendus smoke reel:
+  - toutes les photos restent visibles
+  - la requete pack part sans rejet `max(3)`
+  - le studio reste scrollable sur desktop et mobile
+  - le pack genere reflete bien le produit detecte
+- Captures locales:
+  - `tmp/image-studio-preview-desktop.png`
+  - `tmp/image-studio-preview-mobile.png`
+  - `tmp/image-studio-preview-desktop-bottom.png`
+  - `tmp/image-studio-preview-mobile-bottom.png`
+
 ## Cowork - boucle consciente v1
 - Objectif:
   - verifier la pause clarification, la reprise, la verification d'artefact avant `release_file`, et le message memoire degradee propre

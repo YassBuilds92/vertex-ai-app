@@ -16,6 +16,7 @@ const params = new URLSearchParams(window.location.search);
 const mode = (params.get('mode') as AppMode | null) || 'image';
 const surface = params.get('surface') || 'empty';
 const linkedPromptEnabled = params.get('linked') === '1';
+const scrollTarget = params.get('scroll') || '';
 
 const previewSelectedPrompt = linkedPromptEnabled
   ? {
@@ -39,6 +40,7 @@ const previewSession: ChatSession = {
 
 const sampleImageUrl = 'https://picsum.photos/seed/studio-image-preview/1400/1050';
 const sampleImageUrlAlt = 'https://picsum.photos/seed/studio-image-preview-alt/900/1200';
+const sampleImageUrlThird = 'https://picsum.photos/seed/studio-image-preview-third/1000/1400';
 const sampleAudioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
 
 class PreviewErrorBoundary extends React.Component<
@@ -294,8 +296,36 @@ function buildMockMessages(targetMode: AppMode): Message[] {
   return [];
 }
 
+function buildPreviewPendingAttachments(targetMode: AppMode): Attachment[] {
+  if (targetMode !== 'image') return [];
+
+  return [
+    {
+      id: 'preview-ref-1',
+      type: 'image',
+      url: sampleImageUrl,
+      name: 'sac-cuir-face.jpg',
+      mimeType: 'image/jpeg',
+    },
+    {
+      id: 'preview-ref-2',
+      type: 'image',
+      url: sampleImageUrlAlt,
+      name: 'sac-cuir-detail.jpg',
+      mimeType: 'image/jpeg',
+    },
+    {
+      id: 'preview-ref-3',
+      type: 'image',
+      url: sampleImageUrlThird,
+      name: 'sac-cuir-profil.jpg',
+      mimeType: 'image/jpeg',
+    },
+  ];
+}
+
 function PreviewApp() {
-  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>(() => buildPreviewPendingAttachments(mode));
   const mockMessages = buildMockMessages(mode);
 
   useEffect(() => {
@@ -316,6 +346,18 @@ function PreviewApp() {
     document.documentElement.className = 'dark';
   }, []);
 
+  useEffect(() => {
+    if (surface !== 'studio' || scrollTarget !== 'bottom') return;
+
+    const timeoutId = window.setTimeout(() => {
+      const scroller = document.querySelector<HTMLElement>('[data-image-studio-scroll="true"]');
+      if (!scroller) return;
+      scroller.scrollTop = scroller.scrollHeight;
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
   if (surface === 'studio') {
     return (
       <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-text)]">
@@ -327,9 +369,11 @@ function PreviewApp() {
             onImageClick={() => {}}
             isRefinerEnabled
             onToggleRefiner={() => {}}
-            pendingAttachments={[]}
+            pendingAttachments={pendingAttachments}
             onAddAttachments={async () => {}}
-            onRemoveAttachment={() => {}}
+            onRemoveAttachment={(attachmentId) => {
+              setPendingAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
+            }}
           />
         )}
         {mode === 'audio' && (

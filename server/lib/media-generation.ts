@@ -544,8 +544,7 @@ function sanitizeInlineImageReferences(
       mimeType: String(reference?.mimeType || '').trim().toLowerCase(),
       data: String(reference?.data || '').trim(),
     }))
-    .filter((reference) => reference.mimeType.startsWith('image/') && reference.data.length > 0)
-    .slice(0, 3);
+    .filter((reference) => reference.mimeType.startsWith('image/') && reference.data.length > 0);
 }
 
 function resampleWaveAudio(audio: ParsedWaveAudio, targetSampleRate: number): ParsedWaveAudio {

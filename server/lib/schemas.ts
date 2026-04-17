@@ -211,13 +211,13 @@ export const ImageGenSchema = z.object({
 export const ImageGenRequestSchema = ImageGenSchema.extend({
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
-  referenceImages: z.array(InlineImageReferenceSchema).max(3).optional(),
+  referenceImages: z.array(InlineImageReferenceSchema).optional(),
 });
 
 export const ImagePackRequestSchema = ImageGenSchema.extend({
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
-  referenceImages: z.array(InlineImageReferenceSchema).min(1).max(3),
+  referenceImages: z.array(InlineImageReferenceSchema).min(1),
   shots: z.array(z.object({
     id: z.string(),
     label: z.string(),

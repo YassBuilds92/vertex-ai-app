@@ -13,6 +13,8 @@ export type MediaHistoryEntry = {
   model?: string;
   refinerProfileId?: string;
   refinerCustomInstructions?: string;
+  shotId?: string;
+  shotLabel?: string;
   mimeType?: string;
   name?: string;
   createdAt: number;
@@ -79,6 +81,8 @@ function resolveEntryFromAttachment(
     model: generationMeta?.model,
     refinerProfileId: generationMeta?.refinerProfileId,
     refinerCustomInstructions: sanitizePrompt(generationMeta?.refinerCustomInstructions) || undefined,
+    shotId: generationMeta?.shotId,
+    shotLabel: generationMeta?.shotLabel,
     mimeType: attachment.mimeType,
     name: attachment.name,
     createdAt: message.createdAt,

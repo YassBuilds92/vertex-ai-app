@@ -176,6 +176,11 @@ const AttachmentPayloadSchema = z.object({
   }).optional(),
 });
 
+const InlineImageReferenceSchema = z.object({
+  mimeType: z.string(),
+  data: z.string(),
+});
+
 const ChatPartSchema = z.object({
   text: z.string().optional(),
   inlineData: z.object({
@@ -206,6 +211,19 @@ export const ImageGenSchema = z.object({
 export const ImageGenRequestSchema = ImageGenSchema.extend({
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
+  referenceImages: z.array(InlineImageReferenceSchema).max(3).optional(),
+});
+
+export const ImagePackRequestSchema = ImageGenSchema.extend({
+  model: z.string().optional(),
+  thinkingLevel: z.string().optional(),
+  referenceImages: z.array(InlineImageReferenceSchema).min(1).max(3),
+  shots: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    shortLabel: z.string().optional(),
+    prompt: z.string(),
+  })).min(1).max(6),
 });
 
 export const AudioGenRequestSchema = z.object({

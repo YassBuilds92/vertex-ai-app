@@ -47,6 +47,10 @@ export type ImageGenerationOptions = {
   personGeneration?: string;
   safetySetting?: string;
   thinkingLevel?: string;
+  referenceImages?: Array<{
+    mimeType: string;
+    data: string;
+  }>;
 };
 
 export type GeminiTtsOptions = {
@@ -528,6 +532,20 @@ function parseWaveBuffer(buffer: Buffer): ParsedWaveAudio {
 export function getWaveDurationSeconds(buffer: Buffer): number {
   const audio = parseWaveBuffer(buffer);
   return audio.frameCount / audio.sampleRate;
+}
+
+function sanitizeInlineImageReferences(
+  references: ImageGenerationOptions['referenceImages'],
+): Array<{ mimeType: string; data: string }> {
+  if (!Array.isArray(references)) return [];
+
+  return references
+    .map((reference) => ({
+      mimeType: String(reference?.mimeType || '').trim().toLowerCase(),
+      data: String(reference?.data || '').trim(),
+    }))
+    .filter((reference) => reference.mimeType.startsWith('image/') && reference.data.length > 0)
+    .slice(0, 3);
 }
 
 function resampleWaveAudio(audio: ParsedWaveAudio, targetSampleRate: number): ParsedWaveAudio {
@@ -1166,6 +1184,7 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
     DEFAULT_IMAGE_MODEL,
   );
   const ai = createGoogleAI(model);
+  const referenceImages = sanitizeInlineImageReferences(options.referenceImages);
   const config: any = {
     ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
     ...(options.numberOfImages ? { candidateCount: options.numberOfImages } : {}),
@@ -1181,9 +1200,19 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
     if (options.imageSize) config.imageSize = options.imageSize;
   }
 
+  const parts = [
+    ...referenceImages.map((reference) => ({
+      inlineData: {
+        mimeType: reference.mimeType,
+        data: reference.data,
+      },
+    })),
+    { text: prompt },
+  ];
+
   const result = await retryWithBackoff(() => ai.models.generateContent({
     model,
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents: [{ role: 'user', parts }],
     config,
   }));
 
@@ -1203,6 +1232,7 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
       aspectRatio: options.aspectRatio,
       imageSize: options.imageSize,
       requestedCandidates: options.numberOfImages,
+      referenceImageCount: referenceImages.length,
     },
   };
 }

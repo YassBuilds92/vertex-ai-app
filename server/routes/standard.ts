@@ -22,6 +22,7 @@ import {
   ChatSchema,
   GeneratedAppCreateSchema,
   GeneratedAppPublishSchema,
+  ImagePackRequestSchema,
   ImageGenRequestSchema,
   MusicGenRequestSchema,
   UploadSchema,
@@ -316,13 +317,13 @@ export function registerStandardApiRoutes(app: Express) {
 
   app.post('/api/generate-image', async (req, res) => {
     try {
-      const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel } = ImageGenRequestSchema.parse(req.body);
+      const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel, referenceImages } = ImageGenRequestSchema.parse(req.body);
       const modelId = req.body.model || DEFAULT_IMAGE_MODEL;
       log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { modelId, aspectRatio, numberOfImages });
 
       if (numberOfImages && numberOfImages > 1) {
         const artifacts = await generateImageBinaries({
-          prompt, model: modelId, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel,
+          prompt, model: modelId, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel, referenceImages,
         });
         const images = await Promise.all(artifacts.map(async (artifact) => {
           const fileName = createUploadFileName('generated-image', artifact.fileExtension);
@@ -336,7 +337,7 @@ export function registerStandardApiRoutes(app: Express) {
         res.json({ images, model: modelId });
       } else {
         const artifact = await generateImageBinary({
-          prompt, model: modelId, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel,
+          prompt, model: modelId, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel, referenceImages,
         });
         const fileName = createUploadFileName('generated-image', artifact.fileExtension);
         const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
@@ -354,6 +355,60 @@ export function registerStandardApiRoutes(app: Express) {
         error: 'Image failed',
         message: "Echec de la generation d'image",
         details: cleanError
+      });
+    }
+  });
+
+  app.post('/api/generate-image-pack', async (req, res) => {
+    try {
+      const {
+        shots,
+        aspectRatio,
+        imageSize,
+        personGeneration,
+        safetySetting,
+        thinkingLevel,
+        referenceImages,
+      } = ImagePackRequestSchema.parse(req.body);
+      const modelId = req.body.model || DEFAULT_IMAGE_MODEL;
+
+      const artifacts = await Promise.all(
+        shots.map(async (shot) => {
+          const artifact = await generateImageBinary({
+            prompt: shot.prompt,
+            model: modelId,
+            aspectRatio,
+            imageSize,
+            personGeneration,
+            safetySetting,
+            thinkingLevel,
+            referenceImages,
+          });
+          const fileName = createUploadFileName(`generated-image-${shot.id}`, artifact.fileExtension);
+          const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
+          return {
+            id: shot.id,
+            label: shot.label,
+            shortLabel: shot.shortLabel || shot.label,
+            prompt: shot.prompt,
+            url: uploaded.url,
+            storageUri: uploaded.storageUri,
+            mimeType: artifact.mimeType,
+          };
+        }),
+      );
+
+      res.json({
+        images: artifacts,
+        model: modelId,
+      });
+    } catch (error) {
+      const cleanError = parseApiError(error);
+      log.error('Image pack gen error', cleanError);
+      res.status(500).json({
+        error: 'Image pack failed',
+        message: "Echec de la generation du pack image",
+        details: cleanError,
       });
     }
   });

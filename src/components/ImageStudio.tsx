@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Check,
@@ -11,6 +11,8 @@ import {
   Pencil,
   Sparkles,
   Undo2,
+  Upload,
+  X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -20,9 +22,17 @@ import {
   getImageModelLabel,
   IMAGE_MODEL_OPTIONS,
 } from '../../shared/image-models.js';
+import {
+  buildListingPackPlan,
+  buildListingPackSummary,
+  LISTING_PACK_PRODUCT_OPTIONS,
+  LISTING_PACK_STYLE_OPTIONS,
+  type ListingPackProductType,
+  type ListingPackStyleId,
+} from '../../shared/listing-pack.js';
 import { getPromptRefinerProfile } from '../../shared/prompt-refiners.js';
 import { useStore } from '../store/useStore';
-import { MediaGenerationRequest, Message } from '../types';
+import { Attachment, MediaGenerationRequest, Message } from '../types';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { buildImageHistory } from '../utils/media-gallery-history';
 
@@ -35,12 +45,16 @@ const aspectRatios = [
   { value: '1:1', label: '1:1' },
   { value: '4:3', label: '4:3' },
   { value: '3:4', label: '3:4' },
+  { value: '5:4', label: '5:4' },
+  { value: '4:5', label: '4:5' },
   { value: '16:9', label: '16:9' },
   { value: '9:16', label: '9:16' },
   { value: '3:2', label: '3:2' },
   { value: '2:3', label: '2:3' },
   { value: '21:9', label: '21:9' },
-];
+] as const;
+
+type WorkflowMode = 'listing_pack' | 'freeform';
 
 function RatioShape({ ratio }: { ratio: string }) {
   if (!ratio) return <span className="text-[9px] font-black opacity-60">A</span>;
@@ -62,6 +76,9 @@ interface ImageStudioProps {
   onImageClick: (url: string) => void;
   isRefinerEnabled: boolean;
   onToggleRefiner: () => void;
+  pendingAttachments: Attachment[];
+  onAddAttachments: (files: FileList | File[]) => Promise<void>;
+  onRemoveAttachment: (attachmentId: string) => void;
 }
 
 export const ImageStudio: React.FC<ImageStudioProps> = ({
@@ -71,20 +88,27 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   onImageClick,
   isRefinerEnabled,
   onToggleRefiner,
+  pendingAttachments,
+  onAddAttachments,
+  onRemoveAttachment,
 }) => {
   const { configs, setConfig } = useStore();
   const config = configs.image;
   const activeRefinerProfile = getPromptRefinerProfile('image', config.refinerProfileId);
 
+  const [workflowMode, setWorkflowMode] = useState<WorkflowMode>('listing_pack');
+  const [productType, setProductType] = useState<ListingPackProductType>('clothing');
+  const [styleId, setStyleId] = useState<ListingPackStyleId>('soft_daylight');
+  const [shotCount, setShotCount] = useState(4);
   const [prompt, setPrompt] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [hiddenImageIds, setHiddenImageIds] = useState<string[]>([]);
-
   const [isRefining, setIsRefining] = useState(false);
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
   const [originalPrompt, setOriginalPrompt] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const allImages = useMemo(() => buildImageHistory(messages), [messages]);
   const visibleImages = useMemo(
@@ -117,6 +141,31 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     [config.refinerProfileId, featuredImage?.refinerProfileId],
   );
   const hiddenLegacyCount = Math.max(0, allImages.length - visibleImages.length);
+  const sourceImages = useMemo(
+    () => pendingAttachments.filter((attachment) => attachment.type === 'image'),
+    [pendingAttachments],
+  );
+  const listingPlan = useMemo(
+    () => buildListingPackPlan({
+      productType,
+      styleId,
+      notes: prompt,
+      shotCount,
+    }),
+    [productType, prompt, shotCount, styleId],
+  );
+  const listingSummary = useMemo(
+    () => buildListingPackSummary({
+      productType,
+      styleId,
+      notes: prompt,
+      shotCount,
+    }),
+    [productType, prompt, shotCount, styleId],
+  );
+  const canSubmit = workflowMode === 'listing_pack'
+    ? sourceImages.length > 0 && !isLoading
+    : Boolean(prompt.trim()) && !isLoading && !isRefining;
 
   useEffect(() => {
     if (!visibleImages.length) {
@@ -145,8 +194,34 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     setHiddenImageIds((current) => (current.includes(imageId) ? current : [...current, imageId]));
   };
 
+  const handleOpenFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleSourceFiles = async (files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/')).slice(0, 3);
+    if (imageFiles.length === 0) return;
+    await onAddAttachments(imageFiles);
+  };
+
   const handleSubmit = async () => {
-    if (!prompt.trim() || isLoading || isRefining) return;
+    if (!canSubmit) return;
+
+    if (workflowMode === 'listing_pack') {
+      onGenerate(listingSummary, {
+        originalPrompt: listingSummary,
+        listingPack: {
+          workflow: 'vinted_pack',
+          productType,
+          styleId,
+          shotCount,
+          shots: listingPlan,
+        },
+      });
+      return;
+    }
+
+    if (!prompt.trim()) return;
 
     if (isRefinerEnabled) {
       setIsRefining(true);
@@ -211,8 +286,47 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
 
   return (
     <div className="flex h-full flex-col">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          if (event.target.files) {
+            void handleSourceFiles(event.target.files);
+          }
+          event.target.value = '';
+        }}
+      />
+
       <div className="mx-auto w-full max-w-7xl flex-shrink-0 px-4 pt-6 pb-4 sm:px-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-[1.2rem] border border-[var(--app-border)] bg-[var(--app-surface)] p-1">
+            <button
+              onClick={() => setWorkflowMode('listing_pack')}
+              className={cn(
+                'rounded-[0.9rem] px-3 py-2 text-[12px] font-semibold transition-all',
+                workflowMode === 'listing_pack'
+                  ? 'bg-[var(--app-accent)] text-[#0a0a14]'
+                  : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]',
+              )}
+            >
+              Pack Vinted
+            </button>
+            <button
+              onClick={() => setWorkflowMode('freeform')}
+              className={cn(
+                'rounded-[0.9rem] px-3 py-2 text-[12px] font-semibold transition-all',
+                workflowMode === 'freeform'
+                  ? 'bg-[var(--app-accent)] text-[#0a0a14]'
+                  : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]',
+              )}
+            >
+              Libre
+            </button>
+          </div>
+
           <div className="relative">
             <button
               onClick={() => setShowModelPicker((current) => !current)}
@@ -257,29 +371,38 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             </AnimatePresence>
           </div>
 
-          <button
-            onClick={onToggleRefiner}
-            className={cn(
-              'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
-              isRefinerEnabled
-                ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
-                : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
-            )}
-          >
-            <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
-            Raffineur IA
-          </button>
+          {workflowMode === 'freeform' ? (
+            <>
+              <button
+                onClick={onToggleRefiner}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
+                  isRefinerEnabled
+                    ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
+                    : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
+                )}
+              >
+                <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
+                Raffineur IA
+              </button>
 
-          {activeRefinerProfile && (
+              {activeRefinerProfile && (
+                <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-white/[0.03] px-3 py-2 text-[11px] text-[var(--app-text-muted)]">
+                  <span className="font-bold text-[var(--app-text)]">{activeRefinerProfile.title}</span>
+                  <span className="hidden sm:inline">{activeRefinerProfile.summary}</span>
+                </div>
+              )}
+            </>
+          ) : (
             <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-white/[0.03] px-3 py-2 text-[11px] text-[var(--app-text-muted)]">
-              <span className="font-bold text-[var(--app-text)]">{activeRefinerProfile.title}</span>
-              <span className="hidden sm:inline">{activeRefinerProfile.summary}</span>
+              <Sparkles size={12} className="text-[var(--app-accent)]" />
+              Prompts angles auto, reel de sortie plus propre que les photos marketplace brutes.
             </div>
           )}
         </div>
 
         <AnimatePresence>
-          {refinedPrompt && (
+          {workflowMode === 'freeform' && refinedPrompt && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -328,83 +451,329 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
+        {workflowMode === 'listing_pack' ? (
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_360px]">
+            <div className="overflow-hidden rounded-[2rem] border border-[var(--app-border)] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(8,8,12,0.86))] p-5 shadow-[0_32px_100px_-60px_rgba(0,0,0,0.92)]">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="max-w-2xl">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--app-accent)]">
+                    Workflow resale
+                  </div>
+                  <h2 className="mt-2 text-[clamp(1.6rem,2vw,2.35rem)] font-semibold leading-[1.02] text-[var(--app-text)]">
+                    Tu poses tes photos produit, le studio reconstruit un pack d'annonces plus clean et plus vendeur.
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-[var(--app-text-muted)]">
+                    Base-toi sur 1 a 3 photos source. Le moteur garde la silhouette, les matieres et la couleur,
+                    puis genere plusieurs angles resale-first: hero, detail, angle secondaire et contexte simple.
+                  </p>
+                </div>
 
-        <div className="rounded-[2rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(8,8,12,0.6))] p-4 shadow-[0_30px_90px_-56px_rgba(0,0,0,0.85)] transition-colors focus-within:border-[var(--app-border-strong)]">
-          <textarea
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder="Decris ton image: sujet, cadre, lumiere, matiere, energie, style..."
-            rows={4}
-            className="w-full resize-none bg-transparent px-2 pt-2 pb-16 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none"
-          />
-          <div className="flex flex-col gap-3 border-t border-white/6 pt-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              {aspectRatios.map((ratio) => (
-                <button
-                  key={ratio.value}
-                  onClick={() => setConfig({ aspectRatio: ratio.value as any })}
-                  title={ratio.label || 'Auto'}
-                  className={cn(
-                    'flex min-w-[38px] flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 transition-all',
-                    (config.aspectRatio || '') === ratio.value
-                      ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-sm'
-                      : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
-                  )}
-                >
-                  <RatioShape ratio={ratio.value} />
-                  <span className="text-[9px] font-bold leading-none">{ratio.label}</span>
-                </button>
-              ))}
-              <span className="mx-1 h-4 w-px bg-[var(--app-border)]" />
-              {[1, 2, 3, 4].map((count) => (
-                <button
-                  key={count}
-                  onClick={() => setConfig({ numberOfImages: count })}
-                  className={cn(
-                    'flex h-8 w-8 items-center justify-center rounded-lg text-[11px] font-bold transition-all',
-                    (config.numberOfImages || 1) === count
-                      ? 'bg-[var(--app-accent)] text-[#0a0a14]'
-                      : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
-                  )}
-                >
-                  {count}
-                </button>
-              ))}
+                <div className="rounded-[1.4rem] border border-white/10 bg-white/[0.04] px-4 py-3 text-right">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
+                    Pack courant
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-[var(--app-text)]">{listingSummary}</div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <div className="space-y-4">
+                  <div className="rounded-[1.7rem] border border-[var(--app-border)] bg-white/[0.03] p-4">
+                    <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
+                      Type de produit
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {LISTING_PACK_PRODUCT_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => setProductType(option.id)}
+                          className={cn(
+                            'rounded-[1.15rem] border px-3 py-3 text-left transition-all',
+                            productType === option.id
+                              ? 'border-[var(--app-accent)]/35 bg-[var(--app-accent-soft)]'
+                              : 'border-white/8 bg-white/[0.02] hover:border-[var(--app-border-strong)]',
+                          )}
+                        >
+                          <div className="text-[12px] font-semibold text-[var(--app-text)]">{option.label}</div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-[var(--app-text-muted)]">{option.summary}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.7rem] border border-[var(--app-border)] bg-white/[0.03] p-4">
+                    <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
+                      Direction visuelle
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {LISTING_PACK_STYLE_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => setStyleId(option.id)}
+                          className={cn(
+                            'rounded-[1.15rem] border px-3 py-3 text-left transition-all',
+                            styleId === option.id
+                              ? 'border-[var(--app-accent)]/35 bg-[var(--app-accent-soft)]'
+                              : 'border-white/8 bg-white/[0.02] hover:border-[var(--app-border-strong)]',
+                          )}
+                        >
+                          <div className="text-[12px] font-semibold text-[var(--app-text)]">{option.label}</div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-[var(--app-text-muted)]">{option.summary}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-[1.7rem] border border-[var(--app-border)] bg-white/[0.03] p-4">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
+                        Plan d'angles
+                      </div>
+                      <div className="inline-flex rounded-full border border-white/8 bg-black/20 p-1">
+                        {[3, 4].map((count) => (
+                          <button
+                            key={count}
+                            onClick={() => setShotCount(count)}
+                            className={cn(
+                              'rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all',
+                              shotCount === count
+                                ? 'bg-[var(--app-accent)] text-[#0a0a14]'
+                                : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]',
+                            )}
+                          >
+                            {count} vues
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {listingPlan.map((shot, index) => (
+                        <div
+                          key={shot.id}
+                          className="rounded-[1.25rem] border border-white/8 bg-white/[0.02] p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-accent)]">
+                                Vue {index + 1}
+                              </div>
+                              <div className="mt-2 text-[13px] font-semibold text-[var(--app-text)]">
+                                {shot.label}
+                              </div>
+                            </div>
+                            <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold text-[var(--app-text-muted)]">
+                              {shot.shortLabel}
+                            </div>
+                          </div>
+                          <p className="mt-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                            {shot.prompt}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.7rem] border border-[var(--app-border)] bg-white/[0.03] p-4">
+                    <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
+                      Note produit optionnelle
+                    </div>
+                    <textarea
+                      value={prompt}
+                      onChange={(event) => setPrompt(event.target.value)}
+                      placeholder="Couleur a preserver, vibe, matiere, usage, detail important..."
+                      rows={5}
+                      className="w-full resize-none rounded-[1.3rem] border border-white/8 bg-black/20 px-4 py-3 text-[13px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none transition-colors focus:border-[var(--app-border-strong)]"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              {config.refinerCustomInstructions?.trim() && (
-                <div className="max-w-[24rem] rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                  <span className="font-bold text-[var(--app-text)]">Consigne perso:</span>{' '}
-                  {config.refinerCustomInstructions}
+            <div className="space-y-4">
+              <div className="overflow-hidden rounded-[2rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(8,8,12,0.74))] p-4 shadow-[0_24px_90px_-60px_rgba(0,0,0,0.92)]">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
+                      Photos source
+                    </div>
+                    <div className="mt-1 text-[13px] text-[var(--app-text)]">1 a 3 photos produit propres suffisent.</div>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold text-[var(--app-text-muted)]">
+                    {sourceImages.length}/3
+                  </div>
                 </div>
-              )}
+
+                <button
+                  onClick={handleOpenFilePicker}
+                  className="group flex min-h-[11rem] w-full flex-col items-center justify-center rounded-[1.6rem] border border-dashed border-[var(--app-border-strong)] bg-white/[0.03] px-4 py-6 text-center transition-all hover:border-[var(--app-accent)]/35 hover:bg-[var(--app-accent-soft)]"
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-black/20 text-[var(--app-accent)] transition-transform group-hover:scale-[1.03]">
+                    <Upload size={18} />
+                  </div>
+                  <div className="mt-4 text-[13px] font-semibold text-[var(--app-text)]">
+                    Importer les visuels AliExpress
+                  </div>
+                  <p className="mt-2 max-w-[16rem] text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                    Le pack garde le vrai produit, mais nettoie l'ambiance, les angles et la lisibilite.
+                  </p>
+                </button>
+
+                {sourceImages.length > 0 && (
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {sourceImages.slice(0, 3).map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className="group relative overflow-hidden rounded-[1.15rem] border border-white/8 bg-black/30"
+                      >
+                        <button
+                          onClick={() => onImageClick(attachment.url)}
+                          className="block w-full"
+                        >
+                          <img
+                            src={attachment.url}
+                            alt={attachment.name || 'Source produit'}
+                            className="aspect-[4/5] w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                          />
+                        </button>
+                        <button
+                          onClick={() => onRemoveAttachment(attachment.id)}
+                          className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white/88 backdrop-blur-sm transition-colors hover:bg-black/75"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-4 rounded-[1.3rem] border border-white/8 bg-black/20 p-4 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                  Le moteur vise un rendu resale credible: un seul produit, pas de texte ajoute, pas de collage, pas de faux accessoires.
+                </div>
+              </div>
+
+              <div className="rounded-[2rem] border border-[var(--app-border)] bg-white/[0.03] p-4">
+                <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
+                  Format & sortie
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {aspectRatios.map((ratio) => (
+                    <button
+                      key={ratio.value}
+                      onClick={() => setConfig({ aspectRatio: ratio.value as any })}
+                      title={ratio.label || 'Auto'}
+                      className={cn(
+                        'flex min-w-[42px] flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 transition-all',
+                        (config.aspectRatio || '') === ratio.value
+                          ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-sm'
+                          : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
+                      )}
+                    >
+                      <RatioShape ratio={ratio.value} />
+                      <span className="text-[9px] font-bold leading-none">{ratio.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                  Conseille pour ce workflow: <span className="font-semibold text-[var(--app-text)]">4:5</span> ou <span className="font-semibold text-[var(--app-text)]">3:4</span>.
+                </p>
+              </div>
+
               <button
                 onClick={handleSubmit}
-                disabled={!prompt.trim() || isLoading || isRefining}
+                disabled={!canSubmit}
                 className={cn(
-                  'flex shrink-0 items-center gap-2 rounded-xl px-5 py-2.5 text-[13px] font-bold transition-all',
-                  prompt.trim() && !isLoading && !isRefining
+                  'flex w-full items-center justify-center gap-2 rounded-[1.4rem] px-5 py-3 text-[13px] font-bold transition-all',
+                  canSubmit
                     ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
                     : 'cursor-not-allowed bg-white/[0.06] text-[var(--app-text-muted)]',
                 )}
               >
-                {(isRefining || isLoading) ? (
-                  <Loader2 size={15} className="animate-spin" />
-                ) : (
-                  <Sparkles size={14} />
-                )}
-                {isRefining ? 'Optimisation...' : isLoading ? 'Generation...' : 'Generer'}
+                {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
+                {isLoading ? 'Generation du pack...' : sourceImages.length > 0 ? 'Generer le pack Vinted' : 'Ajoute tes photos source'}
               </button>
             </div>
+          </section>
+        ) : (
+          <div className="rounded-[2rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(8,8,12,0.6))] p-4 shadow-[0_30px_90px_-56px_rgba(0,0,0,0.85)] transition-colors focus-within:border-[var(--app-border-strong)]">
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  void handleSubmit();
+                }
+              }}
+              placeholder="Decris ton image: sujet, cadre, lumiere, matiere, energie, style..."
+              rows={4}
+              className="w-full resize-none bg-transparent px-2 pt-2 pb-16 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none"
+            />
+            <div className="flex flex-col gap-3 border-t border-white/6 pt-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                {aspectRatios.map((ratio) => (
+                  <button
+                    key={ratio.value}
+                    onClick={() => setConfig({ aspectRatio: ratio.value as any })}
+                    title={ratio.label || 'Auto'}
+                    className={cn(
+                      'flex min-w-[38px] flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 transition-all',
+                      (config.aspectRatio || '') === ratio.value
+                        ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-sm'
+                        : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
+                    )}
+                  >
+                    <RatioShape ratio={ratio.value} />
+                    <span className="text-[9px] font-bold leading-none">{ratio.label}</span>
+                  </button>
+                ))}
+                <span className="mx-1 h-4 w-px bg-[var(--app-border)]" />
+                {[1, 2, 3, 4].map((count) => (
+                  <button
+                    key={count}
+                    onClick={() => setConfig({ numberOfImages: count })}
+                    className={cn(
+                      'flex h-8 w-8 items-center justify-center rounded-lg text-[11px] font-bold transition-all',
+                      (config.numberOfImages || 1) === count
+                        ? 'bg-[var(--app-accent)] text-[#0a0a14]'
+                        : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
+                    )}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                {config.refinerCustomInstructions?.trim() && (
+                  <div className="max-w-[24rem] rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                    <span className="font-bold text-[var(--app-text)]">Consigne perso:</span>{' '}
+                    {config.refinerCustomInstructions}
+                  </div>
+                )}
+                <button
+                  onClick={() => void handleSubmit()}
+                  disabled={!canSubmit}
+                  className={cn(
+                    'flex shrink-0 items-center gap-2 rounded-xl px-5 py-2.5 text-[13px] font-bold transition-all',
+                    canSubmit
+                      ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
+                      : 'cursor-not-allowed bg-white/[0.06] text-[var(--app-text-muted)]',
+                  )}
+                >
+                  {(isRefining || isLoading) ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={14} />
+                  )}
+                  {isRefining ? 'Optimisation...' : isLoading ? 'Generation...' : 'Generer'}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
@@ -437,16 +806,25 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                           loading="lazy"
                           onError={() => hideImage(featuredImage.id)}
                         />
-                        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between px-5 pt-5">
-                          <div className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-white/72 backdrop-blur-sm">
-                            Image phare
+                        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 px-5 pt-5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-white/72 backdrop-blur-sm">
+                              Image phare
+                            </div>
+                            {featuredImage.shotLabel && (
+                              <div className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/72 backdrop-blur-sm">
+                                {featuredImage.shotLabel}
+                              </div>
+                            )}
                           </div>
                           <div className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/72 backdrop-blur-sm">
                             {getImageModelLabel(featuredImage.model)}
                           </div>
                         </div>
                         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/40 to-transparent px-6 pb-6 pt-24 text-left">
-                          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/60">Direction retenue</div>
+                          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/60">
+                            {featuredImage.shotLabel ? `Direction retenue · ${featuredImage.shotLabel}` : 'Direction retenue'}
+                          </div>
                           <div className="mt-2 max-w-xl text-lg font-semibold text-white">
                             {featuredImage.refinedPrompt || featuredImage.prompt || 'Derniere generation mise en avant'}
                           </div>
@@ -478,7 +856,10 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                             {copiedPromptId === featuredImage.id ? 'Copie' : 'Copier le prompt'}
                           </button>
                           <button
-                            onClick={() => setPrompt(featuredImage.refinedPrompt || featuredImage.prompt)}
+                            onClick={() => {
+                              setWorkflowMode('freeform');
+                              setPrompt(featuredImage.refinedPrompt || featuredImage.prompt);
+                            }}
                             disabled={!featuredImage.prompt && !featuredImage.refinedPrompt}
                             className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-[12px] font-semibold text-[var(--app-text)] transition-colors hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:text-[var(--app-text-muted)]"
                           >
@@ -507,6 +888,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                             Signature de rendu
                           </div>
                           <div className="mt-3 text-[12px] font-semibold text-[var(--app-text)]">
+                            {featuredImage.shotLabel ? `${featuredImage.shotLabel} · ` : ''}
                             {getImageModelLabel(featuredImage.model)}
                           </div>
                           <p className="mt-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
@@ -568,6 +950,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
                             <div className="absolute bottom-0 left-0 right-0 px-3 py-2 text-left">
+                              {image.shotLabel && (
+                                <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/70">
+                                  {image.shotLabel}
+                                </div>
+                              )}
                               <div className="line-clamp-2 text-[10px] leading-relaxed text-white/88">
                                 {image.refinedPrompt || image.prompt || 'Image'}
                               </div>
@@ -587,8 +974,15 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                       <div className="space-y-3">
                         {optimizedPromptGallery.map((image) => (
                           <div key={`optimized-${image.id}`} className="rounded-[1.4rem] border border-white/8 bg-white/[0.03] p-4">
-                            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                              {getImageModelLabel(image.model)}
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                                {getImageModelLabel(image.model)}
+                              </div>
+                              {image.shotLabel && (
+                                <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold text-[var(--app-text-muted)]">
+                                  {image.shotLabel}
+                                </div>
+                              )}
                             </div>
                             <p className="text-[12px] leading-relaxed text-[var(--app-text)]">{image.refinedPrompt}</p>
                             {image.prompt && image.prompt !== image.refinedPrompt && (
@@ -603,7 +997,10 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                                 Copier
                               </button>
                               <button
-                                onClick={() => setPrompt(image.refinedPrompt || image.prompt)}
+                                onClick={() => {
+                                  setWorkflowMode('freeform');
+                                  setPrompt(image.refinedPrompt || image.prompt);
+                                }}
                                 className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-[11px] font-semibold text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
                               >
                                 <Pencil size={12} />
@@ -636,6 +1033,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                           />
                         </button>
                         <div className="space-y-3 p-4">
+                          {image.shotLabel && (
+                            <div className="inline-flex rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold text-[var(--app-text-muted)]">
+                              {image.shotLabel}
+                            </div>
+                          )}
                           <p className="line-clamp-3 text-[12px] leading-relaxed text-[var(--app-text)]">
                             {image.refinedPrompt || image.prompt || 'Prompt indisponible'}
                           </p>

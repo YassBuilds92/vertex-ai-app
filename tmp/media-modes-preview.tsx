@@ -327,6 +327,9 @@ function PreviewApp() {
             onImageClick={() => {}}
             isRefinerEnabled
             onToggleRefiner={() => {}}
+            pendingAttachments={[]}
+            onAddAttachments={async () => {}}
+            onRemoveAttachment={() => {}}
           />
         )}
         {mode === 'audio' && (

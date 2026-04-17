@@ -114,6 +114,31 @@ function extractMimeTypeFromDataUrl(value?: string | null) {
   return normalizeAttachmentMimeType(match?.[1]);
 }
 
+function extractBase64Payload(value?: string | null) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw.includes(',') ? raw.split(',')[1] || '' : raw;
+}
+
+function buildInlineReferenceImages(attachments: Attachment[]) {
+  return attachments
+    .filter((attachment) => attachment.type === 'image')
+    .map((attachment) => {
+      const base64Payload = extractBase64Payload(attachment.base64);
+      const mimeType =
+        normalizeAttachmentMimeType(attachment.mimeType)
+        || normalizeAttachmentMimeType(extractMimeTypeFromDataUrl(attachment.base64))
+        || 'image/jpeg';
+      if (!base64Payload) return null;
+      return {
+        mimeType,
+        data: base64Payload,
+      };
+    })
+    .filter((attachment): attachment is { mimeType: string; data: string } => Boolean(attachment))
+    .slice(0, 3);
+}
+
 function guessAttachmentExtension(input: { mimeType?: string | null; name?: string | null }) {
   const mimeType = normalizeAttachmentMimeType(input.mimeType);
   if (mimeType && MIME_EXTENSION_MAP[mimeType]) {
@@ -1306,6 +1331,10 @@ export default function App() {
     }
     setPendingAttachments(prev => [...prev, ...newAttachments]);
   };
+
+  const removePendingAttachment = useCallback((attachmentId: string) => {
+    setPendingAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
+  }, []);
 
   const setCoworkDraft = useCallback((nextValue: Message | ((prev: Message | null) => Message | null)) => {
     setLiveCoworkMessage(prev => {
@@ -2621,6 +2650,7 @@ export default function App() {
         mimeType: uploaded.mimeType || rest.mimeType,
         base64: undefined,
       }));
+      const inlineReferenceImages = isMediaMode ? buildInlineReferenceImages(pendingAttachments) : [];
 
       // --- PROMPT REFINEMENT ---
       let refinedInstruction = isMediaMode
@@ -2699,7 +2729,8 @@ export default function App() {
           setPendingAttachments([]);
         }
 
-        const response = await fetch('/api/generate-image', {
+        const isListingPackRun = mediaRequest?.listingPack?.workflow === 'vinted_pack';
+        const response = await fetch(isListingPackRun ? '/api/generate-image-pack' : '/api/generate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2710,7 +2741,9 @@ export default function App() {
             numberOfImages: effectiveConfig.numberOfImages,
             personGeneration: effectiveConfig.personGeneration,
             safetySetting: effectiveConfig.safetySetting,
-            thinkingLevel: effectiveConfig.thinkingLevel
+            thinkingLevel: effectiveConfig.thinkingLevel,
+            referenceImages: inlineReferenceImages.length > 0 ? inlineReferenceImages : undefined,
+            shots: isListingPackRun ? mediaRequest?.listingPack?.shots : undefined,
           })
         });
 
@@ -2726,14 +2759,22 @@ export default function App() {
               type: 'image' as AttachmentType,
               url: img.url,
               storageUri: img.storageUri,
-              name: `Image ${idx + 1}`,
-              generationMeta: mediaGenerationMeta,
+              mimeType: img.mimeType,
+              name: img.label || `Image ${idx + 1}`,
+              generationMeta: {
+                ...mediaGenerationMeta,
+                prompt: img.prompt || mediaGenerationMeta?.prompt,
+                refinedPrompt: img.prompt || mediaGenerationMeta?.refinedPrompt,
+                shotId: img.id,
+                shotLabel: img.shortLabel || img.label,
+              },
             }))
           : [{
               id: Date.now().toString(),
               type: 'image' as AttachmentType,
               url: data.url,
               storageUri: data.storageUri,
+              mimeType: data.mimeType,
               name: 'Image générée',
               generationMeta: mediaGenerationMeta,
             }];
@@ -3899,6 +3940,9 @@ export default function App() {
                         onImageClick={setSelectedImage}
                         isRefinerEnabled={Boolean(configs.image.refinerEnabled)}
                         onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.image.refinerEnabled) })}
+                        pendingAttachments={pendingAttachments}
+                        onAddAttachments={processFiles}
+                        onRemoveAttachment={removePendingAttachment}
                       />
                     )}
                     {activeMode === 'video' && (

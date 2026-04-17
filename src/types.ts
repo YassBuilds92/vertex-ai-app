@@ -1,3 +1,9 @@
+import type {
+  ListingPackProductType,
+  ListingPackShot,
+  ListingPackStyleId,
+} from '../shared/listing-pack.js';
+
 declare global {
   interface Window {
     aistudio?: {
@@ -38,6 +44,8 @@ export interface AttachmentGenerationMeta {
   model?: string;
   refinerProfileId?: string;
   refinerCustomInstructions?: string;
+  shotId?: string;
+  shotLabel?: string;
 }
 
 export interface Attachment {
@@ -403,6 +411,13 @@ export interface ModelConfig {
 export interface MediaGenerationRequest {
   originalPrompt?: string;
   refinedPrompt?: string;
+  listingPack?: {
+    workflow: 'vinted_pack';
+    productType: ListingPackProductType;
+    styleId: ListingPackStyleId;
+    shotCount: number;
+    shots: ListingPackShot[];
+  };
 }
 
 export interface CustomPrompt {

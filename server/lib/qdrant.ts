@@ -88,6 +88,59 @@ function parseQdrantEnvelope<T>(options: {
   }
 }
 
+function getQdrantErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return String(error || '');
+}
+
+export function isTransientQdrantError(error: unknown): boolean {
+  const normalized = getQdrantErrorMessage(error).toLowerCase();
+  if (!normalized) return false;
+
+  return normalized.includes('500')
+    || normalized.includes('502')
+    || normalized.includes('503')
+    || normalized.includes('bad gateway')
+    || normalized.includes('server error')
+    || normalized.includes('temporarily')
+    || normalized.includes('unavailable')
+    || normalized.includes('timeout')
+    || normalized.includes('timed out')
+    || normalized.includes('deadline exceeded');
+}
+
+export function summarizeQdrantErrorForUser(error: unknown): string {
+  const normalized = getQdrantErrorMessage(error).toLowerCase();
+
+  if (!normalized) {
+    return 'La memoire persistante est indisponible pour le moment.';
+  }
+
+  if (normalized.includes("qdrant n'est pas configure") || normalized.includes('qdrant_url manquant')) {
+    return "La memoire persistante n'est pas configuree sur cet environnement.";
+  }
+
+  if (
+    normalized.includes('401')
+    || normalized.includes('403')
+    || normalized.includes('forbidden')
+    || normalized.includes('unauthorized')
+    || normalized.includes('api-key')
+  ) {
+    return "La memoire persistante a refuse l'acces.";
+  }
+
+  if (isTransientQdrantError(error)) {
+    return 'La memoire persistante est temporairement indisponible.';
+  }
+
+  if (normalized.includes('html/non-json') || normalized.includes('non-json')) {
+    return 'La memoire persistante a renvoye une reponse invalide.';
+  }
+
+  return 'La memoire persistante est indisponible pour le moment.';
+}
+
 function getCollectionName() {
   return getCoworkRagConfig().collectionName;
 }
@@ -156,6 +209,8 @@ async function qdrantRequest<T>(
 export const __qdrantInternals = {
   looksLikeHtmlBody,
   parseQdrantEnvelope,
+  isTransientQdrantError,
+  summarizeQdrantErrorForUser,
 };
 
 async function createPayloadIndex(fieldName: string, fieldSchema: string) {

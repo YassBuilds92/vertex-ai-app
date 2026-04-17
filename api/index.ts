@@ -95,6 +95,7 @@ import {
   type RelevantMemoryChunk,
 } from '../server/lib/cowork-memory.js';
 import { callCoworkWorker } from '../server/lib/cowork-workers.js';
+import { isTransientQdrantError, summarizeQdrantErrorForUser } from '../server/lib/qdrant.js';
 import {
   installPythonPackageInCoworkSandbox,
   runPythonInCoworkSandbox,
@@ -1482,6 +1483,63 @@ export const __coworkPdfInternals = {
   countFormalDocumentSignals
 };
 
+function resolveAutoMemoryWarning(error: unknown) {
+  const rawMessage = parseApiError(error);
+  const normalized = rawMessage.toLowerCase();
+
+  const isTransient =
+    isTransientQdrantError(error)
+    || normalized.includes('429')
+    || normalized.includes('resource_exhausted')
+    || normalized.includes('too many requests')
+    || normalized.includes('timeout')
+    || normalized.includes('timed out')
+    || normalized.includes('deadline exceeded')
+    || normalized.includes('temporarily')
+    || normalized.includes('unavailable');
+
+  if (normalized.includes('qdrant')) {
+    return {
+      message: summarizeQdrantErrorForUser(error),
+      shouldEmit: !isTransient,
+    };
+  }
+
+  if (
+    normalized.includes('vertex ai non configure')
+    || normalized.includes('google application credentials')
+    || normalized.includes('permission denied')
+    || normalized.includes('forbidden')
+    || normalized.includes('unauthorized')
+    || normalized.includes('401')
+    || normalized.includes('403')
+  ) {
+    return {
+      message: "La memoire persistante n'est pas disponible sur cet environnement.",
+      shouldEmit: true,
+    };
+  }
+
+  if (normalized.includes('429') || normalized.includes('resource_exhausted') || normalized.includes('too many requests')) {
+    return {
+      message: 'La memoire persistante est temporairement limitee par le quota.',
+      shouldEmit: false,
+    };
+  }
+
+  if (isTransient) {
+    return {
+      message: 'La memoire persistante est temporairement indisponible.',
+      shouldEmit: false,
+    };
+  }
+
+  return {
+    message: 'La memoire persistante est indisponible pour le moment.',
+    shouldEmit: true,
+  };
+}
+
 export const __coworkLoopInternals = {
   createEmptyCoworkSessionState,
   computeCompletionState,
@@ -1504,6 +1562,7 @@ export const __coworkLoopInternals = {
   requestRequiresAbuseBlock,
   assessReadablePageRelevance,
   applyRuntimeToolDefaults,
+  resolveAutoMemoryWarning,
   searchWeb,
   callCoworkWorker,
 };
@@ -6112,6 +6171,7 @@ app.post('/api/cowork', async (req, res) => {
       && Boolean(trimmedUserIdHint);
     let autoRelevantMemoryChunks: RelevantMemoryChunk[] = [];
     let autoRelevantMemoryWarning: string | null = null;
+    let autoRelevantMemoryShouldNotify = false;
 
     if (shouldAutoInjectMemory) {
       try {
@@ -6125,7 +6185,9 @@ app.post('/api/cowork', async (req, res) => {
           onVectorSearch: recordMemoryVectorSearch,
         });
       } catch (error) {
-        autoRelevantMemoryWarning = error instanceof Error ? error.message : String(error);
+        const autoMemoryWarning = resolveAutoMemoryWarning(error);
+        autoRelevantMemoryWarning = autoMemoryWarning.message;
+        autoRelevantMemoryShouldNotify = autoMemoryWarning.shouldEmit;
         log.warn(`Cowork memory auto-retrieval failed for user ${trimmedUserIdHint}`, error);
       }
     }
@@ -10569,11 +10631,11 @@ app.post('/api/cowork', async (req, res) => {
       });
     }
 
-    if (autoRelevantMemoryWarning) {
+    if (autoRelevantMemoryWarning && autoRelevantMemoryShouldNotify) {
       emitEvent('warning', {
         iteration: 0,
         title: 'Memoire indisponible',
-        message: `La recherche automatique dans la memoire a echoue: ${autoRelevantMemoryWarning}`,
+        message: autoRelevantMemoryWarning,
         meta: { auto: true, feature: 'rag' },
         runMeta,
       });

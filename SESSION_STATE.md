@@ -1,5 +1,52 @@
 # SESSION STATE
 
+## 2026-04-17 - Auto-memoire Qdrant rendue silencieuse pour les pannes transitoires
+
+### Ce qui a ete accompli
+- `server/lib/qdrant.ts`:
+  - ajout de `isTransientQdrantError(...)`
+  - ajout de `summarizeQdrantErrorForUser(...)`
+  - les reponses HTML/non-JSON restent detectees, mais peuvent maintenant etre reformulees proprement pour l'UI
+- `api/index.ts`:
+  - ajout de `resolveAutoMemoryWarning(...)`
+  - l'auto-retrieval memoire n'emet plus de warning inline au debut du run pour un incident transitoire (`503`, timeout, indisponibilite, quota)
+  - les cas non transitoires gardent un message court et non technique
+  - les logs serveur conservent le detail brut pour debug
+- tests:
+  - `test-cowork-loop.ts` couvre maintenant:
+    - classification transitoire d'une reponse HTML `503`
+    - resume utilisateur court pour Qdrant
+    - politique auto-memoire: pas de warning inline sur incident transitoire, warning court sur misconfiguration
+- documentation:
+  - `QA_RECIPES.md` mis a jour pour le nouveau contrat UX
+  - `COWORK.md`, `DECISIONS.md`, `NOW.md` mis a jour
+
+### Validation locale
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` -> OK
+- `npm run lint` -> OK
+- `npm run build` -> OK
+
+### Ce qu'il reste a faire
+- rejouer un smoke reel Cowork avec un Qdrant qui renvoie un HTML `503`
+- verifier que la conversation reste propre au demarrage et que les logs serveur gardent bien la cause brute
+
+### Fichiers modifies
+- `api/index.ts`
+- `server/lib/qdrant.ts`
+- `test-cowork-loop.ts`
+- `QA_RECIPES.md`
+- `COWORK.md`
+- `DECISIONS.md`
+- `NOW.md`
+
+### Decisions prises pendant la session
+- un enrichissement automatique best-effort ne doit pas polluer la timeline utilisateur avec une erreur infra brute
+- les details techniques Qdrant restent cote logs/tests; l'UI ne garde qu'un message court si le probleme n'est pas transitoire
+
+### Intention exacte du dernier changement
+- faire disparaitre le message qui "claque" au debut de conversation sans masquer les vrais signaux utiles pour le debug
+- garder Cowork premium cote UX tout en preservant l'honnetete serveur
+
 ## 2026-04-16 - Cowork conscient v1 implemente localement, avec pause clarification et gate verification
 
 ### Ce qui a ete accompli

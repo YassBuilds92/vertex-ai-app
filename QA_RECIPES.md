@@ -32,9 +32,10 @@
 - Smoke memoire degradee:
   - provoquer une reponse HTML/non-JSON de Qdrant (proxy, login page, mauvais endpoint)
   - attendu:
-    - message lisible du type `Qdrant a renvoye du HTML/non-JSON`
+    - pour un incident transitoire type `503` HTML, pas de warning technique inline au demarrage
     - pas de `Unexpected token '<'`
     - le run Cowork continue en capacite degradee
+    - les logs serveur gardent le detail technique brut
 
 ## TTS - Gemini 3.1 Flash dans le mode voix et Cowork
 - Objectif:

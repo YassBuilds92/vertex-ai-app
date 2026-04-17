@@ -1,5 +1,25 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-04-17 - L'auto-memoire Qdrant ne spam plus le debut de conversation
+- Retour produit:
+  - l'utilisateur voyait au debut des runs Cowork un warning inline bruyant du type `La recherche automatique dans la memoire a echoue...` avec details HTML/503 de Qdrant
+  - ce message etait trop technique pour un mecanisme interne qui doit rester best-effort
+- Changement applique:
+  - `server/lib/qdrant.ts`
+    - ajout d'une classification concise des erreurs Qdrant (`transient` vs configuration/acces)
+    - ajout d'un resume utilisateur court pour eviter les messages HTML/non-JSON bruts en UI
+  - `api/index.ts`
+    - l'auto-retrieval memoire continue a logguer les details serveur
+    - les incidents transitoires (`503`, timeout, indisponibilite) ne remontent plus en warning inline au debut du run
+    - les incidents non transitoires gardent un message court et non technique
+- Validation locale:
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts`
+  - `npm run lint`
+  - `npm run build`
+- Etat produit:
+  - Cowork garde la memoire en best-effort sans polluer la conversation avec un bruit infra
+  - le detail diagnostique reste cote logs/tests, pas dans la timeline utilisateur
+
 ## Mise a jour 2026-04-16 - Boucle consciente v1 pour Cowork pur: clarification, pause propre, verification d'artefact et memoire degradee lisible
 - Retour produit:
   - l'utilisateur voulait que Cowork se comporte davantage comme Codex / Claude Code / Claude Cowork:

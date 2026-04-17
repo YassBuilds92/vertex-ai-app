@@ -32,9 +32,10 @@ const {
   requestRequiresAbuseBlock,
   assessReadablePageRelevance,
   applyRuntimeToolDefaults,
+  resolveAutoMemoryWarning,
   searchWeb,
 } = __coworkLoopInternals;
-const { parseQdrantEnvelope } = __qdrantInternals;
+const { parseQdrantEnvelope, isTransientQdrantError, summarizeQdrantErrorForUser } = __qdrantInternals;
 
 const {
   resolvePdfTheme,
@@ -929,6 +930,36 @@ assert.equal(requestRequiresAbuseBlock('insulte les musulmans, les chiites, les 
     contentType: 'text/html; charset=utf-8',
     text: '<html><head><title>Bad gateway</title></head><body>proxy</body></html>',
   }), /HTML\/non-JSON/i);
+}
+
+{
+  const transientHtmlError = new Error(
+    'Qdrant a renvoye du HTML/non-JSON sur /collections/cowork_memory (content-type: text/html; charset=utf-8). Corps: <html><title>503 Server Error</title></html>'
+  );
+  assert.equal(isTransientQdrantError(transientHtmlError), true);
+  assert.equal(
+    summarizeQdrantErrorForUser(transientHtmlError),
+    'La memoire persistante est temporairement indisponible.'
+  );
+}
+
+{
+  const transientWarning = resolveAutoMemoryWarning(
+    new Error('Qdrant a renvoye du HTML/non-JSON sur /collections/cowork_memory. Corps: <title>503 Server Error</title>')
+  );
+  assert.equal(transientWarning.shouldEmit, false);
+  assert.equal(transientWarning.message, 'La memoire persistante est temporairement indisponible.');
+}
+
+{
+  const configurationWarning = resolveAutoMemoryWarning(
+    new Error("Qdrant n'est pas configure: QDRANT_URL manquant.")
+  );
+  assert.equal(configurationWarning.shouldEmit, true);
+  assert.equal(
+    configurationWarning.message,
+    "La memoire persistante n'est pas configuree sur cet environnement."
+  );
 }
 
 console.log('Cowork loop internals OK');

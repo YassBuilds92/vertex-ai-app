@@ -1,5 +1,21 @@
 # DECISIONS
 
+## 2026-04-17 - Les echecs transitoires de l'auto-memoire ne doivent plus devenir des warnings inline
+- Statut: adopte localement
+- Contexte: Cowork auto-injecte la memoire au debut d'un run quand le RAG est actif. Quand Qdrant repondait avec une page HTML `503`, la conversation affichait un warning technique long et anxiogene alors que la fonctionnalite est best-effort et que le run peut continuer sans memoire.
+- Decision:
+  - garder les details techniques complets dans les logs serveur
+  - classifier les erreurs Qdrant pour distinguer indisponibilite transitoire, probleme d'acces et probleme de configuration
+  - ne plus emettre de warning inline pour les incidents transitoires d'auto-retrieval memoire
+  - conserver un message court et non technique uniquement pour les cas non transitoires
+- Pourquoi:
+  - l'auto-memoire est un enrichissement interne, pas une etape que l'utilisateur a explicitement demandee
+  - un `503` HTML de Qdrant ne doit pas polluer chaque debut de conversation
+  - la transparence technique doit vivre dans les logs et les tests, pas dans une UI premium par defaut
+- Consequence:
+  - `server/lib/qdrant.ts` expose maintenant des helpers de classification/resume
+  - `api/index.ts` filtre les warnings auto-memoire transitoires avant emission SSE
+
 ## 2026-04-16 - Cowork pur adopte une boucle consciente explicite, mais gatee par flag
 - Statut: adopte localement
 - Contexte: le comportement courant de Cowork pouvait encore livrer trop vite, poser une question sans vrai etat de pause, ou publier un artefact sans verification reelle. L'utilisateur demandait une experience plus proche de Codex / Claude Code / Claude Cowork: progression visible, pause propre, clarification ciblee, et preuve avant cloture.

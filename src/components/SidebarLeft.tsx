@@ -12,16 +12,16 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { doc, deleteDoc } from 'firebase/firestore';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import { db, auth, OperationType, handleFirestoreError } from '../firebase';
+import { auth, OperationType, handleFirestoreError } from '../firebase';
 import { useStore } from '../store/useStore';
 import { AppMode, ChatSession } from '../types';
 import { clearCoworkSessionSnapshots } from '../utils/cowork';
+import { deleteSessionTree } from '../utils/sessionDeletion';
 import { clearSessionSnapshots } from '../utils/sessionSnapshots';
-import { removeLocalSessionShell } from '../utils/sessionShells';
+import { markLocalSessionDeleted } from '../utils/sessionShells';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -51,6 +51,7 @@ interface SidebarLeftProps {
   isVertexConfigured: boolean | null;
   onNewChat: () => void;
   onModeChange: (mode: AppMode) => void;
+  onSessionDeleted?: (sessionId: string) => void;
 }
 
 export const SidebarLeft: React.FC<SidebarLeftProps> = ({
@@ -59,6 +60,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
   isVertexConfigured,
   onNewChat,
   onModeChange,
+  onSessionDeleted,
 }) => {
   const {
     activeMode,
@@ -107,16 +109,17 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                 event.stopPropagation();
                 if (!user) return;
                 if (!window.confirm('Supprimer cette conversation ?')) return;
+                markLocalSessionDeleted(user.uid, session.id);
+                clearCoworkSessionSnapshots(user.uid, session.id);
+                clearSessionSnapshots(user.uid, session.id);
+                onSessionDeleted?.(session.id);
+                if (activeSessionId === session.id) {
+                  const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent' && item.sessionKind !== 'generated_app');
+                  if (nextSession) setActiveSessionId(nextSession.id);
+                  else onNewChat();
+                }
                 try {
-                  await deleteDoc(doc(db, 'users', user.uid, 'sessions', session.id));
-                  clearCoworkSessionSnapshots(user.uid, session.id);
-                  clearSessionSnapshots(user.uid, session.id);
-                  removeLocalSessionShell(user.uid, session.id);
-                  if (activeSessionId === session.id) {
-                    const nextSession = sessions.find((item) => item.id !== session.id && item.mode === activeMode && item.sessionKind !== 'agent' && item.sessionKind !== 'generated_app');
-                    if (nextSession) setActiveSessionId(nextSession.id);
-                    else onNewChat();
-                  }
+                  await deleteSessionTree(user.uid, session.id);
                 } catch (error) {
                   handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/sessions/${session.id}`);
                 }

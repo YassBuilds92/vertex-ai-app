@@ -1,7 +1,9 @@
 import { ChatSession } from '../types';
 
 const SESSION_SHELLS_LOCAL_STORAGE_KEY = 'studio-pro-session-shells-v1';
+const DELETED_SESSION_SHELLS_LOCAL_STORAGE_KEY = 'studio-pro-deleted-session-shells-v1';
 const MAX_LOCAL_SESSION_SHELLS_PER_USER = 96;
+const MAX_LOCAL_DELETED_SESSION_IDS_PER_USER = 256;
 
 type SessionShellRecord = {
   session: ChatSession;
@@ -9,6 +11,7 @@ type SessionShellRecord = {
 };
 
 type SessionShellStore = Record<string, Record<string, SessionShellRecord>>;
+type DeletedSessionShellStore = Record<string, Record<string, number>>;
 type MergeSessionsOptions = {
   remoteIsAuthoritative?: boolean;
 };
@@ -40,6 +43,60 @@ function writeSessionShellStore(store: SessionShellStore) {
   } catch {
     // Ignore local cache failures. Firestore remains preferred when available.
   }
+}
+
+function readDeletedSessionShellStore(): DeletedSessionShellStore {
+  if (!canUseLocalStorage()) return {};
+
+  try {
+    const raw = window.localStorage.getItem(DELETED_SESSION_SHELLS_LOCAL_STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as DeletedSessionShellStore;
+  } catch {
+    return {};
+  }
+}
+
+function writeDeletedSessionShellStore(store: DeletedSessionShellStore) {
+  if (!canUseLocalStorage()) return;
+
+  try {
+    window.localStorage.setItem(DELETED_SESSION_SHELLS_LOCAL_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Ignore local cache failures. A tombstone is a UX guard, not the source data.
+  }
+}
+
+function readUserDeletedSessionShellRecords(userId: string) {
+  return readDeletedSessionShellStore()[userId] || {};
+}
+
+function pruneDeletedSessionShellsByUser(recordsById: Record<string, number>) {
+  return Object.fromEntries(
+    Object.entries(recordsById)
+      .sort(([, leftDeletedAt], [, rightDeletedAt]) => rightDeletedAt - leftDeletedAt)
+      .slice(0, MAX_LOCAL_DELETED_SESSION_IDS_PER_USER)
+  ) as Record<string, number>;
+}
+
+export function isLocalSessionDeleted(userId: string, sessionId: string) {
+  if (!userId || !sessionId) return false;
+  return Boolean(readUserDeletedSessionShellRecords(userId)[sessionId]);
+}
+
+export function markLocalSessionDeleted(userId: string, sessionId: string) {
+  if (!userId || !sessionId) return;
+
+  const deletedStore = readDeletedSessionShellStore();
+  const userDeletedRecords = deletedStore[userId] || {};
+  userDeletedRecords[sessionId] = Date.now();
+  deletedStore[userId] = pruneDeletedSessionShellsByUser(userDeletedRecords);
+  writeDeletedSessionShellStore(deletedStore);
+
+  removeLocalSessionShell(userId, sessionId);
 }
 
 function normalizeSelectedCustomPrompt(value: unknown): ChatSession['selectedCustomPrompt'] {
@@ -140,7 +197,9 @@ function writeUserSessionShellRecords(userId: string, recordsById: Record<string
 export function loadLocalSessionShells(userId: string): ChatSession[] {
   if (!userId) return [];
 
-  return Object.values(readUserSessionShellRecords(userId))
+  return Object.entries(readUserSessionShellRecords(userId))
+    .filter(([sessionId]) => !isLocalSessionDeleted(userId, sessionId))
+    .map(([, record]) => record)
     .map((record) => normalizeSessionShell(record.session))
     .sort((left, right) => right.updatedAt - left.updatedAt);
 }
@@ -148,7 +207,9 @@ export function loadLocalSessionShells(userId: string): ChatSession[] {
 export function loadPendingLocalSessionShells(userId: string): ChatSession[] {
   if (!userId) return [];
 
-  return Object.values(readUserSessionShellRecords(userId))
+  return Object.entries(readUserSessionShellRecords(userId))
+    .filter(([sessionId]) => !isLocalSessionDeleted(userId, sessionId))
+    .map(([, record]) => record)
     .filter((record) => Boolean(record?.pendingRemote))
     .map((record) => normalizeSessionShell(record.session))
     .sort((left, right) => right.updatedAt - left.updatedAt);
@@ -160,6 +221,7 @@ export function saveLocalSessionShell(
   options?: { pendingRemote?: boolean }
 ) {
   if (!userId || !session?.id) return;
+  if (isLocalSessionDeleted(userId, session.id)) return;
 
   const store = readSessionShellStore();
   const userRecords = store[userId] || {};
@@ -196,6 +258,7 @@ export function mergeSessionsWithLocal(
 ): ChatSession[] {
   const remoteById = new Map<string, ChatSession>();
   for (const session of remoteSessions) {
+    if (isLocalSessionDeleted(userId, session.id)) continue;
     remoteById.set(session.id, normalizeSessionShell(session));
   }
 
@@ -209,6 +272,8 @@ export function mergeSessionsWithLocal(
 
     const normalizedSession = normalizeSessionShell(record.session);
     const pendingRemote = Boolean(record.pendingRemote);
+
+    if (isLocalSessionDeleted(userId, sessionId)) continue;
 
     if (!remoteById.has(sessionId)) {
       if (!remoteIsAuthoritative || pendingRemote) {

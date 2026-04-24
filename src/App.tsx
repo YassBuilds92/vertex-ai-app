@@ -51,6 +51,7 @@ import {
   loadLocalSessionShells,
   loadPendingLocalSessionShells,
   mergeSessionsWithLocal,
+  isLocalSessionDeleted,
   saveLocalSessionShell,
 } from './utils/sessionShells';
 import {
@@ -158,6 +159,13 @@ function guessAttachmentExtension(input: { mimeType?: string | null; name?: stri
 function toSessionFirestorePayload(session: ChatSession) {
   const { id: _sessionId, messages: _messages, ...sessionPayload } = session;
   return sessionPayload;
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (!signal.aborted) return;
+  const abortError = new Error('Aborted');
+  abortError.name = 'AbortError';
+  throw abortError;
 }
 
 const SYSTEM_PROMPT_HISTORY_LIMIT = 16;
@@ -1348,6 +1356,7 @@ export default function App() {
 
   const touchSession = useCallback(async (session: ChatSession) => {
     if (!user || !session?.id || session.id === 'local-new') return;
+    if (isLocalSessionDeleted(user.uid, session.id)) return;
 
     const nextSession: ChatSession = {
       ...session,
@@ -1382,6 +1391,7 @@ export default function App() {
 
   const persistSessionMessage = useCallback(async (sessionId: string, message: Message) => {
     if (!user || !sessionId || sessionId === 'local-new') return false;
+    if (isLocalSessionDeleted(user.uid, sessionId)) return false;
 
     saveSessionSnapshot(user.uid, sessionId, message);
 
@@ -1416,7 +1426,21 @@ export default function App() {
     }
   }, [user]);
 
+  const persistModelMessageInBackground = useCallback((sessionId: string, message: Message) => {
+    setOptimisticMessages(prev => [...prev.filter(existing => existing.id !== message.id), message]);
+    void persistSessionMessage(sessionId, message).then((persisted) => {
+      if (persisted) return;
+      setOptimisticMessages(prev => (
+        prev.some(existing => existing.id === message.id)
+          ? prev
+          : [...prev, message]
+      ));
+    });
+  }, [persistSessionMessage]);
+
   const persistCoworkSnapshot = useCallback(async (message: Message, target: { userId: string; sessionId: string }) => {
+    if (isLocalSessionDeleted(target.userId, target.sessionId)) return;
+
     const messageRef = doc(db, 'users', target.userId, 'sessions', target.sessionId, 'messages', message.id);
     const sanitized = sanitizeCoworkMessageForStorage(message);
     const richPayload = cleanForFirestore({
@@ -1706,6 +1730,7 @@ export default function App() {
 
   const persistSessionShell = useCallback(async (session: ChatSession) => {
     if (!user) return false;
+    if (isLocalSessionDeleted(user.uid, session.id)) return false;
 
     saveLocalSessionShell(user.uid, session, { pendingRemote: true });
 
@@ -1763,9 +1788,12 @@ export default function App() {
     if (!isStorageResetReady) return;
     if (!user || !hasLoadedRemoteSessions || !hasLoadedRemoteAgents || !hasLoadedRemoteGeneratedApps) return;
 
-    const pendingShells = loadPendingLocalSessionShells(user.uid);
-    const standardSnapshotEntries = loadLocalSessionSnapshotEntries(user.uid);
-    const coworkSnapshotEntries = loadCoworkSessionSnapshotEntries(user.uid);
+    const pendingShells = loadPendingLocalSessionShells(user.uid)
+      .filter((session) => !isLocalSessionDeleted(user.uid, session.id));
+    const standardSnapshotEntries = loadLocalSessionSnapshotEntries(user.uid)
+      .filter((entry) => !isLocalSessionDeleted(user.uid, entry.sessionId));
+    const coworkSnapshotEntries = loadCoworkSessionSnapshotEntries(user.uid)
+      .filter((entry) => !isLocalSessionDeleted(user.uid, entry.sessionId));
     const fingerprint = JSON.stringify({
       localSyncTick,
       shellIds: pendingShells.map((session) => `${session.id}:${session.updatedAt}`),
@@ -1794,6 +1822,7 @@ export default function App() {
       const generatedAppsById = new Map(generatedApps.map((app) => [app.id, app]));
 
       const ensureSessionShell = async (sessionId: string, messages: Message[]) => {
+        if (isLocalSessionDeleted(user.uid, sessionId)) return;
         if (knownSessionIds.has(sessionId)) return;
 
         const recoveredSession = buildRecoveredSessionShell(
@@ -1891,6 +1920,7 @@ export default function App() {
               : docSnapshot.ref.parent.parent?.id;
 
           if (!sessionId || knownSessionIds.has(sessionId)) continue;
+          if (isLocalSessionDeleted(user.uid, sessionId)) continue;
 
           const normalizedMessage = normalizeRecoveredMessage(
             { id: docSnapshot.id, ...(rawData as Partial<Message>) },
@@ -2530,7 +2560,8 @@ export default function App() {
     // Defer thoughts-panel expansion until thoughts actually arrive to avoid showing the
     // reflection popup before the user message renders.
     setExpandedThoughts(prev => ({ ...prev, streaming: true }));
-    abortControllerRef.current = new AbortController();
+    const requestController = new AbortController();
+    abortControllerRef.current = requestController;
     let isRichToolRun = false;
 
     try {
@@ -2538,7 +2569,7 @@ export default function App() {
       const effectiveSession = runtimeSessionOverride || activeSession;
       const effectiveMode = runtimeSessionOverride?.mode || activeMode;
       const effectiveConfig = configs[effectiveMode];
-      const effectiveSessionMessages = runtimeSessionOverride?.messages || currentMessages;
+      const effectiveSessionMessages = runtimeSessionOverride?.messages || displayedMessages;
       const isCoworkRun = effectiveMode === 'cowork';
       const isAgentRun = effectiveSession.sessionKind === 'agent' && Boolean(effectiveSession.agentWorkspace);
       const isGeneratedAppRun = effectiveSession.sessionKind === 'generated_app' && Boolean(effectiveSession.generatedAppWorkspace);
@@ -2635,6 +2666,7 @@ export default function App() {
           return { rest, uploaded };
         })
       );
+      throwIfAborted(requestController.signal);
       const requestAttachments: Attachment[] = uploadedResults.map(({ rest, uploaded }) => ({
         ...rest,
         url: uploaded.url,
@@ -2671,6 +2703,7 @@ export default function App() {
           const refineRes = await fetch('/api/refine', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: requestController.signal,
             body: JSON.stringify({
               prompt: finalPrompt,
               mode: effectiveMode,
@@ -2688,6 +2721,7 @@ export default function App() {
           setRefiningStatus(null);
         }
       }
+      throwIfAborted(requestController.signal);
 
       finalPrompt = finalPrompt.trim();
       refinedInstruction = sanitizeOptionalText(refinedInstruction);
@@ -2732,6 +2766,7 @@ export default function App() {
         const response = await fetch(isListingPackRun ? '/api/generate-image-pack' : '/api/generate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: requestController.signal,
           body: JSON.stringify({
             prompt: generationPrompt,
             model: effectiveConfig?.model || configs.chat.model,
@@ -2785,10 +2820,7 @@ export default function App() {
           attachments: imageAttachments,
           createdAt: Date.now(),
         };
-        const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
-        if (!persistedModel) {
-          setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
-        }
+        persistModelMessageInBackground(currentSessionId, modelMessage);
         
         setIsLoading(false);
         return;
@@ -2812,6 +2844,7 @@ export default function App() {
         const response = await fetch('/api/generate-audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: requestController.signal,
           body: JSON.stringify({
             prompt: generationPrompt,
             model: effectiveConfig?.model || configs.audio.model,
@@ -2843,10 +2876,7 @@ export default function App() {
           }],
           createdAt: Date.now(),
         };
-        const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
-        if (!persistedModel) {
-          setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
-        }
+        persistModelMessageInBackground(currentSessionId, modelMessage);
 
         setIsLoading(false);
         return;
@@ -2870,6 +2900,7 @@ export default function App() {
         const response = await fetch('/api/generate-music', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: requestController.signal,
           body: JSON.stringify({
             prompt: generationPrompt,
             model: effectiveConfig?.model || configs.lyria.model,
@@ -2900,10 +2931,7 @@ export default function App() {
           }],
           createdAt: Date.now(),
         };
-        const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
-        if (!persistedModel) {
-          setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
-        }
+        persistModelMessageInBackground(currentSessionId, modelMessage);
 
         setIsLoading(false);
         return;
@@ -3018,7 +3046,7 @@ export default function App() {
         const response = await fetch('/api/cowork', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: abortControllerRef.current.signal,
+          signal: requestController.signal,
           body: JSON.stringify({
             message: finalPrompt,
             history: historyForApi,
@@ -3230,6 +3258,7 @@ export default function App() {
         const response = await fetch('/api/generate-video', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: requestController.signal,
           body: JSON.stringify({
             prompt: generationPrompt,
             model: effectiveConfig?.model || configs.video.model,
@@ -3256,10 +3285,7 @@ export default function App() {
           }],
           createdAt: Date.now(),
         };
-        const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
-        if (!persistedModel) {
-          setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
-        }
+        persistModelMessageInBackground(currentSessionId, modelMessage);
         
         setIsLoading(false);
         return;
@@ -3328,7 +3354,7 @@ export default function App() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: abortControllerRef.current.signal,
+        signal: requestController.signal,
         body: JSON.stringify({
           message: finalMessage,
           history: historyForApi,
@@ -3435,11 +3461,7 @@ export default function App() {
         createdAt: Date.now(),
       };
       setRecentlyCompletedMessageId(modelMsgId);
-      setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
-      const persistedModel = await persistSessionMessage(currentSessionId, modelMessage);
-      if (!persistedModel) {
-        setOptimisticMessages(prev => [...prev.filter(message => message.id !== modelMessage.id), modelMessage]);
-      }
+      persistModelMessageInBackground(currentSessionId, modelMessage);
 
     } catch (error: any) {
       if (isRichToolRun && liveCoworkMessageRef.current) {
@@ -3477,12 +3499,26 @@ export default function App() {
         alert(`Erreur d'envoi : ${error.message || String(error)}`);
       }
     } finally {
-      setIsLoading(false);
-      abortControllerRef.current = null;
-      sendInFlightRef.current = false;
+      if (abortControllerRef.current === requestController) {
+        abortControllerRef.current = null;
+        sendInFlightRef.current = false;
+        setIsLoading(false);
+      }
     }
   };
   handleSendRuntimeRef.current = handleSend;
+
+  const handleStopGeneration = useCallback(() => {
+    const controller = abortControllerRef.current;
+    if (controller && !controller.signal.aborted) {
+      controller.abort();
+    }
+
+    setRefiningStatus(null);
+    setIsLoading(false);
+    sendInFlightRef.current = false;
+    abortControllerRef.current = null;
+  }, []);
 
   const rerunActiveAgentWorkspace = useCallback(async () => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeAgentWorkspace) return;
@@ -3803,7 +3839,16 @@ export default function App() {
       "studio-shell flex h-[100dvh] w-full font-sans",
       "bg-[var(--app-bg)] text-[var(--app-text)]"
     )}>
-      <SidebarLeft user={user} sessions={sessions} isVertexConfigured={isVertexConfigured} onNewChat={handleNewChat} onModeChange={handleModeChange} />
+      <SidebarLeft
+        user={user}
+        sessions={sessions}
+        isVertexConfigured={isVertexConfigured}
+        onNewChat={handleNewChat}
+        onModeChange={handleModeChange}
+        onSessionDeleted={(sessionId) => {
+          setSessions(prev => prev.filter(session => session.id !== sessionId));
+        }}
+      />
 
       {/* Mobile Overlays */}
       <AnimatePresence>
@@ -4114,7 +4159,7 @@ export default function App() {
 
               <div className="border-t border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))]/80 backdrop-blur-md px-3 pb-3 pt-3 sm:px-4">
                 <div className="mx-auto max-w-3xl">
-                  <ChatInput onSend={handleSend} onStop={() => abortControllerRef.current?.abort()} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} placeholder={coworkInputPlaceholder} />
+                  <ChatInput onSend={handleSend} onStop={handleStopGeneration} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} placeholder={coworkInputPlaceholder} />
                 </div>
               </div>
               </>

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { AppMode, ModelConfig, ChatSession } from '../types';
 import { DEFAULT_GEMINI_TTS_MODEL } from '../../shared/gemini-tts.js';
 import { DEFAULT_IMAGE_MODEL } from '../../shared/image-models.js';
+import { DEFAULT_LYRIA_MODEL } from '../../shared/lyria-models.js';
 import { getDefaultPromptRefinerProfileId } from '../../shared/prompt-refiners.js';
 
 interface AppState {
@@ -54,7 +55,7 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     refinerEnabled: false,
     refinerProfileId: getDefaultPromptRefinerProfileId('image'),
     refinerCustomInstructions: '',
-    aspectRatio: '1:1',
+    aspectRatio: '',
     imageSize: '1K',
     numberOfImages: 1,
     safetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
@@ -87,7 +88,7 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     ttsStyleInstructions: '',
   },
   lyria: {
-    model: 'lyria-002',
+    model: DEFAULT_LYRIA_MODEL,
     temperature: 1.0,
     topP: 1.0,
     topK: 40,

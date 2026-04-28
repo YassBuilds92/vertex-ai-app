@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
-  Check,
-  ChevronDown,
   Copy,
   Download,
   Image as ImageIcon,
@@ -18,8 +16,13 @@ import { AnimatePresence, motion } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import { buildAdaptiveListingPack, getStyleLabel } from '../../shared/listing-pack.js';
-import { getImageModelLabel, IMAGE_MODEL_OPTIONS } from '../../shared/image-models.js';
+import {
+  getImageModelLabel,
+  getImageModelOption,
+  imageModelSupportsAutoAspectRatio,
+  imageModelSupportsImageSize,
+  IMAGE_MODEL_OPTIONS,
+} from '../../shared/image-models.js';
 import { getPromptRefinerProfile } from '../../shared/prompt-refiners.js';
 import { useStore } from '../store/useStore';
 import { Attachment, MediaGenerationRequest, Message } from '../types';
@@ -33,19 +36,18 @@ function cn(...inputs: ClassValue[]) {
 const aspectRatios = [
   { value: '', label: 'Auto' },
   { value: '1:1', label: '1:1' },
-  { value: '4:3', label: '4:3' },
-  { value: '3:4', label: '3:4' },
-  { value: '5:4', label: '5:4' },
   { value: '4:5', label: '4:5' },
+  { value: '5:4', label: '5:4' },
   { value: '16:9', label: '16:9' },
   { value: '9:16', label: '9:16' },
-  { value: '3:2', label: '3:2' },
-  { value: '2:3', label: '2:3' },
-  { value: '21:9', label: '21:9' },
+  { value: '4:3', label: '4:3' },
+  { value: '3:4', label: '3:4' },
 ] as const;
 
+const imageSizes = ['1K', '2K', '4K'] as const;
+
 function RatioShape({ ratio }: { ratio: string }) {
-  if (!ratio) return <span className="text-[9px] font-black opacity-60">A</span>;
+  if (!ratio) return <span className="text-[9px] font-black opacity-70">A</span>;
   const [w, h] = ratio.split(':').map(Number);
   const maxDim = 12;
   const scale = Math.min(maxDim / w, maxDim / h);
@@ -57,14 +59,10 @@ function RatioShape({ ratio }: { ratio: string }) {
   );
 }
 
-function summarizeShotPrompt(prompt?: string) {
-  const clean = String(prompt || '')
-    .replace(/\s+/g, ' ')
-    .replace(/^Use the attached source photos.*?Art direction:\s*/i, '')
-    .replace(/Keep the image believable.*$/i, '')
-    .trim();
-  if (!clean) return 'Angle adapte a partir des references.';
-  return clean.length > 132 ? `${clean.slice(0, 129)}...` : clean;
+function clipPrompt(prompt?: string) {
+  const clean = String(prompt || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  return clean.length > 180 ? `${clean.slice(0, 177)}...` : clean;
 }
 
 interface ImageStudioProps {
@@ -93,82 +91,54 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const { configs, setConfig } = useStore();
   const config = configs.image;
   const activeRefinerProfile = getPromptRefinerProfile('image', config.refinerProfileId);
+  const selectedModel = getImageModelOption(config.model);
+  const supportsAutoRatio = imageModelSupportsAutoAspectRatio(config.model);
+  const supportsImageSize = imageModelSupportsImageSize(config.model);
 
   const [prompt, setPrompt] = useState('');
-  const [showModelPicker, setShowModelPicker] = useState(false);
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
-  const [hiddenImageIds, setHiddenImageIds] = useState<string[]>([]);
   const [isRefining, setIsRefining] = useState(false);
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
   const [originalPrompt, setOriginalPrompt] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const allImages = useMemo(() => buildImageHistory(messages), [messages]);
-  const visibleImages = useMemo(
-    () => allImages.filter((image) => !hiddenImageIds.includes(image.id)),
-    [allImages, hiddenImageIds],
-  );
   const featuredImage = useMemo(
-    () => visibleImages.find((image) => image.id === selectedImageId) || visibleImages[0] || null,
-    [visibleImages, selectedImageId],
+    () => allImages.find((image) => image.id === selectedImageId) || allImages[0] || null,
+    [allImages, selectedImageId],
   );
-  const galleryRail = useMemo(
-    () => visibleImages.filter((image) => image.id !== featuredImage?.id),
-    [visibleImages, featuredImage?.id],
+  const galleryImages = useMemo(
+    () => allImages.filter((image) => image.id !== featuredImage?.id),
+    [allImages, featuredImage?.id],
   );
-  const optimizedPromptGallery = useMemo(() => {
-    const seen = new Set<string>();
-
-    return visibleImages
-      .filter((image) => image.refinedPrompt)
-      .filter((image) => {
-        const key = String(image.refinedPrompt).trim().toLowerCase();
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .slice(0, 8);
-  }, [visibleImages]);
-  const featuredRefinerProfile = useMemo(
-    () => getPromptRefinerProfile('image', featuredImage?.refinerProfileId || config.refinerProfileId),
-    [config.refinerProfileId, featuredImage?.refinerProfileId],
-  );
-  const hiddenLegacyCount = Math.max(0, allImages.length - visibleImages.length);
   const sourceImages = useMemo(
     () => pendingAttachments.filter((attachment) => attachment.type === 'image'),
     [pendingAttachments],
   );
-  const hasSourceImages = sourceImages.length > 0;
-  const adaptiveListingPack = useMemo(
-    () => buildAdaptiveListingPack({
-      notes: prompt,
-      imageCount: sourceImages.length,
-      fileNames: sourceImages.map((attachment) => attachment.name || ''),
-    }),
-    [prompt, sourceImages],
+  const visibleRatios = useMemo(
+    () => aspectRatios.filter((ratio) => supportsAutoRatio || ratio.value),
+    [supportsAutoRatio],
   );
-  const loadingPreviewCount = hasSourceImages
-    ? adaptiveListingPack.shotCount
-    : (config.numberOfImages || 1);
-  const canSubmit = hasSourceImages
-    ? !isLoading
-    : Boolean(prompt.trim()) && !isLoading && !isRefining;
+  const featuredPrompt = featuredImage?.refinedPrompt || featuredImage?.prompt || '';
+  const canSubmit = Boolean(prompt.trim()) && !isLoading && !isRefining;
 
   useEffect(() => {
-    if (!visibleImages.length) {
+    if (!allImages.length) {
       setSelectedImageId(null);
       return;
     }
 
-    if (!selectedImageId || !visibleImages.some((image) => image.id === selectedImageId)) {
-      setSelectedImageId(visibleImages[0].id);
+    if (!selectedImageId || !allImages.some((image) => image.id === selectedImageId)) {
+      setSelectedImageId(allImages[0].id);
     }
-  }, [selectedImageId, visibleImages]);
+  }, [allImages, selectedImageId]);
 
   useEffect(() => {
-    setHiddenImageIds((current) => current.filter((id) => allImages.some((image) => image.id === id)));
-  }, [allImages]);
+    if (!supportsAutoRatio && !config.aspectRatio) {
+      setConfig({ aspectRatio: '1:1' });
+    }
+  }, [config.aspectRatio, setConfig, supportsAutoRatio]);
 
   const copyPrompt = async (value: string | undefined, promptId: string) => {
     if (!value?.trim()) return;
@@ -176,10 +146,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     if (!copied) return;
     setCopiedPromptId(promptId);
     window.setTimeout(() => setCopiedPromptId((current) => (current === promptId ? null : current)), 1400);
-  };
-
-  const hideImage = (imageId: string) => {
-    setHiddenImageIds((current) => (current.includes(imageId) ? current : [...current, imageId]));
   };
 
   const handleOpenFilePicker = () => {
@@ -192,71 +158,57 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     await onAddAttachments(imageFiles);
   };
 
+  const submitRawPrompt = (value: string, request?: MediaGenerationRequest) => {
+    onGenerate(value, request);
+    setPrompt('');
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit) return;
-
-    if (hasSourceImages) {
-      onGenerate(prompt.trim() || adaptiveListingPack.summary, {
-        originalPrompt: prompt.trim() || adaptiveListingPack.summary,
-        listingPack: {
-          workflow: 'vinted_pack',
-          productType: adaptiveListingPack.productType,
-          styleId: adaptiveListingPack.styleId,
-          shotCount: adaptiveListingPack.shotCount,
-          shots: adaptiveListingPack.shots,
-        },
-      });
-      return;
-    }
-
-    if (!prompt.trim()) return;
+    const cleanPrompt = prompt.trim();
 
     if (isRefinerEnabled) {
       setIsRefining(true);
-      setOriginalPrompt(prompt.trim());
+      setOriginalPrompt(cleanPrompt);
       try {
         const res = await fetch('/api/refine', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt: prompt.trim(),
+            prompt: cleanPrompt,
             mode: 'image',
             profileId: config.refinerProfileId,
             customInstructions: config.refinerCustomInstructions,
           }),
         });
+
         if (res.ok) {
           const data = await res.json();
-          setRefinedPrompt(data.refinedInstruction || prompt.trim());
+          setRefinedPrompt(data.refinedInstruction || cleanPrompt);
         } else {
-          onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-          setPrompt('');
+          submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
         }
       } catch {
-        onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-        setPrompt('');
+        submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
       } finally {
         setIsRefining(false);
       }
       return;
     }
 
-    onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-    setPrompt('');
+    submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
   };
 
   const handleApplyRefined = () => {
     if (!refinedPrompt) return;
-    onGenerate(refinedPrompt, { originalPrompt, refinedPrompt });
-    setPrompt('');
+    submitRawPrompt(refinedPrompt, { originalPrompt, refinedPrompt });
     setRefinedPrompt(null);
     setOriginalPrompt('');
   };
 
   const handleRevertOriginal = () => {
     if (!originalPrompt.trim()) return;
-    onGenerate(originalPrompt, { originalPrompt });
-    setPrompt('');
+    submitRawPrompt(originalPrompt, { originalPrompt });
     setRefinedPrompt(null);
     setOriginalPrompt('');
   };
@@ -264,11 +216,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const handleEditRefined = () => {
     if (!refinedPrompt) return;
     setPrompt(refinedPrompt);
-    setRefinedPrompt(null);
-    setOriginalPrompt('');
-  };
-
-  const handleDismissPreview = () => {
     setRefinedPrompt(null);
     setOriginalPrompt('');
   };
@@ -289,374 +236,215 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         }}
       />
 
-      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
-        <div className="space-y-6 pb-8">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowModelPicker((current) => !current)}
-                className="flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3.5 py-2 text-[12px] font-semibold text-[var(--app-text)] transition-colors hover:border-[var(--app-border-strong)]"
-              >
-                <ImageIcon size={13} className="text-[var(--app-accent)]" />
-                {getImageModelLabel(config.model)}
-                <ChevronDown size={12} className={cn('text-[var(--app-text-muted)] transition-transform', showModelPicker && 'rotate-180')} />
-              </button>
+      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,0.92fr)_minmax(340px,1.08fr)]">
+        <section className="space-y-4">
+          <div className="rounded-[1.5rem] border border-[var(--app-border)] bg-[var(--app-surface)]/80 p-4 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.8)] sm:p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
+                  Generation image
+                </div>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight text-[var(--app-text)]">
+                  Prompt
+                </h2>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-[var(--app-accent)]">
+                <ImageIcon size={18} />
+              </div>
+            </div>
 
-              <AnimatePresence>
-                {showModelPicker && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    className="absolute left-0 top-full z-20 mt-1.5 w-64 rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface-strong)] p-2 shadow-xl backdrop-blur-xl"
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault();
+                  void handleSubmit();
+                }
+              }}
+              placeholder="Decris l'image: sujet, cadrage, lumiere, style, details importants..."
+              rows={8}
+              className="min-h-[15rem] w-full resize-none rounded-[1.1rem] border border-white/8 bg-black/20 px-4 py-4 text-[15px] leading-relaxed text-[var(--app-text)] outline-none transition-colors placeholder:text-[var(--app-text-muted)]/50 focus:border-[var(--app-border-strong)]"
+            />
+
+            <div className="mt-4 grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Modele</span>
+                  <select
+                    value={config.model}
+                    onChange={(event) => setConfig({ model: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-strong)] px-3 text-[12px] font-semibold text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
                   >
                     {IMAGE_MODEL_OPTIONS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="space-y-1.5">
+                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Images</span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[1, 2, 3, 4].map((count) => (
                       <button
-                        key={model.id}
+                        key={count}
                         type="button"
-                        onClick={() => {
-                          setConfig({ model: model.id });
-                          setShowModelPicker(false);
-                        }}
+                        onClick={() => setConfig({ numberOfImages: count })}
                         className={cn(
-                          'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-[12px] transition-colors',
-                          config.model === model.id
-                            ? 'bg-[var(--app-accent-soft)] font-bold text-[var(--app-accent)]'
-                            : 'text-[var(--app-text)] hover:bg-white/[0.05]',
+                          'h-10 rounded-xl text-[12px] font-bold transition-all',
+                          (config.numberOfImages || 1) === count
+                            ? 'bg-[var(--app-accent)] text-[#0a0a14]'
+                            : 'border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
                         )}
                       >
-                        <div>
-                          <div className="font-semibold">{model.label}</div>
-                          <div className="text-[10px] text-[var(--app-text-muted)]">{model.info}</div>
-                        </div>
-                        {config.model === model.id && <Check size={13} />}
+                        {count}
                       </button>
                     ))}
-                  </motion.div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Ratio</span>
+                <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
+                  {visibleRatios.map((ratio) => (
+                    <button
+                      key={ratio.value}
+                      type="button"
+                      onClick={() => setConfig({ aspectRatio: ratio.value })}
+                      title={ratio.label}
+                      className={cn(
+                        'flex h-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-bold transition-all',
+                        (config.aspectRatio || '') === ratio.value
+                          ? 'bg-[var(--app-accent)] text-[#0a0a14]'
+                          : 'border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
+                      )}
+                    >
+                      <RatioShape ratio={ratio.value} />
+                      {ratio.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                {supportsImageSize ? (
+                  <div className="space-y-1.5">
+                    <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Taille</span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {imageSizes.map((size) => (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => setConfig({ imageSize: size })}
+                          className={cn(
+                            'h-10 rounded-xl text-[12px] font-bold transition-all',
+                            (config.imageSize || '1K') === size
+                              ? 'bg-[var(--app-accent-soft)] text-[var(--app-accent)] ring-1 ring-[var(--app-accent)]/30'
+                              : 'border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
+                          )}
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                    {getImageModelLabel(config.model)} gere la taille automatiquement.
+                  </div>
                 )}
-              </AnimatePresence>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-2 rounded-[1.2rem] border border-[var(--app-border)] bg-[var(--app-surface)] px-2 py-2">
-              {aspectRatios.map((ratio) => (
-                <button
-                  key={ratio.value}
-                  type="button"
-                  onClick={() => setConfig({ aspectRatio: ratio.value as any })}
-                  title={ratio.label || 'Auto'}
-                  className={cn(
-                    'flex min-w-[42px] flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 transition-all',
-                    (config.aspectRatio || '') === ratio.value
-                      ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-sm'
-                      : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
-                  )}
-                >
-                  <RatioShape ratio={ratio.value} />
-                  <span className="text-[9px] font-bold leading-none">{ratio.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {!hasSourceImages ? (
-              <>
                 <button
                   type="button"
                   onClick={onToggleRefiner}
                   className={cn(
-                    'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
+                    'flex h-10 items-center justify-center gap-2 self-end rounded-xl border px-3 text-[12px] font-semibold transition-all',
                     isRefinerEnabled
                       ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
-                      : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
+                      : 'border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
                   )}
                 >
-                  <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
-                  Raffineur IA
+                  <Sparkles size={13} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
+                  Raffineur
                 </button>
-
-                {activeRefinerProfile && (
-                  <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-white/[0.03] px-3 py-2 text-[11px] text-[var(--app-text-muted)]">
-                    <span className="font-bold text-[var(--app-text)]">{activeRefinerProfile.title}</span>
-                    <span className="hidden sm:inline">{activeRefinerProfile.summary}</span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-white/[0.03] px-3 py-2 text-[11px] text-[var(--app-text-muted)]">
-                <Sparkles size={12} className="text-[var(--app-accent)]" />
-                Plan auto actif
               </div>
-            )}
-          </div>
 
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
-            <div className="overflow-hidden rounded-[2.2rem] border border-[var(--app-border)] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(8,8,12,0.88))] shadow-[0_40px_120px_-60px_rgba(0,0,0,0.92)]">
-              <div className="grid gap-5 p-5 sm:p-6">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="max-w-2xl">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--app-accent)]">
-                      Image studio
-                    </div>
-                    <h2 className="mt-2 text-[clamp(1.7rem,2.8vw,3rem)] font-semibold leading-[0.95] tracking-[-0.05em] text-[var(--app-text)]">
-                      Prompt + photos.
-                      <br />
-                      Le plan se cale tout seul.
-                    </h2>
-                    <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-[var(--app-text-muted)]">
-                      {hasSourceImages
-                        ? 'Balance les refs, ajoute juste une note si tu veux, puis lance. Le studio sort un plan adapte au produit sans passer par des presets.'
-                        : 'Tu peux partir d un prompt libre, ou glisser des photos pour basculer sur un plan produit adapte.'}
-                    </p>
-                  </div>
-
-                  <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] px-4 py-3 text-right">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
-                      Session
-                    </div>
-                    <div className="mt-2 text-sm font-semibold text-[var(--app-text)]">
-                      {hasSourceImages
-                        ? `${sourceImages.length} ref${sourceImages.length > 1 ? 's' : ''}`
-                        : 'prompt libre'}
-                    </div>
-                  </div>
+              {activeRefinerProfile && isRefinerEnabled && (
+                <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                  <span className="font-bold text-[var(--app-text)]">{activeRefinerProfile.title}</span>
+                  {' - '}
+                  {activeRefinerProfile.summary}
                 </div>
-
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1.02fr)_minmax(280px,0.98fr)]">
-                  <div className="space-y-4">
-                    <div className="rounded-[1.8rem] border border-[var(--app-border)] bg-black/20 p-4 sm:p-5">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
-                          Invite
-                        </div>
-                        {hasSourceImages && (
-                          <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold text-[var(--app-text-muted)]">
-                            {adaptiveListingPack.summary}
-                          </div>
-                        )}
-                      </div>
-
-                      <textarea
-                        value={prompt}
-                        onChange={(event) => setPrompt(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (!hasSourceImages && event.key === 'Enter' && !event.shiftKey) {
-                            event.preventDefault();
-                            void handleSubmit();
-                          }
-                        }}
-                        placeholder={
-                          hasSourceImages
-                            ? 'Notes libres: matiere, fond, crop, angle, niveau premium, defaut a eviter...'
-                            : 'Decris ton image: sujet, cadre, lumiere, matiere, energie, style...'
-                        }
-                        rows={hasSourceImages ? 5 : 6}
-                        className="w-full resize-none rounded-[1.35rem] border border-white/8 bg-white/[0.03] px-4 py-4 text-[14px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none transition-colors focus:border-[var(--app-border-strong)]"
-                      />
-
-                      {config.refinerCustomInstructions?.trim() && !hasSourceImages && (
-                        <div className="mt-3 rounded-[1rem] border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                          <span className="font-bold text-[var(--app-text)]">Consigne perso:</span>{' '}
-                          {config.refinerCustomInstructions}
-                        </div>
-                      )}
-
-                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <div className="text-[11px] text-[var(--app-text-muted)]">
-                          {hasSourceImages
-                            ? `Sortie conseillee: ${config.aspectRatio || 'Auto'}`
-                            : `Sortie: ${config.aspectRatio || 'Auto'}${config.numberOfImages ? ` - ${config.numberOfImages} image(s)` : ''}`}
-                        </div>
-                        {!hasSourceImages && (
-                          <div className="flex flex-wrap items-center gap-2">
-                            {[1, 2, 3, 4].map((count) => (
-                              <button
-                                key={count}
-                                type="button"
-                                onClick={() => setConfig({ numberOfImages: count })}
-                                className={cn(
-                                  'flex h-8 w-8 items-center justify-center rounded-lg text-[11px] font-bold transition-all',
-                                  (config.numberOfImages || 1) === count
-                                    ? 'bg-[var(--app-accent)] text-[#0a0a14]'
-                                    : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
-                                )}
-                              >
-                                {count}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.8rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(8,8,12,0.7))] p-4 sm:p-5">
-                      <div className="mb-4 flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
-                            Photos source
-                          </div>
-                          <div className="mt-1 text-[13px] text-[var(--app-text)]">
-                            {hasSourceImages ? 'Ajoute autant de refs que tu veux.' : 'Glisse tes refs produit ici.'}
-                          </div>
-                        </div>
-                        <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold text-[var(--app-text-muted)]">
-                          {sourceImages.length} ref{sourceImages.length > 1 ? 's' : ''}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleOpenFilePicker}
-                        className="group flex min-h-[11rem] w-full flex-col items-center justify-center rounded-[1.6rem] border border-dashed border-[var(--app-border-strong)] bg-white/[0.03] px-4 py-6 text-center transition-all hover:border-[var(--app-accent)]/35 hover:bg-[var(--app-accent-soft)]"
-                      >
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-black/20 text-[var(--app-accent)] transition-transform group-hover:scale-[1.03]">
-                          <Upload size={18} />
-                        </div>
-                        <div className="mt-4 text-[13px] font-semibold text-[var(--app-text)]">
-                          {hasSourceImages ? 'Ajouter d autres photos' : 'Importer tes photos'}
-                        </div>
-                        <p className="mt-2 max-w-[18rem] text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                          Le studio s en sert pour verrouiller le produit, puis il reconstruit les angles utiles.
-                        </p>
-                      </button>
-
-                      {sourceImages.length > 0 && (
-                        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                          {sourceImages.map((attachment) => (
-                            <div
-                              key={attachment.id}
-                              className="group relative overflow-hidden rounded-[1.15rem] border border-white/8 bg-black/30"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => onImageClick(attachment.url)}
-                                className="block w-full"
-                              >
-                                <img
-                                  src={attachment.url}
-                                  alt={attachment.name || 'Source produit'}
-                                  className="aspect-[4/5] w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                                />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onRemoveAttachment(attachment.id)}
-                                className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white/88 backdrop-blur-sm transition-colors hover:bg-black/75"
-                              >
-                                <X size={13} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleSubmit}
-                      disabled={!canSubmit}
-                      className={cn(
-                        'flex w-full items-center justify-center gap-2 rounded-[1.4rem] px-5 py-3 text-[13px] font-bold transition-all',
-                        canSubmit
-                          ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
-                          : 'cursor-not-allowed bg-white/[0.06] text-[var(--app-text-muted)]',
-                      )}
-                    >
-                      {(isLoading || isRefining) ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
-                      {hasSourceImages
-                        ? isLoading
-                          ? 'Generation du plan...'
-                          : `Generer ${adaptiveListingPack.shotCount} vues adaptees`
-                        : isRefining
-                          ? 'Optimisation...'
-                          : isLoading
-                            ? 'Generation...'
-                            : 'Generer'}
-                    </button>
-                  </div>
-
-                  <div className="space-y-4">
-                    {hasSourceImages ? (
-                      <>
-                        <div className="rounded-[1.8rem] border border-[var(--app-border)] bg-white/[0.03] p-4 sm:p-5">
-                          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
-                            Plan adapte
-                          </div>
-                          <div className="mt-3 text-lg font-semibold tracking-tight text-[var(--app-text)]">
-                            {adaptiveListingPack.summary}
-                          </div>
-                          <p className="mt-2 text-[12px] leading-relaxed text-[var(--app-text-muted)]">
-                            {adaptiveListingPack.rationale}
-                          </p>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-semibold text-[var(--app-text)]">
-                              {adaptiveListingPack.productLabel}
-                            </span>
-                            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-semibold text-[var(--app-text-muted)]">
-                              {getStyleLabel(adaptiveListingPack.styleId)}
-                            </span>
-                            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-semibold text-[var(--app-text-muted)]">
-                              {adaptiveListingPack.shotCount} vues
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-3">
-                          {adaptiveListingPack.shots.map((shot, index) => (
-                            <div
-                              key={shot.id}
-                              className="rounded-[1.45rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(8,8,12,0.72))] p-4"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-accent)]">
-                                    Vue {index + 1}
-                                  </div>
-                                  <div className="mt-2 text-[14px] font-semibold text-[var(--app-text)]">
-                                    {shot.label}
-                                  </div>
-                                </div>
-                                <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold text-[var(--app-text-muted)]">
-                                  {shot.shortLabel}
-                                </div>
-                              </div>
-                              <p className="mt-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                                {summarizeShotPrompt(shot.prompt)}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="rounded-[1.8rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(8,8,12,0.78))] p-4 sm:p-5">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--app-text-muted)]">
-                          Prompt libre
-                        </div>
-                        <div className="mt-3 text-lg font-semibold tracking-tight text-[var(--app-text)]">
-                          Une invite, puis des rendus directs.
-                        </div>
-                        <p className="mt-2 text-[12px] leading-relaxed text-[var(--app-text-muted)]">
-                          Sans photo, le studio reste en mode libre. Des que tu ajoutes des refs, il passe en plan produit adapte sans te demander de categorie ni de preset.
-                        </p>
-                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                          {['Sujet', 'Lumiere', 'Cadre'].map((item) => (
-                            <div key={item} className="rounded-[1.1rem] border border-white/8 bg-white/[0.03] px-4 py-4 text-sm text-[var(--app-text)]">
-                              {item}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
 
-            {!hasSourceImages && refinedPrompt && (
+            <div className="mt-4 rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-bold text-[var(--app-text-muted)]">Images source</span>
+                <button
+                  type="button"
+                  onClick={handleOpenFilePicker}
+                  className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-[var(--app-text)] transition-colors hover:bg-white/[0.07]"
+                >
+                  <Upload size={12} />
+                  Ajouter
+                </button>
+              </div>
+
+              {sourceImages.length > 0 ? (
+                <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+                  {sourceImages.map((attachment) => (
+                    <div key={attachment.id} className="group relative overflow-hidden rounded-xl border border-white/8 bg-black/30">
+                      <button type="button" onClick={() => onImageClick(attachment.url)} className="block w-full">
+                        <img src={attachment.url} alt={attachment.name || 'Image source'} className="aspect-square w-full object-cover" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveAttachment(attachment.id)}
+                        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleOpenFilePicker}
+                  className="flex min-h-[5.5rem] w-full items-center justify-center rounded-xl border border-dashed border-[var(--app-border)] text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
+                >
+                  Ajouter des references optionnelles
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className={cn(
+                'mt-4 flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-[13px] font-bold transition-all',
+                canSubmit
+                  ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
+                  : 'cursor-not-allowed bg-white/[0.06] text-[var(--app-text-muted)]',
+              )}
+            >
+              {(isLoading || isRefining) ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
+              {isLoading ? 'Generation...' : isRefining ? 'Optimisation...' : 'Generer'}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {refinedPrompt && (
               <motion.div
-                initial={{ opacity: 0, y: 12 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 12 }}
-                className="rounded-[2rem] border border-[var(--app-accent)]/20 bg-[var(--app-accent-soft)] p-5"
+                exit={{ opacity: 0, y: 8 }}
+                className="rounded-[1.3rem] border border-[var(--app-accent)]/20 bg-[var(--app-accent-soft)] p-4"
               >
                 <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[var(--app-accent)]">
                   <Sparkles size={11} />
@@ -672,7 +460,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                     className="flex items-center gap-1.5 rounded-xl bg-[var(--app-accent)] px-4 py-2 text-[12px] font-bold text-[#0a0a14] transition-all hover:brightness-110"
                   >
                     <ArrowRight size={12} />
-                    Generer avec ce prompt
+                    Generer
                   </button>
                   <button
                     type="button"
@@ -681,7 +469,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                     className="flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
                   >
                     <Undo2 size={11} />
-                    Garder l original
+                    Original
                   </button>
                   <button
                     type="button"
@@ -693,7 +481,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={handleDismissPreview}
+                    onClick={() => setRefinedPrompt(null)}
                     className="ml-auto text-[11px] text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
                   >
                     Annuler
@@ -701,8 +489,100 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                 </div>
               </motion.div>
             )}
-          </section>
-        </div>
+          </AnimatePresence>
+        </section>
+
+        <section className="min-h-[32rem] rounded-[1.5rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(8,8,12,0.72))] p-4 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.86)] sm:p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
+                Sortie image
+              </div>
+              <div className="mt-1 text-sm font-semibold text-[var(--app-text)]">
+                {selectedModel?.label || getImageModelLabel(config.model)} - {config.aspectRatio || 'Auto'}
+              </div>
+            </div>
+            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-[var(--app-text-muted)]">
+              {allImages.length} rendu{allImages.length > 1 ? 's' : ''}
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {Array.from({ length: Math.max(1, Math.min(config.numberOfImages || 1, 4)) }).map((_, index) => (
+                <div key={index} className="aspect-square animate-pulse rounded-[1.25rem] border border-white/8 bg-white/[0.05]" />
+              ))}
+            </div>
+          ) : featuredImage ? (
+            <div className="space-y-4">
+              <div className="group relative overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/30">
+                <button type="button" onClick={() => onImageClick(featuredImage.url)} className="block w-full">
+                  <img src={featuredImage.url} alt={featuredImage.name || 'Image generee'} className="max-h-[68vh] w-full object-contain" />
+                </button>
+                <div className="absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => onImageClick(featuredImage.url)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/75"
+                    title="Agrandir"
+                  >
+                    <Maximize2 size={15} />
+                  </button>
+                  <a
+                    href={featuredImage.url}
+                    download={featuredImage.name || 'image-generee.png'}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/75"
+                    title="Telecharger"
+                  >
+                    <Download size={15} />
+                  </a>
+                </div>
+              </div>
+
+              <div className="rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-bold text-[var(--app-text-muted)]">Prompt source</span>
+                  <button
+                    type="button"
+                    onClick={() => copyPrompt(featuredPrompt, featuredImage.id)}
+                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--app-text)] transition-colors hover:bg-white/[0.07]"
+                  >
+                    <Copy size={12} />
+                    {copiedPromptId === featuredImage.id ? 'Copie' : 'Copier'}
+                  </button>
+                </div>
+                <p className="text-[12px] leading-relaxed text-[var(--app-text-muted)]">
+                  {clipPrompt(featuredPrompt) || 'Prompt non renseigne.'}
+                </p>
+              </div>
+
+              {galleryImages.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+                  {galleryImages.map((image) => (
+                    <button
+                      key={image.id}
+                      type="button"
+                      onClick={() => setSelectedImageId(image.id)}
+                      className="overflow-hidden rounded-xl border border-white/8 bg-black/30 transition-colors hover:border-[var(--app-border-strong)]"
+                    >
+                      <img src={image.url} alt={image.name || 'Image generee'} className="aspect-square w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex min-h-[28rem] flex-col items-center justify-center rounded-[1.35rem] border border-dashed border-[var(--app-border)] bg-black/15 px-6 text-center">
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-[1.2rem] border border-white/10 bg-white/[0.04] text-[var(--app-accent)]">
+                <ImageIcon size={22} />
+              </div>
+              <p className="text-sm font-semibold text-[var(--app-text)]">La sortie apparait ici.</p>
+              <p className="mt-2 max-w-sm text-[12px] leading-relaxed text-[var(--app-text-muted)]">
+                Ecris un prompt, choisis les quelques parametres utiles, puis genere.
+              </p>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

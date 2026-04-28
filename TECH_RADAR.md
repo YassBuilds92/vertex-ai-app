@@ -9,6 +9,30 @@
 - Cout
 - Sources officielles
 
+## 2026-04-28 - Catalogues media simplifies: Gemini Image, Gemini TTS et Lyria
+- Statut: retenu localement
+- Date de verification: 2026-04-28
+- Technologie: modeles media Google deja branches via `@google/genai` / Vertex AI, sans nouvelle dependance
+- Choix:
+  - mode image: exposer les trois modeles Gemini image compatibles avec le chemin actuel `generateContent`: `gemini-3.1-flash-image-preview`, `gemini-3-pro-image-preview`, `gemini-2.5-flash-image`
+  - passer le defaut image sur `gemini-3.1-flash-image-preview` et le ratio par defaut sur Auto, ce qui omet `aspectRatio` dans l'appel quand l'utilisateur laisse Auto
+  - mode TTS: conserver les quatre modeles Gemini TTS exposes par le catalogue interne: `gemini-3.1-flash-tts-preview`, `gemini-2.5-flash-tts`, `gemini-2.5-flash-lite-preview-tts`, `gemini-2.5-pro-tts`
+  - mode musique: centraliser les modeles Lyria dans `shared/lyria-models.ts`: `lyria-002`, `lyria-3-pro-preview`, `lyria-3-clip-preview`
+  - ne pas reintroduire Imagen dans cette passe: le backend image actuel est construit autour des modeles Gemini image via `generateContent`, et l'historique projet a deja ecarte Imagen pour quota/deprecation locale
+- Alternatives evaluees:
+  - ajouter tous les modeles Imagen officiels:
+    - ecarte pour ce changement UI: necessiterait un deuxieme chemin backend `generateImages`/Predict et recreerait une dette que le projet a deja retiree
+  - garder `gemini-2.5-flash-image` en defaut:
+    - ecarte: le studio doit demarrer sur le modele image le plus recent expose dans le catalogue actuel
+- Cout:
+  - aucune dependance npm supplementaire
+  - cout runtime Google/Vertex selon le modele choisi; a verifier cote projet GCP avant usage intensif
+- Sources officielles:
+  - Google Cloud, [Generate images with Gemini](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/image-generation), verifie le 2026-04-28
+  - Google Cloud, [Gemini 3.1 Flash Image](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-image), verifie le 2026-04-28
+  - Google Cloud, [Lyria music generation](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/music/generate-music), verifie le 2026-04-28
+  - Google Cloud, [Gemini-TTS](https://cloud.google.com/text-to-speech/docs/gemini-tts), verifie le 2026-04-28
+
 ## 2026-04-16 - Pattern "boucle consciente" benchmarke sur Codex / Claude Code / Claude Cowork, sans nouvelle dependance
 - Statut: retenu localement pour `Cowork` pur
 - Date de verification: 2026-04-16

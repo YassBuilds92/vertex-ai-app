@@ -1,20 +1,26 @@
-export const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image' as const;
+export const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview' as const;
 
 export const IMAGE_MODEL_OPTIONS = [
   {
-    id: 'gemini-3.1-flash-image-preview',
+    id: DEFAULT_IMAGE_MODEL,
     label: 'Nano Banana 2',
-    info: 'Preview rapide et scalable',
+    info: 'Gemini 3.1 Flash Image',
+    supportsAutoAspectRatio: true,
+    supportsImageSize: true,
   },
   {
     id: 'gemini-3-pro-image-preview',
     label: 'Nano Banana Pro',
-    info: 'Preview premium',
+    info: 'Gemini 3 Pro Image',
+    supportsAutoAspectRatio: true,
+    supportsImageSize: true,
   },
   {
-    id: DEFAULT_IMAGE_MODEL,
+    id: 'gemini-2.5-flash-image',
     label: 'Nano Banana',
-    info: 'Polyvalent et stable',
+    info: 'Gemini 2.5 Flash Image',
+    supportsAutoAspectRatio: true,
+    supportsImageSize: false,
   },
 ] as const;
 
@@ -46,10 +52,10 @@ for (const model of IMAGE_MODEL_OPTIONS) {
   registerAlias(model.label, model.id);
 }
 
-registerAlias('nanobanana', DEFAULT_IMAGE_MODEL);
+registerAlias('nanobanana', 'gemini-2.5-flash-image');
 registerAlias('nanobanana 2', 'gemini-3.1-flash-image-preview');
 registerAlias('nanobanana pro', 'gemini-3-pro-image-preview');
-registerAlias('gemini 2.5 flash image', DEFAULT_IMAGE_MODEL);
+registerAlias('gemini 2.5 flash image', 'gemini-2.5-flash-image');
 registerAlias('gemini 3.1 flash image', 'gemini-3.1-flash-image-preview');
 registerAlias('gemini 3.1 flash image preview', 'gemini-3.1-flash-image-preview');
 registerAlias('gemini 3 pro image', 'gemini-3-pro-image-preview');
@@ -82,4 +88,17 @@ export function getImageModelLabel(model: string | null | undefined): string {
   if (!raw) return IMAGE_MODEL_LABELS[DEFAULT_IMAGE_MODEL];
   const normalized = normalizeImageModelId(raw, '');
   return IMAGE_MODEL_LABELS[normalized] || raw;
+}
+
+export function getImageModelOption(model: string | null | undefined) {
+  const normalized = normalizeImageModelId(model, DEFAULT_IMAGE_MODEL);
+  return IMAGE_MODEL_OPTIONS.find((option) => option.id === normalized) || null;
+}
+
+export function imageModelSupportsAutoAspectRatio(model: string | null | undefined): boolean {
+  return getImageModelOption(model)?.supportsAutoAspectRatio ?? true;
+}
+
+export function imageModelSupportsImageSize(model: string | null | undefined): boolean {
+  return Boolean(getImageModelOption(model)?.supportsImageSize);
 }

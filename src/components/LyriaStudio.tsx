@@ -1,25 +1,28 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Music, Sparkles, Loader2, ChevronDown, Check,
-  Undo2, Pencil, ArrowRight,
+  ArrowRight,
+  Loader2,
+  Music,
+  Pencil,
+  Sparkles,
+  Undo2,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useStore } from '../store/useStore';
-import { MediaGenerationRequest, Message } from '../types';
+import { AnimatePresence, motion } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+
+import {
+  getLyriaModelLabel,
+  LYRIA_MODEL_OPTIONS,
+} from '../../shared/lyria-models.js';
+import { useStore } from '../store/useStore';
+import { MediaGenerationRequest, Message } from '../types';
 import { buildAudioHistory } from '../utils/media-gallery-history';
 import { StudioAudioPlayer } from './StudioAudioPlayer';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
-const lyriaModels = [
-  { id: 'lyria-002', label: 'Lyria 2', info: 'Stable et robuste' },
-  { id: 'lyria-3-clip-preview', label: 'Lyria 3 Clip', info: 'Preview courte' },
-  { id: 'lyria-3-pro-preview', label: 'Lyria 3 Pro', info: 'Preview ambitieuse' },
-];
 
 interface LyriaStudioProps {
   onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
@@ -39,272 +42,278 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
   const { configs, setConfig } = useStore();
   const config = configs.lyria;
   const [prompt, setPrompt] = useState('');
-  const [showModelPicker, setShowModelPicker] = useState(false);
-
-  // Refiner preview state
   const [isRefining, setIsRefining] = useState(false);
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
   const [originalPrompt, setOriginalPrompt] = useState('');
 
   const allTracks = useMemo(() => buildAudioHistory(messages, { mode: 'lyria' }), [messages]);
+  const canSubmit = Boolean(prompt.trim()) && !isLoading && !isRefining;
+
+  const submitRawPrompt = (value: string, request?: MediaGenerationRequest) => {
+    onGenerate(value, request);
+    setPrompt('');
+  };
 
   const handleSubmit = async () => {
-    if (!prompt.trim() || isLoading || isRefining) return;
+    if (!canSubmit) return;
+    const cleanPrompt = prompt.trim();
 
     if (isRefinerEnabled) {
       setIsRefining(true);
-      setOriginalPrompt(prompt.trim());
+      setOriginalPrompt(cleanPrompt);
       try {
         const res = await fetch('/api/refine', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt: prompt.trim(),
+            prompt: cleanPrompt,
             mode: 'lyria',
             profileId: config.refinerProfileId,
             customInstructions: config.refinerCustomInstructions,
           }),
         });
+
         if (res.ok) {
           const data = await res.json();
-          setRefinedPrompt(data.refinedInstruction || prompt.trim());
+          setRefinedPrompt(data.refinedInstruction || cleanPrompt);
         } else {
-          onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-          setPrompt('');
+          submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
         }
       } catch {
-        onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-        setPrompt('');
+        submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
       } finally {
         setIsRefining(false);
       }
-    } else {
-      onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-      setPrompt('');
+      return;
     }
+
+    submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
   };
 
   const handleApplyRefined = () => {
-    if (refinedPrompt) {
-      onGenerate(refinedPrompt, { originalPrompt, refinedPrompt });
-      setPrompt('');
-      setRefinedPrompt(null);
-      setOriginalPrompt('');
-    }
+    if (!refinedPrompt) return;
+    submitRawPrompt(refinedPrompt, { originalPrompt, refinedPrompt });
+    setRefinedPrompt(null);
+    setOriginalPrompt('');
   };
 
   const handleRevertOriginal = () => {
-    onGenerate(originalPrompt, { originalPrompt });
-    setPrompt('');
+    if (!originalPrompt.trim()) return;
+    submitRawPrompt(originalPrompt, { originalPrompt });
     setRefinedPrompt(null);
     setOriginalPrompt('');
   };
 
   const handleEditRefined = () => {
-    if (refinedPrompt) {
-      setPrompt(refinedPrompt);
-      setRefinedPrompt(null);
-      setOriginalPrompt('');
-    }
-  };
-
-  const handleDismissPreview = () => {
+    if (!refinedPrompt) return;
+    setPrompt(refinedPrompt);
     setRefinedPrompt(null);
     setOriginalPrompt('');
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="mx-auto w-full max-w-3xl flex-shrink-0 px-4 pt-6 pb-4 sm:px-6">
-        {/* Controls */}
-        <div className="relative mb-4 flex flex-wrap items-center gap-2">
-          {/* Model picker */}
-          <div className="relative">
-            <button
-              onClick={() => setShowModelPicker(!showModelPicker)}
-              className="flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3.5 py-2 text-[12px] font-semibold text-[var(--app-text)] transition-colors hover:border-[var(--app-border-strong)]"
-            >
-              <Music size={13} className="text-emerald-400" />
-              {lyriaModels.find((m) => m.id === config.model)?.label || config.model}
-              <ChevronDown size={12} className={cn('text-[var(--app-text-muted)] transition-transform', showModelPicker && 'rotate-180')} />
-            </button>
-            <AnimatePresence>
-              {showModelPicker && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  className="absolute left-0 top-full z-20 mt-1.5 w-56 rounded-xl border border-[var(--app-border-strong)] bg-[var(--app-surface-strong)] p-2 shadow-xl backdrop-blur-xl"
+    <div className="h-full overflow-y-auto overscroll-y-contain">
+      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,0.92fr)_minmax(340px,1.08fr)]">
+        <section className="space-y-4">
+          <div className="rounded-[1.5rem] border border-[var(--app-border)] bg-[var(--app-surface)]/80 p-4 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.8)] sm:p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
+                  Generation musique
+                </div>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight text-[var(--app-text)]">
+                  Prompt
+                </h2>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-emerald-300">
+                <Music size={18} />
+              </div>
+            </div>
+
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault();
+                  void handleSubmit();
+                }
+              }}
+              placeholder="Decris le morceau: energie, instruments, tempo, ambiance, structure..."
+              rows={8}
+              className="min-h-[15rem] w-full resize-none rounded-[1.1rem] border border-white/8 bg-black/20 px-4 py-4 text-[15px] leading-relaxed text-[var(--app-text)] outline-none transition-colors placeholder:text-[var(--app-text-muted)]/50 focus:border-[var(--app-border-strong)]"
+            />
+
+            <div className="mt-4 grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-[1fr_12rem_auto]">
+                <label className="space-y-1.5">
+                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Modele</span>
+                  <select
+                    value={config.model}
+                    onChange={(event) => setConfig({ model: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-strong)] px-3 text-[12px] font-semibold text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
+                  >
+                    {LYRIA_MODEL_OPTIONS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="space-y-1.5">
+                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Variantes</span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[1, 2, 3, 4].map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setConfig({ sampleCount: count })}
+                        className={cn(
+                          'h-10 rounded-xl text-[12px] font-bold transition-all',
+                          (config.sampleCount || 1) === count
+                            ? 'bg-emerald-500 text-[#0a0a14]'
+                            : 'border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
+                        )}
+                      >
+                        {count}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onToggleRefiner}
+                  className={cn(
+                    'flex h-10 items-center justify-center gap-2 self-end rounded-xl border px-3 text-[12px] font-semibold transition-all',
+                    isRefinerEnabled
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                      : 'border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
+                  )}
                 >
-                  {lyriaModels.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => { setConfig({ model: m.id }); setShowModelPicker(false); }}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-[12px] transition-colors',
-                        config.model === m.id
-                          ? 'bg-emerald-500/15 font-bold text-emerald-300'
-                          : 'text-[var(--app-text)] hover:bg-white/[0.05]',
-                      )}
-                    >
-                      <div>
-                        <div className="font-semibold">{m.label}</div>
-                        <div className="text-[10px] text-[var(--app-text-muted)]">{m.info}</div>
-                      </div>
-                      {config.model === m.id && <Check size={13} />}
-                    </button>
-                  ))}
-                </motion.div>
+                  <Sparkles size={13} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
+                  Raffineur
+                </button>
+              </div>
+
+              <label className="space-y-1.5">
+                <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Negative prompt</span>
+                <input
+                  value={config.negativePrompt || ''}
+                  onChange={(event) => setConfig({ negativePrompt: event.target.value })}
+                  placeholder="sons, styles ou ambiances a eviter"
+                  className="h-10 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-strong)] px-3 text-[12px] font-semibold text-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]/45 focus:border-[var(--app-border-strong)]"
+                />
+              </label>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className={cn(
+                'mt-4 flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-[13px] font-bold transition-all',
+                canSubmit
+                  ? 'bg-emerald-500 text-[#0a0a14] shadow-lg shadow-emerald-500/20 hover:brightness-110'
+                  : 'cursor-not-allowed bg-white/[0.06] text-[var(--app-text-muted)]',
               )}
-            </AnimatePresence>
-          </div>
-
-          {/* Refiner toggle */}
-          <button
-            onClick={onToggleRefiner}
-            className={cn(
-              'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
-              isRefinerEnabled
-                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
-            )}
-          >
-            <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
-            Raffineur IA
-          </button>
-
-          {/* Variants */}
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--app-text-muted)] mr-1">Variantes</span>
-            {[1, 2, 3, 4].map((n) => (
-              <button
-                key={n}
-                onClick={() => setConfig({ sampleCount: n })}
-                className={cn(
-                  'flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-bold transition-all',
-                  (config.sampleCount || 1) === n
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
-                )}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Refiner preview panel */}
-        <AnimatePresence>
-          {refinedPrompt && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mb-4 overflow-hidden"
             >
-              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              {(isLoading || isRefining) ? <Loader2 size={15} className="animate-spin" /> : <Music size={14} />}
+              {isLoading ? 'Composition...' : isRefining ? 'Optimisation...' : 'Composer'}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {refinedPrompt && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                className="rounded-[1.3rem] border border-emerald-500/20 bg-emerald-500/10 p-4"
+              >
                 <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-emerald-300">
                   <Sparkles size={11} />
                   Prompt optimise
                 </div>
-                <p className="mb-1 text-[13px] leading-relaxed text-[var(--app-text)]">
-                  {refinedPrompt}
-                </p>
-                <p className="mb-4 text-[11px] text-[var(--app-text-muted)]">
-                  Original : {originalPrompt}
-                </p>
+                <p className="mb-2 text-[13px] leading-relaxed text-[var(--app-text)]">{refinedPrompt}</p>
+                <p className="mb-4 text-[11px] text-[var(--app-text-muted)]">Original: {originalPrompt}</p>
                 <div className="flex flex-wrap gap-2">
                   <button
+                    type="button"
                     onClick={handleApplyRefined}
                     disabled={isLoading}
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-1.5 text-[12px] font-bold text-[#0a0a14] transition-all hover:brightness-110"
+                    className="flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2 text-[12px] font-bold text-[#0a0a14] transition-all hover:brightness-110"
                   >
                     <ArrowRight size={12} />
-                    Composer avec ce prompt
+                    Composer
                   </button>
                   <button
+                    type="button"
                     onClick={handleRevertOriginal}
                     disabled={isLoading}
-                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                    className="flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
                   >
                     <Undo2 size={11} />
-                    Garder l'original
+                    Original
                   </button>
                   <button
+                    type="button"
                     onClick={handleEditRefined}
-                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
+                    className="flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
                   >
                     <Pencil size={11} />
                     Modifier
                   </button>
                   <button
-                    onClick={handleDismissPreview}
-                    className="ml-auto text-[11px] text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"
+                    type="button"
+                    onClick={() => setRefinedPrompt(null)}
+                    className="ml-auto text-[11px] text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
                   >
                     Annuler
                   </button>
                 </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </section>
+
+        <section className="min-h-[32rem] rounded-[1.5rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(8,8,12,0.72))] p-4 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.86)] sm:p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
+                Sortie musique
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Prompt */}
-        <div className="relative rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-colors focus-within:border-[var(--app-border-strong)]">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
-            }}
-            placeholder="Decris ton morceau — texture, energie, instruments, ambiance..."
-            rows={3}
-            className="w-full resize-none bg-transparent px-5 pt-4 pb-14 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none"
-          />
-          <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
-            {/* Negative prompt inline */}
-            <input
-              value={config.negativePrompt || ''}
-              onChange={(e) => setConfig({ negativePrompt: e.target.value })}
-              placeholder="Negative prompt (optionnel)"
-              className="max-w-xs rounded-lg bg-white/[0.04] px-3 py-1.5 text-[11px] text-[var(--app-text-muted)] outline-none placeholder:text-[var(--app-text-muted)]/40 transition-colors focus:bg-white/[0.07]"
-            />
-
-            <button
-              onClick={handleSubmit}
-              disabled={!prompt.trim() || isLoading || isRefining}
-              className={cn(
-                'flex items-center gap-2 rounded-xl px-5 py-2 text-[13px] font-bold transition-all',
-                prompt.trim() && !isLoading && !isRefining
-                  ? 'bg-emerald-500 text-[#0a0a14] shadow-lg shadow-emerald-500/20 hover:brightness-110'
-                  : 'bg-white/[0.06] text-[var(--app-text-muted)] cursor-not-allowed',
-              )}
-            >
-              {isLoading ? <Loader2 size={15} className="animate-spin" /> : isRefining ? <Loader2 size={15} className="animate-spin" /> : <Music size={14} />}
-              {isLoading ? 'Composition...' : isRefining ? 'Optimisation...' : 'Composer'}
-            </button>
+              <div className="mt-1 text-sm font-semibold text-[var(--app-text)]">
+                {getLyriaModelLabel(config.model)}
+              </div>
+            </div>
+            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-[var(--app-text-muted)]">
+              {allTracks.length} piste{allTracks.length > 1 ? 's' : ''}
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Track list */}
-      <div className="flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
-        <div className="mx-auto max-w-3xl space-y-3">
           {allTracks.length === 0 && !isLoading ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-emerald-500/10">
-                <Music size={24} className="text-emerald-400" />
+            <div className="flex min-h-[28rem] flex-col items-center justify-center rounded-[1.35rem] border border-dashed border-[var(--app-border)] bg-black/15 px-6 text-center">
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-[1.2rem] border border-white/10 bg-white/[0.04] text-emerald-300">
+                <Music size={22} />
               </div>
-              <p className="text-sm text-[var(--app-text-muted)]">Tes morceaux apparaitront ici</p>
+              <p className="text-sm font-semibold text-[var(--app-text)]">Le morceau apparait ici.</p>
+              <p className="mt-2 max-w-sm text-[12px] leading-relaxed text-[var(--app-text-muted)]">
+                Ecris le prompt, choisis le modele et le nombre de variantes, puis compose.
+              </p>
             </div>
           ) : (
-            <>
+            <div className="space-y-3">
               {isLoading && (
-                <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4">
-                  <Loader2 size={18} className="animate-spin text-emerald-400" />
-                  <span className="text-sm text-emerald-300/70">Composition en cours...</span>
+                <div className="rounded-[1.2rem] border border-emerald-500/20 bg-emerald-500/10 p-4">
+                  <div className="flex items-center gap-3 text-sm text-emerald-200/75">
+                    <Loader2 size={18} className="animate-spin text-emerald-300" />
+                    Composition en cours...
+                  </div>
                 </div>
               )}
+
               {allTracks.map((track, index) => (
                 <StudioAudioPlayer
                   key={track.id}
@@ -315,9 +324,9 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
                   downloadName={track.name || 'lyria-track.wav'}
                 />
               ))}
-            </>
+            </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );

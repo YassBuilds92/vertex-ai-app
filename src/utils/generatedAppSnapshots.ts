@@ -2,9 +2,12 @@ import { GeneratedAppManifest, GeneratedAppVersion } from '../types';
 import { normalizeGeneratedAppBundleState } from '../../shared/generated-app-bundle.js';
 
 const GENERATED_APP_LOCAL_STORAGE_KEY = 'studio-pro-generated-apps-v1';
+const GENERATED_APP_PENDING_REMOTE_STORAGE_KEY = 'studio-pro-generated-apps-pending-v1';
 const MAX_LOCAL_APPS_PER_USER = 32;
+const MAX_PENDING_APP_IDS_PER_USER = 64;
 
 type GeneratedAppSnapshotStore = Record<string, Record<string, GeneratedAppManifest>>;
+type PendingGeneratedAppStore = Record<string, Record<string, number>>;
 
 function canUseLocalStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -31,6 +34,58 @@ function writeStore(store: GeneratedAppSnapshotStore) {
   } catch {
     // Ignore local quota failures.
   }
+}
+
+function readPendingStore(): PendingGeneratedAppStore {
+  if (!canUseLocalStorage()) return {};
+
+  try {
+    const raw = window.localStorage.getItem(GENERATED_APP_PENDING_REMOTE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed as PendingGeneratedAppStore : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePendingStore(store: PendingGeneratedAppStore) {
+  if (!canUseLocalStorage()) return;
+
+  try {
+    window.localStorage.setItem(GENERATED_APP_PENDING_REMOTE_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Ignore local queue failures. Firestore remains preferred.
+  }
+}
+
+function prunePendingAppIds(appsById: Record<string, number>) {
+  return Object.fromEntries(
+    Object.entries(appsById)
+      .sort(([, leftUpdatedAt], [, rightUpdatedAt]) => rightUpdatedAt - leftUpdatedAt)
+      .slice(0, MAX_PENDING_APP_IDS_PER_USER)
+  ) as Record<string, number>;
+}
+
+function setGeneratedAppPendingRemote(userId: string, appId: string, pendingRemote: boolean) {
+  if (!userId || !appId) return;
+
+  const store = readPendingStore();
+  const userRecords = store[userId] || {};
+
+  if (pendingRemote) {
+    userRecords[appId] = Date.now();
+  } else {
+    delete userRecords[appId];
+  }
+
+  if (Object.keys(userRecords).length === 0) {
+    delete store[userId];
+  } else {
+    store[userId] = prunePendingAppIds(userRecords);
+  }
+
+  writePendingStore(store);
 }
 
 export function normalizeGeneratedApp(manifest: GeneratedAppManifest): GeneratedAppManifest {
@@ -78,7 +133,11 @@ export function loadLocalGeneratedApps(userId: string): GeneratedAppManifest[] {
     .sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
-export function saveLocalGeneratedApp(userId: string, manifest: GeneratedAppManifest) {
+export function saveLocalGeneratedApp(
+  userId: string,
+  manifest: GeneratedAppManifest,
+  options?: { pendingRemote?: boolean }
+) {
   if (!userId || !manifest?.id) return;
 
   const store = readStore();
@@ -86,6 +145,26 @@ export function saveLocalGeneratedApp(userId: string, manifest: GeneratedAppMani
   userApps[manifest.id] = normalizeGeneratedApp(manifest);
   store[userId] = pruneApps(userApps);
   writeStore(store);
+
+  if (options?.pendingRemote !== undefined) {
+    setGeneratedAppPendingRemote(userId, manifest.id, options.pendingRemote);
+  }
+}
+
+export function loadPendingLocalGeneratedApps(userId: string): GeneratedAppManifest[] {
+  if (!userId) return [];
+
+  const pendingIds = readPendingStore()[userId] || {};
+  const pendingIdSet = new Set(Object.keys(pendingIds));
+  if (pendingIdSet.size === 0) return [];
+
+  return loadLocalGeneratedApps(userId)
+    .filter((app) => pendingIdSet.has(app.id))
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+export function markLocalGeneratedAppSynced(userId: string, appId: string) {
+  setGeneratedAppPendingRemote(userId, appId, false);
 }
 
 export function mergeGeneratedAppsWithLocal(userId: string, remoteApps: GeneratedAppManifest[]): GeneratedAppManifest[] {
@@ -98,7 +177,7 @@ export function mergeGeneratedAppsWithLocal(userId: string, remoteApps: Generate
   for (const app of remoteApps) {
     const normalized = normalizeGeneratedApp(app);
     merged.set(normalized.id, normalized);
-    saveLocalGeneratedApp(userId, normalized);
+    saveLocalGeneratedApp(userId, normalized, { pendingRemote: false });
   }
 
   return Array.from(merged.values()).sort((left, right) => right.updatedAt - left.updatedAt);

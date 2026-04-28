@@ -17,13 +17,14 @@ import {
   DEFAULT_IMAGE_MODEL as SHARED_DEFAULT_IMAGE_MODEL,
   normalizeImageModelId,
 } from '../../shared/image-models.js';
+import { DEFAULT_LYRIA_MODEL as SHARED_DEFAULT_LYRIA_MODEL } from '../../shared/lyria-models.js';
 import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './google-genai.js';
 import { getGcpCredentials } from './storage.js';
 
 export const DEFAULT_IMAGE_MODEL = SHARED_DEFAULT_IMAGE_MODEL;
 export const DEFAULT_TTS_MODEL = DEFAULT_GEMINI_TTS_MODEL;
 export const DEFAULT_TTS_VOICE = 'Kore';
-export const DEFAULT_LYRIA_MODEL = 'lyria-002';
+export const DEFAULT_LYRIA_MODEL = SHARED_DEFAULT_LYRIA_MODEL;
 export const DEFAULT_PODCAST_TTS_MODEL = 'gemini-2.5-pro-tts';
 export const DEFAULT_PODCAST_SCRIPT_MODEL = 'gemini-3.1-flash-lite-preview';
 const DEFAULT_PODCAST_DUO_VOICES = ['Charon', 'Aoede'] as const;

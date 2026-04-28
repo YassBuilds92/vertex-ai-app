@@ -56,12 +56,14 @@ import {
 } from './utils/sessionShells';
 import {
   loadLocalAgents,
+  loadPendingLocalAgents,
   mergeAgentsWithLocal,
   normalizeAgent,
   saveLocalAgent,
 } from './utils/agentSnapshots';
 import {
   loadLocalGeneratedApps,
+  loadPendingLocalGeneratedApps,
   mergeGeneratedAppsWithLocal,
   normalizeGeneratedApp,
   saveLocalGeneratedApp,
@@ -723,13 +725,14 @@ export default function App() {
 
     setLatestCreatedAgent(nextAgent);
 
-    saveLocalAgent(user.uid, nextAgent);
+    saveLocalAgent(user.uid, nextAgent, { pendingRemote: true });
 
     try {
       await setDoc(
         doc(db, 'users', user.uid, 'agents', nextAgent.id),
         cleanForFirestore(nextAgent)
       );
+      saveLocalAgent(user.uid, nextAgent, { pendingRemote: false });
     } catch (error) {
       console.error('Agent persistence degraded, keeping local snapshot only:', error);
       setAgentsWarning("Le catalogue local des apps ne peut pas se synchroniser avec Firestore pour l'instant. Les apps restent disponibles sur cet appareil.");
@@ -754,13 +757,14 @@ export default function App() {
 
     setLatestCreatedGeneratedApp(nextManifest);
 
-    saveLocalGeneratedApp(user.uid, nextManifest);
+    saveLocalGeneratedApp(user.uid, nextManifest, { pendingRemote: true });
 
     try {
       await setDoc(
         doc(db, 'users', user.uid, 'generatedApps', nextManifest.id),
         cleanForFirestore(buildGeneratedAppRemotePayload(nextManifest))
       );
+      saveLocalGeneratedApp(user.uid, nextManifest, { pendingRemote: false });
     } catch (error) {
       console.error('Generated app persistence degraded, keeping local snapshot only:', error);
       setAgentsWarning("Le catalogue local des apps ne peut pas se synchroniser completement avec Firestore pour l'instant. Les apps restent disponibles sur cet appareil.");
@@ -1190,7 +1194,7 @@ export default function App() {
       );
       setHasLoadedRemoteGeneratedApps(true);
     });
-  }, [user]);
+  }, [isStorageResetReady, user]);
 
   useEffect(() => {
     setRecentlyCompletedMessageId(null);
@@ -1790,19 +1794,27 @@ export default function App() {
 
     const pendingShells = loadPendingLocalSessionShells(user.uid)
       .filter((session) => !isLocalSessionDeleted(user.uid, session.id));
+    const pendingAgents = loadPendingLocalAgents(user.uid);
+    const pendingGeneratedApps = loadPendingLocalGeneratedApps(user.uid);
     const standardSnapshotEntries = loadLocalSessionSnapshotEntries(user.uid)
       .filter((entry) => !isLocalSessionDeleted(user.uid, entry.sessionId));
     const coworkSnapshotEntries = loadCoworkSessionSnapshotEntries(user.uid)
       .filter((entry) => !isLocalSessionDeleted(user.uid, entry.sessionId));
     const fingerprint = JSON.stringify({
       localSyncTick,
+      agentIds: pendingAgents.map((agent) => `${agent.id}:${agent.updatedAt}`),
+      generatedAppIds: pendingGeneratedApps.map((app) => `${app.id}:${app.updatedAt}`),
       shellIds: pendingShells.map((session) => `${session.id}:${session.updatedAt}`),
       standardSnapshotIds: standardSnapshotEntries.map((entry) => `${entry.sessionId}:${entry.messages.map((message) => message.id).join(',')}`),
       coworkSnapshotIds: coworkSnapshotEntries.map((entry) => `${entry.sessionId}:${entry.messages.map((message) => message.id).join(',')}`),
     });
 
     const hasPendingReplay =
-      pendingShells.length > 0 || standardSnapshotEntries.length > 0 || coworkSnapshotEntries.length > 0;
+      pendingAgents.length > 0
+      || pendingGeneratedApps.length > 0
+      || pendingShells.length > 0
+      || standardSnapshotEntries.length > 0
+      || coworkSnapshotEntries.length > 0;
 
     if (!hasPendingReplay) {
       localSyncAttemptRef.current[user.uid] = '';
@@ -1839,6 +1851,24 @@ export default function App() {
       };
 
       try {
+        for (const agent of pendingAgents) {
+          if (cancelled) return;
+          await setDoc(
+            doc(db, 'users', user.uid, 'agents', agent.id),
+            cleanForFirestore(agent)
+          );
+          saveLocalAgent(user.uid, agent, { pendingRemote: false });
+        }
+
+        for (const app of pendingGeneratedApps) {
+          if (cancelled) return;
+          await setDoc(
+            doc(db, 'users', user.uid, 'generatedApps', app.id),
+            cleanForFirestore(buildGeneratedAppRemotePayload(app))
+          );
+          saveLocalGeneratedApp(user.uid, app, { pendingRemote: false });
+        }
+
         for (const session of pendingShells) {
           if (cancelled) return;
           await persistSessionShell(session);

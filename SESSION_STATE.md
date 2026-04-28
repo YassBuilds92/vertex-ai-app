@@ -4000,3 +4000,52 @@
   - la validation reelle sur donnees/auth utilisateur reste a faire
   - sur mobile, la bibliotheque passe vite sous la ligne de flottaison si le store grossit ou si le clavier prend beaucoup d'espace
 
+## 2026-04-24 - Fix synchro multi-appareils: generated apps boot + replay agents/apps
+
+### Diagnostic
+- Retour utilisateur: les sauvegardes et synchronisations entre appareils ne fonctionnaient pas de facon fiable.
+- Cause racine trouvee dans le frontend:
+  - le listener Firestore `users/{uid}/generatedApps` faisait `if (!isStorageResetReady) return`, mais son `useEffect` ne dependait que de `user`;
+  - si l'utilisateur etait deja authentifie avant la fin du reset navigateur, ce listener ne redemarrait jamais;
+  - `hasLoadedRemoteGeneratedApps` restait donc `false`;
+  - le replay local des sessions/messages et la reparation de shells orphelins restaient bloques car ils attendent sessions + agents + generated apps charges.
+- Trou produit adjacent:
+  - les agents et generated apps etaient sauvegardes en cache local avant Firestore, mais sans file `pendingRemote` rejouable;
+  - apres un refus Firestore/reseau ponctuel, une app pouvait rester disponible seulement sur l'appareil courant.
+
+### Correctif applique
+- `src/App.tsx`
+  - le listener `generatedApps` depend maintenant de `isStorageResetReady` et de `user`;
+  - les creations/updates d'agents et generated apps marquent le cache local en `pendingRemote: true` avant `setDoc`;
+  - apres succes Firestore, le pending local est nettoye;
+  - le replay local inclut maintenant les agents et generated apps en attente avant les shells/messages.
+- `src/utils/agentSnapshots.ts`
+  - ajout d'une file locale `studio-pro-agents-pending-v1`;
+  - ajout de `loadPendingLocalAgents()`;
+  - `saveLocalAgent(..., { pendingRemote })` sait marquer/nettoyer l'etat distant en attente.
+- `src/utils/generatedAppSnapshots.ts`
+  - ajout d'une file locale `studio-pro-generated-apps-pending-v1`;
+  - ajout de `loadPendingLocalGeneratedApps()`;
+  - `saveLocalGeneratedApp(..., { pendingRemote })` sait marquer/nettoyer l'etat distant en attente.
+
+### Validation effectuee
+- `npm run lint` : OK
+- `npm run build` : OK
+- `npx vercel deploy --prod --yes` : OK
+- Prod alias actif: `https://vertex-ai-app-pearl.vercel.app`
+- Smokes prod:
+  - `GET /` : `200`
+  - `GET /storage-reset.json` : `200`
+  - `GET /api/status` : `200`
+  - bundle prod `assets/main-D616cpFf.js` contient `studio-pro-agents-pending-v1` et `studio-pro-generated-apps-pending-v1`
+
+### Validation restante
+- Rejouer sur prod avec le meme compte sur deux appareils:
+  - creer un agent/app pendant une degradation Firestore ou hors ligne;
+  - retablir reseau / focus;
+  - verifier que l'autre appareil voit l'agent/app et que les conversations locales en attente remontent.
+
+### Intention exacte
+- Retirer le blocage global du replay local cause par `hasLoadedRemoteGeneratedApps`.
+- Faire des agents/generated apps des donnees local-first rejouables, pas des sauvegardes terminales mono-appareil en cas d'echec Firestore.
+

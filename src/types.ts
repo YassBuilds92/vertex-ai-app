@@ -388,7 +388,7 @@ export interface ModelConfig {
   negativePrompt?: string;
   sampleCount?: number;
   numberOfImages?: number;
-  aspectRatio?: '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '5:4' | '4:5' | '16:9' | '9:16' | '21:9' | '4:1' | '1:4' | '8:1' | '1:8';
+  aspectRatio?: '' | '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '5:4' | '4:5' | '16:9' | '9:16' | '21:9' | '4:1' | '1:4' | '8:1' | '1:8';
   imageSize?: '512' | '1K' | '2K' | '4K';
   maxOutputTokens?: number;
   stopSequences?: string[];

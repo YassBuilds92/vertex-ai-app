@@ -37,6 +37,10 @@ import {
   IMAGE_MODEL_OPTIONS,
 } from '../../shared/image-models.js';
 import {
+  LYRIA_MODEL_LABELS,
+  LYRIA_MODEL_OPTIONS,
+} from '../../shared/lyria-models.js';
+import {
   getDefaultPromptRefinerProfileId,
   getPromptRefinerProfile,
   getPromptRefinerProfiles,
@@ -69,9 +73,7 @@ const modelNameMap: Record<string, string> = {
   ...IMAGE_MODEL_LABELS,
   'veo-3.1-generate-001': 'Veo 3.1 Video',
   ...GEMINI_TTS_MODEL_LABELS,
-  'lyria-002': 'Lyria 2',
-  'lyria-3-clip-preview': 'Lyria 3 Clip',
-  'lyria-3-pro-preview': 'Lyria 3 Pro',
+  ...LYRIA_MODEL_LABELS,
 };
 
 const modelSubtitleByMode = {
@@ -138,9 +140,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
     { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', info: 'Rapide avec vrai raisonnement', modes: ['chat', 'cowork'] },
     ...IMAGE_MODEL_OPTIONS.map((model) => ({ ...model, modes: ['image'] as AppMode[] })),
     { id: 'veo-3.1-generate-001', label: 'Veo 3.1 Video', info: 'Video cine', modes: ['video'] },
-    { id: 'lyria-002', label: 'Lyria 2', info: 'Mode stable et robuste', modes: ['lyria'] },
-    { id: 'lyria-3-clip-preview', label: 'Lyria 3 Clip', info: 'Preview courte et nerveuse', modes: ['lyria'] },
-    { id: 'lyria-3-pro-preview', label: 'Lyria 3 Pro', info: 'Preview plus ambitieuse', modes: ['lyria'] },
+    ...LYRIA_MODEL_OPTIONS.map((model) => ({ ...model, modes: ['lyria'] as AppMode[] })),
     ...GEMINI_TTS_MODEL_OPTIONS.map((model) => ({ ...model, modes: ['audio'] as AppMode[] })),
   ].filter((model) => model.modes.includes(activeMode))), [activeMode]);
 

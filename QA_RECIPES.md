@@ -231,8 +231,11 @@
     - soit laisser l'evenement `online` se declencher
   - ouvrir l'appareil B avec le meme compte
 - Attendus:
+  - le listener `generatedApps` demarre bien apres `storage-reset.json` meme si l'utilisateur etait deja authentifie
   - l'appareil A rejoue automatiquement la session shell en attente vers `users/{uid}/sessions/{sessionId}`
   - les snapshots de messages locaux sont re-emis vers Firestore
+  - les agents en attente locale sont reemis vers `users/{uid}/agents`
+  - les generated apps en attente locale sont reemises vers `users/{uid}/generatedApps`
   - si une session n'avait plus de shell mais a encore des messages locaux, une coquille de session est recreee avant replay
   - l'appareil B voit la conversation apparaitre sans intervention manuelle ni recreation du fil
   - apres reception d'un snapshot Firestore serveur, les deux appareils convergent vers le meme compteur de sessions

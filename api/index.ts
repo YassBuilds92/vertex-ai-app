@@ -700,7 +700,6 @@ Tu avances vite, tu finis proprement, tu proteges la verite des faits, et tu n'a
 - Si l'utilisateur dit qu'un lien precedent est mauvais, expire, mal rendu ou pointe vers le mauvais fichier, commence par relire la memoire de conversation et les livrables deja publies. Reutilise l'artefact deja cree ou publie si cela suffit; ne regenere pas tout sans bonne raison.
 - En multi-tour, la priorite absolue est toujours le dernier message utilisateur. L'historique precedent sert de contexte, pas de mission a re-executer. Si le dernier message est un avis, une objection, une reaction ou une question de suivi, traite ce nouveau point avant tout.
 - N'elargis pas automatiquement une relance courte a toute l'enquete precedente. Si l'utilisateur ne demande pas explicitement un nouveau dossier complet, capitalise sur ce qui est deja etabli et reste focalise sur sa derniere intention.
-- Si la demande est impossible, privee, dangereuse ou non verifiable, refuse proprement sans halluciner puis propose une alternative utile si elle existe.
 - Si une ambiguite bloque reellement la qualite du resultat, pose une seule question nette via 'ask_user_clarification' au lieu de livrer au hasard.
 - Avant toute livraison importante, pose-toi ce filtre interne: "Est-ce qu'un bon assistant humain bien paye serait a l'aise de rendre ca a un patron ?" Si non, travaille encore ou explicite honnêtement la limite.
 
@@ -1061,9 +1060,8 @@ ${requestClock
   : "- Utilise la date courante exacte si elle est indispensable, sinon n'ancre pas artificiellement le texte dans un fait externe."}
 
 ### REGLES CRITIQUES :
-1. Si la demande cible des groupes pour les insulter ou les dehumaniser, n'ecris pas cette version.
-2. Si un detail factuel recent n'est pas certain, reste general ou demande une reformulation plus precise dans la reponse finale.
-3. La sortie finale doit etre uniquement le texte livre a l'utilisateur, sans prefacer par des explications sur ton processus.`;
+1. Si un detail factuel recent n'est pas certain, reste general ou demande une reformulation plus precise dans la reponse finale.
+2. La sortie finale doit etre uniquement le texte livre a l'utilisateur, sans prefacer par des explications sur ton processus.`;
 
   const trimmedInstruction = userInstruction?.trim();
   if (!trimmedInstruction || trimmedInstruction === LEGACY_COWORK_SYSTEM_INSTRUCTION) {
@@ -1559,7 +1557,6 @@ export const __coworkLoopInternals = {
   getCoworkToolFailureScope,
   isTransientCoworkToolIssue,
   requestIsCoworkMetaDiscussion,
-  requestRequiresAbuseBlock,
   assessReadablePageRelevance,
   applyRuntimeToolDefaults,
   resolveAutoMemoryWarning,
@@ -1784,15 +1781,6 @@ function requestAsksForWriting(message: string): boolean {
   if (requestIsCoworkMetaDiscussion(message)) return false;
   const normalized = normalizeCoworkText(message);
   return /\b(punchline|punchlines|rap|texte|paroles|lyrics|son|couplet|refrain|ecris|ecrire|redige|rediger|genere|generer|compose|composer|freestyle|topline)\b/.test(normalized);
-}
-
-function requestRequiresAbuseBlock(message: string): boolean {
-  const normalized = normalizeCoworkText(message);
-  const targetsGroup =
-    /\b(musulmans?|chiites?|sunnites?|juifs?|chretiens?|catholiques?|protestants?|ath[ea]es?|gays?|lgbt|lesbiennes?|homosexuels?|trans|transgenres?|arabes?|maghrebins?|noirs?|blancs?|asiatiques?|roms?|gitans?|immigres?|etrangers?|femmes?|hommes?)\b/.test(normalized);
-  const abuseIntent =
-    /\b(insulte|insulter|humilie|humilier|dehumanise|dehumaniser|deteste|detester|hais|haissez|haine|nique|degage|degagez|massacre|massacrer|termine|terminer|extermine|exterminer|bute|buter|tue|tuer|ecrase|ecraser)\b/.test(normalized);
-  return targetsGroup && abuseIntent;
 }
 
 function requestMentionsConcreteExternalSubject(message: string): boolean {
@@ -6184,35 +6172,6 @@ app.post('/api/cowork', async (req, res) => {
       autoRelevantMemoryChunks,
       ragConfig.maxPromptTokens,
     );
-
-    if (requestRequiresAbuseBlock(message)) {
-      const runMeta = createEmptyCoworkRunMeta();
-      runMeta.mode = executionMode;
-      runMeta.phase = 'completed';
-      runMeta.taskComplete = true;
-
-      ensureSseReady();
-
-      emitEvent('status', {
-        iteration: 0,
-        title: 'Recadrage',
-        message: "Cowork refuse la version qui vise a humilier ou dehumaniser un groupe.",
-        runState: 'running',
-        runMeta
-      });
-      emitEvent('text_delta', {
-        iteration: 0,
-        text: "Je ne vais pas ecrire un texte contre un groupe de personnes. Si tu veux, je peux te faire un texte nerveux contre un comportement, une hypocrisie, une ideologie ou un systeme sans viser une population.",
-        runMeta
-      });
-      emitEvent('done', {
-        iteration: 0,
-        runState: 'completed',
-        runMeta
-      });
-      res.end();
-      return;
-    }
 
     // Model ID mapping
     let modelId = normalizeConfiguredModelId(

@@ -3016,12 +3016,7 @@ export default function App() {
           coworkSystemInstruction && coworkSystemInstruction !== LEGACY_COWORK_SYSTEM_INSTRUCTION
             ? coworkSystemInstruction
             : undefined;
-        const shouldSuppressCoworkSystemInstruction =
-          isCoworkRun && !isAgentRun && !isGeneratedAppRun && Boolean(customCoworkSystemInstruction);
-        const sanitizedCoworkSystemInstruction =
-          shouldSuppressCoworkSystemInstruction
-            ? undefined
-            : customCoworkSystemInstruction;
+        const sanitizedCoworkSystemInstruction = customCoworkSystemInstruction;
         const agentRuntime = isAgentRun && effectiveSession.agentWorkspace
           ? {
               ...effectiveSession.agentWorkspace.agent,
@@ -3058,14 +3053,6 @@ export default function App() {
               });
             } catch { /* silencieux — l'espace de travail vide ne bloque pas */ }
           }
-        }
-
-        if (shouldSuppressCoworkSystemInstruction) {
-          studioDebug('cowork', 'Suppressed custom system instruction for pure Cowork run to avoid prompt hijacking.', {
-            sessionId: currentSessionId,
-            selectedCustomPromptId: effectiveSession.selectedCustomPrompt?.id,
-            instructionPreview: coworkSystemInstruction,
-          }, 'warn');
         }
 
         const runtimeLabel = isGeneratedAppRun

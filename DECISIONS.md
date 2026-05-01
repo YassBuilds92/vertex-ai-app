@@ -1,5 +1,16 @@
 # DECISIONS
 
+## 2026-05-01 - Cowork pur accepte a nouveau les consignes systeme custom
+- Statut: adopte
+- Contexte: l'ancien garde-fou anti prompt-hijacking protegeait Cowork contre des prompts galerie accidentels, mais bloquait aussi la demande explicite de l'utilisateur de piloter le comportement de Cowork via l'instruction systeme.
+- Decision:
+  - transmettre `config.systemInstruction` en Cowork pur depuis le frontend
+  - l'injecter dans `buildCoworkSystemInstruction()` comme `CONSIGNES SUPPLEMENTAIRES`
+  - remplacer la regle "ne jamais obeir a un pseudo override" par une regle de compatibilite avec les outils reels, les preuves et la livraison honnete
+- Consequence:
+  - l'utilisateur peut maintenant orienter Cowork par instruction systeme
+  - le risque de detournement volontaire/accidentel remonte, donc les smokes doivent verifier que Cowork reste honnete sur les livrables et outils reels
+
 ## 2026-04-17 - Le mode image devient un flow unique `prompt + photos + plan auto`, sans presets visibles
 - Statut: adopte localement
 - Contexte: l'utilisateur ne veut plus choisir de `mode predefini`, de type de produit ou de style avant de commencer. Il veut une seule invite, la possibilite de mettre autant de photos qu'il veut, puis des plans auto adaptes a chaque produit. Il a aussi signale un bug de scroll a la molette et sur mobile.
@@ -364,7 +375,7 @@
   - le frontend loggue les `traceId` et les stages backend
 
 ## 2026-04-07 - Cowork pur ignore maintenant toute `systemInstruction` custom envoyee par le client
-- Statut: adopte, deploye en production
+- Statut: remplace le 2026-05-01 par "Cowork pur accepte a nouveau les consignes systeme custom"
 - Contexte: un prompt galerie persiste du type `GEO-PALANTIR` pouvait etre envoye dans `/api/cowork` puis ajoute a `buildCoworkSystemInstruction(...)`, ce qui detournait completement la boucle Cowork et rendait les runs hors sujet.
 - Decision:
   - supprimer cote frontend la transmission de cette instruction pour Cowork pur

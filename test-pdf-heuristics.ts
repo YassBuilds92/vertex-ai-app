@@ -54,7 +54,7 @@ assert.equal(draft.theme, 'news');
 assert.equal(draft.engine, 'latex');
 assert.equal(draft.compiler, 'xelatex');
 assert.equal(draft.sourceMode, 'generated');
-assert.ok((draft.latexSource || '').includes('\\documentclass'));
+assert.equal(draft.latexSource, null);
 
 const reviewedDraft = {
   ...draft,
@@ -73,7 +73,7 @@ assert.ok(appendedStats.wordCount > draft.wordCount);
 assert.ok(appendedStats.sectionCount >= 2);
 assert.equal(appendedStats.engine, 'latex');
 assert.equal(appendedStats.compiler, 'xelatex');
-assert.equal(appendedStats.signature, buildLatexSourceSignature(appendedDraft.latexSource || '', appendedDraft.compiler));
+assert.equal(appendedStats.hasLatexSource, false);
 
 const legalDraft = createActivePdfDraft(
   attestationPrompt,

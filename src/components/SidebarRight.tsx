@@ -738,7 +738,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
 
               {activeMode === 'cowork' && activeSession.sessionKind !== 'agent' && activeSession.sessionKind !== 'generated_app' && (
                 <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100">
-                  En Cowork pur, cette instruction reste visible dans la session mais n'ecrase plus le runtime autonome.
+                  En Cowork pur, cette instruction est maintenant transmise comme consigne supplementaire du runtime.
                 </div>
               )}
 

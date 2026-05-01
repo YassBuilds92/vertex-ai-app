@@ -39,6 +39,15 @@ export function getQdrantConfig() {
   };
 }
 
+export function getAzureOpenAIImageConfig() {
+  return {
+    endpoint: String(process.env.AZURE_OPENAI_IMAGE_ENDPOINT || '').trim(),
+    apiKey: String(process.env.AZURE_OPENAI_IMAGE_API_KEY || process.env.AZURE_API_KEY || '').trim(),
+    apiVersion: String(process.env.AZURE_OPENAI_IMAGE_API_VERSION || '2024-02-01').trim() || '2024-02-01',
+    deployment: String(process.env.AZURE_OPENAI_IMAGE_DEPLOYMENT || 'gpt-image-2').trim() || 'gpt-image-2',
+  };
+}
+
 export function getCoworkRagConfig() {
   const requestedVectorSize = Number.parseInt(process.env.COWORK_RAG_VECTOR_SIZE || '', 10);
   const requestedTopK = Number.parseInt(process.env.COWORK_RAG_TOP_K || '', 10);

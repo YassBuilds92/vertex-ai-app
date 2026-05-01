@@ -18,6 +18,7 @@ import {
   normalizeImageModelId,
 } from '../../shared/image-models.js';
 import { DEFAULT_LYRIA_MODEL as SHARED_DEFAULT_LYRIA_MODEL } from '../../shared/lyria-models.js';
+import { getAzureOpenAIImageConfig } from './config.js';
 import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './google-genai.js';
 import { getGcpCredentials } from './storage.js';
 
@@ -1150,6 +1151,137 @@ function getAiplatformBaseUrl(location: string): string {
   return `https://${location === 'global' ? 'global-aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`}`;
 }
 
+function isAzureOpenAIImageModel(model: string): boolean {
+  return normalizeImageModelId(model, '') === 'gpt-image-2';
+}
+
+function resolveAzureImageUrl(kind: 'generations' | 'edits'): string {
+  const { endpoint, apiVersion, deployment } = getAzureOpenAIImageConfig();
+  if (!endpoint) {
+    throw new Error("Azure OpenAI image non configure: renseigne AZURE_OPENAI_IMAGE_ENDPOINT.");
+  }
+
+  const trimmed = endpoint.replace(/\/+$/, '');
+  if (/\/images\/(generations|edits)(\?|$)/i.test(trimmed)) {
+    const routed = trimmed.replace(/\/images\/(generations|edits)/i, `/images/${kind}`);
+    return routed.includes('api-version=') ? routed : `${routed}${routed.includes('?') ? '&' : '?'}api-version=${encodeURIComponent(apiVersion)}`;
+  }
+
+  return `${trimmed}/openai/deployments/${encodeURIComponent(deployment)}/images/${kind}?api-version=${encodeURIComponent(apiVersion)}`;
+}
+
+function mapAzureImageSize(aspectRatio?: string, imageSize?: string): string {
+  const tier = String(imageSize || '').trim().toUpperCase();
+  if (tier === '2K') {
+    if (aspectRatio === '16:9' || aspectRatio === '5:4' || aspectRatio === '4:3') return '1536x1024';
+    if (aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '3:4') return '1024x1536';
+  }
+  if (tier === '4K') return 'auto';
+
+  if (aspectRatio === '16:9' || aspectRatio === '5:4' || aspectRatio === '4:3') return '1536x1024';
+  if (aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '3:4') return '1024x1536';
+  if (aspectRatio === '1:1') return '1024x1024';
+  return 'auto';
+}
+
+function getAzureImageAuthHeaders(apiKey: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    'api-key': apiKey,
+  };
+}
+
+async function generateAzureOpenAIImageBinary(
+  options: ImageGenerationOptions,
+  model: string,
+  referenceImages: Array<{ mimeType: string; data: string }>,
+): Promise<GeneratedBinaryArtifact> {
+  const { apiKey } = getAzureOpenAIImageConfig();
+  if (!apiKey) {
+    throw new Error("Azure OpenAI image non configure: renseigne AZURE_OPENAI_IMAGE_API_KEY.");
+  }
+
+  const size = mapAzureImageSize(options.aspectRatio, options.imageSize);
+  const quality = String(options.imageSize || '').trim().toUpperCase() === '4K'
+    ? 'high'
+    : String(options.imageSize || '').trim().toUpperCase() === '2K'
+      ? 'medium'
+      : 'low';
+  const commonPayload = {
+    prompt: clipText(options.prompt, 4000),
+    size,
+    quality,
+    output_compression: 100,
+    output_format: 'png',
+    n: Math.max(1, Math.min(options.numberOfImages || 1, 4)),
+  };
+
+  const response = await retryWithBackoff(async () => {
+    if (referenceImages.length > 0) {
+      const form = new FormData();
+      form.set('prompt', commonPayload.prompt);
+      form.set('size', commonPayload.size);
+      form.set('quality', commonPayload.quality);
+      form.set('output_compression', String(commonPayload.output_compression));
+      form.set('output_format', commonPayload.output_format);
+      form.set('n', String(commonPayload.n));
+      referenceImages.slice(0, 16).forEach((reference, index) => {
+        const bytes = decodeBinaryData(reference.data);
+        form.append(
+          'image',
+          new Blob([bytes], { type: reference.mimeType }),
+          `reference-${index + 1}.${guessExtensionFromMimeType(reference.mimeType)}`,
+        );
+      });
+      return fetch(resolveAzureImageUrl('edits'), {
+        method: 'POST',
+        headers: getAzureImageAuthHeaders(apiKey),
+        body: form,
+      });
+    }
+
+    return fetch(resolveAzureImageUrl('generations'), {
+      method: 'POST',
+      headers: {
+        ...getAzureImageAuthHeaders(apiKey),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(commonPayload),
+    });
+  });
+
+  const bodyText = await response.text();
+  if (!response.ok) {
+    throw new Error(`Azure OpenAI image failed (${response.status}): ${clipText(bodyText, 500)}`);
+  }
+
+  let body: any;
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    throw new Error("Azure OpenAI image a renvoye une reponse non JSON.");
+  }
+
+  const b64 = body?.data?.[0]?.b64_json;
+  if (!b64 || typeof b64 !== 'string') {
+    throw new Error("Azure OpenAI image n'a renvoye aucune image exploitable.");
+  }
+
+  return {
+    buffer: decodeBinaryData(b64),
+    mimeType: 'image/png',
+    fileExtension: 'png',
+    model,
+    metadata: {
+      aspectRatio: options.aspectRatio,
+      imageSize: options.imageSize,
+      requestedCandidates: options.numberOfImages,
+      referenceImageCount: referenceImages.length,
+      provider: 'azure-openai',
+    },
+  };
+}
+
 function shouldRetryLyriaLocation(error: unknown): boolean {
   const normalized = parseApiError(error).toLowerCase();
   return normalized.includes('404')
@@ -1183,8 +1315,13 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
     String(options.model || DEFAULT_IMAGE_MODEL).trim() || DEFAULT_IMAGE_MODEL,
     DEFAULT_IMAGE_MODEL,
   );
-  const ai = createGoogleAI(model);
   const referenceImages = sanitizeInlineImageReferences(options.referenceImages);
+
+  if (isAzureOpenAIImageModel(model)) {
+    return generateAzureOpenAIImageBinary(options, model, referenceImages);
+  }
+
+  const ai = createGoogleAI(model);
   const config: any = {
     ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
     ...(options.numberOfImages ? { candidateCount: options.numberOfImages } : {}),

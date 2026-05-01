@@ -22,6 +22,13 @@ export const IMAGE_MODEL_OPTIONS = [
     supportsAutoAspectRatio: true,
     supportsImageSize: false,
   },
+  {
+    id: 'gpt-image-2',
+    label: 'GPT Image 2',
+    info: 'Azure OpenAI GPT Image 2',
+    supportsAutoAspectRatio: true,
+    supportsImageSize: true,
+  },
 ] as const;
 
 export type SupportedImageModelId = typeof IMAGE_MODEL_OPTIONS[number]['id'];
@@ -60,6 +67,9 @@ registerAlias('gemini 3.1 flash image', 'gemini-3.1-flash-image-preview');
 registerAlias('gemini 3.1 flash image preview', 'gemini-3.1-flash-image-preview');
 registerAlias('gemini 3 pro image', 'gemini-3-pro-image-preview');
 registerAlias('gemini 3 pro image preview', 'gemini-3-pro-image-preview');
+registerAlias('gpt image 2', 'gpt-image-2');
+registerAlias('gpt-image-2', 'gpt-image-2');
+registerAlias('azure gpt image 2', 'gpt-image-2');
 
 export function normalizeImageModelId(
   model: string | null | undefined,
@@ -72,7 +82,7 @@ export function normalizeImageModelId(
   if (aliasMatch) return aliasMatch;
 
   // Keep explicit model IDs pass-through friendly for future official image models.
-  if (/^(gemini|imagen)-/i.test(raw)) {
+  if (/^(gemini|imagen|gpt-image)-/i.test(raw)) {
     return raw;
   }
 

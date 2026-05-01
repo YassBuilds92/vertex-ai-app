@@ -9,6 +9,28 @@
 - Cout
 - Sources officielles
 
+## 2026-05-01 - Azure OpenAI `gpt-image-2` ajoute comme modele image optionnel
+- Statut: retenu localement
+- Date de verification: 2026-05-01
+- Technologie: Azure OpenAI Images REST API, deploiement `gpt-image-2`, sans nouvelle dependance npm
+- Choix:
+  - exposer `gpt-image-2` dans le catalogue image partage et les selecteurs UI
+  - router ce modele vers Azure OpenAI via `AZURE_OPENAI_IMAGE_ENDPOINT`, `AZURE_OPENAI_IMAGE_API_KEY`, `AZURE_OPENAI_IMAGE_DEPLOYMENT` et `AZURE_OPENAI_IMAGE_API_VERSION`
+  - garder Gemini Image comme defaut produit actuel
+  - utiliser `/images/generations` sans image source et `/images/edits` quand des images de reference sont fournies
+  - ne jamais stocker la vraie cle Azure dans le code ou dans la documentation versionnee
+- Alternatives evaluees:
+  - remplacer le defaut Gemini par `gpt-image-2`:
+    - ecartee pour eviter de changer le comportement par defaut sans smoke reel et sans decision produit explicite
+  - ajouter un SDK Azure/OpenAI dedie:
+    - ecartee: le contrat requis est simple et l'appel REST suffit
+- Cout:
+  - cout Azure OpenAI selon quota/deploiement du compte
+  - aucune dependance npm supplementaire
+- Sources officielles:
+  - Microsoft Foundry / Azure OpenAI deployment screen utilisateur, verifie le 2026-05-01
+  - OpenAI, [Images API reference](https://platform.openai.com/docs/api-reference/images), verifie le 2026-05-01
+
 ## 2026-04-28 - Catalogues media simplifies: Gemini Image, Gemini TTS et Lyria
 - Statut: retenu localement
 - Date de verification: 2026-04-28

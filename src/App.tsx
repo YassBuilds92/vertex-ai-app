@@ -339,6 +339,23 @@ const createClientMessageId = (prefix: string) => `${prefix}-${Date.now()}-${Mat
 const MESSAGE_VISIBILITY_LIMIT = 15;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 96;
 const MEDIA_MODES: MediaGenerationMode[] = ['image', 'video', 'audio', 'lyria'];
+const COWORK_REMOTE_PERSIST_TIMEOUT_MS = 5000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([
+    promise.finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+    }),
+    timeout,
+  ]);
+}
 
 function sanitizeOptionalText(value?: string | null) {
   const trimmed = String(value || '').trim();
@@ -2264,7 +2281,11 @@ export default function App() {
 
     if (draft && target) {
       try {
-        await persistCoworkSnapshot(draft, target);
+        await withTimeout(
+          persistCoworkSnapshot(draft, target),
+          COWORK_REMOTE_PERSIST_TIMEOUT_MS,
+          'Cowork snapshot persistence',
+        );
       } catch (error) {
         console.error('Cowork draft persistence failed:', error);
       }
@@ -3144,7 +3165,14 @@ export default function App() {
         coworkStorageWarningShownRef.current = false;
         coworkFlushTargetRef.current = { userId: user.uid, sessionId: currentSessionId };
         setCoworkDraft(modelMessage);
-        await persistCoworkSnapshot(modelMessage, { userId: user.uid, sessionId: currentSessionId });
+        saveCoworkSessionSnapshot(user.uid, currentSessionId, modelMessage);
+        void withTimeout(
+          persistCoworkSnapshot(modelMessage, { userId: user.uid, sessionId: currentSessionId }),
+          COWORK_REMOTE_PERSIST_TIMEOUT_MS,
+          'Initial Cowork snapshot persistence',
+        ).catch((error) => {
+          console.error('Initial Cowork snapshot persistence failed:', error);
+        });
         studioDebug('cowork', 'Cowork stream initialized.', {
           sessionId: currentSessionId,
           runtimeLabel,

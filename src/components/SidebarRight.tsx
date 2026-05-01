@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import {
   Check,
   ChevronDown,
@@ -170,6 +170,12 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
       ? levels.filter((level) => level.id !== 'minimal')
       : levels;
   }, [config?.model]);
+
+  useEffect(() => {
+    if (/pro-preview/i.test(config?.model || '') && config?.thinkingLevel === 'minimal') {
+      setConfig({ thinkingLevel: 'low' as any });
+    }
+  }, [config?.model, config?.thinkingLevel, setConfig]);
 
   const selectedPromptIsDirty = Boolean(
     selectedCustomPrompt

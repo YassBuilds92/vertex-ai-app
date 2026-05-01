@@ -1,5 +1,24 @@
 # BUGS GRAVEYARD
 
+## 2026-05-01 - Cowork echouait quand un ancien reglage envoyait `thinkingLevel: minimal` a Gemini 3.1 Pro
+- Statut: corrige localement, redeploiement prod requis
+- Symptome:
+  - le mode Cowork demarre puis renvoie une erreur SSE:
+    - `thinking_level MINIMAL is not supported by this model`
+  - le probleme apparait surtout si l'etat persistant navigateur garde le niveau de reflexion `minimal` alors que le modele texte est `gemini-3.1-pro-preview`
+- Cause racine:
+  - `buildThinkingConfig()` transmettait directement `thinkingLevel: "minimal"` aux modeles Gemini 3.x
+  - l'UI masquait deja parfois l'option `Eco`, mais ne reparait pas les anciennes configs Zustand/localStorage deja persistees
+- Resolution:
+  - `server/lib/google-genai.ts` normalise maintenant `minimal` vers `low` pour les modeles Gemini 3.x avant appel Vertex
+  - `src/components/SidebarRight.tsx` remplace aussi automatiquement `minimal` par `low` quand un modele `pro-preview` est actif
+  - `test-cowork-loop.ts` couvre la normalisation
+- Preuve:
+  - reproduction Vercel avant correction: `/api/cowork` retourne l'erreur `thinking_level MINIMAL`
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+
 ## 2026-04-15 - Le premier send apres edition du prompt system repartait encore avec l'ancien cadre et l'ancien contexte
 - Statut: corrige localement
 - Symptome:

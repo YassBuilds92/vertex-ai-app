@@ -1,5 +1,37 @@
 # SESSION STATE
 
+## 2026-05-01 - Cowork repare pour les anciens reglages `thinkingLevel=minimal`
+
+### Ce qui a ete accompli
+- Reproduction directe sur Vercel:
+  - `/api/cowork` echouait avec `thinking_level MINIMAL is not supported by this model`
+  - le meme smoke avec `low`, `medium` ou `high` passait
+- `server/lib/google-genai.ts`:
+  - `buildThinkingConfig()` mappe maintenant `minimal` vers `low` pour les modeles Gemini 3.x
+- `src/components/SidebarRight.tsx`:
+  - si un ancien etat persistant garde `minimal` avec un modele `pro-preview`, la sidebar le corrige automatiquement en `low`
+- `test-cowork-loop.ts`:
+  - ajout d'une assertion de regression sur cette normalisation
+- `BUGS_GRAVEYARD.md`:
+  - ajout du diagnostic et de la resolution
+
+### Validation locale
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` -> OK
+- `npm run lint` -> OK
+- `npm run build` -> OK
+
+### Validation restante
+- commit + push
+- deploy Vercel prod
+- smoke reel Vercel `/api/cowork` avec `thinkingLevel=minimal` pour confirmer que la prod ne casse plus
+
+### Fichiers modifies
+- `server/lib/google-genai.ts`
+- `src/components/SidebarRight.tsx`
+- `test-cowork-loop.ts`
+- `BUGS_GRAVEYARD.md`
+- `SESSION_STATE.md`
+
 ## 2026-04-17 - Image Studio refondu en flow unique `prompt + photos + plan auto`
 
 ### Ce qui a ete accompli

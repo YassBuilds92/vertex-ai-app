@@ -5,7 +5,7 @@ process.env.COWORK_ENABLE_CONSCIOUS_LOOP = '1';
 
 const { __coworkLoopInternals } = await import('./api/index.ts');
 const { __coworkPdfInternals } = await import('./api/index.ts');
-const { retryWithBackoff } = await import('./server/lib/google-genai.ts');
+const { buildThinkingConfig, retryWithBackoff } = await import('./server/lib/google-genai.ts');
 const { pickHubAgentRecord, sanitizeHubAgentRecord, summarizeHubAgentsForPrompt } = await import('./server/lib/agents.ts');
 const { buildApiHistoryFromMessages } = await import('./src/utils/chat-parts.ts');
 const { __qdrantInternals } = await import('./server/lib/qdrant.ts');
@@ -63,6 +63,16 @@ const baseResearch = {
   musicCatalogCompleted: false,
   musicCatalogCoverage: null,
 };
+
+{
+  const config = buildThinkingConfig('gemini-3.1-pro-preview', {
+    thinkingLevel: 'minimal',
+    maxThoughtTokens: 128,
+    includeThoughts: false,
+  }) as any;
+  assert.equal(config.thinkingLevel, 'low');
+  assert.equal(config.includeThoughts, false);
+}
 
 {
   const runtimeApp = {

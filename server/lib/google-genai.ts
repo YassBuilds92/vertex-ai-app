@@ -197,14 +197,17 @@ export function buildThinkingConfig(
   const isGemini3Series = /gemini-3(\.1)?-/.test(normalizedModel);
   const isGemini25Series = /gemini-2\.5-/.test(normalizedModel);
   const thinkingConfig: Record<string, unknown> = {};
+  const requestedThinkingLevel = options.thinkingLevel === 'minimal'
+    ? 'low'
+    : options.thinkingLevel;
 
   if (typeof options.includeThoughts === 'boolean') {
     thinkingConfig.includeThoughts = options.includeThoughts;
   }
 
   if (isGemini3Series) {
-    if (options.thinkingLevel) {
-      thinkingConfig.thinkingLevel = options.thinkingLevel;
+    if (requestedThinkingLevel) {
+      thinkingConfig.thinkingLevel = requestedThinkingLevel;
     }
   } else if (isGemini25Series && Number.isFinite(options.maxThoughtTokens)) {
     thinkingConfig.thinkingBudget = Math.max(0, Math.round(options.maxThoughtTokens || 0));

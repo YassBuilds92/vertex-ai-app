@@ -18,6 +18,7 @@
   - router ce modele vers Azure OpenAI via `AZURE_OPENAI_IMAGE_ENDPOINT`, `AZURE_OPENAI_IMAGE_API_KEY`, `AZURE_OPENAI_IMAGE_DEPLOYMENT` et `AZURE_OPENAI_IMAGE_API_VERSION`
   - garder Gemini Image comme defaut produit actuel
   - utiliser `/images/generations` sans image source et `/images/edits` quand des images de reference sont fournies
+  - adapter les options UI/API au contrat Azure: ratio -> `size` (`auto`, `1024x1024`, `1536x1024`, `1024x1536`) et qualite -> `quality` (`low`, `medium`, `high`)
   - ne jamais stocker la vraie cle Azure dans le code ou dans la documentation versionnee
 - Alternatives evaluees:
   - remplacer le defaut Gemini par `gpt-image-2`:

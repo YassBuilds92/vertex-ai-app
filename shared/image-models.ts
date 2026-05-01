@@ -112,3 +112,11 @@ export function imageModelSupportsAutoAspectRatio(model: string | null | undefin
 export function imageModelSupportsImageSize(model: string | null | undefined): boolean {
   return Boolean(getImageModelOption(model)?.supportsImageSize);
 }
+
+export function isAzureOpenAIImageModel(model: string | null | undefined): boolean {
+  return normalizeImageModelId(model, '') === 'gpt-image-2';
+}
+
+export function getImageModelSizeControlLabel(model: string | null | undefined): string {
+  return isAzureOpenAIImageModel(model) ? 'Qualite' : 'Taille';
+}

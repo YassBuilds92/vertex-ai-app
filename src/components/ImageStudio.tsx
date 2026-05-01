@@ -19,9 +19,11 @@ import { twMerge } from 'tailwind-merge';
 import {
   getImageModelLabel,
   getImageModelOption,
+  getImageModelSizeControlLabel,
   imageModelSupportsAutoAspectRatio,
   imageModelSupportsImageSize,
   IMAGE_MODEL_OPTIONS,
+  isAzureOpenAIImageModel,
 } from '../../shared/image-models.js';
 import { getPromptRefinerProfile } from '../../shared/prompt-refiners.js';
 import { useStore } from '../store/useStore';
@@ -42,9 +44,17 @@ const aspectRatios = [
   { value: '9:16', label: '9:16' },
   { value: '4:3', label: '4:3' },
   { value: '3:4', label: '3:4' },
+  { value: '3:2', label: '3:2' },
+  { value: '2:3', label: '2:3' },
 ] as const;
 
 const imageSizes = ['1K', '2K', '4K'] as const;
+const azureQualityLabels: Record<typeof imageSizes[number], string> = {
+  '1K': 'Basse',
+  '2K': 'Moyenne',
+  '4K': 'Haute',
+};
+const azureAspectRatios = new Set(['', '1:1', '3:2', '2:3']);
 
 function RatioShape({ ratio }: { ratio: string }) {
   if (!ratio) return <span className="text-[9px] font-black opacity-70">A</span>;
@@ -92,6 +102,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const config = configs.image;
   const activeRefinerProfile = getPromptRefinerProfile('image', config.refinerProfileId);
   const selectedModel = getImageModelOption(config.model);
+  const isAzureImageModel = isAzureOpenAIImageModel(config.model);
   const supportsAutoRatio = imageModelSupportsAutoAspectRatio(config.model);
   const supportsImageSize = imageModelSupportsImageSize(config.model);
 
@@ -117,8 +128,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     [pendingAttachments],
   );
   const visibleRatios = useMemo(
-    () => aspectRatios.filter((ratio) => supportsAutoRatio || ratio.value),
-    [supportsAutoRatio],
+    () => aspectRatios.filter((ratio) => {
+      if (isAzureImageModel) return azureAspectRatios.has(ratio.value);
+      return supportsAutoRatio || ratio.value;
+    }),
+    [isAzureImageModel, supportsAutoRatio],
   );
   const featuredPrompt = featuredImage?.refinedPrompt || featuredImage?.prompt || '';
   const canSubmit = Boolean(prompt.trim()) && !isLoading && !isRefining;
@@ -139,6 +153,12 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
       setConfig({ aspectRatio: '1:1' });
     }
   }, [config.aspectRatio, setConfig, supportsAutoRatio]);
+
+  useEffect(() => {
+    if (isAzureImageModel && !azureAspectRatios.has(config.aspectRatio || '')) {
+      setConfig({ aspectRatio: '' });
+    }
+  }, [config.aspectRatio, isAzureImageModel, setConfig]);
 
   const copyPrompt = async (value: string | undefined, promptId: string) => {
     if (!value?.trim()) return;
@@ -332,7 +352,9 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                 {supportsImageSize ? (
                   <div className="space-y-1.5">
-                    <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Taille</span>
+                    <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">
+                      {getImageModelSizeControlLabel(config.model)}
+                    </span>
                     <div className="grid grid-cols-3 gap-1.5">
                       {imageSizes.map((size) => (
                         <button
@@ -346,7 +368,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                               : 'border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
                           )}
                         >
-                          {size}
+                          {isAzureImageModel ? azureQualityLabels[size] : size}
                         </button>
                       ))}
                     </div>

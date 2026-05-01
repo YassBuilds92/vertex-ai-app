@@ -15,6 +15,7 @@ import {
 } from '../../shared/gemini-tts.js';
 import {
   DEFAULT_IMAGE_MODEL as SHARED_DEFAULT_IMAGE_MODEL,
+  isAzureOpenAIImageModel,
   normalizeImageModelId,
 } from '../../shared/image-models.js';
 import { DEFAULT_LYRIA_MODEL as SHARED_DEFAULT_LYRIA_MODEL } from '../../shared/lyria-models.js';
@@ -1151,10 +1152,6 @@ function getAiplatformBaseUrl(location: string): string {
   return `https://${location === 'global' ? 'global-aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`}`;
 }
 
-function isAzureOpenAIImageModel(model: string): boolean {
-  return normalizeImageModelId(model, '') === 'gpt-image-2';
-}
-
 function resolveAzureImageUrl(kind: 'generations' | 'edits'): string {
   const { endpoint, apiVersion, deployment } = getAzureOpenAIImageConfig();
   if (!endpoint) {
@@ -1172,15 +1169,18 @@ function resolveAzureImageUrl(kind: 'generations' | 'edits'): string {
 
 function mapAzureImageSize(aspectRatio?: string, imageSize?: string): string {
   const tier = String(imageSize || '').trim().toUpperCase();
-  if (tier === '2K') {
-    if (aspectRatio === '16:9' || aspectRatio === '5:4' || aspectRatio === '4:3') return '1536x1024';
-    if (aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '3:4') return '1024x1536';
-  }
-  if (tier === '4K') return 'auto';
-
-  if (aspectRatio === '16:9' || aspectRatio === '5:4' || aspectRatio === '4:3') return '1536x1024';
-  if (aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '3:4') return '1024x1536';
+  if (tier === 'AUTO') return 'auto';
+  if (aspectRatio === '3:2' || aspectRatio === '16:9' || aspectRatio === '5:4' || aspectRatio === '4:3') return '1536x1024';
+  if (aspectRatio === '2:3' || aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '3:4') return '1024x1536';
   if (aspectRatio === '1:1') return '1024x1024';
+  return 'auto';
+}
+
+function mapAzureImageQuality(imageSize?: string): 'low' | 'medium' | 'high' | 'auto' {
+  const value = String(imageSize || '').trim().toUpperCase();
+  if (value === '1K' || value === 'LOW') return 'low';
+  if (value === '2K' || value === 'MEDIUM') return 'medium';
+  if (value === '4K' || value === 'HIGH') return 'high';
   return 'auto';
 }
 
@@ -1202,11 +1202,7 @@ async function generateAzureOpenAIImageBinary(
   }
 
   const size = mapAzureImageSize(options.aspectRatio, options.imageSize);
-  const quality = String(options.imageSize || '').trim().toUpperCase() === '4K'
-    ? 'high'
-    : String(options.imageSize || '').trim().toUpperCase() === '2K'
-      ? 'medium'
-      : 'low';
+  const quality = mapAzureImageQuality(options.imageSize);
   const commonPayload = {
     prompt: clipText(options.prompt, 4000),
     size,

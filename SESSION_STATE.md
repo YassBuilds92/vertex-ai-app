@@ -20,10 +20,13 @@
 - `npm run lint` -> OK
 - `npm run build` -> OK
 
-### Validation restante
-- commit + push
-- deploy Vercel prod
-- smoke reel Vercel `/api/cowork` avec `thinkingLevel=minimal` pour confirmer que la prod ne casse plus
+### Validation production
+- commit `1f44b07` pousse sur `main`
+- deploy Vercel prod -> alias `https://vertex-ai-app-pearl.vercel.app`
+- smoke reel Vercel `/api/cowork` avec `thinkingLevel=minimal` -> OK:
+  - SSE `text_delta`: `OK, c'est note.`
+  - SSE `done`
+  - aucune erreur `thinking_level MINIMAL`
 
 ### Fichiers modifies
 - `server/lib/google-genai.ts`

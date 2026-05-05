@@ -1,5 +1,40 @@
 # SESSION STATE
 
+## 2026-05-05 - Reprise finale refonte media: texte et doublons retires
+
+### Ce qui a ete accompli
+- Studios `image`, `video`, `audio` et `lyria`:
+  - suppression du header marketing visible, des metriques centrales et des reglages dupliques au centre.
+  - le centre ne garde plus que l'entree principale, le rendu et la copie du prompt.
+  - les longs prompts sources ne sont plus affiches en paragraphes; ils restent recopiables via un bouton.
+  - `audio` et `lyria` n'affichent plus toute la liste des sorties dans le studio: seul le rendu principal est mis en avant.
+- Panneau droit en modes media:
+  - suppression du bloc `Theme`.
+  - suppression des notes explicatives longues audio/Lyria.
+  - aplatissement visuel des reglages media pour eviter l'effet cartes/boites.
+- Sidebar gauche:
+  - masquage de la liste d'historique en modes media pour retirer les titres repetes type `Nouvelle conversation`.
+
+### Validation locale
+- `npm run lint` -> OK
+- `npm run build` -> OK
+- Captures CDP finales sur le harness media:
+  - desktop/mobile pour `image`, `video`, `audio`, `lyria`
+  - `docScrollWidth == viewport`, `docScrollHeight == viewport`
+  - aucun scroll X/Y detecte sur les 8 captures
+  - plus aucun `Prompt source`, `Modele` ou `Theme` visible dans le studio central
+
+### Fichiers principaux modifies
+- `src/components/MediaStudioLayout.tsx`
+- `src/components/ImageStudio.tsx`
+- `src/components/VideoStudio.tsx`
+- `src/components/AudioStudio.tsx`
+- `src/components/LyriaStudio.tsx`
+- `src/components/StudioAudioPlayer.tsx`
+- `src/components/SidebarRight.tsx`
+- `src/components/SidebarLeft.tsx`
+- `src/index.css`
+
 ## 2026-05-05 - Nettoyage UI Hub/Raffineur, defaults Google et studios media aeres
 
 ### Ce qui a ete accompli

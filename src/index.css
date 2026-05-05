@@ -332,6 +332,45 @@
   box-shadow: var(--app-shadow);
 }
 
+[data-media-settings="true"] .studio-panel,
+[data-media-settings="true"] .studio-panel-strong {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+[data-media-settings="true"] .studio-panel:not(:first-child) {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  padding-top: 1rem !important;
+}
+
+[data-media-settings="true"] button,
+[data-media-settings="true"] input,
+[data-media-settings="true"] textarea,
+[data-media-settings="true"] select {
+  border-radius: 0 !important;
+}
+
+[data-media-settings="true"] button {
+  background: transparent !important;
+  box-shadow: none !important;
+  border-left-color: transparent !important;
+  border-right-color: transparent !important;
+  border-top-color: transparent !important;
+}
+
+[data-media-settings="true"] button [class*="bg-"] {
+  background: transparent !important;
+}
+
+[data-media-settings="true"] input,
+[data-media-settings="true"] textarea,
+[data-media-settings="true"] select {
+  background: transparent !important;
+}
+
 .studio-divider {
   height: 1px;
   background: var(--app-border);

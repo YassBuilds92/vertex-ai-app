@@ -247,22 +247,17 @@ export const StudioAudioPlayer: React.FC<StudioAudioPlayerProps> = ({
 
         {prompt && (
           <div className="border-t border-white/[0.08] pt-2">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                Prompt source
-              </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[10px] font-bold uppercase text-[var(--app-text-muted)]">Prompt</div>
               <button
                 type="button"
                 onClick={handleCopyPrompt}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-[10px] font-semibold text-[var(--app-text)] transition-colors hover:bg-white/[0.08]"
+                className="inline-flex items-center gap-1.5 border-b border-white/[0.16] px-1 py-1 text-xs font-semibold text-[var(--app-text)] hover:border-[var(--media-accent)]"
               >
                 {copiedPrompt ? <Check size={11} /> : <Copy size={11} />}
                 {copiedPrompt ? 'Copie' : 'Copier'}
               </button>
             </div>
-            <p className={cn('text-[12px] leading-relaxed text-[var(--app-text)]/84', compact && 'line-clamp-2')}>
-              {prompt}
-            </p>
           </div>
         )}
       </div>

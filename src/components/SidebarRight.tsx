@@ -21,11 +21,9 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 import {
-  findGeminiTtsVoice,
   GEMINI_TTS_MODEL_LABELS,
   GEMINI_TTS_MODEL_OPTIONS,
   GEMINI_TTS_VOICES,
-  modelSupportsGeminiTtsMultiSpeaker,
 } from '../../shared/gemini-tts.js';
 import {
   IMAGE_MODEL_LABELS,
@@ -138,11 +136,8 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
   ].filter((model) => model.modes.includes(activeMode))), [activeMode]);
 
   const isTextMode = activeMode === 'chat' || activeMode === 'cowork';
+  const isMediaMode = activeMode === 'image' || activeMode === 'video' || activeMode === 'audio' || activeMode === 'lyria';
   const selectedModelLabel = modelNameMap[config?.model || ''] || config?.model || 'Modele';
-  const selectedAudioVoice = activeMode === 'audio' ? findGeminiTtsVoice(config?.ttsVoice || 'Kore') : null;
-  const audioSupportsMultiSpeaker = activeMode === 'audio'
-    ? modelSupportsGeminiTtsMultiSpeaker(config?.model || '')
-    : false;
   const hasCustomSampling = hasCustomGenerationDefaults(activeMode, config);
   const resetSamplingDefaults = () => setConfig(getGoogleRecommendedGenerationDefaults(activeMode));
   const thinkingLevels = useMemo(() => {
@@ -253,6 +248,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
 
   return (
     <div
+      data-media-settings={isMediaMode ? 'true' : undefined}
       className={cn(
         'fixed inset-y-0 right-0 z-50 flex h-full flex-col overflow-hidden border-l border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))] transition-all duration-200 ease-out md:relative md:inset-auto',
         isRightSidebarVisible
@@ -275,7 +271,8 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
       </div>
 
       <div className="relative z-10 flex-1 overflow-x-visible overflow-y-auto px-4 py-5 sm:px-5">
-        <div className="space-y-6">
+        <div className={cn(isMediaMode ? 'space-y-4' : 'space-y-6')}>
+          {!isMediaMode && (
           <div className="studio-panel rounded-xl p-4">
             <div className="space-y-3">
               {renderSectionTitle('Theme')}
@@ -307,11 +304,12 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
               </div>
             </div>
           </div>
+          )}
 
 
           <div className="studio-panel rounded-xl p-4">
             <div className="space-y-3">
-              {renderSectionTitle('Modele de langage')}
+              {renderSectionTitle(isMediaMode ? 'Modele' : 'Modele de langage')}
               <div className="space-y-3">
                 <button
                   onClick={() => setIsModelListOpen((current) => !current)}
@@ -326,7 +324,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                     </div>
                     <div className="flex flex-col gap-0.5">
                       <span className="text-[13px] font-bold tracking-tight text-[var(--app-text)]">{selectedModelLabel}</span>
-                      <span className="text-[10px] text-[var(--app-text-muted)] opacity-70">{modelSubtitleByMode[activeMode]}</span>
+                      {!isMediaMode && (
+                        <span className="text-[10px] text-[var(--app-text-muted)] opacity-70">{modelSubtitleByMode[activeMode]}</span>
+                      )}
                     </div>
                   </div>
                   <ChevronDown size={14} className={cn('text-[var(--app-text-muted)] transition-transform duration-300', isModelListOpen && 'rotate-180')} />
@@ -361,7 +361,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                             >
                               <div className="flex flex-col">
                                 <span>{model.label}</span>
-                                <span className="text-[10px] font-normal text-[var(--app-text-muted)] opacity-60">{model.info}</span>
+                                {!isMediaMode && (
+                                  <span className="text-[10px] font-normal text-[var(--app-text-muted)] opacity-60">{model.info}</span>
+                                )}
                               </div>
                               {config?.model === model.id && <Check size={14} className="text-[var(--app-accent)]" />}
                             </button>
@@ -463,11 +465,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                       </option>
                     ))}
                   </select>
-                  <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2 text-[11px] text-[var(--app-text-muted)]">
-                    {selectedAudioVoice
-                      ? `${selectedAudioVoice.name} - ${selectedAudioVoice.style} - ${selectedAudioVoice.gender === 'female' ? 'voix feminine' : 'voix masculine'}`
-                      : 'Catalogue officiel Gemini TTS charge.'}
-                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -485,15 +482,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                   <textarea
                     value={config.ttsStyleInstructions || ''}
                     onChange={(event) => setConfig({ ttsStyleInstructions: event.target.value })}
-                    placeholder="Ex: parle comme un animateur radio chaleureux, rythme pose, sourire dans la voix."
+                    placeholder="Ton, rythme, intention..."
                     className="w-full min-h-24 resize-none rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
                   />
-                </div>
-
-                <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                  {audioSupportsMultiSpeaker
-                    ? 'Le modele audio choisi supporte le multi-speaker Gemini TTS a 2 intervenants.'
-                    : 'Le modele audio choisi reste single-speaker. Pour un duo, bascule sur Gemini 3.1 Flash TTS, Gemini 2.5 Flash TTS ou Gemini 2.5 Pro TTS.'}
                 </div>
               </div>
             </div>
@@ -520,9 +511,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                         x{count}
                       </button>
                     ))}
-                  </div>
-                  <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                    `lyria-002` reste le choix robuste. Les variantes preview Lyria 3 restent utiles pour tester des rendus plus ambitieux.
                   </div>
                 </div>
 

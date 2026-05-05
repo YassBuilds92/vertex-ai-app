@@ -7,21 +7,15 @@ import {
 
 import {
   getLyriaModelLabel,
-  LYRIA_MODEL_OPTIONS,
 } from '../../shared/lyria-models.js';
 import { useStore } from '../store/useStore';
 import { MediaGenerationRequest, Message } from '../types';
-import { getGoogleRecommendedGenerationDefaults } from '../utils/generation-defaults';
 import { buildAudioHistory } from '../utils/media-gallery-history';
 import {
-  ChoiceButton,
   EmptyOutput,
-  InlineNotice,
   MediaField,
-  MediaInput,
   MediaPanel,
   MediaPanelHeader,
-  MediaSelect,
   MediaStudioShell,
   MediaTextarea,
   PrimaryActionButton,
@@ -48,11 +42,12 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
   isLoading,
   messages,
 }) => {
-  const { configs, setConfig } = useStore();
+  const { configs } = useStore();
   const config = configs.lyria;
   const [prompt, setPrompt] = useState('');
 
   const allTracks = useMemo(() => buildAudioHistory(messages, { mode: 'lyria' }), [messages]);
+  const featuredTrack = allTracks[0] || null;
   const canSubmit = Boolean(prompt.trim()) && !isLoading;
   const modelLabel = getLyriaModelLabel(config.model);
   const sampleCount = config.sampleCount || 1;
@@ -73,8 +68,8 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
         icon={Music}
       />
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(5rem,1fr)_auto_auto_auto] gap-3 pt-2">
-        <MediaField label="Prompt musical" className="min-h-0">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-3 pt-2">
+        <MediaField label="Prompt" className="min-h-0">
           <MediaTextarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
@@ -84,48 +79,8 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
                 void handleSubmit();
               }
             }}
-            placeholder="Energie, tempo, instruments, texture, structure, emotion dominante..."
+            placeholder="Decris le morceau..."
             rows={8}
-          />
-        </MediaField>
-
-        <div className="grid gap-4 sm:grid-cols-[1fr_12rem]">
-          <MediaField label="Modele">
-            <MediaSelect
-              value={config.model}
-              onChange={(event) => setConfig({
-                model: event.target.value,
-                ...getGoogleRecommendedGenerationDefaults('lyria'),
-              })}
-            >
-              {LYRIA_MODEL_OPTIONS.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                </option>
-              ))}
-            </MediaSelect>
-          </MediaField>
-
-          <MediaField label="Variantes">
-            <div className="grid grid-cols-4 gap-2">
-              {[1, 2, 3, 4].map((count) => (
-                <ChoiceButton
-                  key={count}
-                  active={sampleCount === count}
-                  onClick={() => setConfig({ sampleCount: count })}
-                >
-                  {count}
-                </ChoiceButton>
-              ))}
-            </div>
-          </MediaField>
-        </div>
-
-        <MediaField label="Negative prompt">
-          <MediaInput
-            value={config.negativePrompt || ''}
-            onChange={(event) => setConfig({ negativePrompt: event.target.value })}
-            placeholder="sons, styles ou ambiances a eviter"
           />
         </MediaField>
 
@@ -133,8 +88,8 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
           onClick={handleSubmit}
           disabled={!canSubmit}
           loading={isLoading}
-          loadingLabel="Composition..."
-          idleLabel="Composer le morceau"
+          loadingLabel="..."
+          idleLabel="Composer"
           icon={Sparkles}
         />
       </div>
@@ -147,44 +102,32 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
         label="Sortie"
         title={modelLabel}
         detail={`${allTracks.length} piste${allTracks.length > 1 ? 's' : ''}`}
-        action={(
-          <div className="border-l border-white/[0.08] pl-3 text-xs font-semibold text-[var(--app-text-muted)]">
-            {allTracks.length} piste{allTracks.length > 1 ? 's' : ''}
-          </div>
-        )}
+        icon={Music}
       />
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-hidden pt-2">
-        {allTracks.length === 0 && !isLoading ? (
+      <div className="grid min-h-0 flex-1 pt-2">
+        {!featuredTrack && !isLoading ? (
           <EmptyOutput
             icon={Music}
             title="Aucun morceau"
-            detail="Les pistes Lyria apparaitront avec leur prompt source."
           />
+        ) : !featuredTrack && isLoading ? (
+          <div className="flex min-h-0 items-center justify-center">
+            <Loader2 size={28} className="animate-spin text-[var(--media-accent)]" />
+          </div>
         ) : (
-          <>
-            {isLoading && (
-              <InlineNotice className="flex items-center gap-3">
-                <Loader2 size={18} className="animate-spin text-[var(--media-accent)]" />
-                Composition en cours...
-              </InlineNotice>
-            )}
-
-            {allTracks.map((track, index) => (
-              <StudioAudioPlayer
-                key={track.id}
-                src={track.url}
-                title={track.name || `Piste ${allTracks.length - index}`}
-                subtitle={track.model || track.mimeType || config.model}
-                prompt={track.prompt}
-                downloadName={track.name || 'lyria-track.wav'}
-                compact={index > 0}
-                accentRgb="52,211,153"
-                accentEndRgb="250,204,21"
-                accentInk="#061105"
-              />
-            ))}
-          </>
+          featuredTrack && (
+            <StudioAudioPlayer
+              key={featuredTrack.id}
+              src={featuredTrack.url}
+              title="Morceau"
+              prompt={featuredTrack.prompt}
+              downloadName={featuredTrack.name || 'lyria-track.wav'}
+              accentRgb="52,211,153"
+              accentEndRgb="250,204,21"
+              accentInk="#061105"
+            />
+          )
         )}
       </div>
     </MediaPanel>
@@ -204,6 +147,7 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
       ]}
       composer={composer}
       stage={stage}
+      rootProps={{ 'data-lyria-studio-scroll': 'true' }}
     />
   );
 };

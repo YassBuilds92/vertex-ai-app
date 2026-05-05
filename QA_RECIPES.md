@@ -605,6 +605,10 @@
   - les controles natifs longs ne doivent pas pousser la scene hors ecran
   - l'UI doit rester une surface continue, sans grosses cartes/panneaux arrondis
   - les lecteurs audio gardent un accent distinct entre Voix et Lyria
+  - le studio central ne doit plus afficher les reglages deja presents dans le panneau droit (`Modele`, `Voix`, `Format`, `Resolution`, `Variantes`)
+  - le prompt source doit rester copiable sans afficher le prompt complet comme paragraphe
+  - les modes media ne doivent plus afficher la liste d'historique repetitive dans la sidebar gauche
+  - le panneau droit media ne doit pas afficher le bloc `Theme` ni de notes explicatives longues par defaut
 
 ## Cowork - sans Hub Agents
 - Objectif:

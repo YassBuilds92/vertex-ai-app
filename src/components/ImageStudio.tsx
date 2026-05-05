@@ -13,25 +13,18 @@ import {
 import {
   getImageModelLabel,
   getImageModelOption,
-  getImageModelSizeControlLabel,
   imageModelSupportsAutoAspectRatio,
-  imageModelSupportsImageSize,
-  IMAGE_MODEL_OPTIONS,
   isAzureOpenAIImageModel,
 } from '../../shared/image-models.js';
 import { useStore } from '../store/useStore';
 import { Attachment, MediaGenerationRequest, Message } from '../types';
-import { getGoogleRecommendedGenerationDefaults } from '../utils/generation-defaults';
 import { buildImageHistory } from '../utils/media-gallery-history';
 import {
-  ChoiceButton,
   EmptyOutput,
   IconAction,
-  InlineNotice,
   MediaField,
   MediaPanel,
   MediaPanelHeader,
-  MediaSelect,
   MediaStudioShell,
   MediaTextarea,
   PrimaryActionButton,
@@ -48,39 +41,7 @@ const imageTone: MediaStudioTone = {
   icon: ImageIcon,
 };
 
-const aspectRatios = [
-  { value: '', label: 'Auto' },
-  { value: '1:1', label: '1:1' },
-  { value: '4:5', label: '4:5' },
-  { value: '5:4', label: '5:4' },
-  { value: '16:9', label: '16:9' },
-  { value: '9:16', label: '9:16' },
-  { value: '4:3', label: '4:3' },
-  { value: '3:4', label: '3:4' },
-  { value: '3:2', label: '3:2' },
-  { value: '2:3', label: '2:3' },
-] as const;
-
-const imageSizes = ['1K', '2K', '4K'] as const;
-const azureQualityLabels: Record<typeof imageSizes[number], string> = {
-  '1K': 'Basse',
-  '2K': 'Moyenne',
-  '4K': 'Haute',
-};
 const azureAspectRatios = new Set(['', '1:1', '3:2', '2:3']);
-
-function RatioShape({ ratio }: { ratio: string }) {
-  if (!ratio) return <span className="text-[10px] font-black opacity-75">A</span>;
-  const [w, h] = ratio.split(':').map(Number);
-  const maxDim = 14;
-  const scale = Math.min(maxDim / w, maxDim / h);
-  return (
-    <span
-      className="inline-block rounded-[2px] border-[1.5px] border-current"
-      style={{ width: Math.max(5, w * scale), height: Math.max(5, h * scale) }}
-    />
-  );
-}
 
 interface ImageStudioProps {
   onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
@@ -106,7 +67,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const selectedModel = getImageModelOption(config.model);
   const isAzureImageModel = isAzureOpenAIImageModel(config.model);
   const supportsAutoRatio = imageModelSupportsAutoAspectRatio(config.model);
-  const supportsImageSize = imageModelSupportsImageSize(config.model);
 
   const [prompt, setPrompt] = useState('');
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
@@ -124,13 +84,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const sourceImages = useMemo(
     () => pendingAttachments.filter((attachment) => attachment.type === 'image'),
     [pendingAttachments],
-  );
-  const visibleRatios = useMemo(
-    () => aspectRatios.filter((ratio) => {
-      if (isAzureImageModel) return azureAspectRatios.has(ratio.value);
-      return supportsAutoRatio || ratio.value;
-    }),
-    [isAzureImageModel, supportsAutoRatio],
   );
   const canSubmit = Boolean(prompt.trim()) && !isLoading;
   const selectedModelLabel = selectedModel?.label || getImageModelLabel(config.model);
@@ -184,8 +137,8 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         icon={ImageIcon}
       />
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(5rem,1fr)_auto_auto_auto_minmax(3.4rem,auto)_auto] gap-2 pt-2">
-        <MediaField label="Brief visuel" className="min-h-0">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto_auto] gap-3 pt-2">
+        <MediaField label="Brief" className="min-h-0">
           <MediaTextarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
@@ -195,88 +148,21 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                 void handleSubmit();
               }
             }}
-            placeholder="Sujet, cadrage, lumiere, style, matiere, details a conserver..."
+            placeholder="Decris l'image..."
             rows={8}
           />
         </MediaField>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <MediaField label="Modele">
-            <MediaSelect
-              value={config.model}
-              onChange={(event) => setConfig({
-                model: event.target.value,
-                ...getGoogleRecommendedGenerationDefaults('image'),
-              })}
-            >
-              {IMAGE_MODEL_OPTIONS.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                </option>
-              ))}
-            </MediaSelect>
-          </MediaField>
-
-          <MediaField label="Images">
-            <div className="grid grid-cols-4 gap-2">
-              {[1, 2, 3, 4].map((count) => (
-                <ChoiceButton
-                  key={count}
-                  active={(config.numberOfImages || 1) === count}
-                  onClick={() => setConfig({ numberOfImages: count })}
-                >
-                  {count}
-                </ChoiceButton>
-              ))}
-            </div>
-          </MediaField>
-        </div>
-
-        <MediaField label="Ratio">
-          <div className="grid grid-cols-5 gap-1.5 xl:grid-cols-10">
-            {visibleRatios.map((ratio) => (
-              <ChoiceButton
-                key={ratio.value}
-                active={(config.aspectRatio || '') === ratio.value}
-                onClick={() => setConfig({ aspectRatio: ratio.value })}
-                title={ratio.label}
-                className="min-h-9 flex-col gap-0.5 px-1 text-[10px]"
-              >
-                <RatioShape ratio={ratio.value} />
-                {ratio.label}
-              </ChoiceButton>
-            ))}
-          </div>
-        </MediaField>
-
-        {supportsImageSize ? (
-          <MediaField label={getImageModelSizeControlLabel(config.model)}>
-            <div className="grid grid-cols-3 gap-2">
-              {imageSizes.map((size) => (
-                <ChoiceButton
-                  key={size}
-                  active={(config.imageSize || '1K') === size}
-                  onClick={() => setConfig({ imageSize: size })}
-                >
-                  {isAzureImageModel ? azureQualityLabels[size] : size}
-                </ChoiceButton>
-              ))}
-            </div>
-          </MediaField>
-        ) : (
-          <InlineNotice>{selectedModelLabel} gere la taille automatiquement.</InlineNotice>
-        )}
-
         <div className="min-h-0 border-t border-white/[0.07] pt-2">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="text-xs font-semibold text-[var(--app-text)]">References</div>
+            <div className="text-xs font-semibold text-[var(--app-text)]">Refs</div>
             <button
               type="button"
               onClick={handleOpenFilePicker}
               className="inline-flex items-center gap-1.5 border-b border-white/[0.16] px-1 py-1 text-xs font-semibold text-[var(--app-text)] hover:border-[var(--media-accent)]"
             >
               <Upload size={15} />
-              Ajouter
+              +
             </button>
           </div>
 
@@ -304,7 +190,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               onClick={handleOpenFilePicker}
               className="flex h-12 w-full items-center justify-center border border-dashed border-white/[0.1] text-xs font-semibold text-[var(--app-text-muted)] hover:border-[rgba(var(--media-accent-rgb),0.42)] hover:text-[var(--app-text)]"
             >
-              Deposer des images source
+              Deposer
             </button>
           )}
         </div>
@@ -313,8 +199,8 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           onClick={handleSubmit}
           disabled={!canSubmit}
           loading={isLoading}
-          loadingLabel="Generation..."
-          idleLabel="Generer l'image"
+          loadingLabel="..."
+          idleLabel="Generer"
           icon={Sparkles}
         />
       </div>
@@ -327,11 +213,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         label="Canvas"
         title={selectedModelLabel}
         detail={`${config.aspectRatio || 'Auto'} - ${config.imageSize || 'auto'}`}
-        action={(
-          <div className="border-l border-white/[0.08] pl-3 text-xs font-semibold text-[var(--app-text-muted)]">
-            {allImages.length} rendu{allImages.length > 1 ? 's' : ''}
-          </div>
-        )}
+        icon={ImageIcon}
       />
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto_auto] gap-2 pt-2">
@@ -394,7 +276,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           <EmptyOutput
             icon={Images}
             title="Aucun rendu image"
-            detail="Le prochain rendu prendra toute la scene."
           />
         )}
       </div>

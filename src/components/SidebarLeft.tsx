@@ -70,6 +70,8 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
     setLeftSidebarVisible,
   } = useStore();
 
+  const isMediaMode = activeMode === 'image' || activeMode === 'video' || activeMode === 'audio' || activeMode === 'lyria';
+
   const standardModeSessions = sessions
     .filter((session) => session.mode === activeMode && session.sessionKind !== 'agent' && session.sessionKind !== 'generated_app')
     .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -200,35 +202,39 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
       </div>
 
       {/* Separator */}
-      <div className="mx-3 h-px bg-[var(--app-border)]" />
+      {!isMediaMode && <div className="mx-3 h-px bg-[var(--app-border)]" />}
 
       {/* History */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Historique</div>
-          <span className="text-[10px] tabular-nums text-[var(--app-text-muted)]">
-            {standardModeSessions.length + agentSessions.length}
-          </span>
+      {isMediaMode ? (
+        <div className="flex-1" />
+      ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Historique</div>
+            <span className="text-[10px] tabular-nums text-[var(--app-text-muted)]">
+              {standardModeSessions.length + agentSessions.length}
+            </span>
+          </div>
+
+          {standardModeSessions.length === 0 && agentSessions.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              {React.createElement(modeConfig[activeMode].icon, { size: 16, className: 'text-[var(--app-text-muted)]/40' })}
+              <p className="text-xs text-[var(--app-text-muted)]">
+                Aucun fil en <span className="font-medium text-[var(--app-text)]/60">{modeConfig[activeMode].label}</span>
+              </p>
+            </div>
+          )}
+
+          {standardModeSessions.length > 0 && renderSessionList(standardModeSessions)}
+
+          {agentSessions.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Agents</div>
+              {renderSessionList(agentSessions, { badgeLabel: 'Agent' })}
+            </div>
+          )}
         </div>
-
-        {standardModeSessions.length === 0 && agentSessions.length === 0 && (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
-            {React.createElement(modeConfig[activeMode].icon, { size: 16, className: 'text-[var(--app-text-muted)]/40' })}
-            <p className="text-xs text-[var(--app-text-muted)]">
-              Aucun fil en <span className="font-medium text-[var(--app-text)]/60">{modeConfig[activeMode].label}</span>
-            </p>
-          </div>
-        )}
-
-        {standardModeSessions.length > 0 && renderSessionList(standardModeSessions)}
-
-        {agentSessions.length > 0 && (
-          <div className="mt-3">
-            <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">Agents</div>
-            {renderSessionList(agentSessions, { badgeLabel: 'Agent' })}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* User */}
       {user && (

@@ -41,13 +41,11 @@ export function MediaStudioShell({
   eyebrow,
   title,
   subtitle,
-  metrics = [],
   composer,
   stage,
   className,
   rootProps,
 }: MediaStudioShellProps) {
-  const Icon = tone.icon;
   const style: CssVars = {
     '--media-accent': tone.accent,
     '--media-accent-rgb': tone.accentRgb,
@@ -60,50 +58,16 @@ export function MediaStudioShell({
       {...rootProps}
       style={style}
       className={cn(
-        'relative h-full w-full max-w-full overflow-hidden bg-[linear-gradient(135deg,rgba(var(--media-wash-rgb),0.07),rgba(var(--app-bg-rgb),0)_36%),var(--app-bg)]',
+        'relative h-full w-full max-w-full overflow-hidden bg-[linear-gradient(135deg,rgba(var(--media-wash-rgb),0.055),rgba(var(--app-bg-rgb),0)_34%),var(--app-bg)]',
         className,
       )}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.014)_1px,transparent_1px)] bg-[size:48px_48px] opacity-45" />
-      <div className="relative mx-auto grid h-full w-full min-w-0 max-w-[104rem] grid-rows-[auto_minmax(0,1fr)] gap-3 px-4 py-3 sm:px-5 lg:px-6">
-        <header className="grid min-w-0 gap-3 border-b border-white/[0.07] pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--media-accent)]">
-              <Icon size={22} />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-                {eyebrow}
-              </div>
-              <h1 className="truncate text-xl font-semibold text-[var(--app-text)] sm:text-2xl">
-                {title}
-              </h1>
-              <p className="mt-1 line-clamp-1 max-w-3xl text-xs leading-5 text-[var(--app-text-muted)] sm:text-sm">
-                {subtitle}
-              </p>
-            </div>
-          </div>
-
-          {metrics.length > 0 && (
-            <div className="grid min-w-0 grid-cols-4 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-              {metrics.map((metric) => (
-                <div
-                  key={metric.label}
-                  className="min-w-0 border-l border-white/[0.08] pl-2 sm:min-w-16 sm:pl-3"
-                >
-                  <div className="truncate text-[10px] font-semibold text-[var(--app-text-muted)]">
-                    {metric.label}
-                  </div>
-                  <div className="truncate text-xs font-semibold text-[var(--app-text)] sm:text-sm">
-                    {metric.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </header>
-
-        <div className="grid min-h-0 min-w-0 grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)] gap-3 lg:grid-cols-[minmax(22rem,0.78fr)_minmax(28rem,1.22fr)] lg:gap-5">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.014)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:56px_56px] opacity-35" />
+      <div className="relative mx-auto grid h-full w-full min-w-0 max-w-[104rem] px-4 py-3 sm:px-5 lg:px-6">
+        <h1 className="sr-only">
+          {eyebrow} - {title}. {subtitle}
+        </h1>
+        <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,0.88fr)_minmax(0,1.12fr)] gap-3 md:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] md:grid-rows-none lg:grid-cols-[minmax(22rem,0.74fr)_minmax(28rem,1.26fr)] lg:gap-5">
           <div className="min-h-0 min-w-0">{composer}</div>
           <div className="min-h-0 min-w-0">{stage}</div>
         </div>
@@ -140,13 +104,11 @@ type PanelHeaderProps = {
 
 export function MediaPanelHeader({ label, title, detail, icon: Icon, action }: PanelHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] pb-2">
+    <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] pb-2">
       <div className="min-w-0">
-        <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">{label}</div>
-        <div className="truncate text-base font-semibold text-[var(--app-text)]">{title}</div>
-        {detail && (
-          <div className="truncate text-xs leading-5 text-[var(--app-text-muted)]">{detail}</div>
-        )}
+        <div className="truncate text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">{label}</div>
+        <div className="sr-only">{title}</div>
+        {detail && <div className="sr-only">{detail}</div>}
       </div>
       {action || (Icon && (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--media-accent)]">
@@ -300,12 +262,7 @@ type EmptyOutputProps = {
 
 export function EmptyOutput({ icon: Icon, title, detail, className }: EmptyOutputProps) {
   return (
-    <div
-      className={cn(
-        'flex h-full min-h-0 flex-col items-center justify-center border border-dashed border-white/[0.08] px-6 text-center',
-        className,
-      )}
-    >
+    <div className={cn('flex h-full min-h-0 flex-col items-center justify-center px-6 text-center', className)}>
       <div className="mb-3 flex h-12 w-12 items-center justify-center text-[var(--media-accent)]">
         <Icon size={22} />
       </div>
@@ -323,10 +280,9 @@ type PromptSourceProps = {
   className?: string;
 };
 
-export function PromptSource({ prompt, title = 'Prompt source', className }: PromptSourceProps) {
+export function PromptSource({ prompt, title = 'Prompt', className }: PromptSourceProps) {
   const [copied, setCopied] = React.useState(false);
   const cleanPrompt = String(prompt || '').replace(/\s+/g, ' ').trim();
-  const clippedPrompt = cleanPrompt.length > 220 ? `${cleanPrompt.slice(0, 217)}...` : cleanPrompt;
 
   const handleCopy = async () => {
     if (!cleanPrompt) return;
@@ -338,7 +294,7 @@ export function PromptSource({ prompt, title = 'Prompt source', className }: Pro
 
   return (
     <div className={cn('border-t border-white/[0.08] pt-2', className)}>
-      <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">{title}</div>
         <button
           type="button"
@@ -355,9 +311,6 @@ export function PromptSource({ prompt, title = 'Prompt source', className }: Pro
           {copied ? 'Copie' : 'Copier'}
         </button>
       </div>
-      <p className="line-clamp-2 text-xs leading-5 text-[var(--app-text-muted)]">
-        {clippedPrompt || 'Prompt non disponible.'}
-      </p>
     </div>
   );
 }

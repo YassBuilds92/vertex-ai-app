@@ -1602,11 +1602,19 @@
   - les studios `image`, `video`, `audio` et `lyria` sont des surfaces bloquees en hauteur, sans scroll interne
   - la composition et la sortie restent visibles en meme temps, meme en mobile, via une double-zone compacte
   - les grosses boites arrondies sont retirees au profit de lignes fines, rubans de controle et surface noire continue
+  - les reglages modele/voix/format/resolution/variantes ne doivent pas etre dupliques dans le studio central quand le panneau droit les porte deja
+  - les prompts sources restent copiables, mais ne sont plus affiches en longs paragraphes dans les sorties
+  - en modes media, la sidebar gauche ne montre plus l'historique repetitif pour eviter le bruit visuel
+  - en modes media, le panneau droit retire `Theme` et les notes explicatives longues, puis aplati ses controles pour limiter l'effet cartes
 - Pourquoi:
   - colle a la demande "pas de box" et "je veux pas defiler vers le bas"
   - garde les controles essentiels accessibles sans transformer l'UI en dashboard
   - reduit le bruit visuel et donne un vrai aspect studio/outillage premium
+  - supprime les doublons qui faisaient apparaitre les memes informations au centre et dans les parametres
 - Consequence:
   - `MediaStudioLayout` utilise maintenant `overflow-hidden` et une grille verrouillee
+  - le centre des modes media se limite a `prompt/input + rendu + copie`
+  - `SidebarRight` a un mode visuel dedie media via `data-media-settings`
+  - `SidebarLeft` masque l'historique uniquement pour `image`, `video`, `audio` et `lyria`
   - les previews QA doivent verifier `docScrollHeight === innerHeight`
 

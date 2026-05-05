@@ -1595,3 +1595,18 @@
   - `src/components/ImageStudio.tsx`, `VideoStudio.tsx`, `AudioStudio.tsx` et `LyriaStudio.tsx` deviennent des surfaces specialisees sur un socle commun
   - `StudioAudioPlayer` accepte maintenant des accents par usage pour distinguer voix et musique
 
+## 2026-05-05 - Les studios media doivent etre verrouilles, epures et sans cartes
+- Statut: adopte
+- Contexte: l'utilisateur a explicitement rejete la premiere refonte car elle gardait trop de logique de panneaux/cartes et demandait encore du defilement vertical.
+- Decision:
+  - les studios `image`, `video`, `audio` et `lyria` sont des surfaces bloquees en hauteur, sans scroll interne
+  - la composition et la sortie restent visibles en meme temps, meme en mobile, via une double-zone compacte
+  - les grosses boites arrondies sont retirees au profit de lignes fines, rubans de controle et surface noire continue
+- Pourquoi:
+  - colle a la demande "pas de box" et "je veux pas defiler vers le bas"
+  - garde les controles essentiels accessibles sans transformer l'UI en dashboard
+  - reduit le bruit visuel et donne un vrai aspect studio/outillage premium
+- Consequence:
+  - `MediaStudioLayout` utilise maintenant `overflow-hidden` et une grille verrouillee
+  - les previews QA doivent verifier `docScrollHeight === innerHeight`
+

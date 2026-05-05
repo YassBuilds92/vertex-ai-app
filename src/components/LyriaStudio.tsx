@@ -73,8 +73,8 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
         icon={Music}
       />
 
-      <div className="space-y-5 p-4 sm:p-5">
-        <MediaField label="Prompt musical">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(5rem,1fr)_auto_auto_auto] gap-3 pt-2">
+        <MediaField label="Prompt musical" className="min-h-0">
           <MediaTextarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
@@ -142,19 +142,19 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
   );
 
   const stage = (
-    <MediaPanel className="min-h-[34rem]">
+    <MediaPanel>
       <MediaPanelHeader
         label="Sortie"
         title={modelLabel}
         detail={`${allTracks.length} piste${allTracks.length > 1 ? 's' : ''}`}
         action={(
-          <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text-muted)]">
+          <div className="border-l border-white/[0.08] pl-3 text-xs font-semibold text-[var(--app-text-muted)]">
             {allTracks.length} piste{allTracks.length > 1 ? 's' : ''}
           </div>
         )}
       />
 
-      <div className="space-y-4 p-4 sm:p-5">
+      <div className="min-h-0 flex-1 space-y-3 overflow-hidden pt-2">
         {allTracks.length === 0 && !isLoading ? (
           <EmptyOutput
             icon={Music}

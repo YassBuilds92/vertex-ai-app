@@ -184,8 +184,8 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         icon={ImageIcon}
       />
 
-      <div className="space-y-5 p-4 sm:p-5">
-        <MediaField label="Brief visuel">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(5rem,1fr)_auto_auto_auto_minmax(3.4rem,auto)_auto] gap-2 pt-2">
+        <MediaField label="Brief visuel" className="min-h-0">
           <MediaTextarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
@@ -200,7 +200,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           />
         </MediaField>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           <MediaField label="Modele">
             <MediaSelect
               value={config.model}
@@ -233,14 +233,14 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         </div>
 
         <MediaField label="Ratio">
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 xl:grid-cols-10">
+          <div className="grid grid-cols-5 gap-1.5 xl:grid-cols-10">
             {visibleRatios.map((ratio) => (
               <ChoiceButton
                 key={ratio.value}
                 active={(config.aspectRatio || '') === ratio.value}
                 onClick={() => setConfig({ aspectRatio: ratio.value })}
                 title={ratio.label}
-                className="min-h-12 flex-col gap-1 px-2 text-xs"
+                className="min-h-9 flex-col gap-0.5 px-1 text-[10px]"
               >
                 <RatioShape ratio={ratio.value} />
                 {ratio.label}
@@ -267,13 +267,13 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           <InlineNotice>{selectedModelLabel} gere la taille automatiquement.</InlineNotice>
         )}
 
-        <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.025] p-3">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold text-[var(--app-text)]">References</div>
+        <div className="min-h-0 border-t border-white/[0.07] pt-2">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold text-[var(--app-text)]">References</div>
             <button
               type="button"
               onClick={handleOpenFilePicker}
-              className="inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text)] hover:bg-white/[0.075]"
+              className="inline-flex items-center gap-1.5 border-b border-white/[0.16] px-1 py-1 text-xs font-semibold text-[var(--app-text)] hover:border-[var(--media-accent)]"
             >
               <Upload size={15} />
               Ajouter
@@ -281,16 +281,16 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           </div>
 
           {sourceImages.length > 0 ? (
-            <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+            <div className="grid max-h-20 grid-cols-6 gap-2 overflow-hidden">
               {sourceImages.map((attachment) => (
-                <div key={attachment.id} className="group relative overflow-hidden rounded-lg border border-white/10 bg-black/35">
+                <div key={attachment.id} className="group relative overflow-hidden">
                   <button type="button" onClick={() => onImageClick(attachment.url)} className="block w-full">
                     <img src={attachment.url} alt={attachment.name || 'Image source'} className="aspect-square w-full object-cover" />
                   </button>
                   <button
                     type="button"
                     onClick={() => onRemoveAttachment(attachment.id)}
-                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-lg bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
                     title="Retirer"
                   >
                     <X size={13} />
@@ -302,7 +302,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             <button
               type="button"
               onClick={handleOpenFilePicker}
-              className="flex min-h-[5.5rem] w-full items-center justify-center rounded-lg border border-dashed border-[var(--app-border)] text-sm font-semibold text-[var(--app-text-muted)] hover:border-[rgba(var(--media-accent-rgb),0.42)] hover:text-[var(--app-text)]"
+              className="flex h-12 w-full items-center justify-center border border-dashed border-white/[0.1] text-xs font-semibold text-[var(--app-text-muted)] hover:border-[rgba(var(--media-accent-rgb),0.42)] hover:text-[var(--app-text)]"
             >
               Deposer des images source
             </button>
@@ -322,25 +322,25 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   );
 
   const stage = (
-    <MediaPanel className="min-h-[34rem]">
+    <MediaPanel>
       <MediaPanelHeader
         label="Canvas"
         title={selectedModelLabel}
         detail={`${config.aspectRatio || 'Auto'} - ${config.imageSize || 'auto'}`}
         action={(
-          <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text-muted)]">
+          <div className="border-l border-white/[0.08] pl-3 text-xs font-semibold text-[var(--app-text-muted)]">
             {allImages.length} rendu{allImages.length > 1 ? 's' : ''}
           </div>
         )}
       />
 
-      <div className="space-y-4 p-4 sm:p-5">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto_auto] gap-2 pt-2">
         {isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid min-h-0 gap-2 sm:grid-cols-2">
             {Array.from({ length: Math.max(1, Math.min(config.numberOfImages || 1, 4)) }).map((_, index) => (
               <div
                 key={index}
-                className="flex aspect-square animate-pulse items-center justify-center rounded-lg border border-[var(--app-border)] bg-white/[0.045]"
+                className="flex min-h-0 animate-pulse items-center justify-center border border-white/[0.08]"
               >
                 <Loader2 size={24} className="animate-spin text-[var(--media-accent)]" />
               </div>
@@ -348,12 +348,12 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           </div>
         ) : featuredImage ? (
           <>
-            <div className="group relative overflow-hidden rounded-lg border border-white/10 bg-black/35">
-              <button type="button" onClick={() => onImageClick(featuredImage.url)} className="block w-full">
+            <div className="group relative min-h-0 overflow-hidden">
+              <button type="button" onClick={() => onImageClick(featuredImage.url)} className="block h-full w-full">
                 <img
                   src={featuredImage.url}
                   alt={featuredImage.name || 'Image generee'}
-                  className="max-h-[70vh] w-full object-contain"
+                  className="h-full w-full object-contain"
                 />
               </button>
               <div className="absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
@@ -361,7 +361,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                 <a
                   href={featuredImage.url}
                   download={featuredImage.name || 'image-generee.png'}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/45 text-white shadow-[0_12px_32px_-18px_rgba(0,0,0,0.95)] hover:bg-black/70"
+                  className="inline-flex h-8 w-8 items-center justify-center text-white/80 hover:text-white"
                   title="Telecharger"
                   aria-label="Telecharger"
                 >
@@ -373,14 +373,14 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             <PromptSource prompt={featuredImage.prompt} />
 
             {galleryImages.length > 0 && (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+              <div className="grid max-h-16 grid-cols-5 gap-2 overflow-hidden">
                 {galleryImages.map((image) => (
                   <button
                     key={image.id}
                     type="button"
                     onClick={() => setSelectedImageId(image.id)}
                     className={cn(
-                      'overflow-hidden rounded-lg border bg-black/35 hover:border-[rgba(var(--media-accent-rgb),0.55)]',
+                      'overflow-hidden border-b hover:border-[rgba(var(--media-accent-rgb),0.55)]',
                       selectedImageId === image.id ? 'border-[var(--media-accent)]' : 'border-white/10',
                     )}
                   >

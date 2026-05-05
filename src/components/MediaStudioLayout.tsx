@@ -60,41 +60,41 @@ export function MediaStudioShell({
       {...rootProps}
       style={style}
       className={cn(
-        'relative h-full w-full max-w-full overflow-x-hidden overflow-y-auto overscroll-y-contain bg-[linear-gradient(180deg,rgba(var(--media-wash-rgb),0.08),rgba(var(--app-bg-rgb),0)_18rem),var(--app-bg)]',
+        'relative h-full w-full max-w-full overflow-hidden bg-[linear-gradient(135deg,rgba(var(--media-wash-rgb),0.07),rgba(var(--app-bg-rgb),0)_36%),var(--app-bg)]',
         className,
       )}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.028)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.022)_1px,transparent_1px)] bg-[size:44px_44px] opacity-55" />
-      <div className="relative mx-auto grid w-full min-w-0 max-w-[98rem] gap-5 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="grid min-w-0 gap-4 border-b border-[var(--app-border)] pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.014)_1px,transparent_1px)] bg-[size:48px_48px] opacity-45" />
+      <div className="relative mx-auto grid h-full w-full min-w-0 max-w-[104rem] grid-rows-[auto_minmax(0,1fr)] gap-3 px-4 py-3 sm:px-5 lg:px-6">
+        <header className="grid min-w-0 gap-3 border-b border-white/[0.07] pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[rgba(var(--media-accent-rgb),0.32)] bg-[rgba(var(--media-accent-rgb),0.12)] text-[var(--media-accent)]">
-              <Icon size={20} />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--media-accent)]">
+              <Icon size={22} />
             </div>
             <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase text-[var(--app-text-muted)]">
+              <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
                 {eyebrow}
               </div>
-              <h1 className="mt-1 text-2xl font-semibold text-[var(--app-text)] sm:text-3xl">
+              <h1 className="truncate text-xl font-semibold text-[var(--app-text)] sm:text-2xl">
                 {title}
               </h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-text-muted)]">
+              <p className="mt-1 line-clamp-1 max-w-3xl text-xs leading-5 text-[var(--app-text-muted)] sm:text-sm">
                 {subtitle}
               </p>
             </div>
           </div>
 
           {metrics.length > 0 && (
-            <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+            <div className="grid min-w-0 grid-cols-4 gap-2 sm:flex sm:flex-wrap sm:justify-end">
               {metrics.map((metric) => (
                 <div
                   key={metric.label}
-                  className="min-w-0 rounded-lg border border-[var(--app-border)] bg-white/[0.035] px-3 py-2"
+                  className="min-w-0 border-l border-white/[0.08] pl-2 sm:min-w-16 sm:pl-3"
                 >
-                  <div className="truncate text-[11px] font-semibold text-[var(--app-text-muted)]">
+                  <div className="truncate text-[10px] font-semibold text-[var(--app-text-muted)]">
                     {metric.label}
                   </div>
-                  <div className="mt-0.5 truncate text-sm font-semibold text-[var(--app-text)]">
+                  <div className="truncate text-xs font-semibold text-[var(--app-text)] sm:text-sm">
                     {metric.value}
                   </div>
                 </div>
@@ -103,9 +103,9 @@ export function MediaStudioShell({
           )}
         </header>
 
-        <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(22rem,0.88fr)_minmax(28rem,1.12fr)] xl:gap-6">
-          <div className="min-w-0 lg:sticky lg:top-5 lg:self-start">{composer}</div>
-          <div className="min-w-0">{stage}</div>
+        <div className="grid min-h-0 min-w-0 grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)] gap-3 lg:grid-cols-[minmax(22rem,0.78fr)_minmax(28rem,1.22fr)] lg:gap-5">
+          <div className="min-h-0 min-w-0">{composer}</div>
+          <div className="min-h-0 min-w-0">{stage}</div>
         </div>
       </div>
     </div>
@@ -121,7 +121,7 @@ export function MediaPanel({ children, className }: PanelProps) {
   return (
     <section
       className={cn(
-        'min-w-0 overflow-hidden rounded-lg border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.022))] shadow-[0_24px_80px_-58px_rgba(0,0,0,0.95)]',
+        'flex h-full min-h-0 min-w-0 flex-col overflow-hidden',
         className,
       )}
     >
@@ -140,16 +140,16 @@ type PanelHeaderProps = {
 
 export function MediaPanelHeader({ label, title, detail, icon: Icon, action }: PanelHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-[var(--app-border)] px-4 py-4 sm:px-5">
+    <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] pb-2">
       <div className="min-w-0">
-        <div className="text-xs font-semibold uppercase text-[var(--app-text-muted)]">{label}</div>
-        <div className="mt-1 truncate text-lg font-semibold text-[var(--app-text)]">{title}</div>
+        <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">{label}</div>
+        <div className="truncate text-base font-semibold text-[var(--app-text)]">{title}</div>
         {detail && (
-          <div className="mt-1 text-sm leading-5 text-[var(--app-text-muted)]">{detail}</div>
+          <div className="truncate text-xs leading-5 text-[var(--app-text-muted)]">{detail}</div>
         )}
       </div>
       {action || (Icon && (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[rgba(var(--media-accent-rgb),0.28)] bg-[rgba(var(--media-accent-rgb),0.1)] text-[var(--media-accent)]">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--media-accent)]">
           <Icon size={18} />
         </div>
       ))}
@@ -165,8 +165,8 @@ type FieldProps = {
 
 export function MediaField({ label, children, className }: FieldProps) {
   return (
-    <label className={cn('block min-w-0 space-y-2', className)}>
-      <span className="block text-sm font-semibold text-[var(--app-text)]">{label}</span>
+    <label className={cn('flex min-w-0 flex-col space-y-1.5', className)}>
+      <span className="block text-xs font-semibold text-[var(--app-text)]">{label}</span>
       {children}
     </label>
   );
@@ -179,7 +179,7 @@ export function MediaTextarea({ className, ...props }: MediaTextareaProps) {
     <textarea
       {...props}
       className={cn(
-        'min-h-[15rem] w-full min-w-0 resize-none rounded-lg border border-[var(--app-border)] bg-black/22 px-4 py-4 text-[15px] leading-7 text-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]/52 focus:border-[rgba(var(--media-accent-rgb),0.58)] focus:bg-black/28',
+        'h-full min-h-0 w-full min-w-0 resize-none rounded-none border-0 border-l border-white/[0.08] bg-transparent px-3 py-2 text-sm leading-6 text-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]/52 focus:border-[rgba(var(--media-accent-rgb),0.58)]',
         className,
       )}
     />
@@ -193,7 +193,7 @@ export function MediaSelect({ className, ...props }: MediaSelectProps) {
     <select
       {...props}
       className={cn(
-        'h-11 w-full min-w-0 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-strong)] px-3 text-sm font-semibold text-[var(--app-text)] outline-none focus:border-[rgba(var(--media-accent-rgb),0.58)]',
+        'h-9 w-full min-w-0 rounded-none border-0 border-b border-white/[0.12] bg-transparent px-0 text-xs font-semibold text-[var(--app-text)] outline-none focus:border-[rgba(var(--media-accent-rgb),0.58)]',
         className,
       )}
     />
@@ -207,7 +207,7 @@ export function MediaInput({ className, ...props }: MediaInputProps) {
     <input
       {...props}
       className={cn(
-        'h-11 w-full min-w-0 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-strong)] px-3 text-sm font-semibold text-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]/48 focus:border-[rgba(var(--media-accent-rgb),0.58)]',
+        'h-9 w-full min-w-0 rounded-none border-0 border-b border-white/[0.12] bg-transparent px-0 text-xs font-semibold text-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]/48 focus:border-[rgba(var(--media-accent-rgb),0.58)]',
         className,
       )}
     />
@@ -224,10 +224,10 @@ export function ChoiceButton({ active, className, children, ...props }: ChoiceBu
       type="button"
       {...props}
       className={cn(
-        'inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold outline-none',
+        'inline-flex min-h-8 min-w-0 items-center justify-center gap-1.5 rounded-none border-b px-2 text-xs font-semibold outline-none',
         active
-          ? 'border-transparent bg-[var(--media-accent)] text-[var(--media-accent-ink)] shadow-[0_10px_28px_-18px_rgba(var(--media-accent-rgb),0.9)]'
-          : 'border-[var(--app-border)] bg-white/[0.045] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:bg-white/[0.075] hover:text-[var(--app-text)]',
+          ? 'border-[var(--media-accent)] text-[var(--media-accent)]'
+          : 'border-white/[0.1] text-[var(--app-text-muted)] hover:border-white/[0.2] hover:text-[var(--app-text)]',
         className,
       )}
     >
@@ -256,10 +256,10 @@ export function PrimaryActionButton({
       type="button"
       {...props}
       className={cn(
-        'inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg px-5 text-sm font-bold outline-none',
+        'inline-flex h-10 w-full items-center justify-center gap-2 rounded-none border border-[rgba(var(--media-accent-rgb),0.42)] px-4 text-sm font-bold outline-none',
         props.disabled
-          ? 'cursor-not-allowed bg-white/[0.06] text-[var(--app-text-muted)]'
-          : 'bg-[var(--media-accent)] text-[var(--media-accent-ink)] shadow-[0_16px_42px_-24px_rgba(var(--media-accent-rgb),0.95)] hover:brightness-110',
+          ? 'cursor-not-allowed text-[var(--app-text-muted)] opacity-55'
+          : 'bg-[rgba(var(--media-accent-rgb),0.1)] text-[var(--media-accent)] hover:bg-[rgba(var(--media-accent-rgb),0.17)]',
         className,
       )}
     >
@@ -282,7 +282,7 @@ export function IconAction({ icon: Icon, label, className, ...props }: IconActio
       aria-label={label}
       {...props}
       className={cn(
-        'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/45 text-white shadow-[0_12px_32px_-18px_rgba(0,0,0,0.95)] hover:bg-black/70',
+        'inline-flex h-8 w-8 items-center justify-center text-white/80 hover:text-white',
         className,
       )}
     >
@@ -302,11 +302,11 @@ export function EmptyOutput({ icon: Icon, title, detail, className }: EmptyOutpu
   return (
     <div
       className={cn(
-        'flex min-h-[28rem] flex-col items-center justify-center rounded-lg border border-dashed border-[var(--app-border)] bg-black/18 px-6 text-center',
+        'flex h-full min-h-0 flex-col items-center justify-center border border-dashed border-white/[0.08] px-6 text-center',
         className,
       )}
     >
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg border border-[rgba(var(--media-accent-rgb),0.26)] bg-[rgba(var(--media-accent-rgb),0.1)] text-[var(--media-accent)]">
+      <div className="mb-3 flex h-12 w-12 items-center justify-center text-[var(--media-accent)]">
         <Icon size={22} />
       </div>
       <p className="text-sm font-semibold text-[var(--app-text)]">{title}</p>
@@ -337,25 +337,25 @@ export function PromptSource({ prompt, title = 'Prompt source', className }: Pro
   };
 
   return (
-    <div className={cn('rounded-lg border border-[var(--app-border)] bg-white/[0.035] px-4 py-3', className)}>
+    <div className={cn('border-t border-white/[0.08] pt-2', className)}>
       <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold uppercase text-[var(--app-text-muted)]">{title}</div>
+        <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">{title}</div>
         <button
           type="button"
           onClick={handleCopy}
           disabled={!cleanPrompt}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold',
+            'inline-flex items-center gap-1.5 border-b px-1 py-1 text-xs font-semibold',
             cleanPrompt
-              ? 'border-[var(--app-border)] bg-white/[0.045] text-[var(--app-text)] hover:bg-white/[0.08]'
-              : 'cursor-not-allowed border-[var(--app-border)] bg-white/[0.025] text-[var(--app-text-muted)]',
+              ? 'border-white/[0.18] text-[var(--app-text)] hover:border-[var(--media-accent)]'
+              : 'cursor-not-allowed border-white/[0.08] text-[var(--app-text-muted)]',
           )}
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
           {copied ? 'Copie' : 'Copier'}
         </button>
       </div>
-      <p className="text-sm leading-6 text-[var(--app-text-muted)]">
+      <p className="line-clamp-2 text-xs leading-5 text-[var(--app-text-muted)]">
         {clippedPrompt || 'Prompt non disponible.'}
       </p>
     </div>
@@ -371,7 +371,7 @@ export function InlineNotice({ children, className }: InlineNoticeProps) {
   return (
     <div
       className={cn(
-        'rounded-lg border border-[rgba(var(--media-accent-rgb),0.18)] bg-[rgba(var(--media-accent-rgb),0.07)] px-3 py-2 text-sm leading-6 text-[var(--app-text-muted)]',
+        'border-l border-[rgba(var(--media-accent-rgb),0.34)] px-3 py-1.5 text-xs leading-5 text-[var(--app-text-muted)]',
         className,
       )}
     >

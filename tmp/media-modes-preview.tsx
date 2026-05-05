@@ -340,7 +340,7 @@ function PreviewApp() {
 
   if (surface === 'studio') {
     return (
-      <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-text)]">
+      <div className="h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--app-text)]">
         {mode === 'image' && (
           <ImageStudio
             onGenerate={() => {}}

@@ -96,8 +96,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         icon={Clapperboard}
       />
 
-      <div className="space-y-5 p-4 sm:p-5">
-        <MediaField label="Scene">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(5rem,1fr)_auto_auto_auto] gap-3 pt-2">
+        <MediaField label="Scene" className="min-h-0">
           <MediaTextarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
@@ -177,19 +177,19 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   );
 
   const stage = (
-    <MediaPanel className="min-h-[34rem]">
+    <MediaPanel>
       <MediaPanelHeader
         label="Scene active"
         title={featuredVideo?.name || 'Rendu video'}
         detail={featuredVideo?.model || config.model || 'Veo'}
         action={(
-          <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text-muted)]">
+          <div className="border-l border-white/[0.08] pl-3 text-xs font-semibold text-[var(--app-text-muted)]">
             {allVideos.length} video{allVideos.length > 1 ? 's' : ''}
           </div>
         )}
       />
 
-      <div className="space-y-4 p-4 sm:p-5">
+      <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto_auto] gap-2 pt-2">
         {isLoading && (
           <InlineNotice className="flex items-center gap-3">
             <Loader2 size={18} className="animate-spin text-[var(--media-accent)]" />
@@ -198,16 +198,16 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         )}
 
         {!featuredVideo && isLoading ? (
-          <div className="flex aspect-video min-h-[20rem] animate-pulse items-center justify-center rounded-lg border border-[var(--app-border)] bg-white/[0.045]">
+          <div className="flex min-h-0 animate-pulse items-center justify-center border border-white/[0.08]">
             <Loader2 size={28} className="animate-spin text-[var(--media-accent)]" />
           </div>
         ) : featuredVideo ? (
           <>
-            <div className="overflow-hidden rounded-lg border border-white/10 bg-black">
+            <div className="min-h-0 overflow-hidden bg-black">
               <video
                 src={featuredVideo.url}
                 controls
-                className="max-h-[70vh] w-full bg-black object-contain"
+                className="h-full w-full bg-black object-contain"
                 preload="metadata"
               />
             </div>
@@ -219,7 +219,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               <a
                 href={featuredVideo.url}
                 download={featuredVideo.name || 'video-generee.mp4'}
-                className="inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text)] hover:bg-white/[0.075]"
+                className="inline-flex items-center gap-1.5 border-b border-white/[0.16] px-1 py-1 text-xs font-semibold text-[var(--app-text)] hover:border-[var(--media-accent)]"
               >
                 <Download size={15} />
                 Telecharger
@@ -229,14 +229,14 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             <PromptSource prompt={featuredVideo.prompt} />
 
             {galleryVideos.length > 0 && (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid max-h-16 gap-2 overflow-hidden sm:grid-cols-2">
                 {galleryVideos.map((video) => (
                   <button
                     key={video.id}
                     type="button"
                     onClick={() => setSelectedVideoId(video.id)}
                     className={cn(
-                      'group overflow-hidden rounded-lg border bg-black/30 text-left hover:border-[rgba(var(--media-accent-rgb),0.55)]',
+                      'group overflow-hidden border-b text-left hover:border-[rgba(var(--media-accent-rgb),0.55)]',
                       selectedVideoId === video.id ? 'border-[var(--media-accent)]' : 'border-white/10',
                     )}
                   >

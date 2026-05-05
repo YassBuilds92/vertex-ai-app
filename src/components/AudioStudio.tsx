@@ -81,8 +81,8 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
         icon={Mic2}
       />
 
-      <div className="space-y-5 p-4 sm:p-5">
-        <MediaField label="Texte">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(5rem,1fr)_auto_auto_auto_auto] gap-3 pt-2">
+        <MediaField label="Texte" className="min-h-0">
           <MediaTextarea
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -165,19 +165,19 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
   );
 
   const stage = (
-    <MediaPanel className="min-h-[34rem]">
+    <MediaPanel>
       <MediaPanelHeader
         label="Sortie"
         title={modelLabel}
         detail={voiceLabel}
         action={(
-          <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text-muted)]">
+          <div className="border-l border-white/[0.08] pl-3 text-xs font-semibold text-[var(--app-text-muted)]">
             {allAudio.length} voix
           </div>
         )}
       />
 
-      <div className="space-y-4 p-4 sm:p-5">
+      <div className="min-h-0 flex-1 space-y-3 overflow-hidden pt-2">
         {allAudio.length === 0 && !isLoading ? (
           <EmptyOutput
             icon={FileAudio}

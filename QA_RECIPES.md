@@ -584,13 +584,13 @@
   - `tmp/qa2-lyria-panel-desktop.png`
   - `tmp/qa2-lyria-mode-mobile.png`
 
-### Captures 2026-05-05 - refonte studios media
+### Captures 2026-05-05 - refonte studios media verrouilles
 - Harness:
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio`
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=video&surface=studio`
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=audio&surface=studio`
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=lyria&surface=studio`
-- Captures CDP:
+- Captures CDP finales:
   - `tmp/refonte-media-image-desktop-cdp.png`
   - `tmp/refonte-media-image-mobile-cdp.png`
   - `tmp/refonte-media-video-desktop-cdp.png`
@@ -600,8 +600,10 @@
   - `tmp/refonte-media-lyria-desktop-cdp.png`
   - `tmp/refonte-media-lyria-mobile-cdp.png`
 - Attendus supplementaires:
-  - `scrollWidth` doit rester egal au viewport sur mobile
+  - `docScrollHeight` doit rester egal au viewport sur desktop et mobile
+  - `docScrollWidth` doit rester egal au viewport sur mobile
   - les controles natifs longs ne doivent pas pousser la scene hors ecran
+  - l'UI doit rester une surface continue, sans grosses cartes/panneaux arrondis
   - les lecteurs audio gardent un accent distinct entre Voix et Lyria
 
 ## Cowork - sans Hub Agents

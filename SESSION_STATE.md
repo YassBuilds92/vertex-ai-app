@@ -4167,12 +4167,17 @@
   - Lucide React tree-shakeable icons
 - `npm run lint` : OK
 - `npm run build` : OK
+- Reprise apres retour utilisateur:
+  - suppression du style "cartes/panneaux"
+  - grille media verrouillee en double-zone
+  - `overflow-hidden` sur la surface studio
+  - plus de defilement vertical sur harness desktop/mobile
 - Serveur harness:
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio`
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=video&surface=studio`
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=audio&surface=studio`
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=lyria&surface=studio`
-- Captures CDP desktop/mobile:
+- Captures CDP finales desktop/mobile:
   - `tmp/refonte-media-image-desktop-cdp.png`
   - `tmp/refonte-media-image-mobile-cdp.png`
   - `tmp/refonte-media-video-desktop-cdp.png`
@@ -4181,8 +4186,9 @@
   - `tmp/refonte-media-audio-mobile-cdp.png`
   - `tmp/refonte-media-lyria-desktop-cdp.png`
   - `tmp/refonte-media-lyria-mobile-cdp.png`
-- Verification CDP mobile:
-  - `scrollWidth` = viewport sur les quatre modes, aucun debordement horizontal.
+- Verification CDP:
+  - `docScrollWidth` = viewport sur les quatre modes
+  - `docScrollHeight` = viewport sur desktop et mobile pour les quatre modes
 
 ### Limites restantes
 - La validation authentifiee avec de vraies generations Vertex/Gemini/Lyria reste a rejouer si l'utilisateur veut un smoke complet de production.

@@ -145,12 +145,12 @@ export const StudioAudioPlayer: React.FC<StudioAudioPlayerProps> = ({
     <div
       style={playerStyle}
       className={cn(
-        'overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(8,8,12,0.62))] shadow-[0_22px_70px_-34px_rgba(0,0,0,0.9)]',
+        'overflow-hidden border-t border-white/[0.08]',
         className,
       )}
     >
       <audio ref={audioRef} preload="metadata" src={src} />
-      <div className={cn('space-y-4 p-4 sm:p-5', compact && 'space-y-3 p-4')}>
+      <div className={cn('space-y-2 py-2', compact && 'space-y-2 py-2')}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-[var(--app-text)]">{title}</div>
@@ -161,21 +161,21 @@ export const StudioAudioPlayer: React.FC<StudioAudioPlayerProps> = ({
           <a
             href={src}
             download={downloadName || title}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-[var(--app-text-muted)] transition-colors hover:bg-white/[0.09] hover:text-[var(--app-text)]"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
             title="Telecharger"
           >
             <Download size={15} />
           </a>
         </div>
 
-        <div className="relative overflow-hidden rounded-lg border border-white/8 bg-black/25 px-4 py-4">
+        <div className="relative overflow-hidden border-l border-white/[0.08] px-3 py-2">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(var(--player-accent-rgb),0.18),transparent_52%)] opacity-80" />
           <div className="relative flex items-center gap-3">
             {!compact && (
               <button
                 type="button"
                 onClick={() => jumpBy(-10)}
-                className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/8 bg-white/[0.04] text-[var(--app-text-muted)] transition-colors hover:bg-white/[0.08] hover:text-[var(--app-text)] sm:inline-flex"
+                className="hidden h-8 w-8 shrink-0 items-center justify-center text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)] sm:inline-flex"
                 title="Reculer de 10 secondes"
               >
                 <SkipBack size={15} />
@@ -185,7 +185,7 @@ export const StudioAudioPlayer: React.FC<StudioAudioPlayerProps> = ({
             <button
               type="button"
               onClick={togglePlayback}
-              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(var(--player-accent-end-rgb),0.86))] text-[var(--player-accent-ink)] shadow-[0_18px_36px_-18px_rgba(var(--player-accent-end-rgb),0.8)] transition-transform hover:scale-[1.02]"
+              className="flex h-11 w-11 shrink-0 items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(var(--player-accent-end-rgb),0.86))] text-[var(--player-accent-ink)] transition-transform hover:scale-[1.02]"
               title={isPlaying ? 'Pause' : 'Lecture'}
             >
               {isPlaying ? <Pause size={18} /> : <Play size={18} className="translate-x-[1px]" />}
@@ -195,7 +195,7 @@ export const StudioAudioPlayer: React.FC<StudioAudioPlayerProps> = ({
               <button
                 type="button"
                 onClick={() => jumpBy(10)}
-                className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/8 bg-white/[0.04] text-[var(--app-text-muted)] transition-colors hover:bg-white/[0.08] hover:text-[var(--app-text)] sm:inline-flex"
+                className="hidden h-8 w-8 shrink-0 items-center justify-center text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)] sm:inline-flex"
                 title="Avancer de 10 secondes"
               >
                 <SkipForward size={15} />
@@ -203,7 +203,7 @@ export const StudioAudioPlayer: React.FC<StudioAudioPlayerProps> = ({
             )}
 
             <div className="min-w-0 flex-1">
-              <div className="mb-3 flex h-10 items-end gap-1.5 overflow-hidden">
+              <div className="mb-2 flex h-8 items-end gap-1.5 overflow-hidden">
                 {Array.from({ length: compact ? 18 : 24 }).map((_, index) => (
                   <span
                     key={`${src}-wave-${index}`}
@@ -220,9 +220,9 @@ export const StudioAudioPlayer: React.FC<StudioAudioPlayerProps> = ({
               </div>
 
               <div className="space-y-2">
-                <div className="h-2 rounded-full bg-white/8">
+                <div className="h-1 bg-white/8">
                   <div
-                    className="h-full rounded-full bg-[linear-gradient(90deg,rgba(255,255,255,0.95),rgba(var(--player-accent-end-rgb),0.85))]"
+                    className="h-full bg-[linear-gradient(90deg,rgba(255,255,255,0.95),rgba(var(--player-accent-end-rgb),0.85))]"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
@@ -246,7 +246,7 @@ export const StudioAudioPlayer: React.FC<StudioAudioPlayerProps> = ({
         </div>
 
         {prompt && (
-          <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-3">
+          <div className="border-t border-white/[0.08] pt-2">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                 Prompt source

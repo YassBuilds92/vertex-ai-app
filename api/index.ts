@@ -10431,9 +10431,9 @@ app.post('/api/cowork', async (req, res) => {
     }] : undefined;
 
     const genConfig: any = {
-      temperature: config.temperature || 0.2, // Use user config or default
-      topP: config.topP || 1.0,
-      topK: config.topK || 1,
+      temperature: typeof config.temperature === 'number' ? config.temperature : 1,
+      topP: typeof config.topP === 'number' ? config.topP : 0.95,
+      topK: typeof config.topK === 'number' ? config.topK : 40,
       maxOutputTokens: config.maxOutputTokens || 65536,
       systemInstruction: runtimeApp
         ? buildGeneratedAppRuntimeSystemInstruction(runtimeApp, {

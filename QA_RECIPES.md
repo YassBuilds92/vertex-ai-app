@@ -266,7 +266,8 @@
 ## Modes media - studios generes, copie de prompt et layouts premium
 - Objectif:
   - verifier les vraies surfaces studio apres generation pour l'image, l'audio et Lyria
-  - verifier la copie des prompts, la mise en avant hero et les previews media custom
+  - verifier la copie du prompt source, la mise en avant hero et les previews media custom
+  - verifier que le Raffineur IA n'apparait plus dans les studios ni dans le panneau droit
 - Harness:
   - `tmp/media-modes-preview.html`
   - `tmp/media-modes-preview.tsx`
@@ -280,15 +281,17 @@
 - Attendus image:
   - une image hero est mise en avant
   - les autres generations vivent dans une galerie secondaire
-  - le prompt source et le prompt optimise sont copiables
-  - le panneau de meta montre modele, profil de raffineur et consignes perso
+  - le prompt source est copiable
+  - le panneau de meta montre le modele sans profil de raffineur
 - Attendus audio / Lyria:
   - le lecteur est custom et non natif
   - les actions play/pause sont lisibles et esthetiques
-  - le prompt source du media est visible et copiables
+  - le prompt source du media est visible et copiable
+  - les controles ne sont pas compresses dans une colonne trop etroite
 - Attendus Cowork:
-  - la section de raffineur par mode est visible
-  - le mode `cowork` montre bien ses options sans confusion avec les autres surfaces
+  - aucune section Hub Agents n'est visible
+  - aucune section Raffineur IA n'est visible
+  - le mode `cowork` montre ses reglages restants sans confusion avec les autres surfaces
 - Captures de reference locales:
   - `tmp/qa-image-studio-2026-04-08.png`
   - `tmp/qa-image-studio-mobile-2026-04-08.png`
@@ -581,21 +584,21 @@
   - `tmp/qa2-lyria-panel-desktop.png`
   - `tmp/qa2-lyria-mode-mobile.png`
 
-## Cowork - toggle Hub Agents
+## Cowork - sans Hub Agents
 - Objectif:
-  - verifier que Cowork expose un toggle clair pour l'usage des agents du Hub
-  - verifier que ce toggle est desactive par defaut
+  - verifier que Cowork n'expose plus de toggle pour l'usage des agents du Hub
+  - verifier que le panneau reste lisible sans surface Hub legacy
 - Harness:
   - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=cowork&surface=panel`
 - Etapes manuelles:
   - ouvrir le panneau droit en mode `cowork`
-  - verifier la section `Options Cowork`
-  - verifier la presence du toggle `Utiliser les agents du Hub`
-  - verifier que le toggle est coupe au premier rendu
+  - verifier l'absence de la section `Options Cowork`
+  - verifier l'absence du toggle `Utiliser les agents du Hub`
+  - verifier que les sections restantes respirent correctement
 - Attendus:
-  - la section apparait uniquement en `cowork`
-  - la valeur initiale est `off`
-  - le texte d'aide explique bien que la delegation Hub est optionnelle
+  - aucun label `Hub Agents` ou `Utiliser les agents du Hub`
+  - aucun envoi frontend de `hubAgents` dans le payload `/api/cowork`
+  - le panneau affiche Theme, Modele, Capacites, Instructions et Parametres avances sans bloc obsolete
 - Captures de reference locales:
   - `tmp/qa2-cowork-panel-desktop.png`
   - `tmp/qa2-cowork-panel-mobile.png`

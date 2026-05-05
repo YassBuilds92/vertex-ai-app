@@ -106,8 +106,6 @@ function buildMockMessages(targetMode: AppMode): Message[] {
               prompt: 'Un heros shonen en contre-plongee, aura bleue, pluie fine, vitesse et tension.',
               refinedPrompt: 'Hero shonen en contre-plongee, cape dechiree, aura bleue electrique, pluie fine, speed lines, encrage net, contrastes dramatiques, cadre vertical heroique, eclairage froid et metal, atmosphere de climax.',
               model: 'gemini-3.1-flash-image-preview',
-              refinerProfileId: 'image-manga-shonen',
-              refinerCustomInstructions: 'Renforcer l energie shonen et la lisibilite des poses.',
             },
           },
           {
@@ -120,8 +118,6 @@ function buildMockMessages(targetMode: AppMode): Message[] {
               prompt: 'Un heros shonen en contre-plongee, aura bleue, pluie fine, vitesse et tension.',
               refinedPrompt: 'Hero shonen en contre-plongee, cape dechiree, aura bleue electrique, pluie fine, speed lines, encrage net, contrastes dramatiques, cadre vertical heroique, eclairage froid et metal, atmosphere de climax.',
               model: 'gemini-3.1-flash-image-preview',
-              refinerProfileId: 'image-manga-shonen',
-              refinerCustomInstructions: 'Renforcer l energie shonen et la lisibilite des poses.',
             },
           },
         ],
@@ -149,8 +145,6 @@ function buildMockMessages(targetMode: AppMode): Message[] {
               prompt: 'Un packshot premium de parfum noir avec reflets rouges et texture verre.',
               refinedPrompt: 'Packshot premium de parfum noir facette, reflets rouges bordeaux, fond graphite, verre poli, lumiere laterale precise, ombre douce, composition editoriale luxe, macro details, atmosphere nocturne.',
               model: 'gemini-3-pro-image-preview',
-              refinerProfileId: 'image-product-editorial',
-              refinerCustomInstructions: 'Accentuer le rendu luxe et la precision matiere.',
             },
           },
         ],
@@ -184,8 +178,6 @@ function buildMockMessages(targetMode: AppMode): Message[] {
               prompt: 'Bonsoir, bienvenue dans notre capsule audio. On va parler vite, clair et avec le sourire.',
               refinedPrompt: 'Bonsoir et bienvenue dans cette capsule audio. On va aller droit au but, avec une voix souriante, nette et tres fluide.',
               model: 'gemini-2.5-flash-tts',
-              refinerProfileId: 'audio-brand-voice',
-              refinerCustomInstructions: 'Garder une diction nette et souriante.',
             },
           },
         ],
@@ -214,8 +206,6 @@ function buildMockMessages(targetMode: AppMode): Message[] {
               prompt: 'Annonce ce produit comme un spot premium, plus pose et plus rassurant.',
               refinedPrompt: 'Decouvrez une experience premium, calme et rassurante, pensee pour offrir une sensation de confiance immediate.',
               model: 'gemini-2.5-pro-tts',
-              refinerProfileId: 'audio-brand-voice',
-              refinerCustomInstructions: 'Accentuer la confiance et le calme.',
             },
           },
         ],
@@ -248,8 +238,6 @@ function buildMockMessages(targetMode: AppMode): Message[] {
               prompt: 'Plan d ouverture d une ville sous la pluie, travelling lent, neon et foule.',
               refinedPrompt: 'Ouverture cinematographique d une ville sous la pluie, travelling lent, reflets neon, foule diffuse, atmosphere nocturne, sensation de tension elegante.',
               model: 'veo',
-              refinerProfileId: 'video-cinematic',
-              refinerCustomInstructions: 'Favoriser un rendu plus cinematographique.',
             },
           },
         ],
@@ -283,8 +271,6 @@ function buildMockMessages(targetMode: AppMode): Message[] {
               prompt: 'Beat trap melancolique, basse ronde, texture nocturne, hook simple.',
               refinedPrompt: 'Beat trap melancolique nocturne, basse ronde, pads brumeux, drums nets, hook simple et memorisable, energie contenue.',
               model: 'lyria-002',
-              refinerProfileId: 'lyria-dark-trap',
-              refinerCustomInstructions: 'Garder une texture sombre mais propre.',
             },
           },
         ],
@@ -335,13 +321,7 @@ function PreviewApp() {
       activeSessionId: 'preview-session',
       isLeftSidebarVisible: true,
       isRightSidebarVisible: true,
-      configs: {
-        ...state.configs,
-        [mode]: {
-          ...state.configs[mode],
-          refinerEnabled: true,
-        },
-      },
+      configs: state.configs,
     }));
     document.documentElement.className = 'dark';
   }, []);
@@ -367,8 +347,6 @@ function PreviewApp() {
             isLoading={false}
             messages={mockMessages}
             onImageClick={() => {}}
-            isRefinerEnabled
-            onToggleRefiner={() => {}}
             pendingAttachments={pendingAttachments}
             onAddAttachments={async () => {}}
             onRemoveAttachment={(attachmentId) => {
@@ -381,8 +359,6 @@ function PreviewApp() {
             onGenerate={() => {}}
             isLoading={false}
             messages={mockMessages}
-            isRefinerEnabled
-            onToggleRefiner={() => {}}
           />
         )}
         {mode === 'video' && (
@@ -390,8 +366,6 @@ function PreviewApp() {
             onGenerate={() => {}}
             isLoading={false}
             messages={mockMessages}
-            isRefinerEnabled
-            onToggleRefiner={() => {}}
           />
         )}
         {mode === 'lyria' && (
@@ -399,8 +373,6 @@ function PreviewApp() {
             onGenerate={() => {}}
             isLoading={false}
             messages={mockMessages}
-            isRefinerEnabled
-            onToggleRefiner={() => {}}
           />
         )}
       </div>

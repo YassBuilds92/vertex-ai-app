@@ -3,20 +3,15 @@ import {
   Check,
   ChevronDown,
   Code2,
-  Film,
   Globe,
   Brain,
   Bot,
-  Image as ImageIcon,
   LayoutDashboard,
   Link2,
-  Mic,
   Moon,
-  Music,
   Palette,
   RotateCcw,
   Settings2,
-  Sparkles,
   Sun,
   X,
 } from 'lucide-react';
@@ -40,14 +35,13 @@ import {
   LYRIA_MODEL_LABELS,
   LYRIA_MODEL_OPTIONS,
 } from '../../shared/lyria-models.js';
-import {
-  getDefaultPromptRefinerProfileId,
-  getPromptRefinerProfile,
-  getPromptRefinerProfiles,
-} from '../../shared/prompt-refiners.js';
 import { db, auth, cleanForFirestore } from '../firebase';
 import { useStore } from '../store/useStore';
 import { AppMode, ChatSession, CustomPrompt, SelectedCustomPromptRef } from '../types';
+import {
+  getGoogleRecommendedGenerationDefaults,
+  hasCustomGenerationDefaults,
+} from '../utils/generation-defaults';
 
 const SystemInstructionGallery = React.lazy(async () => {
   const module = await import('./SystemInstructionGallery');
@@ -122,7 +116,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
     setRightSidebarVisible,
     theme,
     setTheme,
-    resetConfig,
   } = useStore();
 
   const config = configs[activeMode];
@@ -150,14 +143,8 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
   const audioSupportsMultiSpeaker = activeMode === 'audio'
     ? modelSupportsGeminiTtsMultiSpeaker(config?.model || '')
     : false;
-  const availableRefinerProfiles = useMemo(
-    () => getPromptRefinerProfiles(activeMode),
-    [activeMode],
-  );
-  const activeRefinerProfile = useMemo(
-    () => getPromptRefinerProfile(activeMode, config?.refinerProfileId),
-    [activeMode, config?.refinerProfileId],
-  );
+  const hasCustomSampling = hasCustomGenerationDefaults(activeMode, config);
+  const resetSamplingDefaults = () => setConfig(getGoogleRecommendedGenerationDefaults(activeMode));
   const thinkingLevels = useMemo(() => {
     const levels = [
       { id: 'minimal', label: 'Eco' },
@@ -257,7 +244,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
         min={min}
         max={max}
         step={step}
-        value={(config as any)[key] || (key === 'maxOutputTokens' ? 8192 : 1)}
+        value={(config as any)[key] ?? (key === 'maxOutputTokens' ? 8192 : 1)}
         onChange={(event) => setConfig({ [key]: parseFloat(event.target.value) } as any)}
         className="h-1 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[var(--app-accent)]"
       />
@@ -359,7 +346,10 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                             <button
                               key={model.id}
                               onClick={() => {
-                                setConfig({ model: model.id });
+                                setConfig({
+                                  model: model.id,
+                                  ...getGoogleRecommendedGenerationDefaults(activeMode),
+                                });
                                 setIsModelListOpen(false);
                               }}
                               className={cn(
@@ -384,125 +374,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
               </div>
             </div>
           </div>
-
-          <div className="studio-panel rounded-xl p-4 space-y-4">
-            {renderSectionTitle('Raffineur IA')}
-            <button
-              onClick={() => setConfig({ refinerEnabled: !Boolean(config?.refinerEnabled) })}
-              className={cn(
-                'flex w-full items-start justify-between gap-4 rounded-lg border px-4 py-4 text-left transition-colors',
-                config?.refinerEnabled
-                  ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)]'
-                  : 'border-[var(--app-border)] bg-white/[0.03] hover:border-[var(--app-border-strong)]',
-              )}
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-[13px] font-bold tracking-tight text-[var(--app-text)]">
-                  <Sparkles size={15} className={config?.refinerEnabled ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]'} />
-                  Raffinage personnalise
-                </div>
-                <p className="mt-2 text-[11px] leading-6 text-[var(--app-text-muted)]">
-                  Chaque mode garde maintenant son propre raffineur, son profil et ses consignes perso.
-                </p>
-              </div>
-              <div className={cn('relative mt-0.5 h-6 w-11 rounded-full transition-colors', config?.refinerEnabled ? 'bg-[var(--app-accent-soft)]' : 'bg-white/10')}>
-                <motion.div
-                  animate={{ x: config?.refinerEnabled ? 23 : 2 }}
-                  className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm"
-                  transition={{ type: 'spring', damping: 20, stiffness: 300 } as const}
-                />
-              </div>
-            </button>
-
-            <div className="space-y-2">
-              <div className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Profil actif</div>
-              <div className="grid grid-cols-2 gap-2">
-                {availableRefinerProfiles.map((profile) => (
-                  <button
-                    key={profile.id}
-                    onClick={() => setConfig({ refinerProfileId: profile.id })}
-                    className={cn(
-                      'rounded-xl border px-3 py-3 text-left transition-colors',
-                      config?.refinerProfileId === profile.id
-                        ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
-                        : 'border-[var(--app-border)] bg-white/[0.03] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]',
-                    )}
-                  >
-                    <div className="text-[12px] font-bold tracking-tight">{profile.title}</div>
-                    <div className="mt-1 text-[10px] leading-5 opacity-80">{profile.summary}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-              {activeRefinerProfile
-                ? `${activeRefinerProfile.title}: ${activeRefinerProfile.summary}`
-                : 'Profil par defaut actif.'}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] font-bold text-[var(--app-text-muted)]">Consignes perso</span>
-                <button
-                  onClick={() => setConfig({ refinerCustomInstructions: '' })}
-                  className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
-                >
-                  Vider
-                </button>
-              </div>
-              <textarea
-                value={config?.refinerCustomInstructions || ''}
-                onChange={(event) => setConfig({ refinerCustomInstructions: event.target.value })}
-                placeholder={
-                  activeRefinerProfile?.placeholder
-                    || 'Ex: plus premium, plus lisible, plus direct, moins bavard, plus manga, plus pub, plus cinematic.'
-                }
-                className="w-full min-h-28 resize-none rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-[12px] text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
-              />
-            </div>
-
-            {!config?.refinerProfileId && (
-              <button
-                onClick={() => setConfig({ refinerProfileId: getDefaultPromptRefinerProfileId(activeMode) })}
-                className="rounded-lg border border-[var(--app-border)] bg-white/[0.03] px-3 py-2 text-[11px] font-bold text-[var(--app-text-muted)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
-              >
-                Charger le profil par defaut
-              </button>
-            )}
-          </div>
-
-          {activeMode === 'cowork' && (
-            <div className="studio-panel rounded-xl p-4 space-y-4">
-              {renderSectionTitle('Options Cowork')}
-              <button
-                onClick={() => setConfig({ agentDelegationEnabled: !Boolean(config.agentDelegationEnabled) })}
-                className={cn(
-                  'flex w-full items-start justify-between gap-4 rounded-lg border px-4 py-4 text-left transition-colors',
-                  config.agentDelegationEnabled
-                    ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)]'
-                    : 'border-[var(--app-border)] bg-white/[0.03] hover:border-[var(--app-border-strong)]',
-                )}
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-[13px] font-bold tracking-tight text-[var(--app-text)]">
-                    <Bot size={15} className={config.agentDelegationEnabled ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]'} />
-                    Utiliser les agents du Hub
-                  </div>
-                  <p className="mt-2 text-[11px] leading-6 text-[var(--app-text-muted)]">
-                    Laisse Cowork deleguer au Hub, creer un specialiste ou en relancer un existant. Par defaut cette option reste coupee.
-                  </p>
-                </div>
-                <div className={cn('relative mt-0.5 h-6 w-11 rounded-full transition-colors', config.agentDelegationEnabled ? 'bg-[var(--app-accent-soft)]' : 'bg-white/10')}>
-                  <motion.div
-                    animate={{ x: config.agentDelegationEnabled ? 23 : 2 }}
-                    className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm"
-                    transition={{ type: 'spring', damping: 20, stiffness: 300 } as const}
-                  />
-                </div>
-              </button>
-            </div>
-          )}
 
 
           {activeMode === 'video' && (
@@ -826,7 +697,24 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                 <Settings2 size={14} className={cn(showAdvanced ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]')} />
                 <span className="text-[12px] font-bold tracking-tight">Parametres avances</span>
               </div>
-              <ChevronDown size={14} className={cn('text-[var(--app-text-muted)] transition-transform duration-300', showAdvanced && 'rotate-180')} />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    resetSamplingDefaults();
+                  }}
+                  className={cn(
+                    'flex h-7 w-7 items-center justify-center rounded-lg border transition-colors',
+                    hasCustomSampling
+                      ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
+                      : 'border-transparent text-[var(--app-text-muted)] hover:border-[var(--app-border)] hover:text-[var(--app-text)]',
+                  )}
+                  title="Reinitialiser temperature, Top P, Top K et tokens sur les defaults Google"
+                >
+                  <RotateCcw size={12} />
+                </button>
+                <ChevronDown size={14} className={cn('text-[var(--app-text-muted)] transition-transform duration-300', showAdvanced && 'rotate-180')} />
+              </div>
             </button>
 
             <AnimatePresence initial={false}>
@@ -838,18 +726,13 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                   className="overflow-hidden px-1"
                 >
                   <div className="space-y-7 py-6">
+                    <div className="rounded-xl border border-[var(--app-border)] bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
+                      Defaults Google: temperature 1.0, Top P 0.95, Top K 40. Le bouton reset remet aussi la limite de sortie adaptee au mode.
+                    </div>
                     {renderSlider('temperature', 'Temperature', 0, 2, 0.1)}
                     {renderSlider('topP', 'Top P', 0, 1, 0.01)}
                     {renderSlider('topK', 'Top K', 1, 100, 1)}
                     {renderSlider('maxOutputTokens', 'Max Output', 1, 65536, 1024)}
-
-                    <button
-                      onClick={() => resetConfig()}
-                      className="flex w-full items-center justify-center gap-2 rounded-full border border-[var(--app-border)] py-3 text-[11px] font-bold text-[var(--app-text-muted)] transition-colors hover:border-[var(--app-border-strong)] hover:bg-white/[0.05] hover:text-[var(--app-text)]"
-                    >
-                      <RotateCcw size={12} />
-                      Reinitialiser les parametres
-                    </button>
                   </div>
                 </motion.div>
               )}

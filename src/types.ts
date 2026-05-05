@@ -42,8 +42,6 @@ export interface AttachmentGenerationMeta {
   prompt?: string;
   refinedPrompt?: string;
   model?: string;
-  refinerProfileId?: string;
-  refinerCustomInstructions?: string;
   shotId?: string;
   shotLabel?: string;
 }
@@ -60,6 +58,14 @@ export interface Attachment {
   thumbnail?: string;
   videoMetadata?: AttachmentVideoMetadata;
   generationMeta?: AttachmentGenerationMeta;
+}
+
+export type AttachmentNoticeTone = 'error' | 'info';
+
+export interface AttachmentNotice {
+  tone: AttachmentNoticeTone;
+  title: string;
+  detail: string;
 }
 
 export interface Message {
@@ -375,9 +381,6 @@ export interface ModelConfig {
   topP: number;
   topK: number;
   systemInstruction: string;
-  refinerEnabled?: boolean;
-  refinerProfileId?: string;
-  refinerCustomInstructions?: string;
   googleSearch?: boolean;
   googleMaps?: boolean;
   codeExecution?: boolean;
@@ -405,7 +408,6 @@ export interface ModelConfig {
   personGeneration?: string;
   safetySetting?: string;
   videoDurationSeconds?: number;
-  agentDelegationEnabled?: boolean;
 }
 
 export interface MediaGenerationRequest {

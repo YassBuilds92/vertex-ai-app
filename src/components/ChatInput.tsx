@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Send, Film, Mic, Paperclip, X, FileText, Youtube, Square, SlidersHorizontal, ArrowUp
+  Send, Film, Mic, Paperclip, X, FileText, Youtube, Square, SlidersHorizontal, ArrowUp, AlertCircle
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { Attachment, AttachmentVideoMetadata } from '../types';
+import { Attachment, AttachmentNotice, AttachmentVideoMetadata } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -109,10 +109,12 @@ interface ChatInputProps {
   setPendingAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
   setSelectedImage: (url: string) => void;
   placeholder?: string;
+  attachmentNotice?: AttachmentNotice | null;
+  onDismissAttachmentNotice?: () => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
-  onSend, onStop, isLoading, isRecording, recordingTime, onToggleRecording, processFiles, pendingAttachments, setPendingAttachments, setSelectedImage, placeholder
+  onSend, onStop, isLoading, isRecording, recordingTime, onToggleRecording, processFiles, pendingAttachments, setPendingAttachments, setSelectedImage, placeholder, attachmentNotice, onDismissAttachmentNotice
 }) => {
   const [text, setText] = useState('');
   const [youtubeSettingsDraft, setYoutubeSettingsDraft] = useState<YouTubeSettingsDraft | null>(null);
@@ -137,6 +139,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setText('');
     setPendingAttachments([]);
     setYoutubeSettingsDraft(null);
+    onDismissAttachmentNotice?.();
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
@@ -275,6 +278,57 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </span>
                 <span className="text-xs font-medium text-red-400">Enregistrement</span>
                 <span className="text-xs text-red-400/60 font-mono tabular-nums">{formatTime(recordingTime)}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Attachment notice */}
+        <AnimatePresence>
+          {attachmentNotice && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden border-b border-[var(--app-border)]"
+            >
+              <div className={cn(
+                "flex items-start gap-2.5 px-3 py-2.5",
+                attachmentNotice.tone === 'error'
+                  ? "bg-red-500/10 text-red-200"
+                  : "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+              )}>
+                <AlertCircle
+                  size={16}
+                  className={cn(
+                    "mt-0.5 shrink-0",
+                    attachmentNotice.tone === 'error' ? "text-red-300" : "text-[var(--app-accent)]"
+                  )}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold">{attachmentNotice.title}</div>
+                  <div className={cn(
+                    "mt-0.5 break-words text-xs leading-5",
+                    attachmentNotice.tone === 'error' ? "text-red-200/75" : "text-[var(--app-text-muted)]"
+                  )}>
+                    {attachmentNotice.detail}
+                  </div>
+                </div>
+                {onDismissAttachmentNotice && (
+                  <button
+                    type="button"
+                    onClick={onDismissAttachmentNotice}
+                    className={cn(
+                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
+                      attachmentNotice.tone === 'error'
+                        ? "text-red-200/70 hover:bg-red-500/15 hover:text-red-100"
+                        : "text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
+                    )}
+                    aria-label="Fermer le message"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
               </div>
             </motion.div>
           )}

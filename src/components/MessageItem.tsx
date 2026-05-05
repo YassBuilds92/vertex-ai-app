@@ -445,7 +445,6 @@ const MessageItemComponent = ({
 }) => {
   const [isCopied, setIsCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [showRefined, setShowRefined] = useState(false);
   const [editText, setEditText] = useState(msg.content);
   const [isCollapsed, setIsCollapsed] = useState(msg.role === 'user' && msg.content && msg.content.length > 800);
   const isCoworkMessage = Boolean(msg.runMeta?.mode || (msg.activity?.length ?? 0) > 0 || msg.runState);
@@ -561,32 +560,6 @@ const MessageItemComponent = ({
                 </div>
               )}
 
-              <AnimatePresence>
-                {showRefined && msg.refinedInstruction && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                    animate={{ opacity: 1, height: 'auto', marginTop: 12 }}
-                    exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-2xl relative overflow-hidden group/refined">
-                      <div className="absolute top-0 right-0 p-2 opacity-20">
-                        <Sparkles size={40} className="text-indigo-500" />
-                      </div>
-                      <div className="flex items-center gap-2 mb-2 text-[10px] font-bold uppercase tracking-wider text-indigo-400/80">
-                        <Sparkles size={10} />
-                        Prompt optimise par l'IA
-                      </div>
-                      <p className="message-copy text-[13px] text-[var(--app-text)]/80 leading-relaxed italic font-serif">
-                        "{msg.refinedInstruction}"
-                      </p>
-                      <p className="mt-2 text-[11px] text-[var(--app-text-muted)]/60">
-                        Original : {msg.content}
-                      </p>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
           ) : (
             <div className="flex min-w-0 flex-col gap-5">
@@ -802,19 +775,18 @@ const MessageItemComponent = ({
         {/* Boutons d'action pour l'utilisateur, déplacés hors de la box */}
         {msg.role === 'user' && !isEditing && !isLoading && (
           <div className="flex gap-2.5 justify-end mt-1 px-2 opacity-0 group-hover/msg:opacity-100 transition-opacity">
-            {msg.refinedInstruction && (
+            {false && msg.refinedInstruction && (
               <button
-                onClick={() => setShowRefined(!showRefined)}
+                onClick={() => undefined}
                 className={cn(
                   "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-medium transition-colors transition-opacity",
-                  showRefined 
+                  false
                     ? "text-[var(--app-accent)] bg-[rgba(129,236,255,0.12)] border-[var(--app-border-strong)]" 
                     : "text-zinc-500 hover:text-[var(--app-accent)] bg-[var(--app-text)]/[0.04] hover:bg-[rgba(129,236,255,0.08)] border-[var(--app-border)] hover:border-[var(--app-border-strong)]"
                 )}
-                title="Voir le prompt optimisé"
+                title=""
               >
-                <Sparkles size={11} className={cn(showRefined && "animate-pulse")} />
-                Prompt Optimisé
+                <Sparkles size={11} />
               </button>
             )}
             <button

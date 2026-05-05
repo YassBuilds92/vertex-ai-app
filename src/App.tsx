@@ -23,7 +23,7 @@ import { SidebarRight } from './components/SidebarRight';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
 import { StudioEmptyState } from './components/StudioEmptyState';
-import { Message, ChatSession, AppMode, Attachment, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest, SelectedCustomPromptRef, WorkspaceFile, MediaGenerationMode, MediaGenerationRequest } from './types';
+import { Message, ChatSession, AppMode, Attachment, AttachmentNotice, AttachmentType, SystemPromptVersion, StudioAgent, AgentBlueprint, AgentFormValues, GeneratedAppCreationEvent, GeneratedAppCreationRun, GeneratedAppCreationTranscriptTurn, GeneratedAppManifest, SelectedCustomPromptRef, WorkspaceFile, MediaGenerationMode, MediaGenerationRequest } from './types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -84,6 +84,7 @@ import {
   getAppliedStorageResetVersion,
   setAppliedStorageResetVersion,
 } from './utils/storageReset';
+import { getGoogleRecommendedGenerationDefaults } from './utils/generation-defaults';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -156,6 +157,37 @@ function guessAttachmentExtension(input: { mimeType?: string | null; name?: stri
   if (!mimeType) return 'bin';
   const subtype = mimeType.split('/')[1] || '';
   return subtype.replace(/[^a-z0-9]+/g, '') || 'bin';
+}
+
+const CLIENT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+function formatAttachmentSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 Mo';
+  const mb = bytes / (1024 * 1024);
+  return `${mb >= 10 ? mb.toFixed(1) : mb.toFixed(2)} Mo`;
+}
+
+function buildAttachmentRejection(file: File): AttachmentNotice | null {
+  if (file.size <= CLIENT_MAX_ATTACHMENT_BYTES) return null;
+
+  const normalizedMimeType = normalizeAttachmentMimeType(file.type);
+  const isPdf = normalizedMimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+  return {
+    tone: 'error',
+    title: isPdf ? 'PDF trop lourd' : 'Fichier trop lourd',
+    detail: `"${file.name}" fait ${formatAttachmentSize(file.size)}. Limite actuelle: ${formatAttachmentSize(CLIENT_MAX_ATTACHMENT_BYTES)}. Compresse-le ou coupe-le, puis renvoie-le.`,
+  };
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('File read failed'));
+    reader.onabort = () => reject(new Error('File read aborted'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  });
 }
 
 function toSessionFirestorePayload(session: ChatSession) {
@@ -578,6 +610,7 @@ export default function App() {
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
   const [isVertexConfigured, setIsVertexConfigured] = useState<boolean | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [attachmentNotice, setAttachmentNotice] = useState<AttachmentNotice | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [expandedThoughts, setExpandedThoughts] = useState<Record<string, boolean>>({});
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -587,7 +620,6 @@ export default function App() {
   const [streamingContent, setStreamingContent] = useState<string>('');
   const [streamingThoughts, setStreamingThoughts] = useState<string>('');
   const [streamingThoughtsExpanded, setStreamingThoughtsExpanded] = useState<boolean>(true);
-  const [refiningStatus, setRefiningStatus] = useState<string | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   const [recentlyCompletedMessageId, setRecentlyCompletedMessageId] = useState<string | null>(null);
   const [liveCoworkMessage, setLiveCoworkMessage] = useState<Message | null>(null);
@@ -835,9 +867,8 @@ export default function App() {
     && !activeGeneratedAppWorkspace
     && !hasRenderableConversation
     && !isLoading
-    && !refiningStatus
     && (activeSessionId === 'local-new' || !hasStandardSessionHistoryForMode);
-  const shouldRenderMessageEndSpacer = displayedMessages.length > 0 || isLoading || Boolean(refiningStatus);
+  const shouldRenderMessageEndSpacer = displayedMessages.length > 0 || isLoading;
 
   const activeModeLabel = {
     chat: 'Chat & Raisonnement',
@@ -907,6 +938,7 @@ export default function App() {
     }
 
     setPendingAttachments([]);
+    setAttachmentNotice(null);
     setCustomTitle(null);
     setActiveSessionId('local-new', { remember: false, modeOverride: mode });
   }, [getPreferredSessionsForMode, lastSessionIdsByMode, setActiveMode, setActiveSessionId]);
@@ -1251,7 +1283,6 @@ export default function App() {
     streamingContent,
     streamingThoughts,
     isLoading,
-    refiningStatus,
     shouldRenderMessageEndSpacer,
     shouldShowEmptyState,
   ]);
@@ -1324,6 +1355,7 @@ export default function App() {
 
   const handleNewChat = useCallback(() => {
     setPendingAttachments([]);
+    setAttachmentNotice(null);
     setCustomTitle(null);
     setActiveSessionId('local-new', { remember: false });
   }, [setActiveSessionId]);
@@ -1334,30 +1366,61 @@ export default function App() {
 
   const processFiles = async (files: FileList | File[]) => {
     const newAttachments: Attachment[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    const notices: AttachmentNotice[] = [];
+
+    for (const file of Array.from(files)) {
+      const rejection = buildAttachmentRejection(file);
+      if (rejection) {
+        notices.push(rejection);
+        continue;
+      }
+
+      let base64 = '';
+      try {
+        base64 = await readFileAsDataUrl(file);
+      } catch {
+        notices.push({
+          tone: 'error',
+          title: 'Lecture impossible',
+          detail: `"${file.name}" n'a pas pu etre lu. Reessaie ou choisis un autre fichier.`,
+        });
+        continue;
+      }
+
+      const normalizedMimeType = normalizeAttachmentMimeType(file.type);
       const url = URL.createObjectURL(file);
-      
-      // Convert to base64 for the API
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
 
       newAttachments.push({
         id: Math.random().toString(36).substring(7),
-        type: file.type.startsWith('image/') ? 'image' : 
-              file.type.startsWith('video/') ? 'video' : 
-              file.type.startsWith('audio/') ? 'audio' : 'document',
+        type: normalizedMimeType.startsWith('image/') ? 'image' :
+              normalizedMimeType.startsWith('video/') ? 'video' :
+              normalizedMimeType.startsWith('audio/') ? 'audio' : 'document',
         url,
         file,
         name: file.name,
-        mimeType: file.type,
+        mimeType: normalizedMimeType || file.type,
         base64
       });
     }
-    setPendingAttachments(prev => [...prev, ...newAttachments]);
+
+    if (newAttachments.length > 0) {
+      setPendingAttachments(prev => [...prev, ...newAttachments]);
+    }
+
+    if (notices.length === 0) {
+      setAttachmentNotice(null);
+      return;
+    }
+
+    setAttachmentNotice(
+      notices.length === 1
+        ? notices[0]
+        : {
+            tone: 'error',
+            title: `${notices.length} fichiers refuses`,
+            detail: `Premier probleme: ${notices[0].detail}`,
+          }
+    );
   };
 
   const removePendingAttachment = useCallback((attachmentId: string) => {
@@ -2734,10 +2797,7 @@ export default function App() {
       }));
       const inlineReferenceImages = isMediaMode ? buildInlineReferenceImages(pendingAttachments) : [];
 
-      // --- PROMPT REFINEMENT ---
-      let refinedInstruction = isMediaMode
-        ? sanitizeOptionalText(mediaRequest?.refinedPrompt)
-        : undefined;
+      let refinedInstruction: string | undefined;
       let finalPrompt = isMediaMode
         ? sanitizeOptionalText(mediaRequest?.originalPrompt) || textToSend
         : textToSend;
@@ -2745,58 +2805,20 @@ export default function App() {
       if (overrideMessages) {
         const lastMsg = overrideMessages[overrideMessages.length - 1];
         finalPrompt = lastMsg.content;
-        refinedInstruction = sanitizeOptionalText(lastMsg.refinedInstruction) || refinedInstruction;
-      }
-
-      if (effectiveConfig?.refinerEnabled && !overrideMessages && finalPrompt.trim() && !isMediaMode) {
-        setRefiningStatus("Optimisation de votre prompt par l'IA...");
-        try {
-          const refineRes = await fetch('/api/refine', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: requestController.signal,
-            body: JSON.stringify({
-              prompt: finalPrompt,
-              mode: effectiveMode,
-              profileId: effectiveConfig?.refinerProfileId,
-              customInstructions: effectiveConfig?.refinerCustomInstructions,
-            })
-          });
-          if (refineRes.ok) {
-            const refineData = await refineRes.json();
-            refinedInstruction = refineData.refinedInstruction;
-          }
-        } catch (e) {
-          console.error("Refinement failed:", e);
-        } finally {
-          setRefiningStatus(null);
-        }
       }
       throwIfAborted(requestController.signal);
 
       finalPrompt = finalPrompt.trim();
-      refinedInstruction = sanitizeOptionalText(refinedInstruction);
-      if (refinedInstruction === finalPrompt) {
-        refinedInstruction = undefined;
-      }
 
       const mediaGenerationMeta = isMediaMode
         ? {
             mode: effectiveMode as MediaGenerationMode,
             prompt: finalPrompt,
-            refinedPrompt: refinedInstruction,
             model: typeof effectiveConfig?.model === 'string' ? effectiveConfig.model : undefined,
-            refinerProfileId: effectiveConfig?.refinerEnabled ? sanitizeOptionalText(effectiveConfig?.refinerProfileId) : undefined,
-            refinerCustomInstructions: effectiveConfig?.refinerEnabled
-              ? sanitizeOptionalText(effectiveConfig?.refinerCustomInstructions)
-              : undefined,
           }
         : undefined;
 
-      // In Image/Video mode, the refined instruction IS the prompt
-      const generationPrompt = (effectiveMode === 'image' || effectiveMode === 'video' || effectiveMode === 'audio' || effectiveMode === 'lyria') && refinedInstruction 
-        ? refinedInstruction 
-        : finalPrompt;
+      const generationPrompt = finalPrompt;
 
       // --- BRANCHED LOGIC BASED ON MODE ---
       
@@ -2849,7 +2871,6 @@ export default function App() {
               generationMeta: {
                 ...mediaGenerationMeta,
                 prompt: img.prompt || mediaGenerationMeta?.prompt,
-                refinedPrompt: img.prompt || mediaGenerationMeta?.refinedPrompt,
                 shotId: img.id,
                 shotLabel: img.shortLabel || img.label,
               },
@@ -3091,10 +3112,10 @@ export default function App() {
             attachments: buildApiAttachmentPayloads(currentRequestAttachments),
             config: {
               model: effectiveConfig?.model || configs.chat.model,
-              temperature: effectiveConfig?.temperature ?? 0.1,
-              topP: effectiveConfig?.topP ?? 1.0,
-              topK: effectiveConfig?.topK ?? 1,
-              maxOutputTokens: effectiveConfig?.maxOutputTokens || 65536,
+              temperature: effectiveConfig?.temperature ?? getGoogleRecommendedGenerationDefaults('cowork').temperature,
+              topP: effectiveConfig?.topP ?? getGoogleRecommendedGenerationDefaults('cowork').topP,
+              topK: effectiveConfig?.topK ?? getGoogleRecommendedGenerationDefaults('cowork').topK,
+              maxOutputTokens: effectiveConfig?.maxOutputTokens || getGoogleRecommendedGenerationDefaults('cowork').maxOutputTokens,
               systemInstruction: sanitizedCoworkSystemInstruction,
               googleSearch: effectiveConfig?.googleSearch !== false,
               codeExecution: effectiveConfig?.codeExecution !== false,
@@ -3105,7 +3126,6 @@ export default function App() {
               timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris',
               nowIso: new Date().toISOString(),
             },
-            hubAgents: isCoworkRun && effectiveConfig?.agentDelegationEnabled ? agents : undefined,
             generatedApps,
             agentRuntime,
             appRuntime,
@@ -3406,10 +3426,10 @@ export default function App() {
           attachments: buildApiAttachmentPayloads(finalRequestAttachments),
           config: {
             model: effectiveMode === 'chat' ? (effectiveConfig?.model || configs.chat.model) : configs.chat.model,
-            temperature: effectiveConfig?.temperature ?? 0.7,
-            topP: effectiveConfig?.topP ?? 0.95,
-            topK: effectiveConfig?.topK ?? 40,
-            maxOutputTokens: effectiveConfig?.maxOutputTokens || 8192,
+            temperature: effectiveConfig?.temperature ?? getGoogleRecommendedGenerationDefaults('chat').temperature,
+            topP: effectiveConfig?.topP ?? getGoogleRecommendedGenerationDefaults('chat').topP,
+            topK: effectiveConfig?.topK ?? getGoogleRecommendedGenerationDefaults('chat').topK,
+            maxOutputTokens: effectiveConfig?.maxOutputTokens || getGoogleRecommendedGenerationDefaults('chat').maxOutputTokens,
             systemInstruction: activeSystemInstruction,
             googleSearch: !!effectiveConfig?.googleSearch,
             codeExecution: !!effectiveConfig?.codeExecution,
@@ -3559,7 +3579,6 @@ export default function App() {
       controller.abort();
     }
 
-    setRefiningStatus(null);
     setIsLoading(false);
     sendInFlightRef.current = false;
     abortControllerRef.current = null;
@@ -3779,8 +3798,10 @@ export default function App() {
           })),
           config: { 
             model: 'gemini-3.1-flash-lite-preview',
-            temperature: 0.1, 
-            topP: 1, topK: 1, maxOutputTokens: 64,
+            temperature: getGoogleRecommendedGenerationDefaults('chat').temperature,
+            topP: getGoogleRecommendedGenerationDefaults('chat').topP,
+            topK: getGoogleRecommendedGenerationDefaults('chat').topK,
+            maxOutputTokens: 64,
             systemInstruction: "Tu es un assistant spécialisé dans le titrage minimaliste. Ton thinking doit être minimal.",
             thinkingLevel: 'low'
           }
@@ -4027,8 +4048,6 @@ export default function App() {
                         isLoading={isLoading}
                         messages={displayedMessages}
                         onImageClick={setSelectedImage}
-                        isRefinerEnabled={Boolean(configs.image.refinerEnabled)}
-                        onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.image.refinerEnabled) })}
                         pendingAttachments={pendingAttachments}
                         onAddAttachments={processFiles}
                         onRemoveAttachment={removePendingAttachment}
@@ -4039,8 +4058,6 @@ export default function App() {
                         onGenerate={(prompt, request) => { void handleSend(prompt, undefined, undefined, request); }}
                         isLoading={isLoading}
                         messages={displayedMessages}
-                        isRefinerEnabled={Boolean(configs.video.refinerEnabled)}
-                        onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.video.refinerEnabled) })}
                       />
                     )}
                     {activeMode === 'audio' && (
@@ -4048,8 +4065,6 @@ export default function App() {
                         onGenerate={(prompt, request) => { void handleSend(prompt, undefined, undefined, request); }}
                         isLoading={isLoading}
                         messages={displayedMessages}
-                        isRefinerEnabled={Boolean(configs.audio.refinerEnabled)}
-                        onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.audio.refinerEnabled) })}
                       />
                     )}
                     {activeMode === 'lyria' && (
@@ -4057,8 +4072,6 @@ export default function App() {
                         onGenerate={(prompt, request) => { void handleSend(prompt, undefined, undefined, request); }}
                         isLoading={isLoading}
                         messages={displayedMessages}
-                        isRefinerEnabled={Boolean(configs.lyria.refinerEnabled)}
-                        onToggleRefiner={() => setConfig({ refinerEnabled: !Boolean(configs.lyria.refinerEnabled) })}
                       />
                     )}
                   </Suspense>
@@ -4169,18 +4182,10 @@ export default function App() {
                     {visibleMessages.map((msg, index) => renderMessageRow(msg, index))}
                   </div>
                 )}
-                 {/* Refining Status */}
-                 {refiningStatus && (
-                    <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-4 text-indigo-400 sm:px-6 lg:px-10">
-                     <div className="p-2 bg-indigo-500/10 rounded-lg animate-pulse">
-                        <Sparkles size={18} className="animate-spin-slow" />
-                     </div>
-                     <span className="text-sm font-medium tracking-wide">{refiningStatus}</span>
-                   </div>
-                 )}
+                 
 
                  {/* Message en cours de génération — visible immédiatement avec toggle Thoughts */}
-                 {isLoading && !refiningStatus && activeMode !== 'cowork' && !isAgentSession && !isGeneratedAppSession && (
+                 {isLoading && activeMode !== 'cowork' && !isAgentSession && !isGeneratedAppSession && (
                     <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 lg:px-10">
                      <MessageItem
                        msg={{ id: 'streaming', role: 'model', content: streamingContent, thoughts: streamingThoughts, createdAt: Date.now() }}
@@ -4204,7 +4209,7 @@ export default function App() {
 
               <div className="border-t border-[var(--app-border)] bg-[rgb(var(--app-bg-rgb))]/80 backdrop-blur-md px-3 pb-3 pt-3 sm:px-4">
                 <div className="mx-auto max-w-3xl">
-                  <ChatInput onSend={handleSend} onStop={handleStopGeneration} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} placeholder={coworkInputPlaceholder} />
+                  <ChatInput onSend={handleSend} onStop={handleStopGeneration} isLoading={isLoading} isRecording={isRecording} recordingTime={recordingTime} onToggleRecording={toggleRecording} processFiles={processFiles} pendingAttachments={pendingAttachments} setPendingAttachments={setPendingAttachments} setSelectedImage={setSelectedImage} placeholder={coworkInputPlaceholder} attachmentNotice={attachmentNotice} onDismissAttachmentNotice={() => setAttachmentNotice(null)} />
                 </div>
               </div>
               </>

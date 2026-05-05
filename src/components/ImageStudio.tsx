@@ -1,18 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowRight,
   Copy,
   Download,
   Image as ImageIcon,
   Loader2,
   Maximize2,
-  Pencil,
   Sparkles,
-  Undo2,
   Upload,
   X,
 } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -25,10 +21,10 @@ import {
   IMAGE_MODEL_OPTIONS,
   isAzureOpenAIImageModel,
 } from '../../shared/image-models.js';
-import { getPromptRefinerProfile } from '../../shared/prompt-refiners.js';
 import { useStore } from '../store/useStore';
 import { Attachment, MediaGenerationRequest, Message } from '../types';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { getGoogleRecommendedGenerationDefaults } from '../utils/generation-defaults';
 import { buildImageHistory } from '../utils/media-gallery-history';
 
 function cn(...inputs: ClassValue[]) {
@@ -80,8 +76,6 @@ interface ImageStudioProps {
   isLoading: boolean;
   messages: Message[];
   onImageClick: (url: string) => void;
-  isRefinerEnabled: boolean;
-  onToggleRefiner: () => void;
   pendingAttachments: Attachment[];
   onAddAttachments: (files: FileList | File[]) => Promise<void>;
   onRemoveAttachment: (attachmentId: string) => void;
@@ -92,15 +86,12 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   isLoading,
   messages,
   onImageClick,
-  isRefinerEnabled,
-  onToggleRefiner,
   pendingAttachments,
   onAddAttachments,
   onRemoveAttachment,
 }) => {
   const { configs, setConfig } = useStore();
   const config = configs.image;
-  const activeRefinerProfile = getPromptRefinerProfile('image', config.refinerProfileId);
   const selectedModel = getImageModelOption(config.model);
   const isAzureImageModel = isAzureOpenAIImageModel(config.model);
   const supportsAutoRatio = imageModelSupportsAutoAspectRatio(config.model);
@@ -109,9 +100,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const [prompt, setPrompt] = useState('');
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
-  const [isRefining, setIsRefining] = useState(false);
-  const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
-  const [originalPrompt, setOriginalPrompt] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const allImages = useMemo(() => buildImageHistory(messages), [messages]);
@@ -134,8 +122,8 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     }),
     [isAzureImageModel, supportsAutoRatio],
   );
-  const featuredPrompt = featuredImage?.refinedPrompt || featuredImage?.prompt || '';
-  const canSubmit = Boolean(prompt.trim()) && !isLoading && !isRefining;
+  const featuredPrompt = featuredImage?.prompt || '';
+  const canSubmit = Boolean(prompt.trim()) && !isLoading;
 
   useEffect(() => {
     if (!allImages.length) {
@@ -186,58 +174,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const handleSubmit = async () => {
     if (!canSubmit) return;
     const cleanPrompt = prompt.trim();
-
-    if (isRefinerEnabled) {
-      setIsRefining(true);
-      setOriginalPrompt(cleanPrompt);
-      try {
-        const res = await fetch('/api/refine', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: cleanPrompt,
-            mode: 'image',
-            profileId: config.refinerProfileId,
-            customInstructions: config.refinerCustomInstructions,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setRefinedPrompt(data.refinedInstruction || cleanPrompt);
-        } else {
-          submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
-        }
-      } catch {
-        submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
-      } finally {
-        setIsRefining(false);
-      }
-      return;
-    }
-
     submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
-  };
-
-  const handleApplyRefined = () => {
-    if (!refinedPrompt) return;
-    submitRawPrompt(refinedPrompt, { originalPrompt, refinedPrompt });
-    setRefinedPrompt(null);
-    setOriginalPrompt('');
-  };
-
-  const handleRevertOriginal = () => {
-    if (!originalPrompt.trim()) return;
-    submitRawPrompt(originalPrompt, { originalPrompt });
-    setRefinedPrompt(null);
-    setOriginalPrompt('');
-  };
-
-  const handleEditRefined = () => {
-    if (!refinedPrompt) return;
-    setPrompt(refinedPrompt);
-    setRefinedPrompt(null);
-    setOriginalPrompt('');
   };
 
   return (
@@ -256,10 +193,10 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         }}
       />
 
-      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,0.92fr)_minmax(340px,1.08fr)]">
+      <div className="mx-auto grid w-full max-w-[90rem] gap-7 px-5 py-7 sm:px-7 lg:grid-cols-[minmax(360px,0.95fr)_minmax(420px,1.05fr)]">
         <section className="space-y-4">
-          <div className="rounded-[1.5rem] border border-[var(--app-border)] bg-[var(--app-surface)]/80 p-4 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.8)] sm:p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="rounded-[1.5rem] border border-[var(--app-border)] bg-[var(--app-surface)]/80 p-5 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.8)] sm:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
                   Generation image
@@ -284,16 +221,19 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               }}
               placeholder="Decris l'image: sujet, cadrage, lumiere, style, details importants..."
               rows={8}
-              className="min-h-[15rem] w-full resize-none rounded-[1.1rem] border border-white/8 bg-black/20 px-4 py-4 text-[15px] leading-relaxed text-[var(--app-text)] outline-none transition-colors placeholder:text-[var(--app-text-muted)]/50 focus:border-[var(--app-border-strong)]"
+              className="min-h-[18rem] w-full resize-none rounded-[1.1rem] border border-white/8 bg-black/20 px-5 py-5 text-[15px] leading-relaxed text-[var(--app-text)] outline-none transition-colors placeholder:text-[var(--app-text-muted)]/50 focus:border-[var(--app-border-strong)]"
             />
 
-            <div className="mt-4 grid gap-3">
+            <div className="mt-5 grid gap-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="space-y-1.5">
                   <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Modele</span>
                   <select
                     value={config.model}
-                    onChange={(event) => setConfig({ model: event.target.value })}
+                    onChange={(event) => setConfig({
+                      model: event.target.value,
+                      ...getGoogleRecommendedGenerationDefaults('image'),
+                    })}
                     className="h-10 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-strong)] px-3 text-[12px] font-semibold text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
                   >
                     {IMAGE_MODEL_OPTIONS.map((model) => (
@@ -349,7 +289,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <div className="grid gap-3">
                 {supportsImageSize ? (
                   <div className="space-y-1.5">
                     <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">
@@ -378,29 +318,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                     {getImageModelLabel(config.model)} gere la taille automatiquement.
                   </div>
                 )}
-
-                <button
-                  type="button"
-                  onClick={onToggleRefiner}
-                  className={cn(
-                    'flex h-10 items-center justify-center gap-2 self-end rounded-xl border px-3 text-[12px] font-semibold transition-all',
-                    isRefinerEnabled
-                      ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
-                      : 'border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
-                  )}
-                >
-                  <Sparkles size={13} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
-                  Raffineur
-                </button>
               </div>
-
-              {activeRefinerProfile && isRefinerEnabled && (
-                <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                  <span className="font-bold text-[var(--app-text)]">{activeRefinerProfile.title}</span>
-                  {' - '}
-                  {activeRefinerProfile.summary}
-                </div>
-              )}
             </div>
 
             <div className="mt-4 rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
@@ -455,67 +373,14 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                   : 'cursor-not-allowed bg-white/[0.06] text-[var(--app-text-muted)]',
               )}
             >
-              {(isLoading || isRefining) ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
-              {isLoading ? 'Generation...' : isRefining ? 'Optimisation...' : 'Generer'}
+              {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
+              {isLoading ? 'Generation...' : 'Generer'}
             </button>
           </div>
-
-          <AnimatePresence>
-            {refinedPrompt && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                className="rounded-[1.3rem] border border-[var(--app-accent)]/20 bg-[var(--app-accent-soft)] p-4"
-              >
-                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[var(--app-accent)]">
-                  <Sparkles size={11} />
-                  Prompt optimise
-                </div>
-                <p className="mb-2 text-[13px] leading-relaxed text-[var(--app-text)]">{refinedPrompt}</p>
-                <p className="mb-4 text-[11px] text-[var(--app-text-muted)]">Original: {originalPrompt}</p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={handleApplyRefined}
-                    disabled={isLoading}
-                    className="flex items-center gap-1.5 rounded-xl bg-[var(--app-accent)] px-4 py-2 text-[12px] font-bold text-[#0a0a14] transition-all hover:brightness-110"
-                  >
-                    <ArrowRight size={12} />
-                    Generer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRevertOriginal}
-                    disabled={isLoading}
-                    className="flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
-                  >
-                    <Undo2 size={11} />
-                    Original
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEditRefined}
-                    className="flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
-                  >
-                    <Pencil size={11} />
-                    Modifier
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRefinedPrompt(null)}
-                    className="ml-auto text-[11px] text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </section>
 
-        <section className="min-h-[32rem] rounded-[1.5rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(8,8,12,0.72))] p-4 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.86)] sm:p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
+        <section className="min-h-[34rem] rounded-[1.5rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(8,8,12,0.72))] p-5 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.86)] sm:p-6">
+          <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
                 Sortie image

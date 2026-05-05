@@ -1,5 +1,27 @@
 # COWORK - Projet Studio Pro
 
+## Mise a jour 2026-05-05 - Option Hub Agents retiree de Cowork visible
+- Retour produit:
+  - l'utilisateur confirme que le Hub n'existe plus dans l'UI produit attendue
+  - l'option `Utiliser les agents du Hub` dans Cowork entretenait donc une promesse morte
+- Changement applique:
+  - `src/components/SidebarRight.tsx`
+    - suppression de la section `Options Cowork`
+    - suppression du toggle `Utiliser les agents du Hub`
+  - `src/store/useStore.ts`
+    - suppression de `agentDelegationEnabled`
+  - `src/App.tsx`
+    - `/api/cowork` ne recoit plus `hubAgents`
+  - `src/types.ts`
+    - nettoyage du type `ModelConfig`
+- Validation locale:
+  - `npm run lint`
+  - `npm run build`
+  - capture Edge headless du panneau Cowork: aucune section Hub Agents visible
+- Etat produit:
+  - Cowork redevient une surface autonome et lisible
+  - les chemins historiques/legacy du repo ne doivent pas etre reexposes sans decision produit explicite
+
 ## Mise a jour 2026-04-17 - L'auto-memoire Qdrant ne spam plus le debut de conversation
 - Retour produit:
   - l'utilisateur voyait au debut des runs Cowork un warning inline bruyant du type `La recherche automatique dans la memoire a echoue...` avec details HTML/503 de Qdrant
@@ -141,7 +163,7 @@
       - rester honnete quand un point n'a pas ete verifie
   - socle medias / instruction memory:
     - `src/types.ts` et `src/App.tsx`
-      - les medias generes conservent `generationMeta` (`prompt`, `refinedPrompt`, modele, profil, consignes perso)
+      - les medias generes conservent `generationMeta` (`prompt`, modele)
     - `src/utils/instruction-gallery.ts`
       - nouvelle agregation des prompts/instructions depuis l'historique reel
     - studios:

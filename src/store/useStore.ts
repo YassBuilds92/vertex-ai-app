@@ -4,7 +4,7 @@ import { AppMode, ModelConfig, ChatSession } from '../types';
 import { DEFAULT_GEMINI_TTS_MODEL } from '../../shared/gemini-tts.js';
 import { DEFAULT_IMAGE_MODEL } from '../../shared/image-models.js';
 import { DEFAULT_LYRIA_MODEL } from '../../shared/lyria-models.js';
-import { getDefaultPromptRefinerProfileId } from '../../shared/prompt-refiners.js';
+import { getGoogleRecommendedGenerationDefaults } from '../utils/generation-defaults';
 
 interface AppState {
   activeMode: AppMode;
@@ -29,15 +29,9 @@ interface AppState {
 const initialConfigs: Record<AppMode, ModelConfig> = {
   chat: {
     model: 'gemini-3.1-pro-preview',
-    temperature: 0.7,
-    topP: 0.95,
-    topK: 40,
-    maxOutputTokens: 8192,
+    ...getGoogleRecommendedGenerationDefaults('chat'),
     responseMimeType: 'text/plain',
     systemInstruction: '',
-    refinerEnabled: false,
-    refinerProfileId: getDefaultPromptRefinerProfileId('chat'),
-    refinerCustomInstructions: '',
     googleSearch: false,
     googleMaps: false,
     codeExecution: false,
@@ -48,13 +42,8 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
   },
   image: {
     model: DEFAULT_IMAGE_MODEL,
-    temperature: 1.0,
-    topP: 1.0,
-    topK: 40,
+    ...getGoogleRecommendedGenerationDefaults('image'),
     systemInstruction: '',
-    refinerEnabled: false,
-    refinerProfileId: getDefaultPromptRefinerProfileId('image'),
-    refinerCustomInstructions: '',
     aspectRatio: '',
     imageSize: '1K',
     numberOfImages: 1,
@@ -63,56 +52,34 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
   },
   video: {
     model: 'veo-3.1-generate-001',
-    temperature: 1.0,
-    topP: 1.0,
-    topK: 40,
+    ...getGoogleRecommendedGenerationDefaults('video'),
     systemInstruction: '',
-    refinerEnabled: false,
-    refinerProfileId: getDefaultPromptRefinerProfileId('video'),
-    refinerCustomInstructions: '',
     videoResolution: '720p',
     videoAspectRatio: '16:9',
     videoDurationSeconds: 6,
   },
   audio: {
     model: DEFAULT_GEMINI_TTS_MODEL,
-    temperature: 1.0,
-    topP: 1.0,
-    topK: 40,
+    ...getGoogleRecommendedGenerationDefaults('audio'),
     systemInstruction: '',
-    refinerEnabled: false,
-    refinerProfileId: getDefaultPromptRefinerProfileId('audio'),
-    refinerCustomInstructions: '',
     ttsVoice: 'Kore',
     ttsLanguageCode: 'fr-FR',
     ttsStyleInstructions: '',
   },
   lyria: {
     model: DEFAULT_LYRIA_MODEL,
-    temperature: 1.0,
-    topP: 1.0,
-    topK: 40,
+    ...getGoogleRecommendedGenerationDefaults('lyria'),
     systemInstruction: '',
-    refinerEnabled: false,
-    refinerProfileId: getDefaultPromptRefinerProfileId('lyria'),
-    refinerCustomInstructions: '',
     negativePrompt: '',
     sampleCount: 1,
   },
   cowork: {
     model: 'gemini-3.1-pro-preview',
-    temperature: 0.1,
-    topP: 1.0,
-    topK: 1,
-    maxOutputTokens: 65536,
+    ...getGoogleRecommendedGenerationDefaults('cowork'),
     systemInstruction: '',
-    refinerEnabled: false,
-    refinerProfileId: getDefaultPromptRefinerProfileId('cowork'),
-    refinerCustomInstructions: '',
     googleSearch: true,
     codeExecution: true,
     thinkingLevel: 'high',
-    agentDelegationEnabled: false,
   }
 };
 

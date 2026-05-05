@@ -13,7 +13,7 @@
 - `src/components/GeneratedAppHost.tsx` : host legacy d'une generated app. Il reste dans le repo mais n'est plus expose par le shell principal.
 - `src/components/NasheedStudioWorkspace.tsx` : surface plein ecran specialisee pour les apps musicales/Nasheed, sans timeline de chat visible.
 - `src/components/SidebarLeft.tsx` : navigation, historique, sections chat/agents. Les sessions `generated_app` ne sont plus listees dans la navigation.
-- `src/components/SidebarRight.tsx` : modele, capacites et reglages.
+- `src/components/SidebarRight.tsx` : modele, capacites et reglages avances, avec reset des defaults Google; ne plus reintroduire de section Raffineur IA ni Hub Agents.
 - `src/components/MessageItem.tsx` / `ChatInput.tsx` : conversation et composition.
 - `src/generated-app-sdk.tsx` : mini-SDK frontend partage rendu par les bundles generes.
 
@@ -25,6 +25,7 @@
 - `src/utils/sessionShells.ts` : cache local-first des sessions.
 - `src/utils/generatedAppBundle.ts` : charge dynamiquement le bundle ESM d'une generated app.
 - `src/utils/agentStudio.ts` : detection des apps a rendre comme surfaces specialisees (`nasheed` vs fallback standard).
+- `src/utils/generation-defaults.ts` : defaults visibles de generation (`temperature`, `topP`, `topK`, `maxOutputTokens`) et detection d'un ecart utilisateur pour afficher le reset.
 
 ## Backend - logique agentique
 - `server/lib/agents.ts` : bibliotheque d'outils agents, blueprints et logique de creation/revision.

@@ -1,5 +1,56 @@
 # SESSION STATE
 
+## 2026-05-05 - Nettoyage UI Hub/Raffineur, defaults Google et studios media aeres
+
+### Ce qui a ete accompli
+- Cowork:
+  - suppression de la section `Options Cowork` et du toggle `Utiliser les agents du Hub`
+  - `/api/cowork` n'est plus alimente par `hubAgents` depuis le frontend
+- Raffineur IA:
+  - suppression des controles Raffineur dans `SidebarRight`
+  - suppression des props/flows de raffinement dans `ImageStudio`, `AudioStudio`, `LyriaStudio` et `VideoStudio`
+  - nettoyage du store, des types et des metas d'historique media
+- Defaults modele:
+  - ajout de `src/utils/generation-defaults.ts`
+  - defaults visibles: `temperature=1`, `topP=0.95`, `topK=40`
+  - reset discret des parametres avances via icone
+  - changement de modele media/chat remet les defaults recommandes
+- Icone IA:
+  - `SystemInstructionGallery` construit maintenant un prompt image depuis titre + instruction
+  - fallback local si `/api/refine` renvoie une instruction vide
+  - le bouton n'est bloque que si titre et prompt sont tous deux vides
+- UI media:
+  - Image, Voix et Lyria ont plus de largeur, de gap, de hauteur utile et moins de panneaux compresses
+
+### Validation locale
+- `npm run lint` -> OK
+- `npm run build` -> OK
+- serveur local Express verifie sur `http://127.0.0.1:3000/api/status`
+- QA visuelle Edge headless via Vite source:
+  - image studio
+  - audio studio
+  - Lyria studio
+  - panneau Cowork sans Hub Agents
+
+### Fichiers principaux modifies
+- `src/utils/generation-defaults.ts`
+- `src/store/useStore.ts`
+- `src/components/SidebarRight.tsx`
+- `src/components/ImageStudio.tsx`
+- `src/components/AudioStudio.tsx`
+- `src/components/LyriaStudio.tsx`
+- `src/components/VideoStudio.tsx`
+- `src/components/SystemInstructionGallery.tsx`
+- `src/App.tsx`
+- `api/index.ts`
+- `src/types.ts`
+- `src/utils/media-gallery-history.ts`
+- `src/utils/instruction-gallery.ts`
+
+### Points d'attention
+- `src/components/ChatInput.tsx` et `src/components/MessageItem.tsx` etaient deja modifies dans le worktree; ils n'ont pas ete revertis.
+- Les anciens chemins Hub/generated apps restent historiques dans le repo, mais la surface demandee par l'utilisateur n'est plus exposee dans l'UI principale.
+
 ## 2026-05-01 - Cowork repare pour les anciens reglages `thinkingLevel=minimal`
 
 ### Ce qui a ete accompli

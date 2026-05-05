@@ -1,5 +1,23 @@
 # BUGS GRAVEYARD
 
+## 2026-05-05 - `Generer une icone par IA` envoyait parfois un prompt image vide
+- Statut: corrige localement
+- Symptome:
+  - clic sur `Generer une icone par IA`
+  - popup navigateur:
+    - `Erreur: Le prompt image est vide.`
+- Cause racine:
+  - le flux d'icone dependait d'un raffinage qui pouvait retourner une instruction vide
+  - ce resultat vide etait transmis a `/api/generate-image`, qui rejetait correctement la requete
+- Resolution:
+  - construire un prompt source explicite depuis le titre et le texte de l'instruction systeme
+  - garder `/api/refine` comme enrichissement optionnel, mais fallback sur un prompt d'icone concret s'il renvoie vide
+  - desactiver le bouton seulement si le titre et le prompt sont tous deux vides
+- Preuve:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - verification visuelle locale du panneau Mes Instructions avec le bouton repare
+
 ## 2026-05-01 - Cowork echouait quand un ancien reglage envoyait `thinkingLevel: minimal` a Gemini 3.1 Pro
 - Statut: corrige localement, redeploiement prod requis
 - Symptome:

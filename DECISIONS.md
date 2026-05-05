@@ -1,5 +1,28 @@
 # DECISIONS
 
+## 2026-05-05 - Hub Cowork et Raffineur IA retires de l'UI, defaults Google restaurables
+- Statut: adopte localement
+- Contexte: l'utilisateur signale que l'option Cowork avec le Hub n'a plus de sens car le Hub n'existe plus dans le produit visible. Il demande aussi de retirer le Raffineur IA partout, de mettre les reglages de generation recommandes par Google/DeepMind par defaut, de reparer la generation d'icone par IA, et de rendre les modes image/voix/musique moins serres.
+- Decision:
+  - retirer du panneau Cowork l'option `Utiliser les agents du Hub`
+  - ne plus envoyer `hubAgents` dans le payload `/api/cowork`
+  - retirer le Raffineur IA des studios media, du panneau droit, du store persistant, des metas media et des harness QA
+  - garder seulement le prompt source comme reference copiable pour les medias generes
+  - centraliser les defaults de generation dans `src/utils/generation-defaults.ts`
+  - appliquer `temperature: 1`, `topP: 0.95`, `topK: 40` par defaut, avec un bouton de reset dans les parametres avances
+  - reparer `Generer une icone par IA` en construisant toujours un vrai prompt image depuis le titre + l'instruction, avec fallback si `/api/refine` renvoie vide
+  - aerer les studios `ImageStudio`, `AudioStudio` et `LyriaStudio` via des largeurs/gaps/hauteurs plus genereux
+- Pourquoi:
+  - une option Hub visible entretient une promesse produit morte
+  - le Raffineur IA ajoutait de la friction et de la confusion dans des modes deja specialises
+  - les defaults Google donnent un comportement plus coherent entre les modeles et facilitent le reset utilisateur
+  - le bug d'icone venait d'un prompt image vide alors que l'UI possedait deja assez de contexte pour en construire un
+- Consequence:
+  - l'UI Cowork est plus nette et ne parle plus du Hub
+  - les modes image, voix et Lyria affichent des surfaces plus respirantes, sans section Raffineur
+  - les galeries/instructions dedupliquent maintenant sur le prompt source et le modele, sans profil de raffineur
+  - le backend garde seulement des chemins legacy internes si necessaire, mais ils ne sont plus exposes par le shell principal
+
 ## 2026-05-01 - Cowork pur accepte a nouveau les consignes systeme custom
 - Statut: adopte
 - Contexte: l'ancien garde-fou anti prompt-hijacking protegeait Cowork contre des prompts galerie accidentels, mais bloquait aussi la demande explicite de l'utilisateur de piloter le comportement de Cowork via l'instruction systeme.

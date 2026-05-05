@@ -18,8 +18,6 @@ function dedupeInstructionEntries(entries: MediaHistoryEntry[]) {
       entry.mode || 'unknown',
       String(entry.prompt || '').trim().toLowerCase(),
       String(entry.refinedPrompt || '').trim().toLowerCase(),
-      String(entry.refinerProfileId || '').trim().toLowerCase(),
-      String(entry.refinerCustomInstructions || '').trim().toLowerCase(),
     ].join('::');
 
     if (seen.has(signature)) return false;

@@ -1,9 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Film, Sparkles, Loader2,
-  Undo2, Pencil, ArrowRight,
+  Film, Loader2,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../store/useStore';
 import { MediaGenerationRequest, Message } from '../types';
 import { clsx, type ClassValue } from 'clsx';
@@ -18,16 +16,12 @@ interface VideoStudioProps {
   onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
   isLoading: boolean;
   messages: Message[];
-  isRefinerEnabled: boolean;
-  onToggleRefiner: () => void;
 }
 
 export const VideoStudio: React.FC<VideoStudioProps> = ({
   onGenerate,
   isLoading,
   messages,
-  isRefinerEnabled,
-  onToggleRefiner,
 }) => {
   const { configs, setConfig } = useStore();
   const config = configs.video;
@@ -36,153 +30,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     ? ['720p', '1080p', '4k']
     : ['720p', '1080p'];
 
-  // Refiner preview state
-  const [isRefining, setIsRefining] = useState(false);
-  const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
-  const [originalPrompt, setOriginalPrompt] = useState('');
-
   const allVideos = useMemo(() => buildVideoHistory(messages), [messages]);
 
   const handleSubmit = async () => {
-    if (!prompt.trim() || isLoading || isRefining) return;
-
-    if (isRefinerEnabled) {
-      setIsRefining(true);
-      setOriginalPrompt(prompt.trim());
-      try {
-        const res = await fetch('/api/refine', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: prompt.trim(),
-            mode: 'video',
-            profileId: config.refinerProfileId,
-            customInstructions: config.refinerCustomInstructions,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setRefinedPrompt(data.refinedInstruction || prompt.trim());
-        } else {
-          onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-          setPrompt('');
-        }
-      } catch {
-        onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-        setPrompt('');
-      } finally {
-        setIsRefining(false);
-      }
-    } else {
-      onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
-      setPrompt('');
-    }
-  };
-
-  const handleApplyRefined = () => {
-    if (refinedPrompt) {
-      onGenerate(refinedPrompt, { originalPrompt, refinedPrompt });
-      setPrompt('');
-      setRefinedPrompt(null);
-      setOriginalPrompt('');
-    }
-  };
-
-  const handleRevertOriginal = () => {
-    onGenerate(originalPrompt, { originalPrompt });
+    if (!prompt.trim() || isLoading) return;
+    onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
     setPrompt('');
-    setRefinedPrompt(null);
-    setOriginalPrompt('');
-  };
-
-  const handleEditRefined = () => {
-    if (refinedPrompt) {
-      setPrompt(refinedPrompt);
-      setRefinedPrompt(null);
-      setOriginalPrompt('');
-    }
-  };
-
-  const handleDismissPreview = () => {
-    setRefinedPrompt(null);
-    setOriginalPrompt('');
   };
 
   return (
     <div className="flex h-full flex-col">
       <div className="mx-auto w-full max-w-4xl flex-shrink-0 px-4 pt-6 pb-4 sm:px-6">
-        {/* Refiner toggle */}
-        <div className="mb-4 flex items-center gap-2">
-          <button
-            onClick={onToggleRefiner}
-            className={cn(
-              'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] font-semibold transition-all',
-              isRefinerEnabled
-                ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
-                : 'border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)]',
-            )}
-          >
-            <Sparkles size={12} fill={isRefinerEnabled ? 'currentColor' : 'none'} />
-            Raffineur IA
-          </button>
-        </div>
-
-        {/* Refiner preview panel */}
-        <AnimatePresence>
-          {refinedPrompt && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mb-4 overflow-hidden"
-            >
-              <div className="rounded-2xl border border-[var(--app-accent)]/20 bg-[var(--app-accent-soft)] p-4">
-                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[var(--app-accent)]">
-                  <Sparkles size={11} />
-                  Prompt optimise
-                </div>
-                <p className="mb-1 text-[13px] leading-relaxed text-[var(--app-text)]">
-                  {refinedPrompt}
-                </p>
-                <p className="mb-4 text-[11px] text-[var(--app-text-muted)]">
-                  Original : {originalPrompt}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={handleApplyRefined}
-                    disabled={isLoading}
-                    className="flex items-center gap-1.5 rounded-lg bg-[var(--app-accent)] px-4 py-1.5 text-[12px] font-bold text-[#0a0a14] transition-all hover:brightness-110"
-                  >
-                    <ArrowRight size={12} />
-                    Creer avec ce prompt
-                  </button>
-                  <button
-                    onClick={handleRevertOriginal}
-                    disabled={isLoading}
-                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
-                  >
-                    <Undo2 size={11} />
-                    Garder l'original
-                  </button>
-                  <button
-                    onClick={handleEditRefined}
-                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:text-[var(--app-text)]"
-                  >
-                    <Pencil size={11} />
-                    Modifier
-                  </button>
-                  <button
-                    onClick={handleDismissPreview}
-                    className="ml-auto text-[11px] text-[var(--app-text-muted)] hover:text-[var(--app-text)] transition-colors"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         {/* Prompt */}
         <div className="relative rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-colors focus-within:border-[var(--app-border-strong)]">
           <textarea
@@ -248,16 +106,16 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
             <button
               onClick={handleSubmit}
-              disabled={!prompt.trim() || isLoading || isRefining}
+              disabled={!prompt.trim() || isLoading}
               className={cn(
                 'flex items-center gap-2 rounded-xl px-5 py-2 text-[13px] font-bold transition-all',
-                prompt.trim() && !isLoading && !isRefining
+                prompt.trim() && !isLoading
                   ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
                   : 'bg-white/[0.06] text-[var(--app-text-muted)] cursor-not-allowed',
               )}
             >
-              {isLoading ? <Loader2 size={15} className="animate-spin" /> : isRefining ? <Loader2 size={15} className="animate-spin" /> : <Film size={14} />}
-              {isLoading ? 'Generation...' : isRefining ? 'Optimisation...' : 'Creer'}
+              {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Film size={14} />}
+              {isLoading ? 'Generation...' : 'Creer'}
             </button>
           </div>
         </div>
@@ -294,9 +152,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                     className="aspect-video w-full object-cover"
                     preload="metadata"
                   />
-                  {(vid.refinedPrompt || vid.prompt) && (
+                  {vid.prompt && (
                     <div className="border-t border-[var(--app-border)] px-3 py-2">
-                      <p className="truncate text-[11px] text-[var(--app-text-muted)]">{vid.refinedPrompt || vid.prompt}</p>
+                      <p className="truncate text-[11px] text-[var(--app-text-muted)]">{vid.prompt}</p>
                     </div>
                   )}
                 </div>

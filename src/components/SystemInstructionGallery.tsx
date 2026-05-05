@@ -38,6 +38,24 @@ function extractGeneratedImageUrl(payload: any): string | null {
   return null;
 }
 
+function buildIconSourcePrompt(title: string, prompt: string) {
+  const cleanTitle = title.trim();
+  const cleanPrompt = prompt.trim();
+  return [
+    cleanTitle ? `Titre de l'instruction: ${cleanTitle}` : null,
+    cleanPrompt ? `Instruction systeme: ${cleanPrompt}` : null,
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildFallbackIconPrompt(title: string, prompt: string) {
+  const source = buildIconSourcePrompt(title, prompt);
+  return [
+    'Cree une icone carree premium pour une instruction systeme personnalisee.',
+    'Style: symbole simple, lisible a petite taille, fond propre, contraste fort, aucune lettre, aucun mot.',
+    source,
+  ].filter(Boolean).join('\n\n');
+}
+
 export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> = ({
   onSelect,
   onClose,
@@ -70,7 +88,11 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
   }, [currentUser]);
 
   const handleGenerateIcon = async () => {
-    if (!newPrompt.trim()) return;
+    const iconSourcePrompt = buildIconSourcePrompt(newTitle, newPrompt);
+    if (!iconSourcePrompt) {
+      alert("Ajoute au moins un titre ou une instruction avant de generer une icone.");
+      return;
+    }
     setIsGenerating(true);
     setGenerationStep("Analyse du prompt...");
     
@@ -79,11 +101,12 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
       const refineRes = await fetch('/api/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: newPrompt, type: 'icon' })
+        body: JSON.stringify({ prompt: iconSourcePrompt, type: 'icon' })
       });
       
       if (!refineRes.ok) throw new Error("Erreur lors de l'analyse du prompt");
-      const { refinedInstruction: imagePrompt } = await refineRes.json();
+      const { refinedInstruction } = await refineRes.json();
+      const imagePrompt = String(refinedInstruction || '').trim() || buildFallbackIconPrompt(newTitle, newPrompt);
       
       setGenerationStep("Génération de l'icône...");
       
@@ -114,19 +137,22 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
     }
   };
 
-  const backgroundGenerateIcon = async (docId: string, promptText: string) => {
+  const backgroundGenerateIcon = async (docId: string, promptText: string, titleText: string) => {
     if (!currentUser) return;
+    const iconSourcePrompt = buildIconSourcePrompt(titleText, promptText);
+    if (!iconSourcePrompt) return;
     
     try {
       // Step 1: Generate image prompt
       const refineRes = await fetch('/api/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: promptText, type: 'icon' })
+        body: JSON.stringify({ prompt: iconSourcePrompt, type: 'icon' })
       });
       
       if (!refineRes.ok) throw new Error("Erreur lors de l'analyse du prompt");
-      const { refinedInstruction: imagePrompt } = await refineRes.json();
+      const { refinedInstruction } = await refineRes.json();
+      const imagePrompt = String(refinedInstruction || '').trim() || buildFallbackIconPrompt(titleText, promptText);
       
       // Step 2: Generate image
       const imageRes = await fetch('/api/generate-image', {
@@ -201,7 +227,7 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
       }
 
       if (shouldGenerateBackground) {
-        backgroundGenerateIcon(docId, newPrompt.trim());
+        backgroundGenerateIcon(docId, newPrompt.trim(), newTitle.trim());
       }
       
       setIsAdding(false);
@@ -324,7 +350,7 @@ export const SystemInstructionGallery: React.FC<SystemInstructionGalleryProps> =
               <div className="flex-1">
                 <button 
                   onClick={handleGenerateIcon}
-                  disabled={isGenerating || !newPrompt.trim()}
+                  disabled={isGenerating || (!newTitle.trim() && !newPrompt.trim())}
                   className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-50"
                 >
                   <Sparkles size={12} />

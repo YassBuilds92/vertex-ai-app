@@ -196,7 +196,7 @@ export const AttachmentGallery: React.FC<AttachmentGalleryProps> = ({
                 src={attachment.url}
                 title={attachment.name || 'Audio joint'}
                 subtitle={getAttachmentMeta(attachment)}
-                prompt={attachment.generationMeta?.refinedPrompt || attachment.generationMeta?.prompt}
+                prompt={attachment.generationMeta?.prompt}
                 downloadName={getDownloadName(attachment, 'audio.mp3')}
                 compact={variant === 'compact'}
               />

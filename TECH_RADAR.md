@@ -9,6 +9,33 @@
 - Cout
 - Sources officielles
 
+## 2026-05-05 - Defaults Google/Gemini pour les reglages de generation visibles
+- Statut: retenu localement
+- Date de verification: 2026-05-05
+- Technologie: Gemini / Vertex AI generation config, sans nouvelle dependance
+- Choix:
+  - centraliser les valeurs utilisateur visibles dans `src/utils/generation-defaults.ts`
+  - appliquer par defaut `temperature: 1`, `topP: 0.95`, `topK: 40` a tous les modes/modeles exposes dans le store
+  - conserver des `maxOutputTokens` adaptes par mode (`65536` pour Cowork, `8192` pour les autres modes principaux)
+  - ajouter une action de reset dans le panneau avance pour revenir aux defaults recommandes sans toucher aux autres reglages du mode
+  - aligner le fallback backend `/api/chat` sur les memes valeurs quand le frontend n'envoie pas de config explicite
+- Pourquoi:
+  - Google recommande de garder `temperature` a `1.0` pour les modeles Gemini 3
+  - la doc Gemini montre `topP: 0.95` comme valeur par defaut et les exemples de generation texte utilisent `topK: 40`
+  - evite les anciens reglages trop froids (`0.1/0.2`) ou trop contraints (`topK: 1`) qui rendaient certains modes moins naturels
+- Alternatives evaluees:
+  - interroger dynamiquement `models.get` a chaque selection de modele:
+    - ecartee pour cette passe: necessite une plomberie auth/cache cote frontend alors que le besoin utilisateur vise un reset simple et fiable
+  - laisser chaque mode avec ses anciens defaults maison:
+    - ecartee: comportement incoherent et difficile a expliquer dans l'UI
+- Cout:
+  - aucun cout de dependance
+  - cout runtime inchange cote Vertex/Gemini
+- Sources officielles:
+  - Google AI for Developers, [Text generation](https://ai.google.dev/gemini-api/docs/text-generation), verifie le 2026-05-05
+  - Google Cloud, [Content generation parameters](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/content-generation-parameters), verifie le 2026-05-05
+  - Google AI for Developers, [Models API](https://ai.google.dev/api/rest/generativelanguage/models/get), verifie le 2026-05-05
+
 ## 2026-05-01 - Azure OpenAI `gpt-image-2` ajoute comme modele image optionnel
 - Statut: retenu localement
 - Date de verification: 2026-05-01

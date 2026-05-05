@@ -803,3 +803,26 @@
 - Sources officielles:
   - [Gemini 3.1 Flash Lite Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-flash-lite-preview)
   - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+
+## 2026-05-05 - Refonte UI media sans nouvelle dependance frontend
+- Statut: retenu et applique
+- Date de verification: 2026-05-05
+- Technologie: React 19 + Tailwind CSS v4 + lucide-react deja presents dans le projet.
+- Choix:
+  - factoriser le chrome visuel des modes `image`, `video`, `audio` et `lyria` dans `src/components/MediaStudioLayout.tsx`
+  - conserver les composants React lazy-loades au niveau module et les surfaces dediees par mode
+  - utiliser les breakpoints Tailwind existants et des variables CSS locales pour les accents par mode
+  - utiliser les icones lucide deja tree-shakeables au lieu d'ajouter une librairie UI ou iconographique
+- Pourquoi:
+  - respecte l'invariant "pas de nouvelle dependance frontend si la stack existante suffit"
+  - garde les flux API et les metas de generation inchanges
+  - reduit la duplication entre les quatre studios tout en laissant une identite visuelle differenciee
+- Alternatives evaluees:
+  - ajouter un kit UI externe
+    - Ecarte: dette de dependance et risque de style generique
+  - quatre refontes completement separees
+    - Ecarte: duplication de layout, QA mobile plus fragile
+- Sources officielles:
+  - [React lazy](https://react.dev/reference/react/lazy)
+  - [Tailwind responsive design](https://tailwindcss.com/docs/responsive-design)
+  - [Lucide for React](https://lucide.dev/guide/react)

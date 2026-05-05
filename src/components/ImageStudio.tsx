@@ -1,16 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Copy,
   Download,
   Image as ImageIcon,
+  Images,
   Loader2,
   Maximize2,
   Sparkles,
   Upload,
   X,
 } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 
 import {
   getImageModelLabel,
@@ -23,13 +21,32 @@ import {
 } from '../../shared/image-models.js';
 import { useStore } from '../store/useStore';
 import { Attachment, MediaGenerationRequest, Message } from '../types';
-import { copyTextToClipboard } from '../utils/clipboard';
 import { getGoogleRecommendedGenerationDefaults } from '../utils/generation-defaults';
 import { buildImageHistory } from '../utils/media-gallery-history';
+import {
+  ChoiceButton,
+  EmptyOutput,
+  IconAction,
+  InlineNotice,
+  MediaField,
+  MediaPanel,
+  MediaPanelHeader,
+  MediaSelect,
+  MediaStudioShell,
+  MediaTextarea,
+  PrimaryActionButton,
+  PromptSource,
+  cn,
+  type MediaStudioTone,
+} from './MediaStudioLayout';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+const imageTone: MediaStudioTone = {
+  accent: '#8be8ff',
+  accentRgb: '139,232,255',
+  accentInk: '#061014',
+  washRgb: '99,102,241',
+  icon: ImageIcon,
+};
 
 const aspectRatios = [
   { value: '', label: 'Auto' },
@@ -53,22 +70,16 @@ const azureQualityLabels: Record<typeof imageSizes[number], string> = {
 const azureAspectRatios = new Set(['', '1:1', '3:2', '2:3']);
 
 function RatioShape({ ratio }: { ratio: string }) {
-  if (!ratio) return <span className="text-[9px] font-black opacity-70">A</span>;
+  if (!ratio) return <span className="text-[10px] font-black opacity-75">A</span>;
   const [w, h] = ratio.split(':').map(Number);
-  const maxDim = 12;
+  const maxDim = 14;
   const scale = Math.min(maxDim / w, maxDim / h);
   return (
     <span
-      className="inline-block rounded-[1.5px] border-[1.5px] border-current"
-      style={{ width: Math.max(4, w * scale), height: Math.max(4, h * scale) }}
+      className="inline-block rounded-[2px] border-[1.5px] border-current"
+      style={{ width: Math.max(5, w * scale), height: Math.max(5, h * scale) }}
     />
   );
-}
-
-function clipPrompt(prompt?: string) {
-  const clean = String(prompt || '').replace(/\s+/g, ' ').trim();
-  if (!clean) return '';
-  return clean.length > 180 ? `${clean.slice(0, 177)}...` : clean;
 }
 
 interface ImageStudioProps {
@@ -98,7 +109,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const supportsImageSize = imageModelSupportsImageSize(config.model);
 
   const [prompt, setPrompt] = useState('');
-  const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -122,8 +132,8 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     }),
     [isAzureImageModel, supportsAutoRatio],
   );
-  const featuredPrompt = featuredImage?.prompt || '';
   const canSubmit = Boolean(prompt.trim()) && !isLoading;
+  const selectedModelLabel = selectedModel?.label || getImageModelLabel(config.model);
 
   useEffect(() => {
     if (!allImages.length) {
@@ -148,14 +158,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     }
   }, [config.aspectRatio, isAzureImageModel, setConfig]);
 
-  const copyPrompt = async (value: string | undefined, promptId: string) => {
-    if (!value?.trim()) return;
-    const copied = await copyTextToClipboard(value);
-    if (!copied) return;
-    setCopiedPromptId(promptId);
-    window.setTimeout(() => setCopiedPromptId((current) => (current === promptId ? null : current)), 1400);
-  };
-
   const handleOpenFilePicker = () => {
     fileInputRef.current?.click();
   };
@@ -166,19 +168,241 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     await onAddAttachments(imageFiles);
   };
 
-  const submitRawPrompt = (value: string, request?: MediaGenerationRequest) => {
-    onGenerate(value, request);
-    setPrompt('');
-  };
-
   const handleSubmit = async () => {
     if (!canSubmit) return;
     const cleanPrompt = prompt.trim();
-    submitRawPrompt(cleanPrompt, { originalPrompt: cleanPrompt });
+    onGenerate(cleanPrompt, { originalPrompt: cleanPrompt });
+    setPrompt('');
   };
 
+  const composer = (
+    <MediaPanel>
+      <MediaPanelHeader
+        label="Direction"
+        title="Prompt image"
+        detail={`${selectedModelLabel} - ${config.numberOfImages || 1} sortie${(config.numberOfImages || 1) > 1 ? 's' : ''}`}
+        icon={ImageIcon}
+      />
+
+      <div className="space-y-5 p-4 sm:p-5">
+        <MediaField label="Brief visuel">
+          <MediaTextarea
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                void handleSubmit();
+              }
+            }}
+            placeholder="Sujet, cadrage, lumiere, style, matiere, details a conserver..."
+            rows={8}
+          />
+        </MediaField>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <MediaField label="Modele">
+            <MediaSelect
+              value={config.model}
+              onChange={(event) => setConfig({
+                model: event.target.value,
+                ...getGoogleRecommendedGenerationDefaults('image'),
+              })}
+            >
+              {IMAGE_MODEL_OPTIONS.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
+              ))}
+            </MediaSelect>
+          </MediaField>
+
+          <MediaField label="Images">
+            <div className="grid grid-cols-4 gap-2">
+              {[1, 2, 3, 4].map((count) => (
+                <ChoiceButton
+                  key={count}
+                  active={(config.numberOfImages || 1) === count}
+                  onClick={() => setConfig({ numberOfImages: count })}
+                >
+                  {count}
+                </ChoiceButton>
+              ))}
+            </div>
+          </MediaField>
+        </div>
+
+        <MediaField label="Ratio">
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 xl:grid-cols-10">
+            {visibleRatios.map((ratio) => (
+              <ChoiceButton
+                key={ratio.value}
+                active={(config.aspectRatio || '') === ratio.value}
+                onClick={() => setConfig({ aspectRatio: ratio.value })}
+                title={ratio.label}
+                className="min-h-12 flex-col gap-1 px-2 text-xs"
+              >
+                <RatioShape ratio={ratio.value} />
+                {ratio.label}
+              </ChoiceButton>
+            ))}
+          </div>
+        </MediaField>
+
+        {supportsImageSize ? (
+          <MediaField label={getImageModelSizeControlLabel(config.model)}>
+            <div className="grid grid-cols-3 gap-2">
+              {imageSizes.map((size) => (
+                <ChoiceButton
+                  key={size}
+                  active={(config.imageSize || '1K') === size}
+                  onClick={() => setConfig({ imageSize: size })}
+                >
+                  {isAzureImageModel ? azureQualityLabels[size] : size}
+                </ChoiceButton>
+              ))}
+            </div>
+          </MediaField>
+        ) : (
+          <InlineNotice>{selectedModelLabel} gere la taille automatiquement.</InlineNotice>
+        )}
+
+        <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.025] p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-[var(--app-text)]">References</div>
+            <button
+              type="button"
+              onClick={handleOpenFilePicker}
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text)] hover:bg-white/[0.075]"
+            >
+              <Upload size={15} />
+              Ajouter
+            </button>
+          </div>
+
+          {sourceImages.length > 0 ? (
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+              {sourceImages.map((attachment) => (
+                <div key={attachment.id} className="group relative overflow-hidden rounded-lg border border-white/10 bg-black/35">
+                  <button type="button" onClick={() => onImageClick(attachment.url)} className="block w-full">
+                    <img src={attachment.url} alt={attachment.name || 'Image source'} className="aspect-square w-full object-cover" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveAttachment(attachment.id)}
+                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-lg bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    title="Retirer"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleOpenFilePicker}
+              className="flex min-h-[5.5rem] w-full items-center justify-center rounded-lg border border-dashed border-[var(--app-border)] text-sm font-semibold text-[var(--app-text-muted)] hover:border-[rgba(var(--media-accent-rgb),0.42)] hover:text-[var(--app-text)]"
+            >
+              Deposer des images source
+            </button>
+          )}
+        </div>
+
+        <PrimaryActionButton
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          loading={isLoading}
+          loadingLabel="Generation..."
+          idleLabel="Generer l'image"
+          icon={Sparkles}
+        />
+      </div>
+    </MediaPanel>
+  );
+
+  const stage = (
+    <MediaPanel className="min-h-[34rem]">
+      <MediaPanelHeader
+        label="Canvas"
+        title={selectedModelLabel}
+        detail={`${config.aspectRatio || 'Auto'} - ${config.imageSize || 'auto'}`}
+        action={(
+          <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text-muted)]">
+            {allImages.length} rendu{allImages.length > 1 ? 's' : ''}
+          </div>
+        )}
+      />
+
+      <div className="space-y-4 p-4 sm:p-5">
+        {isLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {Array.from({ length: Math.max(1, Math.min(config.numberOfImages || 1, 4)) }).map((_, index) => (
+              <div
+                key={index}
+                className="flex aspect-square animate-pulse items-center justify-center rounded-lg border border-[var(--app-border)] bg-white/[0.045]"
+              >
+                <Loader2 size={24} className="animate-spin text-[var(--media-accent)]" />
+              </div>
+            ))}
+          </div>
+        ) : featuredImage ? (
+          <>
+            <div className="group relative overflow-hidden rounded-lg border border-white/10 bg-black/35">
+              <button type="button" onClick={() => onImageClick(featuredImage.url)} className="block w-full">
+                <img
+                  src={featuredImage.url}
+                  alt={featuredImage.name || 'Image generee'}
+                  className="max-h-[70vh] w-full object-contain"
+                />
+              </button>
+              <div className="absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                <IconAction icon={Maximize2} label="Agrandir" onClick={() => onImageClick(featuredImage.url)} />
+                <a
+                  href={featuredImage.url}
+                  download={featuredImage.name || 'image-generee.png'}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/45 text-white shadow-[0_12px_32px_-18px_rgba(0,0,0,0.95)] hover:bg-black/70"
+                  title="Telecharger"
+                  aria-label="Telecharger"
+                >
+                  <Download size={15} />
+                </a>
+              </div>
+            </div>
+
+            <PromptSource prompt={featuredImage.prompt} />
+
+            {galleryImages.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+                {galleryImages.map((image) => (
+                  <button
+                    key={image.id}
+                    type="button"
+                    onClick={() => setSelectedImageId(image.id)}
+                    className={cn(
+                      'overflow-hidden rounded-lg border bg-black/35 hover:border-[rgba(var(--media-accent-rgb),0.55)]',
+                      selectedImageId === image.id ? 'border-[var(--media-accent)]' : 'border-white/10',
+                    )}
+                  >
+                    <img src={image.url} alt={image.name || 'Image generee'} className="aspect-square w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyOutput
+            icon={Images}
+            title="Aucun rendu image"
+            detail="Le prochain rendu prendra toute la scene."
+          />
+        )}
+      </div>
+    </MediaPanel>
+  );
+
   return (
-    <div data-image-studio-scroll="true" className="h-full touch-pan-y overflow-y-auto overscroll-y-contain">
+    <>
       <input
         ref={fileInputRef}
         type="file"
@@ -193,284 +417,21 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         }}
       />
 
-      <div className="mx-auto grid w-full max-w-[90rem] gap-7 px-5 py-7 sm:px-7 lg:grid-cols-[minmax(360px,0.95fr)_minmax(420px,1.05fr)]">
-        <section className="space-y-4">
-          <div className="rounded-[1.5rem] border border-[var(--app-border)] bg-[var(--app-surface)]/80 p-5 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.8)] sm:p-6">
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
-                  Generation image
-                </div>
-                <h2 className="mt-1 text-xl font-semibold tracking-tight text-[var(--app-text)]">
-                  Prompt
-                </h2>
-              </div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-[var(--app-accent)]">
-                <ImageIcon size={18} />
-              </div>
-            </div>
-
-            <textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                  event.preventDefault();
-                  void handleSubmit();
-                }
-              }}
-              placeholder="Decris l'image: sujet, cadrage, lumiere, style, details importants..."
-              rows={8}
-              className="min-h-[18rem] w-full resize-none rounded-[1.1rem] border border-white/8 bg-black/20 px-5 py-5 text-[15px] leading-relaxed text-[var(--app-text)] outline-none transition-colors placeholder:text-[var(--app-text-muted)]/50 focus:border-[var(--app-border-strong)]"
-            />
-
-            <div className="mt-5 grid gap-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="space-y-1.5">
-                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Modele</span>
-                  <select
-                    value={config.model}
-                    onChange={(event) => setConfig({
-                      model: event.target.value,
-                      ...getGoogleRecommendedGenerationDefaults('image'),
-                    })}
-                    className="h-10 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-strong)] px-3 text-[12px] font-semibold text-[var(--app-text)] outline-none focus:border-[var(--app-border-strong)]"
-                  >
-                    {IMAGE_MODEL_OPTIONS.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div className="space-y-1.5">
-                  <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Images</span>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[1, 2, 3, 4].map((count) => (
-                      <button
-                        key={count}
-                        type="button"
-                        onClick={() => setConfig({ numberOfImages: count })}
-                        className={cn(
-                          'h-10 rounded-xl text-[12px] font-bold transition-all',
-                          (config.numberOfImages || 1) === count
-                            ? 'bg-[var(--app-accent)] text-[#0a0a14]'
-                            : 'border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
-                        )}
-                      >
-                        {count}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">Ratio</span>
-                <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
-                  {visibleRatios.map((ratio) => (
-                    <button
-                      key={ratio.value}
-                      type="button"
-                      onClick={() => setConfig({ aspectRatio: ratio.value })}
-                      title={ratio.label}
-                      className={cn(
-                        'flex h-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-bold transition-all',
-                        (config.aspectRatio || '') === ratio.value
-                          ? 'bg-[var(--app-accent)] text-[#0a0a14]'
-                          : 'border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
-                      )}
-                    >
-                      <RatioShape ratio={ratio.value} />
-                      {ratio.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-3">
-                {supportsImageSize ? (
-                  <div className="space-y-1.5">
-                    <span className="ml-1 text-[11px] font-bold text-[var(--app-text-muted)]">
-                      {getImageModelSizeControlLabel(config.model)}
-                    </span>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {imageSizes.map((size) => (
-                        <button
-                          key={size}
-                          type="button"
-                          onClick={() => setConfig({ imageSize: size })}
-                          className={cn(
-                            'h-10 rounded-xl text-[12px] font-bold transition-all',
-                            (config.imageSize || '1K') === size
-                              ? 'bg-[var(--app-accent-soft)] text-[var(--app-accent)] ring-1 ring-[var(--app-accent)]/30'
-                              : 'border border-[var(--app-border)] bg-white/[0.04] text-[var(--app-text-muted)] hover:bg-white/[0.07]',
-                          )}
-                        >
-                          {isAzureImageModel ? azureQualityLabels[size] : size}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                    {getImageModelLabel(config.model)} gere la taille automatiquement.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-bold text-[var(--app-text-muted)]">Images source</span>
-                <button
-                  type="button"
-                  onClick={handleOpenFilePicker}
-                  className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-[var(--app-text)] transition-colors hover:bg-white/[0.07]"
-                >
-                  <Upload size={12} />
-                  Ajouter
-                </button>
-              </div>
-
-              {sourceImages.length > 0 ? (
-                <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
-                  {sourceImages.map((attachment) => (
-                    <div key={attachment.id} className="group relative overflow-hidden rounded-xl border border-white/8 bg-black/30">
-                      <button type="button" onClick={() => onImageClick(attachment.url)} className="block w-full">
-                        <img src={attachment.url} alt={attachment.name || 'Image source'} className="aspect-square w-full object-cover" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onRemoveAttachment(attachment.id)}
-                        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleOpenFilePicker}
-                  className="flex min-h-[5.5rem] w-full items-center justify-center rounded-xl border border-dashed border-[var(--app-border)] text-[12px] font-semibold text-[var(--app-text-muted)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
-                >
-                  Ajouter des references optionnelles
-                </button>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-              className={cn(
-                'mt-4 flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-[13px] font-bold transition-all',
-                canSubmit
-                  ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
-                  : 'cursor-not-allowed bg-white/[0.06] text-[var(--app-text-muted)]',
-              )}
-            >
-              {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={14} />}
-              {isLoading ? 'Generation...' : 'Generer'}
-            </button>
-          </div>
-        </section>
-
-        <section className="min-h-[34rem] rounded-[1.5rem] border border-[var(--app-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(8,8,12,0.72))] p-5 shadow-[0_24px_90px_-62px_rgba(0,0,0,0.86)] sm:p-6">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
-                Sortie image
-              </div>
-              <div className="mt-1 text-sm font-semibold text-[var(--app-text)]">
-                {selectedModel?.label || getImageModelLabel(config.model)} - {config.aspectRatio || 'Auto'}
-              </div>
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-[var(--app-text-muted)]">
-              {allImages.length} rendu{allImages.length > 1 ? 's' : ''}
-            </div>
-          </div>
-
-          {isLoading ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {Array.from({ length: Math.max(1, Math.min(config.numberOfImages || 1, 4)) }).map((_, index) => (
-                <div key={index} className="aspect-square animate-pulse rounded-[1.25rem] border border-white/8 bg-white/[0.05]" />
-              ))}
-            </div>
-          ) : featuredImage ? (
-            <div className="space-y-4">
-              <div className="group relative overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/30">
-                <button type="button" onClick={() => onImageClick(featuredImage.url)} className="block w-full">
-                  <img src={featuredImage.url} alt={featuredImage.name || 'Image generee'} className="max-h-[68vh] w-full object-contain" />
-                </button>
-                <div className="absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                  <button
-                    type="button"
-                    onClick={() => onImageClick(featuredImage.url)}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/75"
-                    title="Agrandir"
-                  >
-                    <Maximize2 size={15} />
-                  </button>
-                  <a
-                    href={featuredImage.url}
-                    download={featuredImage.name || 'image-generee.png'}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/75"
-                    title="Telecharger"
-                  >
-                    <Download size={15} />
-                  </a>
-                </div>
-              </div>
-
-              <div className="rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-bold text-[var(--app-text-muted)]">Prompt source</span>
-                  <button
-                    type="button"
-                    onClick={() => copyPrompt(featuredPrompt, featuredImage.id)}
-                    className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--app-text)] transition-colors hover:bg-white/[0.07]"
-                  >
-                    <Copy size={12} />
-                    {copiedPromptId === featuredImage.id ? 'Copie' : 'Copier'}
-                  </button>
-                </div>
-                <p className="text-[12px] leading-relaxed text-[var(--app-text-muted)]">
-                  {clipPrompt(featuredPrompt) || 'Prompt non renseigne.'}
-                </p>
-              </div>
-
-              {galleryImages.length > 0 && (
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
-                  {galleryImages.map((image) => (
-                    <button
-                      key={image.id}
-                      type="button"
-                      onClick={() => setSelectedImageId(image.id)}
-                      className="overflow-hidden rounded-xl border border-white/8 bg-black/30 transition-colors hover:border-[var(--app-border-strong)]"
-                    >
-                      <img src={image.url} alt={image.name || 'Image generee'} className="aspect-square w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex min-h-[28rem] flex-col items-center justify-center rounded-[1.35rem] border border-dashed border-[var(--app-border)] bg-black/15 px-6 text-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-[1.2rem] border border-white/10 bg-white/[0.04] text-[var(--app-accent)]">
-                <ImageIcon size={22} />
-              </div>
-              <p className="text-sm font-semibold text-[var(--app-text)]">La sortie apparait ici.</p>
-              <p className="mt-2 max-w-sm text-[12px] leading-relaxed text-[var(--app-text-muted)]">
-                Ecris un prompt, choisis les quelques parametres utiles, puis genere.
-              </p>
-            </div>
-          )}
-        </section>
-      </div>
-    </div>
+      <MediaStudioShell
+        tone={imageTone}
+        eyebrow="Image"
+        title="Composer une image precise"
+        subtitle="Prompt, references et rendu final dans une surface unique, sans etape fictive."
+        metrics={[
+          { label: 'Modele', value: selectedModelLabel },
+          { label: 'Ratio', value: config.aspectRatio || 'Auto' },
+          { label: 'Sources', value: sourceImages.length },
+          { label: 'Rendus', value: allImages.length },
+        ]}
+        composer={composer}
+        stage={stage}
+        rootProps={{ 'data-image-studio-scroll': 'true' }}
+      />
+    </>
   );
 };

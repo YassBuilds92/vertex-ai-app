@@ -584,6 +584,26 @@
   - `tmp/qa2-lyria-panel-desktop.png`
   - `tmp/qa2-lyria-mode-mobile.png`
 
+### Captures 2026-05-05 - refonte studios media
+- Harness:
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=video&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=audio&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=lyria&surface=studio`
+- Captures CDP:
+  - `tmp/refonte-media-image-desktop-cdp.png`
+  - `tmp/refonte-media-image-mobile-cdp.png`
+  - `tmp/refonte-media-video-desktop-cdp.png`
+  - `tmp/refonte-media-video-mobile-cdp.png`
+  - `tmp/refonte-media-audio-desktop-cdp.png`
+  - `tmp/refonte-media-audio-mobile-cdp.png`
+  - `tmp/refonte-media-lyria-desktop-cdp.png`
+  - `tmp/refonte-media-lyria-mobile-cdp.png`
+- Attendus supplementaires:
+  - `scrollWidth` doit rester egal au viewport sur mobile
+  - les controles natifs longs ne doivent pas pousser la scene hors ecran
+  - les lecteurs audio gardent un accent distinct entre Voix et Lyria
+
 ## Cowork - sans Hub Agents
 - Objectif:
   - verifier que Cowork n'expose plus de toggle pour l'usage des agents du Hub

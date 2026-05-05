@@ -4135,3 +4135,55 @@
 - Retirer le blocage global du replay local cause par `hasLoadedRemoteGeneratedApps`.
 - Faire des agents/generated apps des donnees local-first rejouables, pas des sauvegardes terminales mono-appareil en cas d'echec Firestore.
 
+## Mise a jour complementaire - 2026-05-05 (refonte UI IMAGE / VIDEO / VOIX / LYRIA)
+
+### Demande utilisateur
+- Refonte complete de l'UI des modes `image`, `video`, `audio`/voix et `lyria`.
+
+### Correctifs appliques
+- `src/components/MediaStudioLayout.tsx`
+  - nouveau chrome partage pour les studios media:
+    - header mode + metriques
+    - panneau de composition
+    - scene de sortie
+    - controles responsive, boutons, champs et prompt source copiable
+  - verrouillage mobile avec `overflow-x-hidden`, `min-w-0` et capture QA CDP sans debordement horizontal.
+- `src/components/ImageStudio.tsx`
+  - refonte en surface "direction image" avec prompt, modele, nombre d'images, ratios, taille, references et canvas hero.
+  - conservation de l'upload illimite de references et du prompt source copiable.
+- `src/components/VideoStudio.tsx`
+  - refonte en storyboard avec scene, format, resolution, duree, video active, telechargement et prompt source.
+- `src/components/AudioStudio.tsx`
+  - refonte voix en console narration avec modele TTS, voix, langue, style et lecteurs custom.
+- `src/components/LyriaStudio.tsx`
+  - refonte musicale avec modele Lyria, variantes, negative prompt et lecteur musical.
+- `src/components/StudioAudioPlayer.tsx`
+  - accents dynamiques pour differencier voix et Lyria sans nouveau composant.
+
+### Validation effectuee
+- Recherche officielle rapide:
+  - React `lazy` / Suspense au niveau module
+  - Tailwind responsive utilities
+  - Lucide React tree-shakeable icons
+- `npm run lint` : OK
+- `npm run build` : OK
+- Serveur harness:
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=video&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=audio&surface=studio`
+  - `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=lyria&surface=studio`
+- Captures CDP desktop/mobile:
+  - `tmp/refonte-media-image-desktop-cdp.png`
+  - `tmp/refonte-media-image-mobile-cdp.png`
+  - `tmp/refonte-media-video-desktop-cdp.png`
+  - `tmp/refonte-media-video-mobile-cdp.png`
+  - `tmp/refonte-media-audio-desktop-cdp.png`
+  - `tmp/refonte-media-audio-mobile-cdp.png`
+  - `tmp/refonte-media-lyria-desktop-cdp.png`
+  - `tmp/refonte-media-lyria-mobile-cdp.png`
+- Verification CDP mobile:
+  - `scrollWidth` = viewport sur les quatre modes, aucun debordement horizontal.
+
+### Limites restantes
+- La validation authentifiee avec de vraies generations Vertex/Gemini/Lyria reste a rejouer si l'utilisateur veut un smoke complet de production.
+

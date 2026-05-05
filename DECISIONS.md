@@ -1576,3 +1576,22 @@
   - `server/lib/media-generation.ts` peut maintenant retourner `mixStrategy: 'voice-only'`
   - `api/index.ts` remonte explicitement ce statut et son warning
 
+## 2026-05-05 - Les modes media partagent un chrome UI commun
+- Statut: adopte
+- Contexte: l'utilisateur a demande une refonte complete de l'UI des modes IMAGE, VIDEO, VOIX et LYRIA.
+- Decision:
+  - creer un systeme de layout partage `MediaStudioLayout` pour les modes media
+  - garder une specialisation forte par mode:
+    - image: direction visuelle, references, canvas
+    - video: storyboard, format/duree/resolution, scene active
+    - voix: console narration, selection modele/voix/langue, lecteurs audio
+    - lyria: composition, variantes, negative prompt, lecteur musical
+  - conserver les appels de generation existants et les `generationMeta` sans changement de contrat
+- Pourquoi:
+  - l'utilisateur veut une refonte UI, pas une nouvelle logique de generation
+  - le chrome commun donne une qualite homogene et limite les regressions responsive
+  - chaque mode reste lisible comme une surface dediee plutot qu'un dashboard generique
+- Consequence:
+  - `src/components/ImageStudio.tsx`, `VideoStudio.tsx`, `AudioStudio.tsx` et `LyriaStudio.tsx` deviennent des surfaces specialisees sur un socle commun
+  - `StudioAudioPlayer` accepte maintenant des accents par usage pour distinguer voix et musique
+

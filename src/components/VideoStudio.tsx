@@ -1,22 +1,49 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Film, Loader2,
+  Clapperboard,
+  Download,
+  Film,
+  Loader2,
+  Monitor,
+  Smartphone,
+  Sparkles,
+  Timer,
 } from 'lucide-react';
-import { useStore } from '../store/useStore';
-import { MediaGenerationRequest, Message } from '../types';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-import { buildVideoHistory } from '../utils/media-gallery-history';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { useStore } from '../store/useStore';
+import { MediaGenerationRequest, Message, ModelConfig } from '../types';
+import { buildVideoHistory } from '../utils/media-gallery-history';
+import {
+  ChoiceButton,
+  EmptyOutput,
+  InlineNotice,
+  MediaField,
+  MediaPanel,
+  MediaPanelHeader,
+  MediaStudioShell,
+  MediaTextarea,
+  PrimaryActionButton,
+  PromptSource,
+  cn,
+  type MediaStudioTone,
+} from './MediaStudioLayout';
+
+const videoTone: MediaStudioTone = {
+  accent: '#ffb86b',
+  accentRgb: '255,184,107',
+  accentInk: '#130c05',
+  washRgb: '34,211,238',
+  icon: Film,
+};
 
 interface VideoStudioProps {
   onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
   isLoading: boolean;
   messages: Message[];
 }
+
+type VideoResolution = NonNullable<ModelConfig['videoResolution']>;
+type VideoAspectRatio = NonNullable<ModelConfig['videoAspectRatio']>;
 
 export const VideoStudio: React.FC<VideoStudioProps> = ({
   onGenerate,
@@ -26,143 +53,227 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const { configs, setConfig } = useStore();
   const config = configs.video;
   const [prompt, setPrompt] = useState('');
-  const videoResolutionOptions = /preview/i.test(config.model || '')
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+
+  const videoResolutionOptions: VideoResolution[] = /preview/i.test(config.model || '')
     ? ['720p', '1080p', '4k']
     : ['720p', '1080p'];
-
   const allVideos = useMemo(() => buildVideoHistory(messages), [messages]);
+  const featuredVideo = useMemo(
+    () => allVideos.find((video) => video.id === selectedVideoId) || allVideos[0] || null,
+    [allVideos, selectedVideoId],
+  );
+  const galleryVideos = useMemo(
+    () => allVideos.filter((video) => video.id !== featuredVideo?.id),
+    [allVideos, featuredVideo?.id],
+  );
+  const canSubmit = Boolean(prompt.trim()) && !isLoading;
+
+  useEffect(() => {
+    if (!allVideos.length) {
+      setSelectedVideoId(null);
+      return;
+    }
+
+    if (!selectedVideoId || !allVideos.some((video) => video.id === selectedVideoId)) {
+      setSelectedVideoId(allVideos[0].id);
+    }
+  }, [allVideos, selectedVideoId]);
 
   const handleSubmit = async () => {
-    if (!prompt.trim() || isLoading) return;
-    onGenerate(prompt.trim(), { originalPrompt: prompt.trim() });
+    if (!canSubmit) return;
+    const cleanPrompt = prompt.trim();
+    onGenerate(cleanPrompt, { originalPrompt: cleanPrompt });
     setPrompt('');
   };
 
-  return (
-    <div className="flex h-full flex-col">
-      <div className="mx-auto w-full max-w-4xl flex-shrink-0 px-4 pt-6 pb-4 sm:px-6">
-        {/* Prompt */}
-        <div className="relative rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-colors focus-within:border-[var(--app-border-strong)]">
-          <textarea
+  const composer = (
+    <MediaPanel>
+      <MediaPanelHeader
+        label="Storyboard"
+        title="Scene video"
+        detail={`${config.videoAspectRatio || '16:9'} - ${config.videoDurationSeconds || 6}s - ${config.videoResolution || '720p'}`}
+        icon={Clapperboard}
+      />
+
+      <div className="space-y-5 p-4 sm:p-5">
+        <MediaField label="Scene">
+          <MediaTextarea
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                void handleSubmit();
+              }
             }}
-            placeholder="Decris ta scene — mouvement de camera, ambiance, sujet, style cine..."
-            rows={3}
-            className="w-full resize-none bg-transparent px-5 pt-4 pb-14 text-[15px] leading-relaxed text-[var(--app-text)] placeholder:text-[var(--app-text-muted)]/50 outline-none"
+            placeholder="Sujet, mouvement camera, rythme, lumiere, ambiance, action finale..."
+            rows={7}
           />
-          <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {/* Aspect ratio */}
-              {['16:9', '9:16'].map((ratio) => (
-                <button
-                  key={ratio}
-                  onClick={() => setConfig({ videoAspectRatio: ratio as any })}
-                  className={cn(
-                    'rounded-lg px-3 py-1 text-[11px] font-bold transition-all',
-                    config.videoAspectRatio === ratio
-                      ? 'bg-[var(--app-accent)] text-[#0a0a14]'
-                      : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
-                  )}
-                >
-                  {ratio === '16:9' ? 'Paysage' : 'Portrait'}
-                </button>
-              ))}
-              <span className="mx-1 h-4 w-px bg-[var(--app-border)]" />
-              {/* Resolution */}
-              {videoResolutionOptions.map((res) => (
-                <button
-                  key={res}
-                  onClick={() => setConfig({ videoResolution: res as any })}
-                  className={cn(
-                    'rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all',
-                    config.videoResolution === res
-                      ? 'bg-[var(--app-accent)] text-[#0a0a14]'
-                      : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
-                  )}
-                >
-                  {res === '4k' ? '4K' : res}
-                </button>
-              ))}
-              <span className="mx-1 h-4 w-px bg-[var(--app-border)]" />
-              {/* Duration */}
-              {[4, 6, 8].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setConfig({ videoDurationSeconds: s })}
-                  className={cn(
-                    'rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all',
-                    config.videoDurationSeconds === s
-                      ? 'bg-[var(--app-accent)] text-[#0a0a14]'
-                      : 'bg-white/[0.06] text-[var(--app-text-muted)] hover:bg-white/10',
-                  )}
-                >
-                  {s}s
-                </button>
-              ))}
-            </div>
+        </MediaField>
 
-            <button
-              onClick={handleSubmit}
-              disabled={!prompt.trim() || isLoading}
-              className={cn(
-                'flex items-center gap-2 rounded-xl px-5 py-2 text-[13px] font-bold transition-all',
-                prompt.trim() && !isLoading
-                  ? 'bg-[var(--app-accent)] text-[#0a0a14] shadow-lg shadow-[var(--app-accent)]/20 hover:brightness-110'
-                  : 'bg-white/[0.06] text-[var(--app-text-muted)] cursor-not-allowed',
-              )}
-            >
-              {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Film size={14} />}
-              {isLoading ? 'Generation...' : 'Creer'}
-            </button>
+        <MediaField label="Format">
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { value: '16:9' as VideoAspectRatio, label: 'Paysage', icon: Monitor },
+              { value: '9:16' as VideoAspectRatio, label: 'Portrait', icon: Smartphone },
+            ]).map((option) => {
+              const Icon = option.icon;
+              return (
+                <ChoiceButton
+                  key={option.value}
+                  active={(config.videoAspectRatio || '16:9') === option.value}
+                  onClick={() => setConfig({ videoAspectRatio: option.value })}
+                >
+                  <Icon size={15} />
+                  {option.label}
+                </ChoiceButton>
+              );
+            })}
           </div>
-        </div>
-      </div>
+        </MediaField>
 
-      {/* Video Gallery */}
-      <div className="flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
-        <div className="mx-auto max-w-4xl">
-          {allVideos.length === 0 && !isLoading ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-[var(--app-border)] bg-[var(--app-accent-soft)]">
-                <Film size={24} className="text-[var(--app-accent)]" />
-              </div>
-              <p className="text-sm text-[var(--app-text-muted)]">Tes videos apparaitront ici</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {isLoading && (
-                <div className="aspect-video animate-pulse rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] flex items-center justify-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <Loader2 size={28} className="animate-spin text-[var(--app-accent)]" />
-                    <span className="text-xs text-[var(--app-text-muted)]">Generation en cours...</span>
-                  </div>
-                </div>
-              )}
-              {allVideos.map((vid) => (
-                <div
-                  key={vid.id}
-                  className="group relative overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] transition-all hover:border-[var(--app-border-strong)]"
+        <div className="grid gap-4 sm:grid-cols-2">
+          <MediaField label="Resolution">
+            <div className="grid grid-cols-2 gap-2">
+              {videoResolutionOptions.map((resolution) => (
+                <ChoiceButton
+                  key={resolution}
+                  active={(config.videoResolution || '720p') === resolution}
+                  onClick={() => setConfig({ videoResolution: resolution })}
                 >
-                  <video
-                    src={vid.url}
-                    controls
-                    className="aspect-video w-full object-cover"
-                    preload="metadata"
-                  />
-                  {vid.prompt && (
-                    <div className="border-t border-[var(--app-border)] px-3 py-2">
-                      <p className="truncate text-[11px] text-[var(--app-text-muted)]">{vid.prompt}</p>
-                    </div>
-                  )}
-                </div>
+                  {resolution === '4k' ? '4K' : resolution}
+                </ChoiceButton>
               ))}
             </div>
-          )}
+          </MediaField>
+
+          <MediaField label="Duree">
+            <div className="grid grid-cols-3 gap-2">
+              {[4, 6, 8].map((seconds) => (
+                <ChoiceButton
+                  key={seconds}
+                  active={(config.videoDurationSeconds || 6) === seconds}
+                  onClick={() => setConfig({ videoDurationSeconds: seconds })}
+                >
+                  <Timer size={14} />
+                  {seconds}s
+                </ChoiceButton>
+              ))}
+            </div>
+          </MediaField>
         </div>
+
+        <PrimaryActionButton
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          loading={isLoading}
+          loadingLabel="Generation..."
+          idleLabel="Generer la scene"
+          icon={Sparkles}
+        />
       </div>
-    </div>
+    </MediaPanel>
+  );
+
+  const stage = (
+    <MediaPanel className="min-h-[34rem]">
+      <MediaPanelHeader
+        label="Scene active"
+        title={featuredVideo?.name || 'Rendu video'}
+        detail={featuredVideo?.model || config.model || 'Veo'}
+        action={(
+          <div className="rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text-muted)]">
+            {allVideos.length} video{allVideos.length > 1 ? 's' : ''}
+          </div>
+        )}
+      />
+
+      <div className="space-y-4 p-4 sm:p-5">
+        {isLoading && (
+          <InlineNotice className="flex items-center gap-3">
+            <Loader2 size={18} className="animate-spin text-[var(--media-accent)]" />
+            Generation video en cours...
+          </InlineNotice>
+        )}
+
+        {!featuredVideo && isLoading ? (
+          <div className="flex aspect-video min-h-[20rem] animate-pulse items-center justify-center rounded-lg border border-[var(--app-border)] bg-white/[0.045]">
+            <Loader2 size={28} className="animate-spin text-[var(--media-accent)]" />
+          </div>
+        ) : featuredVideo ? (
+          <>
+            <div className="overflow-hidden rounded-lg border border-white/10 bg-black">
+              <video
+                src={featuredVideo.url}
+                controls
+                className="max-h-[70vh] w-full bg-black object-contain"
+                preload="metadata"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 text-sm text-[var(--app-text-muted)]">
+                {featuredVideo.mimeType || 'video'}{featuredVideo.createdAt ? ` - ${new Date(featuredVideo.createdAt).toLocaleDateString('fr-FR')}` : ''}
+              </div>
+              <a
+                href={featuredVideo.url}
+                download={featuredVideo.name || 'video-generee.mp4'}
+                className="inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] bg-white/[0.045] px-3 py-2 text-sm font-semibold text-[var(--app-text)] hover:bg-white/[0.075]"
+              >
+                <Download size={15} />
+                Telecharger
+              </a>
+            </div>
+
+            <PromptSource prompt={featuredVideo.prompt} />
+
+            {galleryVideos.length > 0 && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {galleryVideos.map((video) => (
+                  <button
+                    key={video.id}
+                    type="button"
+                    onClick={() => setSelectedVideoId(video.id)}
+                    className={cn(
+                      'group overflow-hidden rounded-lg border bg-black/30 text-left hover:border-[rgba(var(--media-accent-rgb),0.55)]',
+                      selectedVideoId === video.id ? 'border-[var(--media-accent)]' : 'border-white/10',
+                    )}
+                  >
+                    <video src={video.url} className="aspect-video w-full object-cover opacity-85 group-hover:opacity-100" preload="metadata" muted />
+                    <div className="px-3 py-2 text-xs font-semibold text-[var(--app-text-muted)]">
+                      {video.name || video.prompt || 'Scene video'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyOutput
+            icon={Film}
+            title="Aucune scene video"
+            detail="Le prochain rendu s'affichera ici avec son prompt source."
+          />
+        )}
+      </div>
+    </MediaPanel>
+  );
+
+  return (
+    <MediaStudioShell
+      tone={videoTone}
+      eyebrow="Video"
+      title="Cadrer une scene avant generation"
+      subtitle="Une surface de storyboard pour choisir format, duree et intention sans masquer le rendu."
+      metrics={[
+        { label: 'Format', value: config.videoAspectRatio || '16:9' },
+        { label: 'Duree', value: `${config.videoDurationSeconds || 6}s` },
+        { label: 'Resolution', value: config.videoResolution || '720p' },
+        { label: 'Rendus', value: allVideos.length },
+      ]}
+      composer={composer}
+      stage={stage}
+    />
   );
 };

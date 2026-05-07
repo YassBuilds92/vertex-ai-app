@@ -37,7 +37,7 @@ import {
   resolveStorageObjectUrl,
   uploadToGCSWithMetadata,
 } from '../lib/storage.js';
-import { buildModelContentsFromRequest } from '../lib/chat-parts.js';
+import { buildModelContentsFromRequestWithDebug } from '../lib/chat-parts.js';
 import { buildPromptRefinerSystemPrompt, type PromptRefinerMode } from '../../shared/prompt-refiners.js';
 
 const ICON_PROMPT_SYSTEM_PROMPT = `Genere un prompt d'image pour un logo minimaliste representant ce role IA.`;
@@ -317,13 +317,35 @@ export function registerStandardApiRoutes(app: Express) {
 
   app.post('/api/generate-image', async (req, res) => {
     try {
-      const { prompt, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel, referenceImages } = ImageGenRequestSchema.parse(req.body);
+      const {
+        prompt,
+        temperature,
+        topP,
+        topK,
+        maxOutputTokens,
+        aspectRatio,
+        numberOfImages,
+        imageSize,
+        imageQuality,
+        imageDimensions,
+        imageOutputFormat,
+        imageOutputCompression,
+        imageBackground,
+        imageModeration,
+        personGeneration,
+        safetySetting,
+        thinkingLevel,
+        maxThoughtTokens,
+        includeThoughts,
+        googleSearch,
+        referenceImages,
+      } = ImageGenRequestSchema.parse(req.body);
       const modelId = req.body.model || DEFAULT_IMAGE_MODEL;
       log.info(`Generating image for: ${prompt.substring(0, 100)}...`, { modelId, aspectRatio, numberOfImages });
 
       if (numberOfImages && numberOfImages > 1) {
         const artifacts = await generateImageBinaries({
-          prompt, model: modelId, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel, referenceImages,
+          prompt, model: modelId, temperature, topP, topK, maxOutputTokens, aspectRatio, numberOfImages, imageSize, imageQuality, imageDimensions, imageOutputFormat, imageOutputCompression, imageBackground, imageModeration, personGeneration, safetySetting, thinkingLevel, maxThoughtTokens, includeThoughts, googleSearch, referenceImages,
         });
         const images = await Promise.all(artifacts.map(async (artifact) => {
           const fileName = createUploadFileName('generated-image', artifact.fileExtension);
@@ -337,7 +359,7 @@ export function registerStandardApiRoutes(app: Express) {
         res.json({ images, model: modelId });
       } else {
         const artifact = await generateImageBinary({
-          prompt, model: modelId, aspectRatio, numberOfImages, imageSize, personGeneration, safetySetting, thinkingLevel, referenceImages,
+          prompt, model: modelId, temperature, topP, topK, maxOutputTokens, aspectRatio, numberOfImages, imageSize, imageQuality, imageDimensions, imageOutputFormat, imageOutputCompression, imageBackground, imageModeration, personGeneration, safetySetting, thinkingLevel, maxThoughtTokens, includeThoughts, googleSearch, referenceImages,
         });
         const fileName = createUploadFileName('generated-image', artifact.fileExtension);
         const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
@@ -363,11 +385,24 @@ export function registerStandardApiRoutes(app: Express) {
     try {
       const {
         shots,
+        temperature,
+        topP,
+        topK,
+        maxOutputTokens,
         aspectRatio,
         imageSize,
+        imageQuality,
+        imageDimensions,
+        imageOutputFormat,
+        imageOutputCompression,
+        imageBackground,
+        imageModeration,
         personGeneration,
         safetySetting,
         thinkingLevel,
+        maxThoughtTokens,
+        includeThoughts,
+        googleSearch,
         referenceImages,
       } = ImagePackRequestSchema.parse(req.body);
       const modelId = req.body.model || DEFAULT_IMAGE_MODEL;
@@ -377,11 +412,24 @@ export function registerStandardApiRoutes(app: Express) {
           const artifact = await generateImageBinary({
             prompt: shot.prompt,
             model: modelId,
+            temperature,
+            topP,
+            topK,
+            maxOutputTokens,
             aspectRatio,
             imageSize,
+            imageQuality,
+            imageDimensions,
+            imageOutputFormat,
+            imageOutputCompression,
+            imageBackground,
+            imageModeration,
             personGeneration,
             safetySetting,
             thinkingLevel,
+            maxThoughtTokens,
+            includeThoughts,
+            googleSearch,
             referenceImages,
           });
           const fileName = createUploadFileName(`generated-image-${shot.id}`, artifact.fileExtension);
@@ -755,10 +803,18 @@ export function registerStandardApiRoutes(app: Express) {
         attachmentCount: attachments?.length || 0,
       });
 
-      const contents = await buildModelContentsFromRequest({
+      const { contents, debug: contentsDebug } = await buildModelContentsFromRequestWithDebug({
         history,
         message,
         attachments,
+      });
+
+      log.info('Chat contents built', {
+        traceId,
+        youtubeNativeCount: contentsDebug.youtubeNativeCount,
+        youtubeDemotedCount: contentsDebug.youtubeDemotedCount,
+        youtubeCanonicalizedUrls: contentsDebug.youtubeCanonicalizedUrls,
+        youtubeNativeHasVideoMetadata: contentsDebug.youtubeNativeHasVideoMetadata,
       });
 
       writeSseData(res, {
@@ -767,6 +823,7 @@ export function registerStandardApiRoutes(app: Express) {
           stage: 'contents_built',
           turnCount: contents.length,
           currentPartCount: contents[contents.length - 1]?.parts?.length || 0,
+          youtube: contentsDebug,
         },
       });
 

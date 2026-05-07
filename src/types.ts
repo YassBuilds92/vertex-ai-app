@@ -393,6 +393,13 @@ export interface ModelConfig {
   numberOfImages?: number;
   aspectRatio?: '' | '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '5:4' | '4:5' | '16:9' | '9:16' | '21:9' | '4:1' | '1:4' | '8:1' | '1:8';
   imageSize?: '512' | '1K' | '2K' | '4K';
+  imageQuality?: 'low' | 'medium' | 'high' | 'auto';
+  imageDimensions?: string;
+  imageOutputFormat?: 'png' | 'jpeg' | 'webp';
+  imageOutputCompression?: number;
+  imageBackground?: 'auto' | 'opaque' | 'transparent';
+  imageModeration?: 'auto' | 'low';
+  imageIncludeThoughts?: boolean;
   maxOutputTokens?: number;
   stopSequences?: string[];
   presencePenalty?: number;

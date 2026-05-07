@@ -43,6 +43,15 @@ function buildYouTubeThumbnailUrl(url?: string) {
   return videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : undefined;
 }
 
+function normalizePastedYouTubeUrl(rawUrl: string) {
+  const cleaned = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+  return cleaned.startsWith('http') ? cleaned : `https://${cleaned}`;
+}
+
+function getYouTubeDedupeKey(url?: string) {
+  return extractYouTubeVideoId(url) || String(url || '').trim();
+}
+
 function parseTimeOffsetInput(value: string): number | null {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return null;
@@ -118,6 +127,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [text, setText] = useState('');
   const [youtubeSettingsDraft, setYoutubeSettingsDraft] = useState<YouTubeSettingsDraft | null>(null);
+  const [youtubeNotice, setYoutubeNotice] = useState<AttachmentNotice | null>(null);
   const { configs, activeMode } = useStore();
   const placeholderByMode = {
     chat: 'Ecris ton message…',
@@ -139,6 +149,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setText('');
     setPendingAttachments([]);
     setYoutubeSettingsDraft(null);
+    setYoutubeNotice(null);
     onDismissAttachmentNotice?.();
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
@@ -210,39 +221,68 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       processFiles(e.clipboardData.files);
     } else {
       const clipboardText = e.clipboardData.getData('text');
-      const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/|live\/)|youtu\.be\/|m\.youtube\.com\/watch\?v=)([^&\s\?]+)/g;
+      const ytRegex = /(?:https?:\/\/)?(?:(?:www|m)\.)?(?:youtube\.com\/(?:watch\?[^\s]+|shorts\/[^\s]+|live\/[^\s]+|embed\/[^\s]+)|youtu\.be\/[^\s]+)/g;
       const matches = Array.from(clipboardText.matchAll(ytRegex));
 
       if (matches.length > 0) {
         e.preventDefault();
         let remainingText = clipboardText;
+        let nativeSlotAvailable = !pendingAttachments.some((attachment) => attachment.type === 'youtube');
+        const nativeAttachments: Attachment[] = [];
+        const textOnlyYouTubeUrls: string[] = [];
         matches.forEach(match => {
-          const url = match[0].startsWith('http') ? match[0] : `https://${match[0]}`;
-          if (!pendingAttachments.some(a => a.url === url)) {
+          const url = normalizePastedYouTubeUrl(match[0]);
+          const dedupeKey = getYouTubeDedupeKey(url);
+          const alreadyAttached = pendingAttachments.some((attachment) => getYouTubeDedupeKey(attachment.url) === dedupeKey)
+            || nativeAttachments.some((attachment) => getYouTubeDedupeKey(attachment.url) === dedupeKey);
+          if (nativeSlotAvailable && !alreadyAttached) {
             const id = Math.random().toString(36).substring(7);
-            setPendingAttachments(prev => [...prev, {
+            const attachment: Attachment = {
               id, type: 'youtube', url, name: `Chargement…`, mimeType: 'video/mp4',
               thumbnail: buildYouTubeThumbnailUrl(url),
-            }]);
+            };
+            nativeAttachments.push(attachment);
+            nativeSlotAvailable = false;
             fetch(`/api/metadata?url=${encodeURIComponent(url)}`)
-              .then(res => res.json())
+              .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+              })
               .then(data => {
                 if (data.title || data.thumbnail) {
                   setPendingAttachments(prev => prev.map(a =>
                     a.id === id ? { ...a, name: data.title || a.name, thumbnail: data.thumbnail || a.thumbnail } : a
                   ));
+                } else {
+                  throw new Error('Missing YouTube metadata');
                 }
               })
               .catch(() => {
                 setPendingAttachments(prev => prev.map(a =>
                   a.id === id ? { ...a, name: 'Video YouTube' } : a
                 ));
+                setYoutubeNotice((prev) => prev?.title === 'Un seul YouTube natif' ? prev : {
+                  tone: 'info',
+                  title: 'Metadonnees YouTube indisponibles',
+                  detail: 'La video reste prete en entree video native; seul le titre ou la vignette n a pas pu etre charge.',
+                });
               });
+          } else {
+            textOnlyYouTubeUrls.push(url);
           }
           remainingText = remainingText.replace(match[0], '').trim();
         });
-        if (remainingText || text) {
-          setText(prev => (prev + ' ' + remainingText).trim());
+        if (nativeAttachments.length > 0) {
+          setPendingAttachments(prev => [...prev, ...nativeAttachments]);
+        }
+
+        const demotedText = textOnlyYouTubeUrls
+          .map((url) => `Lien YouTube supplementaire (contexte texte): ${url}`)
+          .join('\n');
+        const textToKeep = [remainingText, demotedText].filter(Boolean).join('\n');
+
+        if (textToKeep || text) {
+          setText(prev => [prev.trim(), textToKeep].filter(Boolean).join('\n').trim());
           setTimeout(() => {
             if (textareaRef.current) {
               textareaRef.current.style.height = 'auto';
@@ -250,11 +290,33 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             }
           }, 0);
         }
+
+        if (textOnlyYouTubeUrls.length > 0) {
+          setYoutubeNotice({
+            tone: 'info',
+            title: 'Un seul YouTube natif',
+            detail: 'La premiere video sera envoyee a Gemini comme entree video native. Les autres liens restent dans le message comme contexte texte.',
+          });
+        } else if (nativeAttachments.length > 0) {
+          setYoutubeNotice({
+            tone: 'info',
+            title: 'YouTube pret',
+            detail: 'Cette video sera envoyee a Gemini comme entree video native.',
+          });
+        }
       }
     }
   };
 
   const canSend = text.trim() || pendingAttachments.length > 0;
+  const visibleAttachmentNotice = youtubeNotice || attachmentNotice;
+  const dismissVisibleAttachmentNotice = () => {
+    if (youtubeNotice) {
+      setYoutubeNotice(null);
+      return;
+    }
+    onDismissAttachmentNotice?.();
+  };
 
   return (
     <div className="relative">
@@ -285,7 +347,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
         {/* Attachment notice */}
         <AnimatePresence>
-          {attachmentNotice && (
+          {visibleAttachmentNotice && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -294,7 +356,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             >
               <div className={cn(
                 "flex items-start gap-2.5 px-3 py-2.5",
-                attachmentNotice.tone === 'error'
+                visibleAttachmentNotice.tone === 'error'
                   ? "bg-red-500/10 text-red-200"
                   : "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
               )}>
@@ -302,25 +364,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   size={16}
                   className={cn(
                     "mt-0.5 shrink-0",
-                    attachmentNotice.tone === 'error' ? "text-red-300" : "text-[var(--app-accent)]"
+                    visibleAttachmentNotice.tone === 'error' ? "text-red-300" : "text-[var(--app-accent)]"
                   )}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold">{attachmentNotice.title}</div>
+                  <div className="text-xs font-semibold">{visibleAttachmentNotice.title}</div>
                   <div className={cn(
                     "mt-0.5 break-words text-xs leading-5",
-                    attachmentNotice.tone === 'error' ? "text-red-200/75" : "text-[var(--app-text-muted)]"
+                    visibleAttachmentNotice.tone === 'error' ? "text-red-200/75" : "text-[var(--app-text-muted)]"
                   )}>
-                    {attachmentNotice.detail}
+                    {visibleAttachmentNotice.detail}
                   </div>
                 </div>
-                {onDismissAttachmentNotice && (
+                {(youtubeNotice || onDismissAttachmentNotice) && (
                   <button
                     type="button"
-                    onClick={onDismissAttachmentNotice}
+                    onClick={dismissVisibleAttachmentNotice}
                     className={cn(
                       "flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
-                      attachmentNotice.tone === 'error'
+                      visibleAttachmentNotice.tone === 'error'
                         ? "text-red-200/70 hover:bg-red-500/15 hover:text-red-100"
                         : "text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
                     )}
@@ -389,6 +451,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
                     <div className="px-2 py-1.5">
                       <span className="block truncate text-[10px] font-medium text-[var(--app-text)]/80">{att.name}</span>
+                      {att.type === 'youtube' && (
+                        <span className="mt-0.5 block truncate text-[9px] text-red-400/80">
+                          Entree video native
+                        </span>
+                      )}
                       {buildVideoMetadataSummary(att.videoMetadata) && (
                         <span className="mt-0.5 block text-[9px] text-[var(--app-text-muted)]">
                           {buildVideoMetadataSummary(att.videoMetadata)}

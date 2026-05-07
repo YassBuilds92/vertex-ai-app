@@ -1,5 +1,77 @@
 # SESSION STATE
 
+## 2026-05-07 - Parametres vitaux du mode image remis
+
+### Ce qui a ete accompli
+- Catalogue:
+  - `shared/image-models.ts` decrit maintenant les options par modele: ratios, tailles, qualites, resolutions, formats, fonds, moderation, safety, thinking, recherche Google, limites de refs et nombre de sorties.
+- UI:
+  - `src/components/ImageStudio.tsx` reaffiche les reglages dans le studio central.
+  - Gemini montre les options Google/Gemini: ratio, taille, safety, thinking, budget, Google Search, thoughts.
+  - GPT Image 2 montre les options Azure/OpenAI: ratio, resolution libre/presets, qualite, format, fond, moderation et compression quand le format est JPEG.
+- Backend:
+  - `/api/generate-image` et `/api/generate-image-pack` acceptent les nouveaux champs.
+  - Gemini est mappe vers `imageConfig`, `safetySettings`, `thinkingConfig`, `tools.googleSearch` et `responseModalities`.
+  - GPT Image 2 est mappe vers `size`, `quality`, `output_format`, `output_compression`, `background`, `moderation`, `n`; les resolutions arbitraires sont validees selon les contraintes Microsoft.
+  - Cowork `generate_image_asset` expose aussi les nouveaux arguments utiles.
+
+### Validation locale
+- `npx tsc --noEmit` -> OK
+- `npm run build` -> OK
+- Serveur Vite lance sur `http://127.0.0.1:5173/`.
+- Captures harness:
+  - `tmp/qa-image-params-preview-desktop.png`
+  - `tmp/qa-image-params-gpt-preview-desktop.png`
+
+### Notes
+- Le streaming GPT `partial_images` n'est pas expose dans le studio car le flux actuel retourne une reponse finale JSON; il faudra un endpoint streaming dedie si on veut des apercus progressifs.
+- Worktree deja sale avant cette passe: ne pas attribuer les changements YouTube/debug existants a ce chantier image.
+
+## 2026-05-07 - Fiabilite native YouTube renforcee
+
+### Ce qui a ete accompli
+- Backend:
+  - canonicalisation des liens `youtu.be`, `shorts`, `live` et `embed` vers `https://www.youtube.com/watch?v=...` avant envoi a Gemini.
+  - ordre des parts multimodales corrige pour placer les videos natives avant le texte utilisateur.
+  - limite d'une seule entree YouTube native par requete; les liens supplementaires deviennent un contexte texte explicite.
+  - debug SSE/log ajoute avec `youtubeNativeCount`, `youtubeDemotedCount`, URLs canonicalisees et presence de `videoMetadata`.
+- UI:
+  - collage YouTube: la premiere video devient l'attachement natif.
+  - liens YouTube supplementaires conserves dans le texte avec une notice claire.
+  - carte YouTube marque maintenant discretement `Entree video native`.
+- Verification:
+  - `verify-chat-parts.ts` couvre canonicalisation, ordre video -> texte, conservation `videoMetadata`, et limitation a un YouTube natif.
+  - ajout de `verify-youtube-gemini-smoke.ts` pour un smoke reel Vertex/Gemini surchargeable par env.
+
+### Validation locale
+- `npx tsx verify-chat-parts.ts` -> OK
+- `npm run lint` -> OK
+- `npm run build` -> OK
+- `npx tsx verify-youtube-gemini-smoke.ts` -> OK, reponse concrete sur video YouTube publique officielle.
+- Serveur local deja disponible sur `http://127.0.0.1:3000`; `/api/status` repond OK.
+
+## 2026-05-07 - Diagnostic YouTube vs Google AI Studio
+
+### Ce qui a ete verifie
+- Question utilisateur: pourquoi un lien YouTube semble moins bien compris que dans Google AI Studio.
+- Memoire projet relue: `direction.md`, puis contexte YouTube/Gemini dans `TECH_RADAR.md`, `DECISIONS.md`, `SESSION_STATE.md` et `AI_LEARNINGS.md`.
+- Documentation officielle reverifiee:
+  - Gemini API accepte les URLs YouTube directement via `fileData.fileUri`.
+  - `videoMetadata.startOffset`, `endOffset` et `fps` permettent le cadrage video.
+  - Gemini traite bien les flux visuel et audio, avec un echantillonnage video par defaut autour de 1 FPS.
+- Code local verifie:
+  - `src/components/ChatInput.tsx` transforme un collage YouTube en attachment `type: youtube`.
+  - `src/utils/chat-parts.ts` propage `videoMetadata`.
+  - `server/lib/chat-parts.ts` construit une vraie part Gemini `fileData.fileUri = URL YouTube`, `mimeType = video/mp4`, plus `videoMetadata`.
+  - `/api/chat` et `/api/cowork` passent par `buildModelContentsFromRequest(...)`.
+
+### Resultat du smoke local
+- Smoke sans appel modele: une piece jointe YouTube genere bien:
+  - `fileData.fileUri: https://www.youtube.com/watch?v=...`
+  - `fileData.mimeType: video/mp4`
+  - `videoMetadata.startOffset/endOffset/fps` quand renseigne.
+- Diagnostic: le code local est aligne avec la methode native Gemini/AI Studio, mais le ressenti peut venir d'un lien reste en texte simple, d'un deploiement non a jour, d'une video privee/non listee, de plusieurs liens YouTube dans une meme requete, du FPS par defaut, ou d'un modele/reglage moins favorable.
+
 ## 2026-05-05 - Reprise finale refonte media: texte et doublons retires
 
 ### Ce qui a ete accompli

@@ -82,7 +82,7 @@ import {
   type ReleasedArtifactAttachmentType,
 } from '../shared/released-artifacts.js';
 import { buildThinkingConfig, createGoogleAI, parseApiError, retryWithBackoff } from '../server/lib/google-genai.js';
-import { buildModelContentsFromRequest } from '../server/lib/chat-parts.js';
+import { buildModelContentsFromRequestWithDebug } from '../server/lib/chat-parts.js';
 import {
   buildRelevantMemorySection,
   forgetMemoryFile,
@@ -7543,11 +7543,23 @@ app.post('/api/cowork', async (req, res) => {
             model: { type: "string", description: "Modele image explicite ou alias user-friendly. Ex: `gemini-2.5-flash-image`, `gemini-3.1-flash-image-preview`, `gemini-3-pro-image-preview`, `gpt-image-2`, `Nano Banana`, `Nano Banana 2`, `Nano Banana Pro`, `GPT Image 2`." },
             filename: { type: "string", description: "Nom de fichier optionnel dans /tmp/." },
             aspectRatio: { type: "string", description: "Format optionnel, ex: 1:1, 16:9, 9:16." },
-            imageSize: { type: "string", description: "Taille optionnelle, ex: 1K." },
+            imageSize: { type: "string", description: "Taille Gemini optionnelle: `512`, `1K`, `2K`, `4K` selon modele." },
+            imageQuality: { type: "string", description: "Qualite GPT Image optionnelle: `low`, `medium`, `high`." },
+            imageDimensions: { type: "string", description: "Resolution GPT Image optionnelle: `auto` ou `largeurxhauteur`, ex: `1536x1024`." },
+            imageOutputFormat: { type: "string", description: "Format GPT Image optionnel: `png` ou `jpeg` sur Azure OpenAI." },
+            imageOutputCompression: { type: "number", description: "Compression GPT Image optionnelle de 0 a 100." },
+            imageBackground: { type: "string", description: "Fond GPT Image optionnel: `auto`, `opaque`, `transparent` (transparent exige PNG)." },
+            imageModeration: { type: "string", description: "Moderation GPT Image optionnelle: `auto` ou `low`." },
             numberOfImages: { type: "number", description: "Nombre d'images demande au modele. Le premier rendu sera conserve localement." },
             personGeneration: { type: "string", description: "Reglage optionnel de generation de personnes." },
-            safetySetting: { type: "string", description: "Reglage optionnel de filtre de securite." },
-            thinkingLevel: { type: "string", description: "Thinking optionnel pour certains modeles image Gemini." }
+            safetySetting: { type: "string", description: "Seuil Gemini safety optionnel: `BLOCK_NONE`, `BLOCK_ONLY_HIGH`, `BLOCK_MEDIUM_AND_ABOVE`, `BLOCK_LOW_AND_ABOVE`." },
+            thinkingLevel: { type: "string", description: "Thinking Gemini optionnel: `minimal`, `low`, `medium`, `high`." },
+            maxThoughtTokens: { type: "number", description: "Budget thinking Gemini optionnel." },
+            includeThoughts: { type: "boolean", description: "Inclure les thoughts Gemini dans la reponse brute quand le modele le supporte." },
+            googleSearch: { type: "boolean", description: "Activer Google Search grounding pour les modeles Gemini image compatibles." },
+            temperature: { type: "number", description: "Temperature Gemini optionnelle entre 0 et 2." },
+            topP: { type: "number", description: "Top P Gemini optionnel entre 0 et 1." },
+            maxOutputTokens: { type: "number", description: "Limite de sortie Gemini optionnelle." }
           },
           required: ["prompt"]
         },
@@ -7557,20 +7569,44 @@ app.post('/api/cowork', async (req, res) => {
           filename,
           aspectRatio,
           imageSize,
+          imageQuality,
+          imageDimensions,
+          imageOutputFormat,
+          imageOutputCompression,
+          imageBackground,
+          imageModeration,
           numberOfImages,
           personGeneration,
           safetySetting,
-          thinkingLevel
+          thinkingLevel,
+          maxThoughtTokens,
+          includeThoughts,
+          googleSearch,
+          temperature,
+          topP,
+          maxOutputTokens
         }: {
           prompt: string;
           model?: string;
           filename?: string;
           aspectRatio?: string;
           imageSize?: string;
+          imageQuality?: string;
+          imageDimensions?: string;
+          imageOutputFormat?: string;
+          imageOutputCompression?: number;
+          imageBackground?: string;
+          imageModeration?: string;
           numberOfImages?: number;
           personGeneration?: string;
           safetySetting?: string;
           thinkingLevel?: string;
+          maxThoughtTokens?: number;
+          includeThoughts?: boolean;
+          googleSearch?: boolean;
+          temperature?: number;
+          topP?: number;
+          maxOutputTokens?: number;
         }) => {
           const effectiveArgs = withRuntimeToolDefaults('generate_image_asset', {
             prompt,
@@ -7578,20 +7614,44 @@ app.post('/api/cowork', async (req, res) => {
             filename,
             aspectRatio,
             imageSize,
+            imageQuality,
+            imageDimensions,
+            imageOutputFormat,
+            imageOutputCompression,
+            imageBackground,
+            imageModeration,
             numberOfImages,
             personGeneration,
             safetySetting,
             thinkingLevel,
+            maxThoughtTokens,
+            includeThoughts,
+            googleSearch,
+            temperature,
+            topP,
+            maxOutputTokens,
           });
           const artifact = await generateImageBinary({
             prompt: String(effectiveArgs.prompt || ''),
             model: typeof effectiveArgs.model === 'string' ? effectiveArgs.model : undefined,
+            temperature: typeof effectiveArgs.temperature === 'number' ? effectiveArgs.temperature : undefined,
+            topP: typeof effectiveArgs.topP === 'number' ? effectiveArgs.topP : undefined,
+            maxOutputTokens: typeof effectiveArgs.maxOutputTokens === 'number' ? effectiveArgs.maxOutputTokens : undefined,
             aspectRatio: typeof effectiveArgs.aspectRatio === 'string' ? effectiveArgs.aspectRatio : undefined,
             imageSize: typeof effectiveArgs.imageSize === 'string' ? effectiveArgs.imageSize : undefined,
+            imageQuality: typeof effectiveArgs.imageQuality === 'string' ? effectiveArgs.imageQuality : undefined,
+            imageDimensions: typeof effectiveArgs.imageDimensions === 'string' ? effectiveArgs.imageDimensions : undefined,
+            imageOutputFormat: typeof effectiveArgs.imageOutputFormat === 'string' ? effectiveArgs.imageOutputFormat : undefined,
+            imageOutputCompression: typeof effectiveArgs.imageOutputCompression === 'number' ? effectiveArgs.imageOutputCompression : undefined,
+            imageBackground: typeof effectiveArgs.imageBackground === 'string' ? effectiveArgs.imageBackground : undefined,
+            imageModeration: typeof effectiveArgs.imageModeration === 'string' ? effectiveArgs.imageModeration : undefined,
             numberOfImages: typeof effectiveArgs.numberOfImages === 'number' ? effectiveArgs.numberOfImages : undefined,
             personGeneration: typeof effectiveArgs.personGeneration === 'string' ? effectiveArgs.personGeneration : undefined,
             safetySetting: typeof effectiveArgs.safetySetting === 'string' ? effectiveArgs.safetySetting : undefined,
             thinkingLevel: typeof effectiveArgs.thinkingLevel === 'string' ? effectiveArgs.thinkingLevel : undefined,
+            maxThoughtTokens: typeof effectiveArgs.maxThoughtTokens === 'number' ? effectiveArgs.maxThoughtTokens : undefined,
+            includeThoughts: typeof effectiveArgs.includeThoughts === 'boolean' ? effectiveArgs.includeThoughts : undefined,
+            googleSearch: typeof effectiveArgs.googleSearch === 'boolean' ? effectiveArgs.googleSearch : undefined,
           });
           const outputPath = buildGeneratedArtifactPath(
             'cowork-image',
@@ -10477,13 +10537,19 @@ app.post('/api/cowork', async (req, res) => {
 
     const pausedClarificationNote = extractPausedClarificationNote(history as Array<{ role?: string; parts?: Array<{ text?: string }> }> | undefined);
 
-    let contents = await buildModelContentsFromRequest({
+    const builtContents = await buildModelContentsFromRequestWithDebug({
       history,
       message: buildCoworkCurrentTurnPrompt(message, { pausedClarificationNote }),
       attachments,
     });
+    let contents = builtContents.contents;
+    const contentsDebug = builtContents.debug;
 
     ensureSseReady();
+    emitEvent('debug', {
+      stage: 'contents_built',
+      youtube: contentsDebug,
+    });
     let iterations = 0;
     const FAILSAFE_MAX_ITERATIONS = 50;
     let finalVisibleText = '';

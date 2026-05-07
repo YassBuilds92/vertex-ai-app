@@ -15,12 +15,25 @@ import {
 } from '../../shared/gemini-tts.js';
 import {
   DEFAULT_IMAGE_MODEL as SHARED_DEFAULT_IMAGE_MODEL,
+  getImageModelDefaultBackground,
+  getImageModelDefaultImageDimensions,
+  getImageModelDefaultImageQuality,
+  getImageModelDefaultModeration,
+  getImageModelDefaultOutputCompression,
+  getImageModelDefaultOutputFormat,
+  getImageModelDefaultSafetySetting,
+  getImageModelMaxOutputImages,
+  getImageModelMaxReferenceImages,
+  imageModelSupportsGoogleSearch,
+  imageModelSupportsImageSize,
+  imageModelSupportsIncludeThoughts,
   isAzureOpenAIImageModel,
+  isGoogleGeminiImageModel,
   normalizeImageModelId,
 } from '../../shared/image-models.js';
 import { DEFAULT_LYRIA_MODEL as SHARED_DEFAULT_LYRIA_MODEL } from '../../shared/lyria-models.js';
 import { getAzureOpenAIImageConfig } from './config.js';
-import { createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './google-genai.js';
+import { buildThinkingConfig, createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './google-genai.js';
 import { getGcpCredentials } from './storage.js';
 
 export const DEFAULT_IMAGE_MODEL = SHARED_DEFAULT_IMAGE_MODEL;
@@ -44,12 +57,25 @@ const execFileAsync = promisify(execFile);
 export type ImageGenerationOptions = {
   prompt: string;
   model?: string;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  maxOutputTokens?: number;
   aspectRatio?: string;
   imageSize?: string;
+  imageQuality?: string;
+  imageDimensions?: string;
+  imageOutputFormat?: string;
+  imageOutputCompression?: number;
+  imageBackground?: string;
+  imageModeration?: string;
   numberOfImages?: number;
   personGeneration?: string;
   safetySetting?: string;
   thinkingLevel?: string;
+  maxThoughtTokens?: number;
+  includeThoughts?: boolean;
+  googleSearch?: boolean;
   referenceImages?: Array<{
     mimeType: string;
     data: string;
@@ -1122,6 +1148,7 @@ function extractAllInlineParts(result: any, expectedKind: 'image' | 'audio') {
   for (const candidate of candidates) {
     const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
     for (const part of parts) {
+      if (part?.thought) continue;
       if (!part?.inlineData) continue;
       const mimeType = String(part.inlineData.mimeType || '').toLowerCase();
       if (expectedKind === 'image' && mimeType.startsWith('image/')) found.push(part);
@@ -1167,21 +1194,99 @@ function resolveAzureImageUrl(kind: 'generations' | 'edits'): string {
   return `${trimmed}/openai/deployments/${encodeURIComponent(deployment)}/images/${kind}?api-version=${encodeURIComponent(apiVersion)}`;
 }
 
-function mapAzureImageSize(aspectRatio?: string, imageSize?: string): string {
-  const tier = String(imageSize || '').trim().toUpperCase();
-  if (tier === 'AUTO') return 'auto';
-  if (aspectRatio === '3:2' || aspectRatio === '16:9' || aspectRatio === '5:4' || aspectRatio === '4:3') return '1536x1024';
-  if (aspectRatio === '2:3' || aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '3:4') return '1024x1536';
-  if (aspectRatio === '1:1') return '1024x1024';
-  return 'auto';
+function mapAzureImageSizeFromAspectRatio(aspectRatio?: string): string {
+  const ratio = String(aspectRatio || '').trim();
+  const ratioSizeMap: Record<string, string> = {
+    '1:1': '1024x1024',
+    '3:2': '1536x1024',
+    '2:3': '1024x1536',
+    '4:3': '1536x1152',
+    '3:4': '1152x1536',
+    '5:4': '1280x1024',
+    '4:5': '1024x1280',
+    '16:9': '1536x864',
+    '9:16': '864x1536',
+    '21:9': '1792x768',
+  };
+
+  return ratioSizeMap[ratio] || 'auto';
 }
 
-function mapAzureImageQuality(imageSize?: string): 'low' | 'medium' | 'high' | 'auto' {
-  const value = String(imageSize || '').trim().toUpperCase();
-  if (value === '1K' || value === 'LOW') return 'low';
-  if (value === '2K' || value === 'MEDIUM') return 'medium';
-  if (value === '4K' || value === 'HIGH') return 'high';
-  return 'auto';
+function normalizeAzureImageSize(options: ImageGenerationOptions, model: string): string {
+  const requested = String(options.imageDimensions || getImageModelDefaultImageDimensions(model)).trim();
+  const fromRatio = mapAzureImageSizeFromAspectRatio(options.aspectRatio);
+  const raw = (requested && requested.toLowerCase() !== 'auto' ? requested : fromRatio)
+    .replace(/\u00d7/g, 'x')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+
+  if (!raw || raw === 'auto') return 'auto';
+  const match = raw.match(/^(\d{3,5})x(\d{3,5})$/);
+  if (!match) {
+    throw new Error("Resolution GPT Image invalide. Utilise `auto` ou un format `largeurxhauteur`, ex: `1536x1024`.");
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    throw new Error("Resolution GPT Image invalide.");
+  }
+
+  if (model === 'gpt-image-2') {
+    const longEdge = Math.max(width, height);
+    const shortEdge = Math.min(width, height);
+    const pixels = width * height;
+    if (width % 16 !== 0 || height % 16 !== 0) {
+      throw new Error("GPT Image 2 exige une largeur et une hauteur multiples de 16 pixels.");
+    }
+    if (longEdge > 3840) {
+      throw new Error("GPT Image 2 limite le bord long a 3840 px.");
+    }
+    if (longEdge / shortEdge > 3) {
+      throw new Error("GPT Image 2 limite le ratio a 3:1 maximum.");
+    }
+    if (pixels < 655_360 || pixels > 8_294_400) {
+      throw new Error("GPT Image 2 exige entre 655360 et 8294400 pixels au total.");
+    }
+  }
+
+  return `${width}x${height}`;
+}
+
+function normalizeAzureImageQuality(options: ImageGenerationOptions, model: string): 'low' | 'medium' | 'high' {
+  const value = String(options.imageQuality || '').trim().toLowerCase();
+  if (value === 'low' || value === 'medium' || value === 'high') return value;
+  return getImageModelDefaultImageQuality(model) as 'low' | 'medium' | 'high';
+}
+
+function normalizeAzureOutputFormat(options: ImageGenerationOptions, model: string): 'png' | 'jpeg' {
+  const value = String(options.imageOutputFormat || '').trim().toLowerCase();
+  if (value === 'png' || value === 'jpeg') return value;
+  if (value === 'jpg') return 'jpeg';
+  const fallback = getImageModelDefaultOutputFormat(model);
+  return fallback === 'jpeg' ? 'jpeg' : 'png';
+}
+
+function normalizeAzureBackground(options: ImageGenerationOptions, model: string): 'auto' | 'opaque' | 'transparent' {
+  const value = String(options.imageBackground || '').trim().toLowerCase();
+  if (value === 'auto' || value === 'opaque' || value === 'transparent') return value;
+  const fallback = getImageModelDefaultBackground(model);
+  return fallback === 'opaque' || fallback === 'transparent' ? fallback : 'auto';
+}
+
+function normalizeAzureModeration(options: ImageGenerationOptions, model: string): 'auto' | 'low' {
+  const value = String(options.imageModeration || '').trim().toLowerCase();
+  if (value === 'auto' || value === 'low') return value;
+  return getImageModelDefaultModeration(model) === 'low' ? 'low' : 'auto';
+}
+
+function normalizeAzureOutputCompression(options: ImageGenerationOptions, model: string): number {
+  return Math.round(clampNumber(
+    options.imageOutputCompression,
+    0,
+    100,
+    getImageModelDefaultOutputCompression(model),
+  ));
 }
 
 function getAzureImageAuthHeaders(apiKey: string): Record<string, string> {
@@ -1191,26 +1296,89 @@ function getAzureImageAuthHeaders(apiKey: string): Record<string, string> {
   };
 }
 
-async function generateAzureOpenAIImageBinary(
+function buildAzureOpenAIImagePayload(
+  options: ImageGenerationOptions,
+  model: string,
+): {
+  prompt: string;
+  size: string;
+  quality: 'low' | 'medium' | 'high';
+  output_compression: number;
+  output_format: 'png' | 'jpeg';
+  background: 'auto' | 'opaque' | 'transparent';
+  moderation: 'auto' | 'low';
+  n: number;
+} {
+  const outputFormat = normalizeAzureOutputFormat(options, model);
+  const background = normalizeAzureBackground(options, model);
+  if (background === 'transparent' && outputFormat !== 'png') {
+    throw new Error("Le fond transparent GPT Image exige le format PNG.");
+  }
+
+  return {
+    prompt: clipText(options.prompt, 32000),
+    size: normalizeAzureImageSize(options, model),
+    quality: normalizeAzureImageQuality(options, model),
+    output_compression: normalizeAzureOutputCompression(options, model),
+    output_format: outputFormat,
+    background,
+    moderation: normalizeAzureModeration(options, model),
+    n: Math.max(1, Math.min(options.numberOfImages || 1, getImageModelMaxOutputImages(model))),
+  };
+}
+
+function decodeAzureImageArtifacts(
+  body: any,
+  model: string,
+  options: ImageGenerationOptions,
+  referenceImages: Array<{ mimeType: string; data: string }>,
+  payload: ReturnType<typeof buildAzureOpenAIImagePayload>,
+): GeneratedBinaryArtifact[] {
+  const items = Array.isArray(body?.data) ? body.data : [];
+  const artifacts = items
+    .map((item: any) => item?.b64_json)
+    .filter((b64: unknown): b64 is string => typeof b64 === 'string' && b64.length > 0)
+    .map((b64: string) => ({
+      buffer: decodeBinaryData(b64),
+      mimeType: payload.output_format === 'jpeg' ? 'image/jpeg' : 'image/png',
+      fileExtension: payload.output_format === 'jpeg' ? 'jpg' : 'png',
+      model,
+      metadata: {
+        aspectRatio: options.aspectRatio,
+        imageDimensions: payload.size,
+        imageQuality: payload.quality,
+        outputFormat: payload.output_format,
+        outputCompression: payload.output_compression,
+        background: payload.background,
+        moderation: payload.moderation,
+        requestedCandidates: options.numberOfImages,
+        referenceImageCount: referenceImages.length,
+        provider: 'azure-openai',
+      },
+    }));
+
+  if (artifacts.length === 0) {
+    throw new Error("Azure OpenAI image n'a renvoye aucune image exploitable.");
+  }
+
+  return artifacts;
+}
+
+async function generateAzureOpenAIImageBinaries(
   options: ImageGenerationOptions,
   model: string,
   referenceImages: Array<{ mimeType: string; data: string }>,
-): Promise<GeneratedBinaryArtifact> {
+): Promise<GeneratedBinaryArtifact[]> {
   const { apiKey } = getAzureOpenAIImageConfig();
   if (!apiKey) {
     throw new Error("Azure OpenAI image non configure: renseigne AZURE_OPENAI_IMAGE_API_KEY.");
   }
 
-  const size = mapAzureImageSize(options.aspectRatio, options.imageSize);
-  const quality = mapAzureImageQuality(options.imageSize);
-  const commonPayload = {
-    prompt: clipText(options.prompt, 4000),
-    size,
-    quality,
-    output_compression: 100,
-    output_format: 'png',
-    n: Math.max(1, Math.min(options.numberOfImages || 1, 4)),
-  };
+  if (referenceImages.length > getImageModelMaxReferenceImages(model)) {
+    throw new Error(`GPT Image 2 accepte au maximum ${getImageModelMaxReferenceImages(model)} images de reference.`);
+  }
+
+  const commonPayload = buildAzureOpenAIImagePayload(options, model);
 
   const response = await retryWithBackoff(async () => {
     if (referenceImages.length > 0) {
@@ -1220,8 +1388,10 @@ async function generateAzureOpenAIImageBinary(
       form.set('quality', commonPayload.quality);
       form.set('output_compression', String(commonPayload.output_compression));
       form.set('output_format', commonPayload.output_format);
+      form.set('background', commonPayload.background);
+      form.set('moderation', commonPayload.moderation);
       form.set('n', String(commonPayload.n));
-      referenceImages.slice(0, 16).forEach((reference, index) => {
+      referenceImages.forEach((reference, index) => {
         const bytes = decodeBinaryData(reference.data);
         form.append(
           'image',
@@ -1258,24 +1428,93 @@ async function generateAzureOpenAIImageBinary(
     throw new Error("Azure OpenAI image a renvoye une reponse non JSON.");
   }
 
-  const b64 = body?.data?.[0]?.b64_json;
-  if (!b64 || typeof b64 !== 'string') {
-    throw new Error("Azure OpenAI image n'a renvoye aucune image exploitable.");
+  return decodeAzureImageArtifacts(body, model, options, referenceImages, commonPayload);
+}
+
+async function generateAzureOpenAIImageBinary(
+  options: ImageGenerationOptions,
+  model: string,
+  referenceImages: Array<{ mimeType: string; data: string }>,
+): Promise<GeneratedBinaryArtifact> {
+  const artifacts = await generateAzureOpenAIImageBinaries(
+    { ...options, numberOfImages: Math.max(1, Math.min(options.numberOfImages || 1, getImageModelMaxOutputImages(model))) },
+    model,
+    referenceImages,
+  );
+  return artifacts[0];
+}
+
+const GEMINI_IMAGE_SAFETY_CATEGORIES = [
+  'HARM_CATEGORY_DANGEROUS_CONTENT',
+  'HARM_CATEGORY_HARASSMENT',
+  'HARM_CATEGORY_HATE_SPEECH',
+  'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+] as const;
+
+function normalizeGeminiSafetyThreshold(value: unknown, model: string): string {
+  const raw = String(value || getImageModelDefaultSafetySetting(model)).trim().toUpperCase();
+  if (
+    raw === 'BLOCK_NONE'
+    || raw === 'BLOCK_ONLY_HIGH'
+    || raw === 'BLOCK_MEDIUM_AND_ABOVE'
+    || raw === 'BLOCK_LOW_AND_ABOVE'
+  ) {
+    return raw;
+  }
+  return getImageModelDefaultSafetySetting(model);
+}
+
+function buildGeminiImageSafetySettings(options: ImageGenerationOptions, model: string) {
+  const threshold = normalizeGeminiSafetyThreshold(options.safetySetting, model);
+  return GEMINI_IMAGE_SAFETY_CATEGORIES.map((category) => ({
+    category,
+    threshold,
+  }));
+}
+
+function buildGeminiImageConfig(options: ImageGenerationOptions, model: string) {
+  const imageConfig: Record<string, unknown> = {};
+  if (options.aspectRatio) imageConfig.aspectRatio = options.aspectRatio;
+  if (imageModelSupportsImageSize(model) && options.imageSize) {
+    imageConfig.imageSize = String(options.imageSize).trim();
+  }
+  return Object.keys(imageConfig).length > 0 ? imageConfig : undefined;
+}
+
+function buildGeminiImageGenerationConfig(options: ImageGenerationOptions, model: string) {
+  const config: Record<string, unknown> = {
+    responseModalities: ['TEXT', 'IMAGE'],
+    safetySettings: buildGeminiImageSafetySettings(options, model),
+  };
+
+  if (typeof options.temperature === 'number') {
+    config.temperature = clampNumber(options.temperature, 0, 2, 1);
+  }
+  if (typeof options.topP === 'number') {
+    config.topP = clampNumber(options.topP, 0, 1, 0.95);
+  }
+  if (typeof options.maxOutputTokens === 'number') {
+    config.maxOutputTokens = Math.max(1, Math.min(32768, Math.round(options.maxOutputTokens)));
+  }
+  if (options.numberOfImages) {
+    config.candidateCount = Math.max(1, Math.min(options.numberOfImages, getImageModelMaxOutputImages(model)));
   }
 
-  return {
-    buffer: decodeBinaryData(b64),
-    mimeType: 'image/png',
-    fileExtension: 'png',
-    model,
-    metadata: {
-      aspectRatio: options.aspectRatio,
-      imageSize: options.imageSize,
-      requestedCandidates: options.numberOfImages,
-      referenceImageCount: referenceImages.length,
-      provider: 'azure-openai',
-    },
-  };
+  const imageConfig = buildGeminiImageConfig(options, model);
+  if (imageConfig) config.imageConfig = imageConfig;
+
+  const thinkingConfig = buildThinkingConfig(model, {
+    thinkingLevel: options.thinkingLevel as any,
+    maxThoughtTokens: options.maxThoughtTokens,
+    includeThoughts: imageModelSupportsIncludeThoughts(model) ? options.includeThoughts : undefined,
+  });
+  if (thinkingConfig) config.thinkingConfig = thinkingConfig;
+
+  if (options.googleSearch && imageModelSupportsGoogleSearch(model)) {
+    config.tools = [{ googleSearch: {} }];
+  }
+
+  return config;
 }
 
 function shouldRetryLyriaLocation(error: unknown): boolean {
@@ -1317,21 +1556,17 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
     return generateAzureOpenAIImageBinary(options, model, referenceImages);
   }
 
+  if (!isGoogleGeminiImageModel(model)) {
+    throw new Error(`Modele image non supporte par ce backend: ${model}.`);
+  }
+
+  const maxReferenceImages = getImageModelMaxReferenceImages(model);
+  if (referenceImages.length > maxReferenceImages) {
+    throw new Error(`${model} accepte au maximum ${maxReferenceImages} images de reference.`);
+  }
+
   const ai = createGoogleAI(model);
-  const config: any = {
-    ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
-    ...(options.numberOfImages ? { candidateCount: options.numberOfImages } : {}),
-  };
-
-  if (model.includes('gemini-3') || model.includes('nano-banana')) {
-    if (options.thinkingLevel) config.thinkingLevel = options.thinkingLevel;
-  }
-
-  if (model.includes('imagen') || model.includes('image-preview') || model.includes('gemini-2.5-flash-image')) {
-    if (options.personGeneration) config.personGeneration = options.personGeneration;
-    if (options.safetySetting) config.safetyFilterLevel = options.safetySetting;
-    if (options.imageSize) config.imageSize = options.imageSize;
-  }
+  const config = buildGeminiImageGenerationConfig(options, model);
 
   const parts = [
     ...referenceImages.map((reference) => ({
@@ -1364,18 +1599,31 @@ export async function generateImageBinary(options: ImageGenerationOptions): Prom
     metadata: {
       aspectRatio: options.aspectRatio,
       imageSize: options.imageSize,
+      safetySetting: normalizeGeminiSafetyThreshold(options.safetySetting, model),
+      thinkingLevel: options.thinkingLevel,
+      googleSearch: Boolean(options.googleSearch && imageModelSupportsGoogleSearch(model)),
       requestedCandidates: options.numberOfImages,
       referenceImageCount: referenceImages.length,
+      provider: 'google-gemini',
     },
   };
 }
 
 export async function generateImageBinaries(options: ImageGenerationOptions): Promise<GeneratedBinaryArtifact[]> {
+  const model = normalizeImageModelId(
+    String(options.model || DEFAULT_IMAGE_MODEL).trim() || DEFAULT_IMAGE_MODEL,
+    DEFAULT_IMAGE_MODEL,
+  );
+  const referenceImages = sanitizeInlineImageReferences(options.referenceImages);
+  if (isAzureOpenAIImageModel(model)) {
+    return generateAzureOpenAIImageBinaries(options, model, referenceImages);
+  }
+
   // Gemini image models don't reliably support candidateCount > 1 — make N parallel
   // independent calls instead to guarantee the requested number of images.
-  const count = Math.max(1, Math.min(options.numberOfImages || 2, 4));
+  const count = Math.max(1, Math.min(options.numberOfImages || 2, getImageModelMaxOutputImages(model)));
   const results = await Promise.all(
-    Array.from({ length: count }, () => generateImageBinary({ ...options, numberOfImages: 1 }))
+    Array.from({ length: count }, () => generateImageBinary({ ...options, model, numberOfImages: 1 }))
   );
   return results;
 }

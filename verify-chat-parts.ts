@@ -4,7 +4,10 @@ import {
   buildApiAttachmentPayload,
   buildApiHistoryFromMessages,
 } from './src/utils/chat-parts.ts';
-import { buildModelContentsFromRequest } from './server/lib/chat-parts.ts';
+import {
+  buildModelContentsFromRequest,
+  buildModelContentsFromRequestWithDebug,
+} from './server/lib/chat-parts.ts';
 
 type Message = import('./src/types.ts').Message;
 
@@ -45,7 +48,7 @@ type Message = import('./src/types.ts').Message;
 }
 
 {
-  const contents = await buildModelContentsFromRequest({
+  const { contents, debug } = await buildModelContentsFromRequestWithDebug({
     history: [],
     message: 'Analyse cette video YouTube.',
     attachments: [
@@ -64,7 +67,7 @@ type Message = import('./src/types.ts').Message;
   });
 
   assert.equal(contents.length, 1);
-  assert.deepEqual(contents[0]?.parts[1], {
+  assert.deepEqual(contents[0]?.parts[0], {
     fileData: {
       mimeType: 'video/mp4',
       fileUri: 'https://www.youtube.com/watch?v=9hE5-98ZeCg',
@@ -75,6 +78,75 @@ type Message = import('./src/types.ts').Message;
       fps: 5,
     },
   });
+  assert.deepEqual(contents[0]?.parts[1], {
+    text: 'Analyse cette video YouTube.',
+  });
+  assert.equal(debug.youtubeNativeHasVideoMetadata, true);
+}
+
+{
+  const cases = [
+    'https://youtu.be/9hE5-98ZeCg',
+    'https://www.youtube.com/shorts/9hE5-98ZeCg?feature=share',
+    'https://www.youtube.com/live/9hE5-98ZeCg?si=abc',
+    'https://www.youtube.com/embed/9hE5-98ZeCg',
+  ];
+
+  for (const url of cases) {
+    const { contents, debug } = await buildModelContentsFromRequestWithDebug({
+      history: [],
+      message: 'Analyse cette video YouTube.',
+      attachments: [
+        {
+          type: 'youtube',
+          url,
+          mimeType: 'video/mp4',
+          name: 'Video YouTube',
+        },
+      ],
+    });
+
+    assert.equal(contents.length, 1);
+    assert.deepEqual(contents[0]?.parts[0], {
+      fileData: {
+        mimeType: 'video/mp4',
+        fileUri: 'https://www.youtube.com/watch?v=9hE5-98ZeCg',
+      },
+    });
+    assert.equal(debug.youtubeNativeCount, 1);
+    assert.equal(debug.youtubeDemotedCount, 0);
+    assert.deepEqual(debug.youtubeCanonicalizedUrls, ['https://www.youtube.com/watch?v=9hE5-98ZeCg']);
+  }
+}
+
+{
+  const { contents, debug } = await buildModelContentsFromRequestWithDebug({
+    history: [],
+    message: 'Compare ces videos.',
+    attachments: [
+      {
+        type: 'youtube',
+        url: 'https://youtu.be/9hE5-98ZeCg',
+        mimeType: 'video/mp4',
+        name: 'Native YouTube',
+      },
+      {
+        type: 'youtube',
+        url: 'https://www.youtube.com/shorts/XEzRZ35urlk',
+        mimeType: 'video/mp4',
+        name: 'Second YouTube',
+      },
+    ],
+  });
+
+  const nativeVideoParts = contents[0]?.parts.filter((part) => part.fileData?.fileUri?.includes('youtube.com/watch')) || [];
+  const demotedTextParts = contents[0]?.parts.filter((part) => part.text?.includes('Lien YouTube supplementaire')) || [];
+  assert.equal(nativeVideoParts.length, 1);
+  assert.equal(demotedTextParts.length, 1);
+  assert.equal(debug.youtubeNativeCount, 1);
+  assert.equal(debug.youtubeDemotedCount, 1);
+  assert.deepEqual(debug.youtubeCanonicalizedUrls, ['https://www.youtube.com/watch?v=9hE5-98ZeCg']);
+  assert.deepEqual(debug.youtubeDemotedUrls, ['https://www.youtube.com/watch?v=XEzRZ35urlk']);
 }
 
 {
@@ -93,7 +165,7 @@ type Message = import('./src/types.ts').Message;
   });
 
   assert.equal(contents.length, 1);
-  assert.deepEqual(contents[0]?.parts[1], {
+  assert.deepEqual(contents[0]?.parts[0], {
     fileData: {
       mimeType: 'video/mp4',
       fileUri: 'gs://videosss92/uploaded/demo-video.mp4',

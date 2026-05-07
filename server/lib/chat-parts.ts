@@ -19,6 +19,23 @@ type ModelPart =
     };
   };
 
+type ModelContent = {
+  role: ApiHistoryMessagePayload['role'];
+  parts: ModelPart[];
+};
+
+export type ModelContentsBuildDebug = {
+  youtubeNativeCount: number;
+  youtubeDemotedCount: number;
+  youtubeCanonicalizedUrls: string[];
+  youtubeDemotedUrls: string[];
+  youtubeNativeHasVideoMetadata: boolean;
+};
+
+type YouTubeNativeState = ModelContentsBuildDebug & {
+  nativeBudget: number;
+};
+
 const MAX_REMOTE_BINARY_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 const MAX_REMOTE_TEXT_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_CHARS = 120_000;
@@ -64,6 +81,50 @@ function looksLikeYouTubeUrl(value?: string) {
     value
       && /^(https?:\/\/)?((www|m)\.)?(youtube\.com|youtu\.be)\//i.test(value)
   );
+}
+
+function createYouTubeNativeState(nativeBudget = 1): YouTubeNativeState {
+  return {
+    nativeBudget,
+    youtubeNativeCount: 0,
+    youtubeDemotedCount: 0,
+    youtubeCanonicalizedUrls: [],
+    youtubeDemotedUrls: [],
+    youtubeNativeHasVideoMetadata: false,
+  };
+}
+
+function getYouTubeVideoId(value?: string) {
+  if (!value) return null;
+
+  try {
+    const parsed = new URL(value.startsWith('http') ? value : `https://${value}`);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+
+    if (hostname === 'youtu.be' || hostname.endsWith('.youtu.be')) {
+      return pathname.split('/').filter(Boolean)[0] || null;
+    }
+
+    if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com')) {
+      const watchId = parsed.searchParams.get('v');
+      if (watchId) return watchId;
+
+      const segments = pathname.split('/').filter(Boolean);
+      const index = segments.findIndex((segment) => ['shorts', 'live', 'embed'].includes(segment));
+      if (index >= 0 && segments[index + 1]) return segments[index + 1];
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function canonicalizeYouTubeUrl(value?: string) {
+  const videoId = getYouTubeVideoId(value);
+  if (!videoId || !/^[a-zA-Z0-9_-]{6,}$/.test(videoId)) return null;
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 }
 
 function guessMimeTypeFromUrl(url?: string) {
@@ -163,6 +224,17 @@ function attachVideoMetadata(part: ModelPart, attachment: ApiAttachmentPayload):
     ...part,
     videoMetadata,
   };
+}
+
+function isNativeVideoPart(part: ModelPart) {
+  const mimeType = normalizeMimeType(part.fileData?.mimeType || part.inlineData?.mimeType);
+  return mimeType.startsWith('video/');
+}
+
+function orderModelPartsForMultimodalPrompt(parts: ModelPart[]) {
+  const videoParts = parts.filter(isNativeVideoPart);
+  const otherParts = parts.filter((part) => !isNativeVideoPart(part));
+  return [...videoParts, ...otherParts];
 }
 
 function isInlineFriendlyMimeType(mimeType: string) {
@@ -331,19 +403,60 @@ async function resolveYoutubeTitle(attachment: ApiAttachmentPayload) {
   return attachment.name || null;
 }
 
-export async function resolveAttachmentToModelParts(attachment: ApiAttachmentPayload): Promise<ModelPart[]> {
+async function buildDemotedYouTubeTextPart(attachment: ApiAttachmentPayload, fallbackUrl?: string): Promise<ModelPart> {
+  const title = await resolveYoutubeTitle(attachment);
+  return {
+    text: [
+      'Lien YouTube supplementaire.',
+      'Note: une seule URL YouTube est envoyee comme entree video native dans cette requete; ce lien reste disponible comme contexte texte.',
+      title ? `Titre: ${title}` : null,
+      fallbackUrl || attachment.url ? `URL: ${fallbackUrl || attachment.url}` : null,
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+function recordNativeYouTubePart(state: YouTubeNativeState | undefined, part: ModelPart) {
+  if (!state) return;
+  state.nativeBudget = Math.max(0, state.nativeBudget - 1);
+  state.youtubeNativeCount += 1;
+  if (part.fileData?.fileUri) {
+    state.youtubeCanonicalizedUrls.push(part.fileData.fileUri);
+  }
+  if (part.videoMetadata) {
+    state.youtubeNativeHasVideoMetadata = true;
+  }
+}
+
+function recordDemotedYouTubePart(state: YouTubeNativeState | undefined, url?: string) {
+  if (!state) return;
+  state.youtubeDemotedCount += 1;
+  if (url) state.youtubeDemotedUrls.push(url);
+}
+
+export async function resolveAttachmentToModelParts(
+  attachment: ApiAttachmentPayload,
+  youtubeState?: YouTubeNativeState,
+): Promise<ModelPart[]> {
   const mimeType = normalizeMimeType(attachment.mimeType || guessMimeTypeFromUrl(attachment.url));
   const base64 = stripDataUrlPrefix(attachment.base64);
   const storageUri = resolveStorageUri(attachment);
 
   if (attachment.type === 'youtube' || looksLikeYouTubeUrl(attachment.url)) {
-    if (attachment.url && looksLikeHttpUrl(attachment.url)) {
-      return [attachVideoMetadata({
+    const canonicalUrl = canonicalizeYouTubeUrl(attachment.url);
+    if (canonicalUrl) {
+      if (youtubeState && youtubeState.nativeBudget <= 0) {
+        recordDemotedYouTubePart(youtubeState, canonicalUrl);
+        return [await buildDemotedYouTubeTextPart(attachment, canonicalUrl)];
+      }
+
+      const nativePart = attachVideoMetadata({
         fileData: {
           mimeType: mimeType.startsWith('video/') ? mimeType : 'video/mp4',
-          fileUri: attachment.url,
+          fileUri: canonicalUrl,
         },
-      }, attachment)];
+      }, attachment);
+      recordNativeYouTubePart(youtubeState, nativePart);
+      return [nativePart];
     }
 
     const title = await resolveYoutubeTitle(attachment);
@@ -440,7 +553,10 @@ export async function resolveAttachmentToModelParts(attachment: ApiAttachmentPay
   return [{ text: buildFallbackAttachmentText(attachment) }];
 }
 
-export async function resolveApiPartsToModelParts(parts: ApiMessagePartPayload[]): Promise<ModelPart[]> {
+export async function resolveApiPartsToModelParts(
+  parts: ApiMessagePartPayload[],
+  youtubeState?: YouTubeNativeState,
+): Promise<ModelPart[]> {
   const modelParts: ModelPart[] = [];
 
   for (const part of parts) {
@@ -454,19 +570,32 @@ export async function resolveApiPartsToModelParts(parts: ApiMessagePartPayload[]
 
     if (part.fileData) {
       if (looksLikeHttpUrl(part.fileData.fileUri) && looksLikeYouTubeUrl(part.fileData.fileUri)) {
-        modelParts.push({
+        const canonicalUrl = canonicalizeYouTubeUrl(part.fileData.fileUri);
+        if (canonicalUrl && youtubeState && youtubeState.nativeBudget <= 0) {
+          recordDemotedYouTubePart(youtubeState, canonicalUrl);
+          modelParts.push(await buildDemotedYouTubeTextPart({
+            type: 'youtube',
+            url: canonicalUrl,
+            mimeType: part.fileData.mimeType,
+          }, canonicalUrl));
+          continue;
+        }
+
+        const nativePart = {
           fileData: {
             mimeType: part.fileData.mimeType || 'video/mp4',
-            fileUri: part.fileData.fileUri,
+            fileUri: canonicalUrl || part.fileData.fileUri,
           },
           ...(part.videoMetadata ? { videoMetadata: part.videoMetadata } : {}),
-        });
+        };
+        recordNativeYouTubePart(youtubeState, nativePart);
+        modelParts.push(nativePart);
       } else if (looksLikeHttpUrl(part.fileData.fileUri)) {
         modelParts.push(...await resolveAttachmentToModelParts({
           type: looksLikeYouTubeUrl(part.fileData.fileUri) ? 'youtube' : 'document',
           url: part.fileData.fileUri,
           mimeType: part.fileData.mimeType,
-        }));
+        }, youtubeState));
       } else {
         modelParts.push({
           fileData: part.fileData,
@@ -476,11 +605,47 @@ export async function resolveApiPartsToModelParts(parts: ApiMessagePartPayload[]
     }
 
     if (part.attachment) {
-      modelParts.push(...await resolveAttachmentToModelParts(part.attachment));
+      modelParts.push(...await resolveAttachmentToModelParts(part.attachment, youtubeState));
     }
   }
 
-  return modelParts.length > 0 ? modelParts : [{ text: ' ' }];
+  return modelParts.length > 0 ? orderModelPartsForMultimodalPrompt(modelParts) : [{ text: ' ' }];
+}
+
+export async function buildModelContentsFromRequestWithDebug(input: {
+  history: ApiHistoryMessagePayload[];
+  message: string;
+  attachments?: ApiAttachmentPayload[];
+}): Promise<{ contents: ModelContent[]; debug: ModelContentsBuildDebug }> {
+  const youtubeState = createYouTubeNativeState(1);
+  const currentAttachmentParts: ModelPart[] = [];
+
+  for (const attachment of input.attachments || []) {
+    currentAttachmentParts.push(...await resolveAttachmentToModelParts(attachment, youtubeState));
+  }
+
+  const history = await Promise.all(
+    input.history.map(async (messageItem) => ({
+      role: messageItem.role,
+      parts: await resolveApiPartsToModelParts(messageItem.parts, youtubeState),
+    })),
+  );
+
+  const currentParts = orderModelPartsForMultimodalPrompt([
+    { text: input.message || ' ' },
+    ...currentAttachmentParts,
+  ]);
+
+  return {
+    contents: [...history, { role: 'user' as const, parts: currentParts }],
+    debug: {
+      youtubeNativeCount: youtubeState.youtubeNativeCount,
+      youtubeDemotedCount: youtubeState.youtubeDemotedCount,
+      youtubeCanonicalizedUrls: youtubeState.youtubeCanonicalizedUrls,
+      youtubeDemotedUrls: youtubeState.youtubeDemotedUrls,
+      youtubeNativeHasVideoMetadata: youtubeState.youtubeNativeHasVideoMetadata,
+    },
+  };
 }
 
 export async function buildModelContentsFromRequest(input: {
@@ -488,18 +653,5 @@ export async function buildModelContentsFromRequest(input: {
   message: string;
   attachments?: ApiAttachmentPayload[];
 }) {
-  const history = await Promise.all(
-    input.history.map(async (messageItem) => ({
-      role: messageItem.role,
-      parts: await resolveApiPartsToModelParts(messageItem.parts),
-    })),
-  );
-
-  const currentParts: ModelPart[] = [{ text: input.message || ' ' }];
-
-  for (const attachment of input.attachments || []) {
-    currentParts.push(...await resolveAttachmentToModelParts(attachment));
-  }
-
-  return [...history, { role: 'user' as const, parts: currentParts }];
+  return (await buildModelContentsFromRequestWithDebug(input)).contents;
 }

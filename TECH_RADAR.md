@@ -9,6 +9,55 @@
 - Cout
 - Sources officielles
 
+## 2026-05-07 - Parametres image API restaures par modele
+- Statut: retenu localement
+- Date de verification: 2026-05-07
+- Technologie: Gemini Image via Vertex `generateContent` + Azure OpenAI Images REST pour `gpt-image-2`
+- Choix:
+  - centraliser les capacites image dans `shared/image-models.ts` au lieu de laisser l'UI et le backend diverger
+  - remettre dans `ImageStudio` les controles model-specific: modele, sorties, ratio, taille Gemini, safety Gemini, thinking Gemini, Google Search, thoughts, resolution GPT, qualite GPT, format, fond, moderation et compression JPEG
+  - envoyer Gemini avec `config.imageConfig`, `safetySettings`, `thinkingConfig`, `tools.googleSearch` et `responseModalities: ['TEXT','IMAGE']`
+  - envoyer GPT/Azure avec `size`, `quality`, `output_format`, `output_compression`, `background`, `moderation` et `n`
+  - limiter les refs et sorties selon le modele (`3` refs pour Gemini 2.5 Flash Image, `14` pour Gemini 3.x image, `16` pour GPT Image 2; jusqu'a `10` sorties)
+  - valider les resolutions GPT Image 2 arbitraires: multiples de 16, bord long <= 3840, ratio <= 3:1, 655360 a 8294400 pixels
+- Alternatives evaluees:
+  - garder un seul champ `imageSize` pour taille Google et qualite GPT:
+    - ecartee: c'etait la source du melange `1K -> quality` et des options fausses par modele
+  - reintroduire Imagen:
+    - ecartee dans cette passe, le backend image actuel est `generateContent` pour Gemini et REST Azure pour GPT, pas le endpoint Imagen predict
+  - exposer le streaming `partial_images` GPT:
+    - ecarte temporairement, le mode image actuel attend une reponse JSON finale et ne consomme pas encore un flux d'images partielles
+- Cout:
+  - pas de nouvelle dependance
+  - cout runtime habituel Vertex/Azure selon modele, resolution, qualite et nombre de sorties
+- Sources officielles:
+  - Microsoft Learn, [How to use image generation models](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/dall-e?tabs=dalle3&view=foundry-classic), verifie le 2026-05-07
+  - Microsoft Learn, [Azure OpenAI REST API preview reference](https://learn.microsoft.com/en-us/azure/ai-services/openai/reference-preview-latest), verifie le 2026-05-07
+  - OpenAI, [Images API reference](https://developers.openai.com/api/reference/images), verifie le 2026-05-07
+  - Google AI for Developers, [Image generation](https://ai.google.dev/gemini-api/docs/image-generation), verifie le 2026-05-07
+  - Google Cloud, [Generate images with Gemini](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/image-generation), verifie le 2026-05-07
+
+## 2026-05-07 - Fiabilisation entree YouTube native Gemini
+- Statut: retenu localement
+- Date de verification: 2026-05-07
+- Technologie: Gemini / Vertex AI video understanding avec URL YouTube en `fileData.fileUri`
+- Choix:
+  - canonicaliser les variantes YouTube vers `https://www.youtube.com/watch?v=...`
+  - placer la part video avant le texte utilisateur
+  - garder une seule URL YouTube native par requete, liens supplementaires en texte
+  - conserver `videoMetadata.startOffset/endOffset/fps`
+- Pourquoi:
+  - la doc Gemini recommande de placer le prompt texte apres la video pour une requete texte + video
+  - la doc Vertex indique qu'une URL YouTube doit etre publique ou possedee par le compte, et qu'une seule URL YouTube est supportee par requete
+- Alternatives evaluees:
+  - telecharger/transcoder YouTube cote serveur: ecarte, plus fragile et contraire au chemin natif documente
+  - envoyer toutes les URLs YouTube en `fileData`: ecarte, pas compatible avec la limite Vertex documentee
+- Cout:
+  - cout modele Gemini/Vertex habituel; pas de nouvelle dependance
+- Sources officielles:
+  - [Gemini API video understanding](https://ai.google.dev/gemini-api/docs/video-understanding)
+  - [Vertex AI video understanding](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/video-understanding)
+
 ## 2026-05-05 - Defaults Google/Gemini pour les reglages de generation visibles
 - Statut: retenu localement
 - Date de verification: 2026-05-05

@@ -201,22 +201,37 @@ const ChatPartSchema = z.object({
 
 export const ImageGenSchema = z.object({
   prompt: z.string(),
+  temperature: z.number().optional(),
+  topP: z.number().optional(),
+  topK: z.number().optional(),
+  maxOutputTokens: z.number().optional(),
   aspectRatio: z.string().optional(),
   imageSize: z.string().optional(),
+  imageQuality: z.string().optional(),
+  imageDimensions: z.string().optional(),
+  imageOutputFormat: z.string().optional(),
+  imageOutputCompression: z.number().optional(),
+  imageBackground: z.string().optional(),
+  imageModeration: z.string().optional(),
   numberOfImages: z.number().optional(),
   personGeneration: z.string().optional(),
   safetySetting: z.string().optional(),
+  googleSearch: z.boolean().optional(),
 });
 
 export const ImageGenRequestSchema = ImageGenSchema.extend({
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
+  maxThoughtTokens: z.number().optional(),
+  includeThoughts: z.boolean().optional(),
   referenceImages: z.array(InlineImageReferenceSchema).optional(),
 });
 
 export const ImagePackRequestSchema = ImageGenSchema.extend({
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
+  maxThoughtTokens: z.number().optional(),
+  includeThoughts: z.boolean().optional(),
   referenceImages: z.array(InlineImageReferenceSchema).min(1),
   shots: z.array(z.object({
     id: z.string(),

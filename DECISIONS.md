@@ -1,5 +1,33 @@
 # DECISIONS
 
+## 2026-05-07 - Le mode image expose les reglages natifs par famille de modele
+- Statut: adopte localement
+- Contexte: l'utilisateur signale que les parametres vitaux du mode image ont ete retires, et demande de remettre les options exactes proposees par chaque modele, en distinguant les modeles GPT et Google.
+- Decision:
+  - `shared/image-models.ts` devient la source de verite des options image par modele
+  - `ImageStudio` affiche les controles differents pour Gemini Image et GPT Image 2
+  - le backend refuse les modeles image non branches au lieu de les faire passer dans un faux chemin
+  - Gemini Image utilise `imageConfig`, `safetySettings`, `thinkingConfig` et `tools.googleSearch`
+  - GPT Image 2 utilise les champs Azure/OpenAI reels (`size`, `quality`, `output_format`, `output_compression`, `background`, `moderation`, `n`)
+- Consequence:
+  - plus de mapping confus `imageSize` comme qualite GPT
+  - les controles visibles changent avec le modele selectionne
+  - les sorties multiples GPT utilisent `n` cote API; les sorties multiples Gemini restent parallelisees pour garantir le nombre demande
+
+## 2026-05-07 - YouTube natif: une video prioritaire, canonicalisee et placee avant le texte
+- Statut: adopte localement
+- Contexte: l'utilisateur veut rapprocher le comportement du site de Google AI Studio quand il colle un lien YouTube. Le chemin `fileData.fileUri` existait deja, mais il manquait des garanties sur l'ordre des parts, les variantes d'URL et les cas multi-liens.
+- Decision:
+  - canonicaliser les variantes YouTube (`youtu.be`, `shorts`, `live`, `embed`) vers `watch?v=...` cote backend
+  - envoyer les parts video avant le texte dans `contents`
+  - autoriser une seule URL YouTube native par requete Vertex/Gemini
+  - transformer les liens YouTube supplementaires en contexte texte explicite au lieu de promettre plusieurs lectures natives
+  - exposer un debug non bloquant pour confirmer le chemin reel
+- Consequence:
+  - comportement plus proche de Google AI Studio pour le premier lien YouTube
+  - les requetes multi-YouTube restent honnetes et compatibles avec la limite Vertex documentee
+  - l'UI signale maintenant quand une video est prete comme entree native et quand des liens restent en texte
+
 ## 2026-05-05 - Hub Cowork et Raffineur IA retires de l'UI, defaults Google restaurables
 - Statut: adopte localement
 - Contexte: l'utilisateur signale que l'option Cowork avec le Hub n'a plus de sens car le Hub n'existe plus dans le produit visible. Il demande aussi de retirer le Raffineur IA partout, de mettre les reglages de generation recommandes par Google/DeepMind par defaut, de reparer la generation d'icone par IA, et de rendre les modes image/voix/musique moins serres.

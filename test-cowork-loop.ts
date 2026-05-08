@@ -76,7 +76,7 @@ const baseResearch = {
 {
   const runtimeApp = {
     modelProfile: {
-      textModel: 'gemini-3.1-flash-lite-preview',
+      textModel: 'gemini-3.1-flash-lite',
       ttsModel: 'gemini-2.5-flash-tts',
       musicModel: 'lyria-3-pro-preview',
       imageModel: 'imagen-3.0-generate-002',
@@ -125,7 +125,7 @@ const baseResearch = {
       { id: 'stance_b', label: 'Camp B', type: 'text' },
     ],
     modelProfile: {
-      textModel: 'gemini-3.1-flash-lite-preview',
+      textModel: 'gemini-3.1-flash-lite',
       ttsModel: 'gemini-2.5-flash-tts',
       musicModel: 'lyria-002',
     },

@@ -42,7 +42,7 @@ export type HubAgentRecord = AgentBlueprint & {
   updatedAt?: number;
 };
 
-const AGENT_ARCHITECT_MODEL = 'gemini-3.1-flash-lite-preview';
+const AGENT_ARCHITECT_MODEL = 'gemini-3.1-flash-lite';
 
 const TOOL_LIBRARY = [
   'web_search',

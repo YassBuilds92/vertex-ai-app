@@ -1,5 +1,16 @@
 # DECISIONS
 
+## 2026-05-08 - Gemini 3.1 Flash-Lite stable remplace le preview rapide
+- Statut: adopte localement
+- Contexte: Google liste maintenant `gemini-3.1-flash-lite` comme modele stable mis a jour en mai 2026. Le projet utilisait encore `gemini-3.1-flash-lite-preview` pour plusieurs chemins rapides.
+- Decision:
+  - afficher `gemini-3.1-flash-lite` dans le selecteur chat/Cowork
+  - basculer les defaults rapides internes vers le stable
+  - normaliser l'ancien identifiant preview vers le stable cote backend
+- Consequence:
+  - les nouvelles selections et les taches internes rapides utilisent le modele stable
+  - les sessions/envs anciens qui envoient encore `gemini-3.1-flash-lite-preview` continuent de fonctionner via alias
+
 ## 2026-05-07 - Le mode image expose les reglages natifs par famille de modele
 - Statut: adopte localement
 - Contexte: l'utilisateur signale que les parametres vitaux du mode image ont ete retires, et demande de remettre les options exactes proposees par chaque modele, en distinguant les modeles GPT et Google.
@@ -478,7 +489,7 @@
 - Statut: adopte localement et valide reellement
 - Contexte: la Phase 1B doit memoriser image/audio/video, mais un embed media brut seul donne peu de lisibilite pour le debug et peut echouer selon la modalite, la taille ou le quota.
 - Decision:
-  - generer d'abord un resume/transcript court via `gemini-3.1-flash-lite-preview`
+  - generer d'abord un resume/transcript court via `gemini-3.1-flash-lite`
   - appeler ensuite `gemini-embedding-2-preview` sur le media avec ce contexte
   - si l'embed media echoue, fallback propre sur un embedding texte du resume/transcript
   - stocker `summaryKind` et `embeddingStrategy` dans Qdrant

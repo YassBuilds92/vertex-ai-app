@@ -52,6 +52,7 @@ function cn(...inputs: ClassValue[]) {
 
 const isGroundingSupported = (model: string) => [
   'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite',
   'gemini-3.1-flash-lite-preview',
   'gemini-3-flash-preview',
   'gemini-2.5-pro',
@@ -60,7 +61,8 @@ const isGroundingSupported = (model: string) => [
 
 const modelNameMap: Record<string, string> = {
   'gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
-  'gemini-3.1-flash-lite-preview': 'Gemini 3.1 Flash Lite',
+  'gemini-3.1-flash-lite': 'Gemini 3.1 Flash Lite',
+  'gemini-3.1-flash-lite-preview': 'Gemini 3.1 Flash Lite Preview',
   'gemini-3-flash-preview': 'Gemini 3 Flash',
   ...IMAGE_MODEL_LABELS,
   'veo-3.1-generate-001': 'Veo 3.1 Video',
@@ -127,7 +129,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
 
   const availableModels = useMemo(() => ([
     { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', info: 'Intelligence avancee', modes: ['chat', 'cowork'] },
-    { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', info: 'Ultra rapide et econome', modes: ['chat', 'cowork'] },
+    { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', info: 'Stable mai 2026, rapide et econome', modes: ['chat', 'cowork'] },
     { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', info: 'Rapide avec vrai raisonnement', modes: ['chat', 'cowork'] },
     ...IMAGE_MODEL_OPTIONS.map((model) => ({ ...model, modes: ['image'] as AppMode[] })),
     { id: 'veo-3.1-generate-001', label: 'Veo 3.1 Video', info: 'Video cine', modes: ['video'] },

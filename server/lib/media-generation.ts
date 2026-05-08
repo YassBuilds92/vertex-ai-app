@@ -41,7 +41,7 @@ export const DEFAULT_TTS_MODEL = DEFAULT_GEMINI_TTS_MODEL;
 export const DEFAULT_TTS_VOICE = 'Kore';
 export const DEFAULT_LYRIA_MODEL = SHARED_DEFAULT_LYRIA_MODEL;
 export const DEFAULT_PODCAST_TTS_MODEL = 'gemini-2.5-pro-tts';
-export const DEFAULT_PODCAST_SCRIPT_MODEL = 'gemini-3.1-flash-lite-preview';
+export const DEFAULT_PODCAST_SCRIPT_MODEL = 'gemini-3.1-flash-lite';
 const DEFAULT_PODCAST_DUO_VOICES = ['Charon', 'Aoede'] as const;
 const DEFAULT_PODCAST_DUO_STYLE_NOTES = [
   'anchored, calm, deliberate, lower register, measured pauses, editorial authority',

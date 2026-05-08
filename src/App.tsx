@@ -3810,7 +3810,7 @@ export default function App() {
             parts: [{ text: m.content }] 
           })),
           config: { 
-            model: 'gemini-3.1-flash-lite-preview',
+            model: 'gemini-3.1-flash-lite',
             temperature: getGoogleRecommendedGenerationDefaults('chat').temperature,
             topP: getGoogleRecommendedGenerationDefaults('chat').topP,
             topK: getGoogleRecommendedGenerationDefaults('chat').topK,

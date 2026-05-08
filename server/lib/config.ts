@@ -60,7 +60,7 @@ export function getCoworkRagConfig() {
     autoInject: envFlagEnabled(process.env.COWORK_RAG_AUTOINJECT),
     collectionName: String(process.env.COWORK_RAG_COLLECTION || 'cowork_memory').trim() || 'cowork_memory',
     embeddingModel: String(process.env.COWORK_RAG_EMBEDDING_MODEL || 'gemini-embedding-2-preview').trim() || 'gemini-embedding-2-preview',
-    summaryModel: String(process.env.COWORK_RAG_SUMMARY_MODEL || 'gemini-3.1-flash-lite-preview').trim() || 'gemini-3.1-flash-lite-preview',
+    summaryModel: String(process.env.COWORK_RAG_SUMMARY_MODEL || 'gemini-3.1-flash-lite').trim() || 'gemini-3.1-flash-lite',
     vectorSize: Number.isFinite(requestedVectorSize) && requestedVectorSize > 0 ? requestedVectorSize : 1536,
     topK: Number.isFinite(requestedTopK) && requestedTopK > 0 ? requestedTopK : 5,
     scoreThreshold: Number.isFinite(requestedScoreThreshold) ? requestedScoreThreshold : 0.65,
@@ -93,6 +93,10 @@ export const MODEL_PRICING_USD_PER_1M: Record<string, {
     input: { standard: 2, longContext: 4 },
     output: { standard: 12, longContext: 18 }
   },
+  'gemini-3.1-flash-lite': {
+    input: { standard: 0.25, longContext: 0.25 },
+    output: { standard: 1.5, longContext: 1.5 }
+  },
   'gemini-3.1-flash-lite-preview': {
     input: { standard: 0.25, longContext: 0.25 },
     output: { standard: 1.5, longContext: 1.5 }
@@ -109,7 +113,8 @@ export const MODEL_PRICING_USD_PER_1M: Record<string, {
 
 export const GEMINI_MODEL_ALIASES: Record<string, string> = {
   'gemini-3.1-pro': 'gemini-3.1-pro-preview',
-  'gemini-3.1-flash': 'gemini-3.1-flash-lite-preview',
+  'gemini-3.1-flash': 'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite',
   'gemini-3-pro': 'gemini-3-pro-preview',
   'gemini-3-flash': 'gemini-3-flash-preview',
   'gemini-2.5-flash-preview-tts': 'gemini-2.5-flash-tts',

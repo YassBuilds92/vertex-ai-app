@@ -4,7 +4,7 @@ import 'dotenv/config';
 import { buildModelContentsFromRequestWithDebug } from './server/lib/chat-parts.ts';
 import { createGoogleAI, getVertexConfig, parseApiError } from './server/lib/google-genai.ts';
 
-const model = process.env.YOUTUBE_SMOKE_MODEL || 'gemini-3.1-flash-lite-preview';
+const model = process.env.YOUTUBE_SMOKE_MODEL || 'gemini-3.1-flash-lite';
 const url = process.env.YOUTUBE_SMOKE_URL || 'https://youtu.be/3KtWfp0UopM';
 
 const vertexConfig = getVertexConfig();

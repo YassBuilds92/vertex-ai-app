@@ -9,6 +9,25 @@
 - Cout
 - Sources officielles
 
+## 2026-05-08 - Gemini 3.1 Flash-Lite stable pour les chemins rapides
+- Statut: retenu et applique localement
+- Date de verification: 2026-05-08
+- Technologie: Gemini API / Vertex AI, modele `gemini-3.1-flash-lite`
+- Choix:
+  - exposer `gemini-3.1-flash-lite` dans le selecteur chat/Cowork
+  - utiliser ce modele stable pour les sous-taches rapides: raffineur, titrage, blueprints agents/apps, RAG summaries et script podcast
+  - conserver `gemini-3.1-flash-lite-preview` uniquement comme alias backend vers le stable pour compatibilite des configs et tests anciens
+- Alternatives evaluees:
+  - garder `gemini-3.1-flash-lite-preview`
+    - ecarte: la doc officielle liste maintenant une variante stable avec derniere mise a jour mai 2026
+  - basculer les chemins rapides sur `gemini-3-flash-preview`
+    - ecarte pour ces taches: plus cher et toujours preview; garder comme option manuelle dans le selecteur
+- Cout:
+  - Standard global Vertex AI: $0.25 / 1M tokens input texte/image/video, $0.50 / 1M tokens audio input, $1.50 / 1M tokens output/reasoning
+- Sources officielles:
+  - [Gemini 3.1 Flash-Lite model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite)
+  - [Vertex AI pricing - Gemini 3](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing)
+
 ## 2026-05-07 - Parametres image API restaures par modele
 - Statut: retenu localement
 - Date de verification: 2026-05-07
@@ -261,11 +280,11 @@
 ## 2026-04-07 - Phase 1B RAG multimodal: `gemini-embedding-2-preview`
 - Statut: retenu et valide reellement
 - Date de verification: 2026-04-07
-- Technologie: Vertex AI multimodal embeddings (`gemini-embedding-2-preview`) + resume media `gemini-3.1-flash-lite-preview`
+- Technologie: Vertex AI multimodal embeddings (`gemini-embedding-2-preview`) + resume media `gemini-3.1-flash-lite`
 - Choix:
   - utiliser `gemini-embedding-2-preview` comme modele d'embeddings par defaut de Cowork RAG
   - garder `outputDimensionality=1536`
-  - produire un resume/transcript lisible via `gemini-3.1-flash-lite-preview` avant indexation image/audio/video
+  - produire un resume/transcript lisible via `gemini-3.1-flash-lite` avant indexation image/audio/video
   - fallback sur un embedding texte du resume/transcript si l'embed media direct echoue
 - Pourquoi:
   - la doc Vertex AI officielle couvre le texte, l'image, l'audio, la video et le PDF
@@ -650,10 +669,10 @@
   - [Deployments and endpoints](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
   - [Get started with Gemini 3](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/get-started-with-gemini-3)
 
-## 2026-03-29 - Gemini 3.1 Flash-Lite Preview pour taches de fond
+## 2026-03-29 - Gemini 3.1 Flash-Lite pour taches de fond
 - Statut: retenu pour la generation de blueprints et taches rapides
-- Choix: utiliser `gemini-3.1-flash-lite-preview` pour les taches structurelles legeres comme la generation de blueprints d'agents.
-- Pourquoi: model ID encore supporte officiellement, plus adapte aux taches rapides et moins couteuses que le mode autonome complet.
+- Choix: utiliser `gemini-3.1-flash-lite` pour les taches structurelles legeres comme la generation de blueprints d'agents.
+- Pourquoi: modele stable officiellement liste, plus adapte aux taches rapides et moins couteuses que le mode autonome complet.
 - Alternatives evaluees:
   - `gemini-3-flash-preview`
     - Plus puissant, mais pas necessaire pour un blueprint borne et structure.
@@ -835,14 +854,14 @@
   - [Gemini API Thinking](https://ai.google.dev/gemini-api/docs/thinking)
   - [Thought signatures](https://ai.google.dev/gemini-api/docs/thought-signatures)
   - [Gemini 3.1 Pro Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-pro-preview)
-  - [Gemini 3.1 Flash Lite Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-flash-lite-preview)
+  - [Gemini 3.1 Flash-Lite model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite)
   - [Gemini 3 Flash Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3-flash-preview)
 
 ## 2026-03-29 - Gemini 3.1 Flash Lite pour l'ecriture de script podcast
 - Statut: retenu
 - Date de verification: 2026-03-29
-- Technologie: Gemini 3.1 Flash Lite Preview
-- Choix: utiliser `gemini-3.1-flash-lite-preview` pour ecrire un script podcast original avant TTS, puis reserver `gemini-2.5-pro-tts` a la narration.
+- Technologie: Gemini 3.1 Flash-Lite stable
+- Choix: utiliser `gemini-3.1-flash-lite` pour ecrire un script podcast original avant TTS, puis reserver `gemini-2.5-pro-tts` a la narration.
 - Alternatives evaluees:
   - laisser `gemini-2.5-pro-tts` ecrire et dire directement a partir du brief
     - Ecartee pour les podcasts d'actu: plus fragile face aux recitation checks et moins controllable.
@@ -850,7 +869,7 @@
     - Possible, mais surdimensionne pour un petit script de narration.
 - Cout: payant a l'usage via Vertex AI; plus economique que Pro pour cette sous-tache.
 - Sources officielles:
-  - [Gemini 3.1 Flash Lite Preview model page](https://ai.google.dev/gemini-api/docs/models/gemini#gemini-3.1-flash-lite-preview)
+  - [Gemini 3.1 Flash-Lite model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite)
   - [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
 
 ## 2026-05-05 - Refonte UI media sans nouvelle dependance frontend

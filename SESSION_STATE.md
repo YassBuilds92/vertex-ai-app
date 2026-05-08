@@ -1,5 +1,22 @@
 # SESSION STATE
 
+## 2026-05-08 - Gemini 3.1 Flash-Lite stable ajoute
+
+### Ce qui a ete accompli
+- Verification officielle Google:
+  - `gemini-3.1-flash-lite` est liste comme modele stable Gemini 3.1 Flash-Lite, derniere mise a jour mai 2026.
+  - Le tarif standard global documente est $0.25 / 1M tokens input texte/image/video et $1.50 / 1M tokens output/reasoning.
+- Code:
+  - `SidebarRight` expose `gemini-3.1-flash-lite` en chat/Cowork et garde le preview comme label/compatibilite.
+  - `server/lib/config.ts` normalise `gemini-3.1-flash-lite-preview` vers `gemini-3.1-flash-lite` et ajoute le pricing stable.
+  - Chemins rapides bascules vers le stable: raffineur, titre auto, architecte agents, generated apps, RAG summaries, script podcast.
+  - Smokes/tests locaux qui avaient un default preview mis a jour vers le stable.
+
+### Validation locale
+- `npm run lint` : OK
+- `npm run build` : OK
+- `npx tsx -e "...normalizeConfiguredModelId..."` : OK (`gemini-3.1-flash-lite-preview` et `gemini-3.1-flash` -> `gemini-3.1-flash-lite`)
+
 ## 2026-05-07 - Parametres vitaux du mode image remis
 
 ### Ce qui a ete accompli

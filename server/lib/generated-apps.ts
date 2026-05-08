@@ -198,7 +198,7 @@ type GeneratedAppCreationResult =
       manifest: GeneratedAppManifest;
     };
 
-const GENERATED_APP_MODEL = 'gemini-3.1-flash-lite-preview';
+const GENERATED_APP_MODEL = 'gemini-3.1-flash-lite';
 const GENERATED_APP_BUILD_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const TOOL_LIBRARY = [
   'web_search',
@@ -223,7 +223,7 @@ const TOOL_LIBRARY = [
 ] as const;
 type GeneratedAppToolName = typeof TOOL_LIBRARY[number];
 
-const TEXT_MODELS = ['gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview'] as const;
+const TEXT_MODELS = ['gemini-3.1-pro-preview', 'gemini-3.1-flash-lite'] as const;
 const IMAGE_MODELS = SUPPORTED_IMAGE_MODEL_IDS;
 const MUSIC_MODELS = [DEFAULT_LYRIA_MODEL, 'lyria-3-pro-preview', 'lyria-3-clip-preview', 'lyria-002'] as const;
 const TTS_MODELS = SUPPORTED_GEMINI_TTS_MODEL_IDS;
@@ -522,7 +522,7 @@ function sanitizeModelProfile(
     : 'medium';
 
   return {
-    textModel: pickModel(source.textModel, TEXT_MODELS, 'gemini-3.1-flash-lite-preview'),
+    textModel: pickModel(source.textModel, TEXT_MODELS, 'gemini-3.1-flash-lite'),
     reasoningLevel,
     imageModel: pickOptionalImageModel(source.imageModel, IMAGE_MODELS),
     musicModel: pickOptionalModel(source.musicModel, MUSIC_MODELS),

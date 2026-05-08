@@ -267,7 +267,7 @@ export function registerStandardApiRoutes(app: Express) {
   app.post('/api/refine', async (req, res) => {
     try {
       const { prompt, type, mode, profileId, customInstructions } = ChatRefineSchema.parse(req.body);
-      const modelId = 'gemini-3.1-flash-lite-preview';
+      const modelId = 'gemini-3.1-flash-lite';
       const ai = createGoogleAI(modelId);
       const normalizedMode = normalizeRefinerMode(mode);
       const systemPrompt = type === 'icon'

@@ -131,7 +131,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     () => pendingAttachments.filter((attachment) => attachment.type === 'image'),
     [pendingAttachments],
   );
-  const canSubmit = Boolean(prompt.trim()) && !isLoading;
+  const canSubmit = Boolean(prompt.trim());
   const selectedModelLabel = selectedModel?.label || getImageModelLabel(config.model);
   const currentOutputFormat = config.imageOutputFormat || getImageModelDefaultOutputFormat(config.model);
   const currentImageDimensions = config.imageDimensions || getImageModelDefaultImageDimensions(config.model);
@@ -551,7 +551,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         <PrimaryActionButton
           onClick={handleSubmit}
           disabled={!canSubmit}
-          loading={isLoading}
+          loading={false}
           loadingLabel="..."
           idleLabel="Generer"
           icon={Sparkles}

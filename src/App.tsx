@@ -372,6 +372,17 @@ const MESSAGE_VISIBILITY_LIMIT = 15;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 96;
 const MEDIA_MODES: MediaGenerationMode[] = ['image', 'video', 'audio', 'lyria'];
 const COWORK_REMOTE_PERSIST_TIMEOUT_MS = 5000;
+const APP_MODES: AppMode[] = ['chat', 'cowork', 'image', 'video', 'audio', 'lyria'];
+
+type SessionRunState = {
+  mode: AppMode;
+  runningCount: number;
+  streamingContent: string;
+  streamingThoughts: string;
+  streamingThoughtsExpanded: boolean;
+  liveCoworkMessage: Message | null;
+  startedAt: number;
+};
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -588,6 +599,19 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('new') !== '1') return;
+
+    const requestedMode = url.searchParams.get('mode') as AppMode | null;
+    const nextMode = requestedMode && APP_MODES.includes(requestedMode) ? requestedMode : 'chat';
+    setActiveMode(nextMode);
+    setActiveSessionId('local-new', { remember: false, modeOverride: nextMode });
+    url.searchParams.delete('new');
+    url.searchParams.delete('mode');
+    window.history.replaceState({}, '', url.toString());
+  }, [setActiveMode, setActiveSessionId]);
+
+  useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
     const syncVisibility = () => {
       if (media.matches) {
@@ -606,7 +630,6 @@ export default function App() {
   const [generatedApps, setGeneratedApps] = useState<GeneratedAppManifest[]>([]);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
   const [isVertexConfigured, setIsVertexConfigured] = useState<boolean | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
@@ -617,12 +640,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [currentMessages, setCurrentMessages] = useState<Message[]>([]);
-  const [streamingContent, setStreamingContent] = useState<string>('');
-  const [streamingThoughts, setStreamingThoughts] = useState<string>('');
-  const [streamingThoughtsExpanded, setStreamingThoughtsExpanded] = useState<boolean>(true);
-  const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
+  const [runStatesBySession, setRunStatesBySession] = useState<Record<string, SessionRunState>>({});
+  const [optimisticMessagesBySession, setOptimisticMessagesBySession] = useState<Record<string, Message[]>>({});
   const [recentlyCompletedMessageId, setRecentlyCompletedMessageId] = useState<string | null>(null);
-  const [liveCoworkMessage, setLiveCoworkMessage] = useState<Message | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
   const [customTitle, setCustomTitle] = useState<string | null>(null);
@@ -640,16 +660,16 @@ export default function App() {
   const [localSyncTick, setLocalSyncTick] = useState(0);
 
   const activeSessionIdRef = useRef<string | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const runControllersRef = useRef<Record<string, AbortController[]>>({});
   const parentRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
-  const liveCoworkMessageRef = useRef<Message | null>(null);
-  const coworkFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const coworkFlushTargetRef = useRef<{ userId: string; sessionId: string } | null>(null);
+  const liveCoworkMessageRef = useRef<Record<string, Message | null>>({});
+  const coworkFlushTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const coworkFlushTargetRef = useRef<Record<string, { userId: string; sessionId: string }>>({});
   const coworkStorageModeRef = useRef<'rich' | 'legacy'>('rich');
   const coworkStorageWarningShownRef = useRef(false);
-  const sendInFlightRef = useRef(false);
+  const sessionRunInFlightRef = useRef<Record<string, number>>({});
   const workspaceFilesCacheRef = useRef<{ files: WorkspaceFile[]; ts: number } | null>(null);
   const handleSendRuntimeRef = useRef<((text: string, overrideMessages?: Message[], runtimeSessionOverride?: ChatSession, mediaRequest?: MediaGenerationRequest) => Promise<void>) | null>(null);
   const sessionRepairAttemptedRef = useRef<Record<string, boolean>>({});
@@ -669,6 +689,12 @@ export default function App() {
     selectedCustomPrompt: selectedCustomPrompt || undefined,
     sessionKind: 'standard' as const,
   };
+  const activeRunState = activeSessionId ? runStatesBySession[activeSessionId] : undefined;
+  const isLoading = Boolean(activeRunState?.runningCount);
+  const streamingContent = activeRunState?.streamingContent || '';
+  const streamingThoughts = activeRunState?.streamingThoughts || '';
+  const streamingThoughtsExpanded = activeRunState?.streamingThoughtsExpanded ?? true;
+  const liveCoworkMessage = activeRunState?.liveCoworkMessage || null;
 
   const isAgentSession = activeSession.sessionKind === 'agent' && Boolean(activeSession.agentWorkspace);
   const isGeneratedAppSession = activeSession.sessionKind === 'generated_app' && Boolean(activeSession.generatedAppWorkspace);
@@ -822,21 +848,169 @@ export default function App() {
     return nextManifest;
   }, [user]);
 
+  const isSessionRunInFlight = useCallback((sessionId?: string | null) => (
+    Boolean(sessionId && sessionRunInFlightRef.current[sessionId] > 0)
+  ), []);
+
+  const beginSessionRun = useCallback((sessionId: string, mode: AppMode, controller: AbortController, options?: { clearLiveCowork?: boolean }) => {
+    const nextCount = (sessionRunInFlightRef.current[sessionId] || 0) + 1;
+    sessionRunInFlightRef.current[sessionId] = nextCount;
+    runControllersRef.current[sessionId] = [
+      ...(runControllersRef.current[sessionId] || []),
+      controller,
+    ];
+
+    setRunStatesBySession(prev => {
+      const current = prev[sessionId];
+      return {
+        ...prev,
+        [sessionId]: {
+          mode,
+          runningCount: nextCount,
+          streamingContent: '',
+          streamingThoughts: '',
+          streamingThoughtsExpanded: true,
+          liveCoworkMessage: options?.clearLiveCowork ? null : current?.liveCoworkMessage || null,
+          startedAt: current?.startedAt || Date.now(),
+        },
+      };
+    });
+  }, []);
+
+  const updateSessionRun = useCallback((sessionId: string, updater: (current: SessionRunState) => SessionRunState) => {
+    setRunStatesBySession(prev => {
+      const current = prev[sessionId] || {
+        mode: activeMode,
+        runningCount: sessionRunInFlightRef.current[sessionId] || 0,
+        streamingContent: '',
+        streamingThoughts: '',
+        streamingThoughtsExpanded: true,
+        liveCoworkMessage: liveCoworkMessageRef.current[sessionId] || null,
+        startedAt: Date.now(),
+      };
+
+      return {
+        ...prev,
+        [sessionId]: updater(current),
+      };
+    });
+  }, [activeMode]);
+
+  const finishSessionRun = useCallback((sessionId: string, controller: AbortController) => {
+    const remainingControllers = (runControllersRef.current[sessionId] || [])
+      .filter(existing => existing !== controller);
+    if (remainingControllers.length > 0) {
+      runControllersRef.current[sessionId] = remainingControllers;
+    } else {
+      delete runControllersRef.current[sessionId];
+    }
+
+    const nextCount = Math.max(0, (sessionRunInFlightRef.current[sessionId] || 0) - 1);
+    if (nextCount > 0) {
+      sessionRunInFlightRef.current[sessionId] = nextCount;
+    } else {
+      delete sessionRunInFlightRef.current[sessionId];
+    }
+
+    setRunStatesBySession(prev => {
+      const current = prev[sessionId];
+      if (!current) return prev;
+      const next = {
+        ...current,
+        runningCount: nextCount,
+      };
+
+      if (next.runningCount <= 0 && !next.liveCoworkMessage) {
+        const { [sessionId]: _removed, ...rest } = prev;
+        return rest;
+      }
+
+      return {
+        ...prev,
+        [sessionId]: next,
+      };
+    });
+  }, []);
+
+  const stopSessionRuns = useCallback((sessionId: string) => {
+    for (const controller of runControllersRef.current[sessionId] || []) {
+      if (!controller.signal.aborted) controller.abort();
+    }
+
+    delete runControllersRef.current[sessionId];
+    delete sessionRunInFlightRef.current[sessionId];
+
+    setRunStatesBySession(prev => {
+      const current = prev[sessionId];
+      if (!current) return prev;
+      if (current.liveCoworkMessage) {
+        return {
+          ...prev,
+          [sessionId]: {
+            ...current,
+            runningCount: 0,
+          },
+        };
+      }
+
+      const { [sessionId]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
+  const appendOptimisticMessage = useCallback((sessionId: string, message: Message) => {
+    setOptimisticMessagesBySession(prev => ({
+      ...prev,
+      [sessionId]: [
+        ...(prev[sessionId] || []).filter(existing => existing.id !== message.id),
+        message,
+      ],
+    }));
+  }, []);
+
+  const updateOptimisticMessage = useCallback((sessionId: string, messageId: string, message: Message) => {
+    setOptimisticMessagesBySession(prev => ({
+      ...prev,
+      [sessionId]: (prev[sessionId] || []).map(existing => (
+        existing.id === messageId ? message : existing
+      )),
+    }));
+  }, []);
+
+  const removeOptimisticMessages = useCallback((sessionId: string, messageIds: string[]) => {
+    if (messageIds.length === 0) return;
+    const ids = new Set(messageIds);
+    setOptimisticMessagesBySession(prev => {
+      const current = prev[sessionId] || [];
+      const next = current.filter(message => !ids.has(message.id));
+      if (next.length === current.length) return prev;
+      if (next.length === 0) {
+        const { [sessionId]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return {
+        ...prev,
+        [sessionId]: next,
+      };
+    });
+  }, []);
+
   const displayedMessages = React.useMemo(() => {
     const merged = new Map<string, Message>();
+    const activeOptimisticMessages = activeSessionId ? optimisticMessagesBySession[activeSessionId] || [] : [];
 
     for (const message of currentMessages) {
       merged.set(message.id, message);
     }
-    for (const message of optimisticMessages) {
+    for (const message of activeOptimisticMessages) {
       merged.set(message.id, message);
     }
-    if (liveCoworkMessage && coworkFlushTargetRef.current?.sessionId === activeSessionId) {
+    if (activeSessionId && liveCoworkMessage && coworkFlushTargetRef.current[activeSessionId]?.sessionId === activeSessionId) {
       merged.set(liveCoworkMessage.id, liveCoworkMessage);
     }
 
     return Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt);
-  }, [activeSessionId, currentMessages, optimisticMessages, liveCoworkMessage]);
+  }, [activeSessionId, currentMessages, optimisticMessagesBySession, liveCoworkMessage]);
   const hiddenMessagesCount = Math.max(0, displayedMessages.length - MESSAGE_VISIBILITY_LIMIT);
   const visibleMessageOffset = hiddenMessagesCount;
   const visibleMessages = React.useMemo(
@@ -886,6 +1060,12 @@ export default function App() {
     audio: 'Nouvelle voix',
     lyria: 'Nouveau morceau',
   }[activeMode];
+  const newConversationHref = React.useMemo(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('new', '1');
+    url.searchParams.set('mode', activeMode);
+    return url.toString();
+  }, [activeMode]);
 
   const activeSurfaceLabel = isAgentSession
     ? 'App Cowork'
@@ -911,11 +1091,11 @@ export default function App() {
       return;
     }
 
-    if (isLoading || sendInFlightRef.current) return;
+    if (isSessionRunInFlight(activeSessionId)) return;
     if (handleSendRuntimeRef.current) {
       await handleSendRuntimeRef.current(prompt);
     }
-  }, [handleGoogleLogin, isLoading, user]);
+  }, [activeSessionId, handleGoogleLogin, isSessionRunInFlight, user]);
 
   const activateMode = useCallback((mode: AppMode) => {
     setActiveMode(mode);
@@ -1290,16 +1470,24 @@ export default function App() {
   useEffect(() => {
     if (!isStorageResetReady) return;
     if (!user) {
+      for (const controller of Object.values(runControllersRef.current).flat()) {
+        if (!controller.signal.aborted) controller.abort();
+      }
+      for (const timer of Object.values(coworkFlushTimerRef.current)) {
+        clearTimeout(timer);
+      }
       setCurrentMessages([]);
-      setOptimisticMessages([]);
-      setLiveCoworkMessage(null);
-      liveCoworkMessageRef.current = null;
-      coworkFlushTargetRef.current = null;
+      setOptimisticMessagesBySession({});
+      setRunStatesBySession({});
+      liveCoworkMessageRef.current = {};
+      coworkFlushTargetRef.current = {};
+      coworkFlushTimerRef.current = {};
+      runControllersRef.current = {};
+      sessionRunInFlightRef.current = {};
       return;
     }
     if (!activeSessionId || activeSessionId === 'local-new') {
       setCurrentMessages([]);
-      setOptimisticMessages([]);
       return;
     }
     const q = query(collection(db, 'users', user.uid, 'sessions', activeSessionId, 'messages'), orderBy('createdAt', 'asc'));
@@ -1321,23 +1509,52 @@ export default function App() {
       });
       clearSessionSnapshots(user.uid, activeSessionId, fetchedMessages.map(message => message.id));
 
-      const liveId = liveCoworkMessageRef.current?.id;
-      if (liveId && coworkFlushTargetRef.current?.sessionId === activeSessionId) {
+      const liveId = liveCoworkMessageRef.current[activeSessionId]?.id;
+      if (liveId && coworkFlushTargetRef.current[activeSessionId]?.sessionId === activeSessionId) {
         const persistedLiveMessage = hydratedMessages.find(msg => msg.id === liveId);
         if (persistedLiveMessage && persistedLiveMessage.runState && persistedLiveMessage.runState !== 'running') {
-          setLiveCoworkMessage(null);
-          liveCoworkMessageRef.current = null;
+          liveCoworkMessageRef.current[activeSessionId] = null;
+          setRunStatesBySession(prev => {
+            const current = prev[activeSessionId];
+            if (!current) return prev;
+            if (current.runningCount > 0) {
+              return {
+                ...prev,
+                [activeSessionId]: {
+                  ...current,
+                  liveCoworkMessage: null,
+                },
+              };
+            }
+
+            const { [activeSessionId]: _removed, ...rest } = prev;
+            return rest;
+          });
         }
       }
 
       // Clean up optimistic messages that have landed in Firestore
       React.startTransition(() => {
-        setOptimisticMessages(prev => prev.filter(om =>
-          !hydratedMessages.some(fm =>
-            fm.id === om.id
-            || (fm.role === om.role && fm.content === om.content && Math.abs(fm.createdAt - om.createdAt) < 5000)
-          )
-        ));
+        setOptimisticMessagesBySession(prev => {
+          const currentOptimistic = prev[activeSessionId] || [];
+          const nextOptimistic = currentOptimistic.filter(om =>
+            !hydratedMessages.some(fm =>
+              fm.id === om.id
+              || (fm.role === om.role && fm.content === om.content && Math.abs(fm.createdAt - om.createdAt) < 5000)
+            )
+          );
+
+          if (nextOptimistic.length === currentOptimistic.length) return prev;
+          if (nextOptimistic.length === 0) {
+            const { [activeSessionId]: _removed, ...rest } = prev;
+            return rest;
+          }
+
+          return {
+            ...prev,
+            [activeSessionId]: nextOptimistic,
+          };
+        });
 
         setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: hydratedMessages } : s));
       });
@@ -1353,12 +1570,24 @@ export default function App() {
 
 
 
-  const handleNewChat = useCallback(() => {
+  const openNewConversationWindow = useCallback((mode: AppMode) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('new', '1');
+    url.searchParams.set('mode', mode);
+    window.open(url.toString(), '_blank', 'noopener,noreferrer');
+  }, []);
+
+  const handleNewChat = useCallback((event?: React.MouseEvent<HTMLElement>) => {
+    if (event?.ctrlKey || event?.metaKey) {
+      openNewConversationWindow(activeMode);
+      return;
+    }
+
     setPendingAttachments([]);
     setAttachmentNotice(null);
     setCustomTitle(null);
     setActiveSessionId('local-new', { remember: false });
-  }, [setActiveSessionId]);
+  }, [activeMode, openNewConversationWindow, setActiveSessionId]);
 
   const handleModeChange = (mode: AppMode) => {
     activateMode(mode);
@@ -1427,15 +1656,43 @@ export default function App() {
     setPendingAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
   }, []);
 
-  const setCoworkDraft = useCallback((nextValue: Message | ((prev: Message | null) => Message | null)) => {
-    setLiveCoworkMessage(prev => {
-      const next =
-        typeof nextValue === 'function'
-          ? (nextValue as (prev: Message | null) => Message | null)(prev)
-          : nextValue;
-      liveCoworkMessageRef.current = next;
-      return next;
+  const setCoworkDraftForSession = useCallback((sessionId: string, nextValue: Message | ((prev: Message | null) => Message | null)) => {
+    const previousDraft = liveCoworkMessageRef.current[sessionId] || null;
+    const next =
+      typeof nextValue === 'function'
+        ? (nextValue as (prev: Message | null) => Message | null)(previousDraft)
+        : nextValue;
+
+    liveCoworkMessageRef.current[sessionId] = next;
+    setRunStatesBySession(prev => {
+      const current = prev[sessionId] || {
+        mode: 'cowork' as AppMode,
+        runningCount: sessionRunInFlightRef.current[sessionId] || 0,
+        streamingContent: '',
+        streamingThoughts: '',
+        streamingThoughtsExpanded: true,
+        liveCoworkMessage: null,
+        startedAt: Date.now(),
+      };
+
+      if (!next && current.runningCount <= 0) {
+        const { [sessionId]: _removed, ...rest } = prev;
+        return rest;
+      }
+
+      return {
+        ...prev,
+        [sessionId]: {
+          ...current,
+          liveCoworkMessage: next,
+        },
+      };
     });
+
+    const target = coworkFlushTargetRef.current[sessionId];
+    if (next && target) {
+      saveCoworkSessionSnapshot(target.userId, target.sessionId, next);
+    }
   }, []);
 
   const touchSession = useCallback(async (session: ChatSession) => {
@@ -1511,16 +1768,12 @@ export default function App() {
   }, [user]);
 
   const persistModelMessageInBackground = useCallback((sessionId: string, message: Message) => {
-    setOptimisticMessages(prev => [...prev.filter(existing => existing.id !== message.id), message]);
+    appendOptimisticMessage(sessionId, message);
     void persistSessionMessage(sessionId, message).then((persisted) => {
       if (persisted) return;
-      setOptimisticMessages(prev => (
-        prev.some(existing => existing.id === message.id)
-          ? prev
-          : [...prev, message]
-      ));
+      appendOptimisticMessage(sessionId, message);
     });
-  }, [persistSessionMessage]);
+  }, [appendOptimisticMessage, persistSessionMessage]);
 
   const persistCoworkSnapshot = useCallback(async (message: Message, target: { userId: string; sessionId: string }) => {
     if (isLocalSessionDeleted(target.userId, target.sessionId)) return;
@@ -2168,7 +2421,7 @@ export default function App() {
     if (!user) return;
 
     const cleanedRequest = request.trim();
-    if (!cleanedRequest || isLoading || sendInFlightRef.current) return;
+    if (!cleanedRequest) return;
 
     const agentContextLines = formatAgentFormValues(agent, formValues);
     const sessionId = `cw-agent-edit-${Date.now()}`;
@@ -2206,13 +2459,13 @@ export default function App() {
     if (handleSendRuntimeRef.current) {
       await handleSendRuntimeRef.current(editPrompt, undefined, session);
     }
-  }, [configs.cowork.systemInstruction, isLoading, persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
+  }, [configs.cowork.systemInstruction, persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
 
   const requestCoworkGeneratedAppEdit = useCallback(async (app: GeneratedAppManifest, request: string, formValues: AgentFormValues) => {
     if (!user) return;
 
     const cleanedRequest = request.trim();
-    if (!cleanedRequest || isLoading || sendInFlightRef.current) return;
+    if (!cleanedRequest) return;
 
     const appContextLines = Object.entries(formValues)
       .filter(([, value]) => typeof value === 'boolean' || String(value || '').trim().length > 0)
@@ -2257,7 +2510,7 @@ export default function App() {
     if (handleSendRuntimeRef.current) {
       await handleSendRuntimeRef.current(editPrompt, undefined, session);
     }
-  }, [configs.cowork.systemInstruction, isLoading, persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
+  }, [configs.cowork.systemInstruction, persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
 
   const openAgentWorkspace = useCallback(async (
     agent: StudioAgent,
@@ -2333,13 +2586,14 @@ export default function App() {
     }
   }, [persistSessionShell, setActiveMode, setActiveSessionId, upsertSessionLocal, user]);
 
-  const releaseCoworkDraft = useCallback(async (options?: { clear?: boolean }) => {
-    const draft = liveCoworkMessageRef.current;
-    const target = coworkFlushTargetRef.current;
+  const releaseCoworkDraft = useCallback(async (sessionId: string, options?: { clear?: boolean }) => {
+    const draft = liveCoworkMessageRef.current[sessionId];
+    const target = coworkFlushTargetRef.current[sessionId];
+    const timer = coworkFlushTimerRef.current[sessionId];
 
-    if (coworkFlushTimerRef.current) {
-      clearTimeout(coworkFlushTimerRef.current);
-      coworkFlushTimerRef.current = null;
+    if (timer) {
+      clearTimeout(timer);
+      delete coworkFlushTimerRef.current[sessionId];
     }
 
     if (draft && target) {
@@ -2356,41 +2610,52 @@ export default function App() {
 
     if (options?.clear === false) return;
 
-    setLiveCoworkMessage(null);
-    liveCoworkMessageRef.current = null;
-    coworkFlushTargetRef.current = null;
+    liveCoworkMessageRef.current[sessionId] = null;
+    delete coworkFlushTargetRef.current[sessionId];
+    setRunStatesBySession(prev => {
+      const current = prev[sessionId];
+      if (!current) return prev;
+      if (current.runningCount > 0) {
+        return {
+          ...prev,
+          [sessionId]: {
+            ...current,
+            liveCoworkMessage: null,
+          },
+        };
+      }
+
+      const { [sessionId]: _removed, ...rest } = prev;
+      return rest;
+    });
   }, [persistCoworkSnapshot]);
 
-  const persistLiveCoworkMessage = useCallback(async () => {
-    await releaseCoworkDraft({ clear: false });
+  const persistLiveCoworkMessage = useCallback(async (sessionId: string) => {
+    await releaseCoworkDraft(sessionId, { clear: false });
   }, [releaseCoworkDraft]);
 
-  const scheduleCoworkPersist = useCallback(() => {
-    if (coworkFlushTimerRef.current) {
-      clearTimeout(coworkFlushTimerRef.current);
+  const scheduleCoworkPersist = useCallback((sessionId: string) => {
+    const timer = coworkFlushTimerRef.current[sessionId];
+    if (timer) {
+      clearTimeout(timer);
     }
-    coworkFlushTimerRef.current = setTimeout(() => {
-      coworkFlushTimerRef.current = null;
-      void persistLiveCoworkMessage();
+    coworkFlushTimerRef.current[sessionId] = setTimeout(() => {
+      delete coworkFlushTimerRef.current[sessionId];
+      void persistLiveCoworkMessage(sessionId);
     }, 350);
   }, [persistLiveCoworkMessage]);
 
-  const flushCoworkPersist = useCallback(async () => {
-    await releaseCoworkDraft({ clear: false });
+  const flushCoworkPersist = useCallback(async (sessionId: string) => {
+    await releaseCoworkDraft(sessionId, { clear: false });
   }, [releaseCoworkDraft]);
 
   useEffect(() => {
     return () => {
-      void releaseCoworkDraft();
+      for (const sessionId of Object.keys(coworkFlushTargetRef.current)) {
+        void releaseCoworkDraft(sessionId);
+      }
     };
   }, [releaseCoworkDraft]);
-
-  useEffect(() => {
-    const target = coworkFlushTargetRef.current;
-    if (!liveCoworkMessage || !target) return;
-
-    saveCoworkSessionSnapshot(target.userId, target.sessionId, liveCoworkMessage);
-  }, [liveCoworkMessage]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -2628,28 +2893,111 @@ export default function App() {
     runtimeSessionOverride?: ChatSession,
     mediaRequest?: MediaGenerationRequest,
   ) => {
-    if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || isLoading || sendInFlightRef.current) return;
+    if ((!textToSend.trim() && pendingAttachments.length === 0 && !overrideMessages) || !user) return;
 
     const scrollContainer = parentRef.current;
     shouldAutoScrollRef.current = !scrollContainer || isScrolledNearBottom(scrollContainer) || displayedMessages.length === 0;
     setRecentlyCompletedMessageId(null);
-    const anticipatedMode = (runtimeSessionOverride?.mode || activeMode) as AppMode;
-    const anticipatedIsMediaMode = MEDIA_MODES.includes(anticipatedMode as MediaGenerationMode);
-    const optimisticOriginalPrompt = anticipatedIsMediaMode
+    const requestStartedAt = Date.now();
+    const requestController = new AbortController();
+    let currentSessionId = runtimeSessionOverride?.id || activeSessionId;
+    let effectiveSession = runtimeSessionOverride || activeSession;
+    const effectiveMode = runtimeSessionOverride?.mode || activeMode;
+    const effectiveConfig = configs[effectiveMode];
+    const isCoworkRun = effectiveMode === 'cowork';
+    const isAgentRun = effectiveSession.sessionKind === 'agent' && Boolean(effectiveSession.agentWorkspace);
+    const isGeneratedAppRun = effectiveSession.sessionKind === 'generated_app' && Boolean(effectiveSession.generatedAppWorkspace);
+    const isMediaMode = MEDIA_MODES.includes(effectiveMode as MediaGenerationMode);
+    const isRichToolRun = isCoworkRun || isAgentRun || isGeneratedAppRun;
+    if (!isMediaMode && currentSessionId && currentSessionId !== 'local-new' && isSessionRunInFlight(currentSessionId)) return;
+
+    const optimisticOriginalPrompt = isMediaMode
       ? sanitizeOptionalText(mediaRequest?.originalPrompt) || textToSend
       : textToSend;
-    const optimisticRefinedPrompt = anticipatedIsMediaMode
+    const optimisticRefinedPrompt = isMediaMode
       ? sanitizeOptionalText(mediaRequest?.refinedPrompt)
       : undefined;
+    const activeSystemInstruction = resolveSessionSystemInstruction(
+      effectiveSession,
+      effectiveConfig?.systemInstruction,
+      configs.chat?.systemInstruction || '',
+    );
+    const activeSelectedPrompt = resolveSessionSelectedCustomPrompt(effectiveSession, selectedCustomPrompt);
+    const hasPendingSystemPromptCommit =
+      !isCoworkRun
+      && !isAgentRun
+      && !isGeneratedAppRun
+      && isPromptScopedSession(effectiveSession)
+      && normalizeSystemInstructionText(effectiveSession.systemInstruction) !== normalizeSystemInstructionText(activeSystemInstruction);
+    const committedSystemPromptHistory = hasPendingSystemPromptCommit
+      ? buildCommittedSystemPromptHistory(effectiveSession, activeSystemInstruction, requestStartedAt)
+      : effectiveSession.systemPromptHistory;
+
+    if (currentSessionId === 'local-new' || !currentSessionId) {
+      const newId = Date.now().toString();
+      const nextSession: ChatSession = {
+        id: newId,
+        title: customTitle || optimisticOriginalPrompt.slice(0, 30) || 'Nouvelle conversation',
+        messages: [],
+        updatedAt: Date.now(),
+        mode: effectiveMode,
+        userId: user.uid,
+        systemInstruction: activeSystemInstruction,
+        selectedCustomPrompt: activeSelectedPrompt,
+        systemPromptHistory: committedSystemPromptHistory,
+        sessionKind: effectiveSession.sessionKind || 'standard',
+        agentWorkspace: effectiveSession.agentWorkspace,
+        generatedAppWorkspace: effectiveSession.generatedAppWorkspace,
+      };
+      upsertSessionLocal(nextSession, { pendingRemote: true });
+      void persistSessionShell(nextSession);
+      setCustomTitle(null);
+      currentSessionId = newId;
+      effectiveSession = nextSession;
+      studioDebug('session', 'Created a new client session shell.', {
+        sessionId: newId,
+        mode: effectiveMode,
+        sessionKind: nextSession.sessionKind || 'standard',
+        selectedCustomPromptId: nextSession.selectedCustomPrompt?.id,
+      });
+      setActiveSessionId(newId, {
+        remember: effectiveSession.sessionKind !== 'agent',
+        modeOverride: effectiveMode,
+      });
+    }
+
+    if (!currentSessionId) return;
+    if (!isMediaMode && isSessionRunInFlight(currentSessionId)) return;
 
     // flushSync forces React to paint SYNCHRONOUSLY before any async work.
     // Without this, React 18 batches all state updates and delays the paint until
     // the first network await, causing the visible freeze the user experiences.
     let earlyUserMessageId: string | null = null;
+    const runSessionId = currentSessionId;
+    const initialRichRunMessage: Message | null = isRichToolRun ? {
+      id: `${isGeneratedAppRun ? 'gapp' : isAgentRun ? 'agent' : 'cowork'}-${Date.now()}`,
+      role: 'model',
+      content: '',
+      thoughts: '',
+      activity: [{
+        id: `${isGeneratedAppRun ? 'gapp' : isAgentRun ? 'agent' : 'cw'}-init-${Date.now()}`,
+        kind: 'status',
+        timestamp: Date.now(),
+        iteration: 0,
+        title: 'Preparation',
+        message: isGeneratedAppRun || isAgentRun
+          ? "Ouverture de l'app..."
+          : 'Connexion a la boucle Cowork...',
+        status: 'info',
+      }],
+      runState: 'running',
+      runMeta: createEmptyRunMeta(),
+      createdAt: Date.now(),
+    } : null;
     flushSync(() => {
       if (!overrideMessages) {
         earlyUserMessageId = createClientMessageId('msg');
-        setOptimisticMessages(prev => [...prev, {
+        appendOptimisticMessage(runSessionId, {
           id: earlyUserMessageId!,
           role: 'user' as const,
           content: optimisticOriginalPrompt,
@@ -2657,53 +3005,24 @@ export default function App() {
           // Show local attachment data for instant feedback; URLs are filled in after upload.
           attachments: pendingAttachments.map(({ file: _file, ...rest }) => rest),
           refinedInstruction: optimisticRefinedPrompt,
-        }]);
+        });
       }
       // Clear old response state in the same synchronous paint.
-      setStreamingContent('');
-      setStreamingThoughts('');
       setExpandedThoughts(prev => {
         const { streaming, ...rest } = prev;
         return rest;
       });
-      setLiveCoworkMessage(null);
-      setIsLoading(true);
+      beginSessionRun(runSessionId, effectiveMode, requestController, { clearLiveCowork: true });
+      if (initialRichRunMessage) {
+        coworkStorageModeRef.current = 'rich';
+        coworkStorageWarningShownRef.current = false;
+        coworkFlushTargetRef.current[runSessionId] = { userId: user.uid, sessionId: runSessionId };
+        setCoworkDraftForSession(runSessionId, initialRichRunMessage);
+      }
     });
-    liveCoworkMessageRef.current = null;
-    sendInFlightRef.current = true;
-    // Defer thoughts-panel expansion until thoughts actually arrive to avoid showing the
-    // reflection popup before the user message renders.
-    setExpandedThoughts(prev => ({ ...prev, streaming: true }));
-    const requestController = new AbortController();
-    abortControllerRef.current = requestController;
-    let isRichToolRun = false;
 
     try {
-      const requestStartedAt = Date.now();
-      const effectiveSession = runtimeSessionOverride || activeSession;
-      const effectiveMode = runtimeSessionOverride?.mode || activeMode;
-      const effectiveConfig = configs[effectiveMode];
       const effectiveSessionMessages = runtimeSessionOverride?.messages || displayedMessages;
-      const isCoworkRun = effectiveMode === 'cowork';
-      const isAgentRun = effectiveSession.sessionKind === 'agent' && Boolean(effectiveSession.agentWorkspace);
-      const isGeneratedAppRun = effectiveSession.sessionKind === 'generated_app' && Boolean(effectiveSession.generatedAppWorkspace);
-      const isMediaMode = MEDIA_MODES.includes(effectiveMode as MediaGenerationMode);
-      isRichToolRun = isCoworkRun || isAgentRun || isGeneratedAppRun;
-      const activeSystemInstruction = resolveSessionSystemInstruction(
-        effectiveSession,
-        effectiveConfig?.systemInstruction,
-        configs.chat?.systemInstruction || '',
-      );
-      const activeSelectedPrompt = resolveSessionSelectedCustomPrompt(effectiveSession, selectedCustomPrompt);
-      const hasPendingSystemPromptCommit =
-        !isCoworkRun
-        && !isAgentRun
-        && !isGeneratedAppRun
-        && isPromptScopedSession(effectiveSession)
-        && normalizeSystemInstructionText(effectiveSession.systemInstruction) !== normalizeSystemInstructionText(activeSystemInstruction);
-      const committedSystemPromptHistory = hasPendingSystemPromptCommit
-        ? buildCommittedSystemPromptHistory(effectiveSession, activeSystemInstruction, requestStartedAt)
-        : effectiveSession.systemPromptHistory;
 
       studioDebug('send', 'Starting handleSend.', {
         effectiveMode,
@@ -2720,40 +3039,6 @@ export default function App() {
         promptPreview: textToSend.slice(0, 220),
       });
 
-      let currentSessionId = runtimeSessionOverride?.id || activeSessionId;
-      if (user && (currentSessionId === 'local-new' || !currentSessionId)) {
-        const newId = Date.now().toString();
-        const nextSession: ChatSession = {
-          id: newId,
-          title: customTitle || optimisticOriginalPrompt.slice(0, 30) || 'Nouvelle conversation',
-          messages: [],
-          updatedAt: Date.now(),
-          mode: effectiveMode,
-          userId: user.uid,
-          systemInstruction: activeSystemInstruction,
-          selectedCustomPrompt: activeSelectedPrompt,
-          systemPromptHistory: committedSystemPromptHistory,
-          sessionKind: effectiveSession.sessionKind || 'standard',
-          agentWorkspace: effectiveSession.agentWorkspace,
-          generatedAppWorkspace: effectiveSession.generatedAppWorkspace,
-        };
-        upsertSessionLocal(nextSession, { pendingRemote: true });
-        void persistSessionShell(nextSession);
-        setCustomTitle(null);
-        currentSessionId = newId;
-        studioDebug('session', 'Created a new client session shell.', {
-          sessionId: newId,
-          mode: effectiveMode,
-          sessionKind: nextSession.sessionKind || 'standard',
-          selectedCustomPromptId: nextSession.selectedCustomPrompt?.id,
-        });
-        setActiveSessionId(newId, {
-          remember: effectiveSession.sessionKind !== 'agent',
-          modeOverride: effectiveMode,
-        });
-      }
-
-      if (!user || !currentSessionId) return;
       const sessionTouchPayload: ChatSession = {
         ...effectiveSession,
         id: currentSessionId,
@@ -2830,7 +3115,7 @@ export default function App() {
             role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction
           };
           // Update the early optimistic entry with real attachment URLs.
-          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
+          updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
           void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -2904,8 +3189,6 @@ export default function App() {
           createdAt: Date.now(),
         };
         persistModelMessageInBackground(currentSessionId, modelMessage);
-        
-        setIsLoading(false);
         return;
       }
 
@@ -2919,7 +3202,7 @@ export default function App() {
             attachments: cleanAttachments,
             refinedInstruction,
           };
-          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
+          updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
           void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -2960,8 +3243,6 @@ export default function App() {
           createdAt: Date.now(),
         };
         persistModelMessageInBackground(currentSessionId, modelMessage);
-
-        setIsLoading(false);
         return;
       }
 
@@ -2975,7 +3256,7 @@ export default function App() {
             attachments: cleanAttachments,
             refinedInstruction,
           };
-          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
+          updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
           void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -3015,8 +3296,6 @@ export default function App() {
           createdAt: Date.now(),
         };
         persistModelMessageInBackground(currentSessionId, modelMessage);
-
-        setIsLoading(false);
         return;
       }
 
@@ -3029,7 +3308,7 @@ export default function App() {
             createdAt: Date.now(),
             attachments: cleanAttachments,
           };
-          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
+          updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
           void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -3157,7 +3436,7 @@ export default function App() {
         const decoder = new TextDecoder();
         let buffer = '';
 
-        const modelMessage: Message = {
+        const modelMessage: Message = initialRichRunMessage || {
           id: `${isGeneratedAppRun ? 'gapp' : isAgentRun ? 'agent' : 'cowork'}-${Date.now()}`,
           role: 'model',
           content: '',
@@ -3180,8 +3459,8 @@ export default function App() {
 
         coworkStorageModeRef.current = 'rich';
         coworkStorageWarningShownRef.current = false;
-        coworkFlushTargetRef.current = { userId: user.uid, sessionId: currentSessionId };
-        setCoworkDraft(modelMessage);
+        coworkFlushTargetRef.current[currentSessionId] = { userId: user.uid, sessionId: currentSessionId };
+        setCoworkDraftForSession(currentSessionId, prev => prev || modelMessage);
         saveCoworkSessionSnapshot(user.uid, currentSessionId, modelMessage);
         void withTimeout(
           persistCoworkSnapshot(modelMessage, { userId: user.uid, sessionId: currentSessionId }),
@@ -3222,7 +3501,7 @@ export default function App() {
                 });
               } catch (persistError) {
                 console.error('Agent blueprint persistence failed:', persistError);
-                setCoworkDraft(prev => {
+                setCoworkDraftForSession(currentSessionId, prev => {
                   if (!prev) return prev;
                   return applyCoworkEventToMessage(prev, {
                     type: 'warning',
@@ -3243,7 +3522,7 @@ export default function App() {
                 });
               } catch (persistError) {
                 console.error('Generated app persistence failed:', persistError);
-                setCoworkDraft(prev => {
+                setCoworkDraftForSession(currentSessionId, prev => {
                   if (!prev) return prev;
                   return applyCoworkEventToMessage(prev, {
                     type: 'warning',
@@ -3295,8 +3574,8 @@ export default function App() {
               }
             }
 
-            setCoworkDraft(prev => (prev ? applyCoworkEventToMessage(prev, data) : prev));
-            scheduleCoworkPersist();
+            setCoworkDraftForSession(currentSessionId, prev => (prev ? applyCoworkEventToMessage(prev, data) : prev));
+            scheduleCoworkPersist(currentSessionId);
 
             if (data.type === 'error') {
               throw new Error(data.message || 'Erreur mode Cowork');
@@ -3304,13 +3583,13 @@ export default function App() {
           }
         }
 
-        setCoworkDraft(prev => {
+        setCoworkDraftForSession(currentSessionId, prev => {
           if (!prev) return prev;
           if (prev.runState && prev.runState !== 'running') return prev;
           if (prev.runState === 'paused') return prev;
           return { ...prev, runState: 'completed' };
         });
-        await flushCoworkPersist();
+        await flushCoworkPersist(currentSessionId);
         studioDebug('cowork', 'Cowork stream completed.', {
           sessionId: currentSessionId,
           runtimeLabel,
@@ -3325,7 +3604,7 @@ export default function App() {
             id: earlyUserMessageId!,
             role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction
           };
-          setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
+          updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
           void persistSessionMessage(currentSessionId, userMessage);
           setPendingAttachments([]);
         }
@@ -3361,8 +3640,6 @@ export default function App() {
           createdAt: Date.now(),
         };
         persistModelMessageInBackground(currentSessionId, modelMessage);
-        
-        setIsLoading(false);
         return;
       }
 
@@ -3380,7 +3657,7 @@ export default function App() {
           attachments: cleanAttachments,
           refinedInstruction
         };
-        setOptimisticMessages(prev => prev.map(m => m.id === earlyUserMessageId ? userMessage : m));
+        updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
         void persistSessionMessage(currentSessionId, userMessage);
         setPendingAttachments([]);
       } else {
@@ -3462,8 +3739,11 @@ export default function App() {
 
       const flushStreamingState = () => {
         scheduledStreamingFrame = null;
-        setStreamingContent(fullContent);
-        setStreamingThoughts(thoughts);
+        updateSessionRun(currentSessionId, current => ({
+          ...current,
+          streamingContent: fullContent,
+          streamingThoughts: thoughts,
+        }));
       };
 
       const scheduleStreamingState = () => {
@@ -3473,8 +3753,11 @@ export default function App() {
 
       const modelMsgId = Date.now().toString();
 
-      setStreamingContent('');
-      setStreamingThoughts('');
+      updateSessionRun(currentSessionId, current => ({
+        ...current,
+        streamingContent: '',
+        streamingThoughts: '',
+      }));
 
       while (reader) {
         const { done, value } = await reader.read();
@@ -3522,7 +3805,10 @@ export default function App() {
       }
       flushStreamingState();
 
-      setStreamingThoughtsExpanded(false);
+      updateSessionRun(currentSessionId, current => ({
+        ...current,
+        streamingThoughtsExpanded: false,
+      }));
       if (thoughts) {
         setExpandedThoughts(prev => ({ ...prev, [modelMsgId]: false }));
       }
@@ -3538,9 +3824,9 @@ export default function App() {
       persistModelMessageInBackground(currentSessionId, modelMessage);
 
     } catch (error: any) {
-      if (isRichToolRun && liveCoworkMessageRef.current) {
+      if (isRichToolRun && currentSessionId && liveCoworkMessageRef.current[currentSessionId]) {
         if (error.name === 'AbortError') {
-          setCoworkDraft(prev => {
+          setCoworkDraftForSession(currentSessionId, prev => {
             if (!prev || prev.runState === 'aborted') return prev;
             const next = applyCoworkEventToMessage(prev, {
               type: 'warning',
@@ -3550,7 +3836,7 @@ export default function App() {
             return { ...next, runState: 'aborted' };
           });
         } else {
-          setCoworkDraft(prev => {
+          setCoworkDraftForSession(currentSessionId, prev => {
             if (!prev) return prev;
             if (prev.runState && prev.runState !== 'running') return prev;
             return applyCoworkEventToMessage(prev, {
@@ -3560,7 +3846,7 @@ export default function App() {
             });
           });
         }
-        await flushCoworkPersist();
+        await flushCoworkPersist(currentSessionId);
       }
 
       if (error.name !== 'AbortError') {
@@ -3573,29 +3859,21 @@ export default function App() {
         alert(`Erreur d'envoi : ${error.message || String(error)}`);
       }
     } finally {
-      if (abortControllerRef.current === requestController) {
-        abortControllerRef.current = null;
-        sendInFlightRef.current = false;
-        setIsLoading(false);
+      if (currentSessionId) {
+        finishSessionRun(currentSessionId, requestController);
       }
     }
   };
   handleSendRuntimeRef.current = handleSend;
 
   const handleStopGeneration = useCallback(() => {
-    const controller = abortControllerRef.current;
-    if (controller && !controller.signal.aborted) {
-      controller.abort();
-    }
-
-    setIsLoading(false);
-    sendInFlightRef.current = false;
-    abortControllerRef.current = null;
-  }, []);
+    if (!activeSessionId || activeSessionId === 'local-new') return;
+    stopSessionRuns(activeSessionId);
+  }, [activeSessionId, stopSessionRuns]);
 
   const rerunActiveAgentWorkspace = useCallback(async () => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeAgentWorkspace) return;
-    if (isLoading || sendInFlightRef.current) return;
+    if (isSessionRunInFlight(activeSessionId)) return;
 
     const launchPrompt = buildAgentLaunchPrompt(activeAgentWorkspace.agent, activeAgentWorkspace.formValues);
     const updatedSession: ChatSession = {
@@ -3615,11 +3893,11 @@ export default function App() {
     if (handleSendRuntimeRef.current) {
       await handleSendRuntimeRef.current(launchPrompt, undefined, updatedSession);
     }
-  }, [activeAgentWorkspace, activeSession, activeSessionId, isLoading, persistSessionShell, upsertSessionLocal, user]);
+  }, [activeAgentWorkspace, activeSession, activeSessionId, isSessionRunInFlight, persistSessionShell, upsertSessionLocal, user]);
 
   const rerunActiveGeneratedAppWorkspace = useCallback(async () => {
     if (!user || !activeSessionId || activeSessionId === 'local-new' || !activeGeneratedAppWorkspace) return;
-    if (isLoading || sendInFlightRef.current) return;
+    if (isSessionRunInFlight(activeSessionId)) return;
 
     const launchPrompt = buildGeneratedAppLaunchPrompt(activeGeneratedAppWorkspace.app, activeGeneratedAppWorkspace.formValues);
     const updatedSession: ChatSession = {
@@ -3640,7 +3918,7 @@ export default function App() {
     if (handleSendRuntimeRef.current) {
       await handleSendRuntimeRef.current(launchPrompt, undefined, updatedSession);
     }
-  }, [activeGeneratedAppWorkspace, activeSession, activeSessionId, isLoading, persistSessionShell, upsertSessionLocal, user]);
+  }, [activeGeneratedAppWorkspace, activeSession, activeSessionId, isSessionRunInFlight, persistSessionShell, upsertSessionLocal, user]);
 
   const publishActiveGeneratedAppWorkspace = useCallback(async () => {
     if (!user || !activeGeneratedAppWorkspace) return;
@@ -3684,10 +3962,11 @@ export default function App() {
   }, [activeGeneratedAppWorkspace, activeSession, activeSessionId, isPublishingGeneratedApp, persistGeneratedAppManifest, persistSessionShell, upsertSessionLocal, user]);
 
   const handleRetry = async (idx: number) => {
-    if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading || sendInFlightRef.current) return;
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || isSessionRunInFlight(activeSessionId)) return;
     
-    const messages = currentMessages;
+    const messages = displayedMessages;
     const targetMsg = messages[idx];
+    if (!targetMsg) return;
     
     let messagesToDelete: string[] = [];
     let historyToProcess: Message[] = [];
@@ -3718,6 +3997,10 @@ export default function App() {
     ));
     clearCoworkSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
     clearSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
+    removeOptimisticMessages(activeSessionId, messagesToDelete);
+    if (messagesToDelete.includes(liveCoworkMessageRef.current[activeSessionId]?.id || '')) {
+      setCoworkDraftForSession(activeSessionId, null);
+    }
 
     const runtimeSessionOverride = activeSessionFromList
       ? buildSessionInstructionDraft(
@@ -3735,21 +4018,26 @@ export default function App() {
   };
 
   const handleEdit = async (idx: number, newText: string) => {
-    if (!user || !activeSessionId || activeSessionId === 'local-new' || isLoading || sendInFlightRef.current) return;
-    const targetMsg = currentMessages[idx];
+    if (!user || !activeSessionId || activeSessionId === 'local-new' || isSessionRunInFlight(activeSessionId)) return;
+    const targetMsg = displayedMessages[idx];
+    if (!targetMsg) return;
     
     await updateDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId, 'messages', targetMsg.id), {
       content: newText
     });
 
-    const messagesToDelete = currentMessages.slice(idx + 1).map(m => m.id);
+    const messagesToDelete = displayedMessages.slice(idx + 1).map(m => m.id);
     await Promise.all(messagesToDelete.map(id =>
       deleteDoc(doc(db, 'users', user.uid, 'sessions', activeSessionId, 'messages', id))
     ));
     clearCoworkSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
     clearSessionSnapshots(user.uid, activeSessionId, messagesToDelete);
+    removeOptimisticMessages(activeSessionId, messagesToDelete);
+    if (messagesToDelete.includes(liveCoworkMessageRef.current[activeSessionId]?.id || '')) {
+      setCoworkDraftForSession(activeSessionId, null);
+    }
 
-    const historyToProcess = [...currentMessages.slice(0, idx), { ...targetMsg, content: newText }];
+    const historyToProcess = [...displayedMessages.slice(0, idx), { ...targetMsg, content: newText }];
     const runtimeSessionOverride = activeSessionFromList
       ? buildSessionInstructionDraft(
         activeSessionFromList,
@@ -3993,10 +4281,24 @@ export default function App() {
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                <button onClick={() => setLeftSidebarVisible(!isLeftSidebarVisible)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] transition-colors"><Menu size={16}/></button>
                {user && (
-                 <button onClick={handleNewChat} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] transition-colors" title={activeModeCreateLabel}>
-                   <Plus size={16} />
-                 </button>
-               )}
+                  <a
+                    href={newConversationHref}
+                    onClick={(event) => {
+                      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+                        event.preventDefault();
+                        openNewConversationWindow(activeMode);
+                        return;
+                      }
+                      event.preventDefault();
+                      handleNewChat(event);
+                    }}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] transition-colors"
+                    title={activeModeCreateLabel}
+                    aria-label={activeModeCreateLabel}
+                  >
+                    <Plus size={16} />
+                  </a>
+                )}
 
                <div className="group/title flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                  {!user ? (
@@ -4201,7 +4503,13 @@ export default function App() {
                       isLast={true}
                       isLoading={true}
                       isExpanded={streamingThoughtsExpanded}
-                      onToggleThoughts={() => setStreamingThoughtsExpanded(p => !p)}
+                      onToggleThoughts={() => {
+                        if (!activeSessionId) return;
+                        updateSessionRun(activeSessionId, current => ({
+                          ...current,
+                          streamingThoughtsExpanded: !current.streamingThoughtsExpanded,
+                        }));
+                      }}
                       setSelectedImage={setSelectedImage}
                       onEdit={() => {}}
                       onRetry={() => {}}

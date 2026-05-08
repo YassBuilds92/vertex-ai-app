@@ -49,7 +49,7 @@ interface SidebarLeftProps {
   user: any;
   sessions: ChatSession[];
   isVertexConfigured: boolean | null;
-  onNewChat: () => void;
+  onNewChat: (event?: React.MouseEvent<HTMLElement>) => void;
   onModeChange: (mode: AppMode) => void;
   onSessionDeleted?: (sessionId: string) => void;
 }
@@ -71,6 +71,12 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
   } = useStore();
 
   const isMediaMode = activeMode === 'image' || activeMode === 'video' || activeMode === 'audio' || activeMode === 'lyria';
+  const newChatHref = React.useMemo(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('new', '1');
+    url.searchParams.set('mode', activeMode);
+    return url.toString();
+  }, [activeMode]);
 
   const standardModeSessions = sessions
     .filter((session) => session.mode === activeMode && session.sessionKind !== 'agent' && session.sessionKind !== 'generated_app')
@@ -166,13 +172,22 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
           </button>
         </div>
 
-        <button
-          onClick={onNewChat}
+        <a
+          href={newChatHref}
+          onClick={(event) => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+              event.preventDefault();
+              window.open(newChatHref, '_blank', 'noopener,noreferrer');
+              return;
+            }
+            event.preventDefault();
+            onNewChat(event);
+          }}
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--app-accent)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
         >
           <Plus size={14} />
           {modeCreateLabel[activeMode]}
-        </button>
+        </a>
       </div>
 
       {/* Modes */}

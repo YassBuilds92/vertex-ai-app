@@ -83,6 +83,56 @@
     --studio-ambient-glow-soft: rgba(255, 255, 255, 0.04) !important;
   }
 
+  .light [class*="border-white/"] {
+    border-color: rgba(15, 23, 42, 0.12) !important;
+  }
+
+  .light [class*="bg-white/"] {
+    background-color: rgba(15, 23, 42, 0.045) !important;
+  }
+
+  .light [class*="hover:bg-white/"]:hover {
+    background-color: rgba(15, 23, 42, 0.075) !important;
+  }
+
+  .light [class*="bg-black/"] {
+    background-color: rgba(15, 23, 42, 0.075) !important;
+  }
+
+  .light [class*="text-white/"],
+  .light [class*="text-zinc-100"],
+  .light [class*="text-zinc-200"],
+  .light [class*="text-zinc-300"],
+  .light [class*="text-zinc-400"],
+  .light [class*="text-zinc-500"] {
+    color: rgba(15, 23, 42, 0.78) !important;
+  }
+
+  .light [class*="text-indigo-100"],
+  .light [class*="text-indigo-200"],
+  .light [class*="text-indigo-300"],
+  .light [class*="text-sky-200"],
+  .light [class*="text-sky-300"] {
+    color: #4f46e5 !important;
+  }
+
+  .light [class*="text-emerald-200"],
+  .light [class*="text-emerald-300"] {
+    color: #047857 !important;
+  }
+
+  .light [class*="text-amber-200"],
+  .light [class*="text-amber-300"] {
+    color: #b45309 !important;
+  }
+
+  .light [class*="text-rose-200"],
+  .light [class*="text-rose-300"],
+  .light [class*="text-red-200"],
+  .light [class*="text-red-300"] {
+    color: #be123c !important;
+  }
+
   html,
   body,
   #root {

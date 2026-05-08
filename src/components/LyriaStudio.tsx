@@ -48,7 +48,7 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
 
   const allTracks = useMemo(() => buildAudioHistory(messages, { mode: 'lyria' }), [messages]);
   const featuredTrack = allTracks[0] || null;
-  const canSubmit = Boolean(prompt.trim()) && !isLoading;
+  const canSubmit = Boolean(prompt.trim());
   const modelLabel = getLyriaModelLabel(config.model);
   const sampleCount = config.sampleCount || 1;
 
@@ -87,7 +87,7 @@ export const LyriaStudio: React.FC<LyriaStudioProps> = ({
         <PrimaryActionButton
           onClick={handleSubmit}
           disabled={!canSubmit}
-          loading={isLoading}
+          loading={false}
           loadingLabel="..."
           idleLabel="Composer"
           icon={Sparkles}

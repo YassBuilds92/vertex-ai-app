@@ -4406,3 +4406,46 @@
   - contraintes natives Gemini TTS multi-speaker
   - contraintes video/audio propres aux APIs
 - Le code ne simule pas ces capacites; si le fournisseur refuse une demande hors capacite, l'erreur remontera.
+
+## Mise a jour 2026-05-08 - Isolation des runs par conversation et mode
+
+### Demande utilisateur
+- Cowork doit afficher son run en direct au lieu d'attendre la fin.
+- Le carre stop, le streaming, la reflexion et les outils ne doivent plus se propager entre Chat, Cowork et autres conversations.
+- Les generations image, voix, musique et video doivent accepter plusieurs prompts sans attendre la fin du precedent.
+- Le theme clair doit redevenir lisible.
+- `Ctrl/Cmd + clic` sur `Nouveau chat` doit ouvrir une nouvelle fenetre/conversation.
+- `Renvoyer` en Cowork ne doit plus garder ou doubler l'ancienne reponse.
+
+### Correctifs appliques
+- `src/App.tsx`
+  - remplace l'etat global `isLoading` / `AbortController` / streaming par des runs indexes par `sessionId`
+  - garde les messages optimistes par conversation, pas dans une liste globale
+  - attache les brouillons Cowork live, les timers de persistence et les snapshots au `sessionId`
+  - initialise un message Cowork live avant les uploads, la memoire et le fetch SSE pour donner un retour immediat
+  - le bouton stop n'arrete que la conversation active
+  - `Retry/Edit` s'appuie sur `displayedMessages` et purge aussi optimistic/local Cowork snapshots
+  - ajoute l'ouverture `?new=1&mode=...` pour nouvelles conversations en nouvelle fenetre
+- `src/components/ImageStudio.tsx`, `VideoStudio.tsx`, `AudioStudio.tsx`, `LyriaStudio.tsx`
+  - le submit n'est plus bloque par une generation deja en cours
+- `src/components/MessageItem.tsx`
+  - timeline Cowork/outils moins "box", plus lineaire
+- `src/index.css`
+  - overrides light mode pour les classes hardcodees `white/black/zinc/indigo/sky/...`
+- `src/components/SidebarLeft.tsx`
+  - `Nouveau chat` devient un lien avec URL de nouvelle conversation pour mieux supporter Ctrl/Cmd clic
+
+### Verification effectuee
+- Recherche officielle rapide:
+  - React docs sur l'etat comme snapshot et les updates immutables
+  - MDN AbortController pour les fetchs annulables par requete
+- `npm run lint` : OK
+- `npm run build` : OK
+- Browser local `http://127.0.0.1:5173`:
+  - app chargee
+  - theme clair applique (`html.light`)
+  - `Nouveau chat` expose une URL `?new=1&mode=chat`
+
+### Limites restantes
+- Le navigateur integre Codex n'a pas ouvert de nouvel onglet via `window.open` pendant le test automatise, mais le lien et le handler Ctrl/Cmd sont presents pour un navigateur utilisateur normal.
+- Les smokes Chat/Cowork reels n'ont pas ete lances car l'UI locale affiche l'etat non connecte dans ce contexte.

@@ -52,7 +52,7 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
   const selectedVoice = findGeminiTtsVoice(config.ttsVoice || 'Kore');
   const allAudio = useMemo(() => buildAudioHistory(messages, { mode: 'audio' }), [messages]);
   const featuredAudio = allAudio[0] || null;
-  const canSubmit = Boolean(text.trim()) && !isLoading;
+  const canSubmit = Boolean(text.trim());
   const modelLabel = getGeminiTtsModelLabel(config.model);
   const voiceLabel = selectedVoice
     ? `${selectedVoice.name} - ${selectedVoice.style}`
@@ -93,7 +93,7 @@ export const AudioStudio: React.FC<AudioStudioProps> = ({
         <PrimaryActionButton
           onClick={handleSubmit}
           disabled={!canSubmit}
-          loading={isLoading}
+          loading={false}
           loadingLabel="..."
           idleLabel="Synthese"
           icon={Sparkles}

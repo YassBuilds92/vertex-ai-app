@@ -51,7 +51,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     () => allVideos.find((video) => video.id === selectedVideoId) || allVideos[0] || null,
     [allVideos, selectedVideoId],
   );
-  const canSubmit = Boolean(prompt.trim()) && !isLoading;
+  const canSubmit = Boolean(prompt.trim());
 
   useEffect(() => {
     if (!allVideos.length) {
@@ -99,7 +99,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         <PrimaryActionButton
           onClick={handleSubmit}
           disabled={!canSubmit}
-          loading={isLoading}
+          loading={false}
           loadingLabel="..."
           idleLabel="Generer"
           icon={Sparkles}

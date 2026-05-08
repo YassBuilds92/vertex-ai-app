@@ -190,8 +190,8 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="rounded-xl border border-indigo-500/15 bg-[var(--app-surface)] overflow-hidden">
-        <div className="px-4 py-3 border-b border-white/6 flex flex-wrap items-center gap-2.5">
+      <div className="overflow-hidden border-l border-[var(--app-border-strong)] pl-3">
+        <div className="flex flex-wrap items-center gap-2.5 pb-3">
           <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-semibold', stateMeta.className)}>
             <StateIcon size={13} className={cn(runState === 'running' && 'animate-spin')} />
             {stateMeta.label}
@@ -276,9 +276,9 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
           )}
         </div>
 
-        <div className="p-4 md:p-5 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 pb-1">
           {!isCompactCowork && (runMeta.totalTokens > 0 || runMeta.queueWaitMs > 0 || runMeta.toolCalls > 0 || runMeta.workerMsTotal > 0 || runMeta.embeddingTokens > 0) && (
-            <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-3 text-[12px] text-[var(--app-text-muted)]">
+            <div className="border-l border-[var(--app-border)] px-3 py-1.5 text-[12px] text-[var(--app-text-muted)]">
               <span className="text-[var(--app-text)]/88">
                 Input {formatCompactNumber(runMeta.inputTokens)} • Output {formatCompactNumber(runMeta.outputTokens)}
                 {runMeta.thoughtTokens > 0 ? ` • Reasoning ${formatCompactNumber(runMeta.thoughtTokens)}` : ''}
@@ -295,7 +295,7 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
             </div>
           )}
           {inlineItems.length === 0 ? (
-            <div className="rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3 text-sm text-[var(--app-text-muted)] italic">
+            <div className="px-1 py-2 text-sm text-[var(--app-text-muted)] italic">
               Initialisation de l'activite Cowork...
             </div>
           ) : (
@@ -317,14 +317,14 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                           : 'border-white/8 bg-white/[0.03]';
 
               return (
-                <div key={item.id} className="relative pl-10">
+                <div key={item.id} className="relative pl-9">
                   {index < inlineItems.length - 1 && (
-                    <div className="absolute left-[15px] top-6 bottom-[-18px] w-px bg-gradient-to-b from-indigo-500/30 to-transparent" />
+                    <div className="absolute left-[13px] top-7 bottom-[-16px] w-px bg-gradient-to-b from-indigo-500/30 to-transparent" />
                   )}
-                  <div className="absolute left-0 top-2 w-8 h-8 rounded-2xl border border-white/8 bg-black/30 flex items-center justify-center text-[var(--app-text-muted)]">
+                  <div className="absolute left-0 top-1.5 flex h-7 w-7 items-center justify-center text-[var(--app-text-muted)]">
                     <Icon size={14} className={cn(item.kind === 'reasoning' && 'text-sky-300', item.kind === 'warning' && 'text-amber-300', item.kind === 'tool_result' && item.status === 'warning' && 'text-amber-300')} />
                   </div>
-                  <div className={cn('rounded-2xl border px-4 py-3.5 shadow-sm', tone)}>
+                  <div className={cn('border-l px-3 py-2.5', tone)}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--app-text-muted)] font-semibold">
@@ -339,12 +339,12 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                     </div>
 
                     {item.argsPreview && (
-                      <div className="message-copy mt-3 rounded-xl border border-white/6 bg-black/25 px-3 py-2 text-[12px] font-mono text-sky-200/85 break-words">
+                      <div className="message-copy mt-3 border-l border-[var(--app-border)] bg-black/25 px-3 py-2 text-[12px] font-mono text-sky-200/85 break-words">
                         {item.argsPreview}
                       </div>
                     )}
                     {item.resultPreview && (
-                      <div className="message-copy mt-3 rounded-xl border border-white/6 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[var(--app-text)]/78 whitespace-pre-wrap">
+                      <div className="message-copy mt-3 border-l border-[var(--app-border)] bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[var(--app-text)]/78 whitespace-pre-wrap">
                         {item.resultPreview}
                       </div>
                     )}
@@ -368,13 +368,13 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
           )}
 
           {toolItems.length > 0 && (
-            <details className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3 text-sm text-[var(--app-text-muted)]">
+            <details className="border-t border-[var(--app-border)] pt-3 text-sm text-[var(--app-text-muted)]">
               <summary className="cursor-pointer list-none select-none text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                 {toolItems.length} detail{toolItems.length > 1 ? 's' : ''} outil{toolItems.length > 1 ? 's' : ''}
               </summary>
               <div className="mt-3 flex flex-col gap-2.5">
                 {toolItems.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3">
+                  <div key={item.id} className="border-l border-[var(--app-border)] px-3 py-2.5">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
                       {item.toolName || item.title || 'Outil'}
                     </div>
@@ -384,12 +384,12 @@ const ActivityTimeline = ({ msg, live = false }: { msg: Message; live?: boolean 
                       </div>
                     )}
                     {item.argsPreview && (
-                      <div className="message-copy mt-2 rounded-lg border border-white/6 bg-black/25 px-3 py-2 font-mono text-[12px] text-sky-200/85 break-words">
+                      <div className="message-copy mt-2 border-l border-[var(--app-border)] bg-black/25 px-3 py-2 font-mono text-[12px] text-sky-200/85 break-words">
                         {item.argsPreview}
                       </div>
                     )}
                     {item.resultPreview && (
-                      <div className="message-copy mt-2 rounded-lg border border-white/6 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[var(--app-text)]/78 whitespace-pre-wrap">
+                      <div className="message-copy mt-2 border-l border-[var(--app-border)] bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[var(--app-text)]/78 whitespace-pre-wrap">
                         {item.resultPreview}
                       </div>
                     )}

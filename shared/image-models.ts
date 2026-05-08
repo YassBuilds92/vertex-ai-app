@@ -29,7 +29,6 @@ export type ImageModelOption = {
   supportsOutputCompression?: boolean;
   supportsCustomDimensions?: boolean;
   maxReferenceImages: number;
-  maxOutputImages: number;
   defaultAspectRatio?: string;
   defaultImageSize?: string;
   defaultImageQuality?: string;
@@ -146,7 +145,6 @@ export const IMAGE_MODEL_OPTIONS = [
     supportsGoogleSearch: true,
     supportsIncludeThoughts: true,
     maxReferenceImages: 14,
-    maxOutputImages: 10,
     defaultAspectRatio: '',
     defaultImageSize: '1K',
     defaultSafetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
@@ -166,7 +164,6 @@ export const IMAGE_MODEL_OPTIONS = [
     supportsGoogleSearch: true,
     supportsIncludeThoughts: true,
     maxReferenceImages: 14,
-    maxOutputImages: 10,
     defaultAspectRatio: '',
     defaultImageSize: '1K',
     defaultSafetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
@@ -182,7 +179,6 @@ export const IMAGE_MODEL_OPTIONS = [
     supportsAutoAspectRatio: true,
     supportsImageSize: false,
     maxReferenceImages: 3,
-    maxOutputImages: 10,
     defaultAspectRatio: '',
     defaultSafetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
   },
@@ -202,7 +198,6 @@ export const IMAGE_MODEL_OPTIONS = [
     supportsOutputCompression: true,
     supportsCustomDimensions: true,
     maxReferenceImages: 16,
-    maxOutputImages: 10,
     defaultAspectRatio: '',
     defaultImageQuality: 'high',
     defaultImageDimensions: 'auto',
@@ -329,10 +324,6 @@ export function getImageModelThinkingLevelOptions(model: string | null | undefin
 
 export function getImageModelSafetySettingOptions(model: string | null | undefined): readonly ImageOptionChoice[] {
   return getImageModelOption(model)?.safetySettingOptions || [];
-}
-
-export function getImageModelMaxOutputImages(model: string | null | undefined): number {
-  return getImageModelOption(model)?.maxOutputImages || 4;
 }
 
 export function getImageModelMaxReferenceImages(model: string | null | undefined): number {

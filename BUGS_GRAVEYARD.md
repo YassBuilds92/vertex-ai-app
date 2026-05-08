@@ -1,5 +1,32 @@
 # BUGS GRAVEYARD
 
+## 2026-05-08 - Cowork cassait avec `thinking_budget` + `thinking_level`, puis suppression des plafonds Chat/Cowork
+- Statut: corrige et deploye en production
+- Symptome:
+  - en mode Cowork, tous les envois echouaient avec:
+    - `Unable to submit request because thinking_budget and thinking_level are not supported together`
+  - le mode Chat continuait a fonctionner car il ne forcait pas le meme budget thinking par defaut
+- Cause racine:
+  - `/api/cowork` passait `thinkingLevel: high` et `maxThoughtTokens: 4096`
+  - `buildThinkingConfig()` transformait ce combo en `thinkingConfig.thinkingLevel` + `thinkingConfig.thinkingBudget` pour Gemini 3.x
+  - la doc Vertex AI confirme que Gemini 3 utilise `thinking_level`, que Gemini 2.5 utilise `thinking_budget`, et que les deux ensemble sont invalides
+- Resolution:
+  - `server/lib/google-genai.ts` n'emet plus `thinkingBudget` pour Gemini 3.x
+  - `/api/chat` et `/api/cowork` n'envoient plus aucun `maxThoughtTokens`
+  - `/api/chat`, `/api/cowork`, les sous-missions Cowork et la cloture Cowork n'envoient plus aucun `maxOutputTokens`
+  - le frontend ne transmet plus `maxOutputTokens` dans les payloads Chat/Cowork et masque le slider `Max Output` sur ces deux modes
+- Preuve:
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx vercel deploy --prod --yes` : OK, alias `https://vertex-ai-app-pearl.vercel.app`
+  - smoke prod `/api/chat` avec `gemini-3.1-flash-lite` : reponse `OK_CHAT`
+  - smoke prod `/api/cowork` avec `gemini-3.1-flash-lite` : reponse `OK_COWORK`
+- Mise a jour complementaire:
+  - suppression globale de `maxOutputTokens`, `maxThoughtTokens`, `thinkingBudget`, des sliders `Max Output`/`Budget`, et des caps applicatifs `numberOfImages`/`sampleCount`
+  - les validations restantes sont des contraintes fournisseur ou non-modele, pas des plafonds de sortie Gemini/IA Studio
+  - redéploiement prod complementaire OK, puis smokes `/api/chat` et `/api/cowork` OK
+
 ## 2026-05-05 - `Generer une icone par IA` envoyait parfois un prompt image vide
 - Statut: corrige localement
 - Symptome:

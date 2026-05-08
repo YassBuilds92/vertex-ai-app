@@ -1055,7 +1055,6 @@ async function generateDefinitionPlanFromTranscript(
       systemInstruction: PLANNER_PROMPT,
       temperature: 0.28,
       topP: 0.95,
-      maxOutputTokens: 4096,
       responseMimeType: 'text/plain',
     },
   }));
@@ -1120,7 +1119,6 @@ async function generateSourceFromDefinition(definition: DraftDefinition): Promis
       systemInstruction: SOURCE_GENERATOR_PROMPT,
       temperature: 0.32,
       topP: 0.95,
-      maxOutputTokens: 8192,
       responseMimeType: 'text/plain',
     },
   }));
@@ -1166,7 +1164,6 @@ async function generateRevision(existing: GeneratedAppManifest, changeRequest: s
       systemInstruction: REVISION_PROMPT,
       temperature: 0.28,
       topP: 0.95,
-      maxOutputTokens: 4096,
       responseMimeType: 'text/plain',
     },
   }));

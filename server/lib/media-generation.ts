@@ -22,7 +22,6 @@ import {
   getImageModelDefaultOutputCompression,
   getImageModelDefaultOutputFormat,
   getImageModelDefaultSafetySetting,
-  getImageModelMaxOutputImages,
   getImageModelMaxReferenceImages,
   imageModelSupportsGoogleSearch,
   imageModelSupportsImageSize,
@@ -60,7 +59,6 @@ export type ImageGenerationOptions = {
   temperature?: number;
   topP?: number;
   topK?: number;
-  maxOutputTokens?: number;
   aspectRatio?: string;
   imageSize?: string;
   imageQuality?: string;
@@ -73,7 +71,6 @@ export type ImageGenerationOptions = {
   personGeneration?: string;
   safetySetting?: string;
   thinkingLevel?: string;
-  maxThoughtTokens?: number;
   includeThoughts?: boolean;
   googleSearch?: boolean;
   referenceImages?: Array<{
@@ -1036,7 +1033,6 @@ async function generatePodcastNarrationScript(
     config: {
       temperature: 0.7,
       topP: 0.95,
-      maxOutputTokens: 1400,
     },
   }));
 
@@ -1323,7 +1319,7 @@ function buildAzureOpenAIImagePayload(
     output_format: outputFormat,
     background,
     moderation: normalizeAzureModeration(options, model),
-    n: Math.max(1, Math.min(options.numberOfImages || 1, getImageModelMaxOutputImages(model))),
+    n: Math.max(1, Math.round(options.numberOfImages || 1)),
   };
 }
 
@@ -1437,7 +1433,7 @@ async function generateAzureOpenAIImageBinary(
   referenceImages: Array<{ mimeType: string; data: string }>,
 ): Promise<GeneratedBinaryArtifact> {
   const artifacts = await generateAzureOpenAIImageBinaries(
-    { ...options, numberOfImages: Math.max(1, Math.min(options.numberOfImages || 1, getImageModelMaxOutputImages(model))) },
+    { ...options, numberOfImages: Math.max(1, Math.round(options.numberOfImages || 1)) },
     model,
     referenceImages,
   );
@@ -1493,11 +1489,8 @@ function buildGeminiImageGenerationConfig(options: ImageGenerationOptions, model
   if (typeof options.topP === 'number') {
     config.topP = clampNumber(options.topP, 0, 1, 0.95);
   }
-  if (typeof options.maxOutputTokens === 'number') {
-    config.maxOutputTokens = Math.max(1, Math.min(32768, Math.round(options.maxOutputTokens)));
-  }
   if (options.numberOfImages) {
-    config.candidateCount = Math.max(1, Math.min(options.numberOfImages, getImageModelMaxOutputImages(model)));
+    config.candidateCount = Math.max(1, Math.round(options.numberOfImages));
   }
 
   const imageConfig = buildGeminiImageConfig(options, model);
@@ -1505,7 +1498,6 @@ function buildGeminiImageGenerationConfig(options: ImageGenerationOptions, model
 
   const thinkingConfig = buildThinkingConfig(model, {
     thinkingLevel: options.thinkingLevel as any,
-    maxThoughtTokens: options.maxThoughtTokens,
     includeThoughts: imageModelSupportsIncludeThoughts(model) ? options.includeThoughts : undefined,
   });
   if (thinkingConfig) config.thinkingConfig = thinkingConfig;
@@ -1621,7 +1613,7 @@ export async function generateImageBinaries(options: ImageGenerationOptions): Pr
 
   // Gemini image models don't reliably support candidateCount > 1 — make N parallel
   // independent calls instead to guarantee the requested number of images.
-  const count = Math.max(1, Math.min(options.numberOfImages || 2, getImageModelMaxOutputImages(model)));
+  const count = Math.max(1, Math.round(options.numberOfImages || 2));
   const results = await Promise.all(
     Array.from({ length: count }, () => generateImageBinary({ ...options, model, numberOfImages: 1 }))
   );

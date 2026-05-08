@@ -141,7 +141,6 @@ export async function summarizeMediaForMemory(input: MemoryMediaInput): Promise<
       config: {
         temperature: 0.1,
         responseMimeType: 'text/plain',
-        maxOutputTokens: modality === 'video' ? 420 : 280,
       },
     }),
     {

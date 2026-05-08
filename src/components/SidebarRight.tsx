@@ -223,7 +223,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
   );
 
   const renderSlider = (
-    key: 'temperature' | 'topP' | 'topK' | 'maxOutputTokens',
+    key: 'temperature' | 'topP' | 'topK',
     label: string,
     min: number,
     max: number,
@@ -241,7 +241,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
         min={min}
         max={max}
         step={step}
-        value={(config as any)[key] ?? (key === 'maxOutputTokens' ? 8192 : 1)}
+        value={(config as any)[key] ?? 1}
         onChange={(event) => setConfig({ [key]: parseFloat(event.target.value) } as any)}
         className="h-1 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[var(--app-accent)]"
       />
@@ -699,7 +699,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                       ? 'border-[var(--app-border-strong)] bg-[var(--app-accent-soft)] text-[var(--app-accent)]'
                       : 'border-transparent text-[var(--app-text-muted)] hover:border-[var(--app-border)] hover:text-[var(--app-text)]',
                   )}
-                  title="Reinitialiser temperature, Top P, Top K et tokens sur les defaults Google"
+                  title="Reinitialiser temperature, Top P et Top K sur les defaults Google"
                 >
                   <RotateCcw size={12} />
                 </button>
@@ -717,12 +717,11 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                 >
                   <div className="space-y-7 py-6">
                     <div className="rounded-xl border border-[var(--app-border)] bg-white/[0.03] px-3 py-3 text-[11px] leading-relaxed text-[var(--app-text-muted)]">
-                      Defaults Google: temperature 1.0, Top P 0.95, Top K 40. Le bouton reset remet aussi la limite de sortie adaptee au mode.
+                      Defaults Google: temperature 1.0, Top P 0.95, Top K 40. Aucun plafond de sortie n'est envoye aux modeles.
                     </div>
                     {renderSlider('temperature', 'Temperature', 0, 2, 0.1)}
                     {renderSlider('topP', 'Top P', 0, 1, 0.01)}
                     {renderSlider('topK', 'Top K', 1, 100, 1)}
-                    {renderSlider('maxOutputTokens', 'Max Output', 1, 65536, 1024)}
                   </div>
                 </motion.div>
               )}

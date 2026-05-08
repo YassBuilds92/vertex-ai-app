@@ -1713,3 +1713,27 @@ L'agent **Cowork** est une boucle autonome integree dans AI Studio. Contrairemen
   - le desktop respire nettement mieux et ressemble enfin a un launcher/store d'apps
   - la creation est plus lisible comme conversation de cadrage
   - la validation reelle sur donnees/auth utilisateur reste encore a faire
+## Mise a jour 2026-05-08 - Thinking Gemini 3 et suppression des plafonds Cowork
+
+- Probleme utilisateur:
+  - Cowork ne pouvait plus envoyer de message et renvoyait `thinking_budget and thinking_level are not supported together`.
+- Cause:
+  - la boucle Cowork forcait `thinkingLevel: high` + `maxThoughtTokens: 4096`.
+  - `buildThinkingConfig()` ajoutait donc `thinkingBudget` en plus de `thinkingLevel` sur Gemini 3.x.
+- Fix:
+  - Gemini 3.x: `buildThinkingConfig()` n'emet que `thinkingLevel`, jamais `thinkingBudget`.
+  - Cowork principal, sous-missions, cloture finale: plus aucun `maxOutputTokens`.
+  - Cowork principal: plus aucun `maxThoughtTokens`.
+  - l'outil Cowork `generate_image_asset` ne propose plus `maxThoughtTokens` / `maxOutputTokens`.
+  - frontend: `/api/cowork` ne recoit plus `maxOutputTokens` depuis `src/App.tsx`; le slider `Max Output` est masque en mode Cowork.
+- Verification:
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` OK
+  - `npm run lint` OK
+  - `npm run build` OK
+  - `npx vercel deploy --prod --yes` OK
+  - smoke prod `/api/cowork` OK avec reponse `OK_COWORK`
+- Complement:
+  - suppression ensuite etendue a tout le studio: aucun `maxOutputTokens`, aucun `maxThoughtTokens`, aucun `thinkingBudget`, plus de slider `Max Output` / `Budget`, et plus de cap applicatif sur le nombre d'images ou variantes Lyria.
+  - redeploiement prod complementaire OK, smoke `/api/cowork` OK.
+- Source officielle:
+  - https://docs.cloud.google.com/vertex-ai/generative-ai/docs/thinking

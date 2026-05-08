@@ -38,7 +38,6 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     urlContext: false,
     structuredOutputs: false,
     thinkingLevel: 'high',
-    maxThoughtTokens: 4096,
   },
   image: {
     model: DEFAULT_IMAGE_MODEL,
@@ -58,7 +57,6 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     safetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
     personGeneration: 'allow_adult',
     thinkingLevel: 'high',
-    maxThoughtTokens: 4096,
   },
   video: {
     model: 'veo-3.1-generate-001',

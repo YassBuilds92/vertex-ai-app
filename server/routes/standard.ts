@@ -297,7 +297,6 @@ export function registerStandardApiRoutes(app: Express) {
         config: {
           systemInstruction: systemPrompt,
           temperature: 0.2,
-          maxOutputTokens: type === 'icon' ? 180 : 640,
           responseMimeType: 'text/plain',
         }
       }), {
@@ -322,7 +321,6 @@ export function registerStandardApiRoutes(app: Express) {
         temperature,
         topP,
         topK,
-        maxOutputTokens,
         aspectRatio,
         numberOfImages,
         imageSize,
@@ -335,7 +333,6 @@ export function registerStandardApiRoutes(app: Express) {
         personGeneration,
         safetySetting,
         thinkingLevel,
-        maxThoughtTokens,
         includeThoughts,
         googleSearch,
         referenceImages,
@@ -345,7 +342,7 @@ export function registerStandardApiRoutes(app: Express) {
 
       if (numberOfImages && numberOfImages > 1) {
         const artifacts = await generateImageBinaries({
-          prompt, model: modelId, temperature, topP, topK, maxOutputTokens, aspectRatio, numberOfImages, imageSize, imageQuality, imageDimensions, imageOutputFormat, imageOutputCompression, imageBackground, imageModeration, personGeneration, safetySetting, thinkingLevel, maxThoughtTokens, includeThoughts, googleSearch, referenceImages,
+          prompt, model: modelId, temperature, topP, topK, aspectRatio, numberOfImages, imageSize, imageQuality, imageDimensions, imageOutputFormat, imageOutputCompression, imageBackground, imageModeration, personGeneration, safetySetting, thinkingLevel, includeThoughts, googleSearch, referenceImages,
         });
         const images = await Promise.all(artifacts.map(async (artifact) => {
           const fileName = createUploadFileName('generated-image', artifact.fileExtension);
@@ -359,7 +356,7 @@ export function registerStandardApiRoutes(app: Express) {
         res.json({ images, model: modelId });
       } else {
         const artifact = await generateImageBinary({
-          prompt, model: modelId, temperature, topP, topK, maxOutputTokens, aspectRatio, numberOfImages, imageSize, imageQuality, imageDimensions, imageOutputFormat, imageOutputCompression, imageBackground, imageModeration, personGeneration, safetySetting, thinkingLevel, maxThoughtTokens, includeThoughts, googleSearch, referenceImages,
+          prompt, model: modelId, temperature, topP, topK, aspectRatio, numberOfImages, imageSize, imageQuality, imageDimensions, imageOutputFormat, imageOutputCompression, imageBackground, imageModeration, personGeneration, safetySetting, thinkingLevel, includeThoughts, googleSearch, referenceImages,
         });
         const fileName = createUploadFileName('generated-image', artifact.fileExtension);
         const uploaded = await uploadToGCSWithMetadata(artifact.buffer, fileName, artifact.mimeType);
@@ -388,7 +385,6 @@ export function registerStandardApiRoutes(app: Express) {
         temperature,
         topP,
         topK,
-        maxOutputTokens,
         aspectRatio,
         imageSize,
         imageQuality,
@@ -400,7 +396,6 @@ export function registerStandardApiRoutes(app: Express) {
         personGeneration,
         safetySetting,
         thinkingLevel,
-        maxThoughtTokens,
         includeThoughts,
         googleSearch,
         referenceImages,
@@ -415,7 +410,6 @@ export function registerStandardApiRoutes(app: Express) {
             temperature,
             topP,
             topK,
-            maxOutputTokens,
             aspectRatio,
             imageSize,
             imageQuality,
@@ -427,7 +421,6 @@ export function registerStandardApiRoutes(app: Express) {
             personGeneration,
             safetySetting,
             thinkingLevel,
-            maxThoughtTokens,
             includeThoughts,
             googleSearch,
             referenceImages,
@@ -835,11 +828,9 @@ export function registerStandardApiRoutes(app: Express) {
         temperature: config.temperature,
         topP: config.topP,
         topK: config.topK,
-        maxOutputTokens: config.maxOutputTokens || 65536,
       };
       const thinkingConfig = buildThinkingConfig(modelId, {
         thinkingLevel: config.thinkingLevel,
-        maxThoughtTokens: config.maxThoughtTokens,
         includeThoughts: true,
       });
       if (systemPromptText) genConfig.systemInstruction = systemPromptText;

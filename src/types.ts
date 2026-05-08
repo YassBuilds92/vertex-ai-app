@@ -400,12 +400,10 @@ export interface ModelConfig {
   imageBackground?: 'auto' | 'opaque' | 'transparent';
   imageModeration?: 'auto' | 'low';
   imageIncludeThoughts?: boolean;
-  maxOutputTokens?: number;
   stopSequences?: string[];
   presencePenalty?: number;
   frequencyPenalty?: number;
   responseMimeType?: 'text/plain' | 'application/json';
-  maxThoughtTokens?: number;
   ttsVoice?: string;
   ttsLanguageCode?: string;
   ttsStyleInstructions?: string;

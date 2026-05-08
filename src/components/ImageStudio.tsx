@@ -29,7 +29,6 @@ import {
   getImageModelDefaultThinkingLevel,
   getImageModelDimensionOptions,
   getImageModelLabel,
-  getImageModelMaxOutputImages,
   getImageModelModerationOptions,
   getImageModelOption,
   getImageModelOutputFormatOptions,
@@ -114,7 +113,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const moderationOptions = getImageModelModerationOptions(config.model);
   const safetySettingOptions = getImageModelSafetySettingOptions(config.model);
   const thinkingLevelOptions = getImageModelThinkingLevelOptions(config.model);
-  const maxOutputImages = getImageModelMaxOutputImages(config.model);
 
   const [prompt, setPrompt] = useState('');
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
@@ -196,9 +194,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     if (isAzureImageModel && config.imageBackground === 'transparent' && config.imageOutputFormat !== 'png') {
       nextConfig.imageOutputFormat = 'png';
     }
-    if ((config.numberOfImages || 1) > maxOutputImages) {
-      nextConfig.numberOfImages = maxOutputImages;
-    }
     if (!config.imageDimensions && dimensionOptions.length > 0) {
       nextConfig.imageDimensions = getImageModelDefaultImageDimensions(config.model);
     }
@@ -228,7 +223,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     dimensionOptions.length,
     imageSizeOptions.length,
     isAzureImageModel,
-    maxOutputImages,
     moderationOptions.length,
     outputFormatOptions.length,
     qualityOptions.length,
@@ -287,13 +281,12 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           <MediaInput
             type="number"
             min={1}
-            max={maxOutputImages}
             step={1}
             value={config.numberOfImages || 1}
             onChange={(event) => {
               const raw = Number(event.target.value);
               const next = Number.isFinite(raw)
-                ? Math.max(1, Math.min(maxOutputImages, Math.round(raw)))
+                ? Math.max(1, Math.round(raw))
                 : 1;
               setConfig({ numberOfImages: next });
             }}
@@ -453,23 +446,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           </MediaField>
         )}
 
-        {thinkingLevelOptions.length > 0 && (
-          <MediaField label="Budget">
-            <MediaInput
-              type="number"
-              min={0}
-              max={24576}
-              step={512}
-              value={config.maxThoughtTokens ?? 4096}
-              onChange={(event) => {
-                const raw = Number(event.target.value);
-                const next = Number.isFinite(raw) ? Math.max(0, Math.min(24576, Math.round(raw))) : 4096;
-                setConfig({ maxThoughtTokens: next });
-              }}
-            />
-          </MediaField>
-        )}
-
         {supportsGoogleSearch && (
           <label className="flex h-9 min-w-0 items-center justify-between gap-3 border-b border-white/[0.12] text-xs font-semibold text-[var(--app-text)]">
             <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
@@ -600,7 +576,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto_auto] gap-2 pt-2">
         {isLoading ? (
           <div className="grid min-h-0 gap-2 sm:grid-cols-2">
-            {Array.from({ length: Math.max(1, Math.min(config.numberOfImages || 1, maxOutputImages)) }).map((_, index) => (
+            {Array.from({ length: Math.max(1, Math.round(config.numberOfImages || 1)) }).map((_, index) => (
               <div
                 key={index}
                 className="flex min-h-0 animate-pulse items-center justify-center border border-white/[0.08]"

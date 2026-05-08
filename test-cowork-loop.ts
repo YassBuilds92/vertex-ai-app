@@ -66,11 +66,19 @@ const baseResearch = {
 {
   const config = buildThinkingConfig('gemini-3.1-pro-preview', {
     thinkingLevel: 'minimal',
-    maxThoughtTokens: 128,
     includeThoughts: false,
   }) as any;
   assert.equal(config.thinkingLevel, 'low');
   assert.equal(config.includeThoughts, false);
+}
+
+{
+  const config = buildThinkingConfig('gemini-2.5-flash', {
+    thinkingLevel: 'high',
+    includeThoughts: true,
+  }) as any;
+  assert.equal(config.thinkingLevel, undefined);
+  assert.equal(config.includeThoughts, true);
 }
 
 {

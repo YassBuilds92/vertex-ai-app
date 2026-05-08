@@ -204,7 +204,6 @@ export const ImageGenSchema = z.object({
   temperature: z.number().optional(),
   topP: z.number().optional(),
   topK: z.number().optional(),
-  maxOutputTokens: z.number().optional(),
   aspectRatio: z.string().optional(),
   imageSize: z.string().optional(),
   imageQuality: z.string().optional(),
@@ -222,7 +221,6 @@ export const ImageGenSchema = z.object({
 export const ImageGenRequestSchema = ImageGenSchema.extend({
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
-  maxThoughtTokens: z.number().optional(),
   includeThoughts: z.boolean().optional(),
   referenceImages: z.array(InlineImageReferenceSchema).optional(),
 });
@@ -230,7 +228,6 @@ export const ImageGenRequestSchema = ImageGenSchema.extend({
 export const ImagePackRequestSchema = ImageGenSchema.extend({
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
-  maxThoughtTokens: z.number().optional(),
   includeThoughts: z.boolean().optional(),
   referenceImages: z.array(InlineImageReferenceSchema).min(1),
   shots: z.array(z.object({
@@ -238,7 +235,7 @@ export const ImagePackRequestSchema = ImageGenSchema.extend({
     label: z.string(),
     shortLabel: z.string().optional(),
     prompt: z.string(),
-  })).min(1).max(6),
+  })).min(1),
 });
 
 export const AudioGenRequestSchema = z.object({
@@ -255,7 +252,7 @@ export const MusicGenRequestSchema = z.object({
   model: z.string().optional(),
   negativePrompt: z.string().optional(),
   seed: z.number().int().optional(),
-  sampleCount: z.number().int().min(1).max(4).optional(),
+  sampleCount: z.number().int().min(1).optional(),
   location: z.string().optional(),
 });
 
@@ -280,7 +277,6 @@ export const ChatSchema = z.object({
     temperature: z.number(),
     topP: z.number(),
     topK: z.number(),
-    maxOutputTokens: z.number().optional().nullable(),
     systemInstruction: z.string().optional(),
     googleSearch: z.boolean().optional(),
     googleMaps: z.boolean().optional(),
@@ -288,7 +284,6 @@ export const ChatSchema = z.object({
     urlContext: z.boolean().optional(),
     structuredOutputs: z.boolean().optional(),
     thinkingLevel: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
-    maxThoughtTokens: z.number().optional(),
     agentDelegationEnabled: z.boolean().optional(),
     presencePenalty: z.number().optional(),
     frequencyPenalty: z.number().optional(),

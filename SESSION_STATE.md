@@ -4317,3 +4317,92 @@
 ### Limites restantes
 - La validation authentifiee avec de vraies generations Vertex/Gemini/Lyria reste a rejouer si l'utilisateur veut un smoke complet de production.
 
+## Mise a jour 2026-05-08 - Chat/Cowork sans plafonds max tokens
+
+### Demande utilisateur
+- Cowork ne pouvait plus envoyer aucun message:
+  - `Unable to submit request because thinking_budget and thinking_level are not supported together`
+- Correction attendue:
+  - aucun `maxThoughtTokens` en Chat ou Cowork
+  - aucun `maxOutputTokens` en Chat ou Cowork
+  - laisser le plein potentiel natif du modele.
+
+### Correctifs appliques
+- `server/lib/google-genai.ts`
+  - Gemini 3.x n'emet plus jamais `thinkingBudget`
+  - `minimal` reste normalise vers `low` sur les modeles Gemini 3 Pro qui ne supportent pas `minimal`
+- `server/routes/standard.ts`
+  - `/api/chat` ne transmet plus `maxOutputTokens`
+  - `/api/chat` ne transmet plus `maxThoughtTokens`
+- `api/index.ts`
+  - `/api/cowork`, les sous-missions Cowork et le tour final de cloture ne transmettent plus `maxOutputTokens`
+  - Cowork ne transmet plus `maxThoughtTokens`
+  - `generate_image_asset` appele depuis Cowork ne propose plus `maxThoughtTokens` / `maxOutputTokens`
+- `src/App.tsx`
+  - les payloads frontend Chat/Cowork n'incluent plus `maxOutputTokens`
+- `src/components/SidebarRight.tsx`
+  - le slider `Max Output` est masque en Chat/Cowork
+  - le message avance indique qu'aucun plafond de sortie n'est envoye
+- `src/store/useStore.ts`
+  - les configs initiales Chat/Cowork n'ajoutent plus de `maxOutputTokens`; Chat n'ajoute plus `maxThoughtTokens`
+
+### Validation effectuee
+- Recherche officielle Vertex AI Thinking:
+  - Gemini 3: `thinking_level`
+  - Gemini 2.5: `thinking_budget`
+  - combinaison interdite sur Gemini 3
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+- `npm run lint` : OK
+- `npm run build` : OK
+- `npx vercel deploy --prod --yes` : OK
+- Alias prod actif: `https://vertex-ai-app-pearl.vercel.app`
+- Smoke prod `/api/status` : 200, Vertex configure
+- Smoke prod `/api/chat` : `OK_CHAT`
+- Smoke prod `/api/cowork` : `OK_COWORK`
+
+### Suite
+- Rejouer dans l'UI utilisateur avec un vrai prompt long Chat puis Cowork.
+
+## Mise a jour complementaire 2026-05-08 - Suppression des plafonds modele sur tous les modes
+
+### Demande utilisateur
+- Ne limiter aucun modele dans aucun mode.
+- Ne garder aucun `maxOutputTokens`, aucun `maxThoughtTokens`, aucun `thinkingBudget`, et aucun slider `Max Output`.
+
+### Correctifs appliques
+- Tous les appels Gemini/Vertex internes suivants ne declarent plus `maxOutputTokens`:
+  - refine system prompt / icone
+  - media understanding
+  - script podcast
+  - generated app planner/source/revision
+  - revision agent
+  - titre automatique de discussion
+- Le mode image ne transmet plus `maxOutputTokens` ni `maxThoughtTokens`.
+- `buildThinkingConfig()` n'accepte plus de budget thinking et n'emet plus jamais `thinkingBudget`.
+- Le type `ModelConfig`, les schemas API et les defaults UI ne contiennent plus `maxOutputTokens` / `maxThoughtTokens`.
+- Le slider image `Budget` et le slider global `Max Output` ont ete retires.
+- Les plafonds applicatifs sur `numberOfImages`, `maxOutputImages` et `sampleCount` ont ete retires:
+  - image: plus de cap frontend/backend sur le nombre de sorties demandees
+  - Lyria: plus de `.max(4)` dans le schema
+  - image pack: plus de `.max(6)` sur les shots
+
+### Verification effectuee
+- `rg "maxOutputTokens|maxThoughtTokens|thinkingBudget|thinking_budget|maxOutputImages|getImageModelMaxOutputImages|Max Output|Budget"`:
+  - plus aucune occurrence de plafond modele
+  - occurrences restantes uniquement sur `nativeBudget` YouTube et `maxPromptTokens` RAG, qui ne sont pas des limites de sortie modele
+- `npm run lint` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+- `npm run build` : OK
+- `npx vercel deploy --prod --yes` : OK
+- Alias prod actif: `https://vertex-ai-app-pearl.vercel.app`
+- Smoke prod `/api/status` : 200, Vertex configure
+- Smoke prod `/api/chat` : `OK_CHAT`
+- Smoke prod `/api/cowork` : `OK_COWORK`
+
+### Limites honnetes restantes
+- Les limites imposees par les fournisseurs restent reelles:
+  - resolutions/formats GPT Image 2 invalides
+  - nombre maximal de references image accepte par un fournisseur
+  - contraintes natives Gemini TTS multi-speaker
+  - contraintes video/audio propres aux APIs
+- Le code ne simule pas ces capacites; si le fournisseur refuse une demande hors capacite, l'erreur remontera.

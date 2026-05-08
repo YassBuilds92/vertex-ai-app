@@ -7268,13 +7268,11 @@ app.post('/api/cowork', async (req, res) => {
               temperature: Math.min(Math.max(config.temperature || 0.2, 0.05), 0.45),
               topP: config.topP || 1.0,
               topK: config.topK || 1,
-              maxOutputTokens: Math.min(config.maxOutputTokens || 24576, 24576),
               systemInstruction: delegatedSystemInstruction,
               ...(delegatedToolDeclarations ? { tools: delegatedToolDeclarations } : {})
             };
             const delegatedThinkingConfig = buildThinkingConfig(delegatedModelId, {
               thinkingLevel: config.thinkingLevel || 'high',
-              maxThoughtTokens: Math.min(config.maxThoughtTokens || 2048, 2048),
               includeThoughts: COWORK_DEBUG_REASONING,
             });
             if (delegatedThinkingConfig) {
@@ -7554,12 +7552,10 @@ app.post('/api/cowork', async (req, res) => {
             personGeneration: { type: "string", description: "Reglage optionnel de generation de personnes." },
             safetySetting: { type: "string", description: "Seuil Gemini safety optionnel: `BLOCK_NONE`, `BLOCK_ONLY_HIGH`, `BLOCK_MEDIUM_AND_ABOVE`, `BLOCK_LOW_AND_ABOVE`." },
             thinkingLevel: { type: "string", description: "Thinking Gemini optionnel: `minimal`, `low`, `medium`, `high`." },
-            maxThoughtTokens: { type: "number", description: "Budget thinking Gemini optionnel." },
             includeThoughts: { type: "boolean", description: "Inclure les thoughts Gemini dans la reponse brute quand le modele le supporte." },
             googleSearch: { type: "boolean", description: "Activer Google Search grounding pour les modeles Gemini image compatibles." },
             temperature: { type: "number", description: "Temperature Gemini optionnelle entre 0 et 2." },
-            topP: { type: "number", description: "Top P Gemini optionnel entre 0 et 1." },
-            maxOutputTokens: { type: "number", description: "Limite de sortie Gemini optionnelle." }
+            topP: { type: "number", description: "Top P Gemini optionnel entre 0 et 1." }
           },
           required: ["prompt"]
         },
@@ -7579,12 +7575,10 @@ app.post('/api/cowork', async (req, res) => {
           personGeneration,
           safetySetting,
           thinkingLevel,
-          maxThoughtTokens,
           includeThoughts,
           googleSearch,
           temperature,
-          topP,
-          maxOutputTokens
+          topP
         }: {
           prompt: string;
           model?: string;
@@ -7601,12 +7595,10 @@ app.post('/api/cowork', async (req, res) => {
           personGeneration?: string;
           safetySetting?: string;
           thinkingLevel?: string;
-          maxThoughtTokens?: number;
           includeThoughts?: boolean;
           googleSearch?: boolean;
           temperature?: number;
           topP?: number;
-          maxOutputTokens?: number;
         }) => {
           const effectiveArgs = withRuntimeToolDefaults('generate_image_asset', {
             prompt,
@@ -7624,19 +7616,16 @@ app.post('/api/cowork', async (req, res) => {
             personGeneration,
             safetySetting,
             thinkingLevel,
-            maxThoughtTokens,
             includeThoughts,
             googleSearch,
             temperature,
             topP,
-            maxOutputTokens,
           });
           const artifact = await generateImageBinary({
             prompt: String(effectiveArgs.prompt || ''),
             model: typeof effectiveArgs.model === 'string' ? effectiveArgs.model : undefined,
             temperature: typeof effectiveArgs.temperature === 'number' ? effectiveArgs.temperature : undefined,
             topP: typeof effectiveArgs.topP === 'number' ? effectiveArgs.topP : undefined,
-            maxOutputTokens: typeof effectiveArgs.maxOutputTokens === 'number' ? effectiveArgs.maxOutputTokens : undefined,
             aspectRatio: typeof effectiveArgs.aspectRatio === 'string' ? effectiveArgs.aspectRatio : undefined,
             imageSize: typeof effectiveArgs.imageSize === 'string' ? effectiveArgs.imageSize : undefined,
             imageQuality: typeof effectiveArgs.imageQuality === 'string' ? effectiveArgs.imageQuality : undefined,
@@ -7649,7 +7638,6 @@ app.post('/api/cowork', async (req, res) => {
             personGeneration: typeof effectiveArgs.personGeneration === 'string' ? effectiveArgs.personGeneration : undefined,
             safetySetting: typeof effectiveArgs.safetySetting === 'string' ? effectiveArgs.safetySetting : undefined,
             thinkingLevel: typeof effectiveArgs.thinkingLevel === 'string' ? effectiveArgs.thinkingLevel : undefined,
-            maxThoughtTokens: typeof effectiveArgs.maxThoughtTokens === 'number' ? effectiveArgs.maxThoughtTokens : undefined,
             includeThoughts: typeof effectiveArgs.includeThoughts === 'boolean' ? effectiveArgs.includeThoughts : undefined,
             googleSearch: typeof effectiveArgs.googleSearch === 'boolean' ? effectiveArgs.googleSearch : undefined,
           });
@@ -10494,7 +10482,6 @@ app.post('/api/cowork', async (req, res) => {
       temperature: typeof config.temperature === 'number' ? config.temperature : 1,
       topP: typeof config.topP === 'number' ? config.topP : 0.95,
       topK: typeof config.topK === 'number' ? config.topK : 40,
-      maxOutputTokens: config.maxOutputTokens || 65536,
       systemInstruction: runtimeApp
         ? buildGeneratedAppRuntimeSystemInstruction(runtimeApp, {
             requestClock,
@@ -10527,7 +10514,6 @@ app.post('/api/cowork', async (req, res) => {
     };
     const thinkingConfig = buildThinkingConfig(modelId, {
       thinkingLevel: config.thinkingLevel || 'high',
-      maxThoughtTokens: config.maxThoughtTokens || 4096,
       includeThoughts: Boolean(runtimeAgent) || COWORK_DEBUG_REASONING,
     });
     if (thinkingConfig) {
@@ -10716,12 +10702,10 @@ app.post('/api/cowork', async (req, res) => {
           temperature: 0.3,
           topP: config.topP || 1.0,
           topK: config.topK || 1,
-          maxOutputTokens: Math.min(config.maxOutputTokens || 1024, 1024),
           systemInstruction: "Tu es Cowork. Tu rediges uniquement la reponse finale visible a l'utilisateur quand l'execution est bloquee. Tu dois etre honnete, humain, concis, et ne jamais exposer de jargon backend, de dump technique ou de liste d'outils."
         };
         const finalReplyThinkingConfig = buildThinkingConfig(modelId, {
           thinkingLevel: 'medium',
-          maxThoughtTokens: Math.min(config.maxThoughtTokens || 512, 512),
           includeThoughts: false,
         });
         if (finalReplyThinkingConfig) {

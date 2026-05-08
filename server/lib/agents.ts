@@ -606,7 +606,6 @@ export async function reviseAgentBlueprint(existingAgent: HubAgentRecord, change
         systemInstruction: AGENT_REVISION_SYSTEM_PROMPT,
         temperature: 0.3,
         topP: 0.95,
-        maxOutputTokens: 4096,
         responseMimeType: 'text/plain',
       }
     }));

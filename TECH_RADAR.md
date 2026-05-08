@@ -9,6 +9,40 @@
 - Cout
 - Sources officielles
 
+## 2026-05-08 - Chat/Cowork sans plafond applicatif de sortie ni budget thinking
+- Statut: retenu, applique et deploye
+- Date de verification: 2026-05-08
+- Technologie: Vertex AI Gemini / Google GenAI SDK
+- Choix:
+  - ne pas envoyer `maxOutputTokens` sur les appels texte `/api/chat` et `/api/cowork`
+  - ne pas envoyer `maxThoughtTokens` sur Chat/Cowork
+  - garder uniquement `thinkingConfig.thinkingLevel` pour Gemini 3.x quand un niveau est choisi
+  - garder `thinkingBudget` uniquement pour les modeles Gemini 2.5 et seulement sur les chemins qui demandent explicitement un budget
+- Pourquoi:
+  - l'utilisateur veut le plein potentiel natif du modele sur Chat/Cowork
+  - Vertex AI documente que Gemini 3 rejette `thinking_level` et `thinking_budget` dans la meme requete
+  - Gemini 2.5 et Gemini 3 n'ont pas le meme mecanisme de controle du thinking
+- Sources officielles:
+  - [Vertex AI Thinking](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/thinking)
+
+## 2026-05-08 - Aucun plafond applicatif de sortie modele sur le studio
+- Statut: retenu, applique et deploye
+- Date de verification: 2026-05-08
+- Technologie: Vertex AI Gemini, Gemini Image, GPT Image, Lyria, generated apps/agents internes
+- Choix:
+  - supprimer tous les `maxOutputTokens` et `maxThoughtTokens` des payloads et configs modele
+  - supprimer `thinkingBudget` du helper Gemini
+  - supprimer les controles UI `Max Output` et `Budget`
+  - supprimer les caps maison sur `numberOfImages`, `sampleCount` et le nombre de shots image pack
+- Pourquoi:
+  - l'utilisateur veut que le studio ne bride aucun modele
+  - la politique produit devient: ne pas limiter cote application, laisser le fournisseur appliquer uniquement ses propres capacites
+- Garde-fous conserves:
+  - validations strictement fournisseur/format (ex: resolution GPT Image 2, references image, speakers TTS)
+  - limites non-modele de contexte RAG / YouTube natif / rendu UI quand elles ne brident pas la generation du modele
+- Sources officielles:
+  - [Vertex AI Thinking](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/thinking)
+
 ## 2026-05-08 - Gemini 3.1 Flash-Lite stable pour les chemins rapides
 - Statut: retenu et applique localement
 - Date de verification: 2026-05-08

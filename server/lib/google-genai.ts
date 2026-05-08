@@ -189,13 +189,11 @@ export function buildThinkingConfig(
   modelId: string,
   options: {
     thinkingLevel?: GeminiThinkingLevel;
-    maxThoughtTokens?: number;
     includeThoughts?: boolean;
   } = {},
 ) {
   const normalizedModel = String(modelId || '').toLowerCase();
   const isGemini3Series = /gemini-3(\.1)?-/.test(normalizedModel);
-  const isGemini25Series = /gemini-2\.5-/.test(normalizedModel);
   const thinkingConfig: Record<string, unknown> = {};
   const requestedThinkingLevel = options.thinkingLevel;
 
@@ -205,13 +203,11 @@ export function buildThinkingConfig(
 
   if (isGemini3Series) {
     if (requestedThinkingLevel) {
-      thinkingConfig.thinkingLevel = requestedThinkingLevel;
+      const supportsMinimalThinking = normalizedModel.includes('flash');
+      thinkingConfig.thinkingLevel = requestedThinkingLevel === 'minimal' && !supportsMinimalThinking
+        ? 'low'
+        : requestedThinkingLevel;
     }
-    if (Number.isFinite(options.maxThoughtTokens)) {
-      thinkingConfig.thinkingBudget = Math.max(0, Math.round(options.maxThoughtTokens || 0));
-    }
-  } else if (isGemini25Series && Number.isFinite(options.maxThoughtTokens)) {
-    thinkingConfig.thinkingBudget = Math.max(0, Math.round(options.maxThoughtTokens || 0));
   }
 
   return Object.keys(thinkingConfig).length > 0 ? thinkingConfig : undefined;

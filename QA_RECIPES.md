@@ -922,3 +922,26 @@
   - le bloc `Instruction liee` apparait apres selection et detecte les changements locaux
   - la mise a jour directe pousse bien le nouveau texte dans `custom_prompts/{id}`
   - l'icone preview ou background s'affiche meme si l'API renvoie une URL au lieu d'un base64
+
+## Mode Image - atelier, historique et batch prompts
+- Objectif:
+  - verifier que le mode Image expose clairement la galerie et l'historique de session
+  - verifier qu'un batch de prompts reste lisible avant generation
+  - verifier que les rendus existants restent visibles pendant un run en cours
+- Validation code:
+  - `npm run lint`
+  - `npm run build`
+- Harness visuel local:
+  - ouvrir `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio`
+- Attendus desktop:
+  - rail gauche: prompt stack, refs et parametres sans chevauchement
+  - centre: image active visible et prompt source copiable
+  - rail droit: `Historique` visible avec les thumbnails de la session
+  - ajouter un prompt dans `Stack`, saisir un deuxieme prompt, verifier le CTA `Generer 2`
+- Attendus mobile:
+  - un strip `Historique` avec thumbnails apparait en haut du mode Image
+  - aucun texte ou controle ne se superpose dans le premier viewport
+- Validation authentifiee restante:
+  - lancer deux prompts image depuis `Nouvelle image`
+  - verifier que les deux prompts restent dans le meme fil
+  - verifier que la sidebar gauche affiche le fil image et permet de le rouvrir

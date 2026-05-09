@@ -1657,3 +1657,23 @@
   - `SidebarLeft` masque l'historique uniquement pour `image`, `video`, `audio` et `lyria`
   - les previews QA doivent verifier `docScrollHeight === innerHeight`
 
+## 2026-05-09 - Le mode Image doit primer sur l'historique visible, meme si les autres studios restent plus verrouilles
+- Statut: adopte
+- Contexte: l'utilisateur a signale que la galerie image etait trop cachee, que le mode image n'avait pas de vrai historique et que les batchs de prompts se perdaient mal.
+- Decision:
+  - le mode `image` sort du modele strictement "double-zone compacte" pour devenir un atelier en 3 zones:
+    - prompt stack / references / reglages;
+    - scene active;
+    - historique permanent;
+  - la sidebar gauche reaffiche l'historique pour les modes media;
+  - sur mobile, un strip d'historique image apparait au-dessus du composer;
+  - les runs image portent des metas de correlation `runId` et `sourceMessageId`.
+- Pourquoi:
+  - pour l'image, la galerie est le produit principal, pas un detail secondaire;
+  - l'utilisateur doit pouvoir changer de fil media depuis la sidebar comme en chat/cowork;
+  - les prompts paralleles doivent rester lisibles et relies a leurs rendus sans dependance fragile a l'ordre de retour API.
+- Consequence:
+  - la decision du 2026-05-05 "SidebarLeft masque l'historique media" est remplacee;
+  - l'image accepte un scroll mobile/localise si cela rend l'historique visible et evite une UI tassee;
+  - les autres modes media peuvent rester sur le chrome partage tant qu'ils ne reproduisent pas le probleme d'historique cache.
+

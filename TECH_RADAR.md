@@ -928,3 +928,25 @@
   - [React lazy](https://react.dev/reference/react/lazy)
   - [Tailwind responsive design](https://tailwindcss.com/docs/responsive-design)
   - [Lucide for React](https://lucide.dev/guide/react)
+
+## 2026-05-09 - Image Studio local-first sans nouvelle dependance
+- Statut: retenu et applique
+- Date de verification: 2026-05-09
+- Technologie: React 19 + Firestore realtime listeners + Tailwind/Lucide existants.
+- Choix:
+  - garder la galerie image derivee des messages existants via `buildImageHistory`;
+  - ajouter des metas frontend `runId` / `sourceMessageId` plutot qu'une nouvelle collection Firestore;
+  - utiliser une prompt stack locale pour lancer plusieurs prompts en parallele;
+  - garder la persistance message local-first avec snapshots locaux et replay Firestore best-effort.
+- Pourquoi:
+  - React recommande les updates immutables pour les listes/tableaux d'etat, ce qui correspond a la prompt stack locale;
+  - Firestore supporte le modele `onSnapshot` pour les mises a jour temps reel, donc les messages restent le bon flux canonique;
+  - evite une nouvelle dependance frontend et limite le changement de contrat backend.
+- Alternatives evaluees:
+  - collection dediee `imageGenerations`
+    - Ecartee pour cette intervention: migration plus large, rules et recovery a redefinir.
+  - desactiver les runs paralleles
+    - Ecarte: contredit la demande utilisateur.
+- Sources officielles:
+  - [React - Updating arrays in state](https://react.dev/learn/updating-arrays-in-state)
+  - [Firestore - Listen to realtime updates](https://firebase.google.com/docs/firestore/query-data/listen)

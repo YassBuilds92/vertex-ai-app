@@ -10,6 +10,8 @@ export type MediaHistoryEntry = {
   prompt: string;
   refinedPrompt?: string;
   mode?: MediaGenerationMode;
+  runId?: string;
+  sourceMessageId?: string;
   model?: string;
   shotId?: string;
   shotLabel?: string;
@@ -76,6 +78,8 @@ function resolveEntryFromAttachment(
     prompt,
     refinedPrompt: refinedPrompt || undefined,
     mode: generationMeta?.mode || fallbackMode,
+    runId: generationMeta?.runId,
+    sourceMessageId: generationMeta?.sourceMessageId,
     model: generationMeta?.model,
     shotId: generationMeta?.shotId,
     shotLabel: generationMeta?.shotLabel,

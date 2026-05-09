@@ -233,7 +233,7 @@ service cloud.firestore {
              // On augmente la limite de 50 000 à 500 000 caractères
              data.content is string && data.content.size() <= 500000 &&
              (!( 'thoughts' in data) || (data.thoughts is string && data.thoughts.size() <= 500000)) &&
-             isValidList('attachments', 20) &&
+             isValidList('attachments', 200) &&
              isValidCoworkActivity(data) &&
              isValidCoworkRunState(data) &&
              isValidCoworkRunMeta(data) &&

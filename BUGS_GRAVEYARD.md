@@ -1062,6 +1062,34 @@
   - ranger les helpers backend dans `server/`, pas dans `api/`
   - en cas de doute, lancer `npx vercel build --prod` avant push pour voir le shape reel du deploy
 
+## 2026-05-09 - Mode image sans historique visible et batch prompts fragile
+- Statut: corrige localement
+- Symptome:
+  - la sidebar cachait l'historique pour tous les modes media, donc les fils image semblaient ne pas exister ou mal se synchroniser
+  - la galerie image etait reduite a un petit rail bas, difficile a voir
+  - pendant une generation, `isLoading` remplacait la scene par des placeholders et masquait les rendus deja disponibles
+  - plusieurs prompts lances depuis un etat `local-new` pouvaient ne pas se percevoir comme un meme batch/session
+- Cause racine:
+  - `SidebarLeft` court-circuitait volontairement l'historique media avec un spacer vide
+  - `ImageStudio` derivait bien l'historique des messages mais ne lui donnait pas une place de premier niveau
+  - le flux media ne gardait pas de lien explicite `run -> message source`, ce qui rendait le suivi des prompts en parallele fragile
+- Resolution:
+  - historique sidebar retabli pour les modes media
+  - refonte de `ImageStudio` en prompt stack + scene + historique permanent
+  - strip d'historique mobile visible des le haut
+  - metas `runId` / `sourceMessageId` sur les attachments generes
+  - session media transitoire partagee pour batcher plusieurs prompts depuis `local-new`
+  - fallback local des messages si l'ecoute Firestore du fil echoue
+  - limite Firestore `attachments` relevee de 20 a 200
+- Verification:
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - harness image desktop/mobile via navigateur local
+- Prevention:
+  - ne plus masquer l'historique d'un mode entier dans la sidebar
+  - toute galerie media principale doit rester visible pendant les runs en cours
+  - les batches doivent porter des metas de correlation, pas seulement se deduire de l'ordre temporel
+
 ## 2026-03-29 - Podcast Cowork livre des stems au lieu d'un master final
 - Statut: corrige localement, a revalider en prod
 - Symptome:

@@ -676,6 +676,11 @@ export default function App() {
   const localSyncAttemptRef = useRef<Record<string, string>>({});
   const localSyncInFlightRef = useRef<Record<string, boolean>>({});
   const storageResetCheckInFlightRef = useRef(false);
+  const pendingMediaSessionRef = useRef<{
+    mode: MediaGenerationMode;
+    session: ChatSession;
+    createdAt: number;
+  } | null>(null);
 
   const activeSessionFromList = sessions.find(s => s.id === activeSessionId) || null;
   const activeSession = activeSessionFromList || {
@@ -1484,6 +1489,7 @@ export default function App() {
       coworkFlushTimerRef.current = {};
       runControllersRef.current = {};
       sessionRunInFlightRef.current = {};
+      pendingMediaSessionRef.current = null;
       return;
     }
     if (!activeSessionId || activeSessionId === 'local-new') {
@@ -1564,6 +1570,15 @@ export default function App() {
         sessionId: activeSessionId,
         error,
       }, 'warn');
+      const fallbackEntry = loadLocalSessionSnapshotEntries(user.uid)
+        .find((entry) => entry.sessionId === activeSessionId);
+      if (fallbackEntry?.messages.length) {
+        const fallbackMessages = hydrateSessionMessages(fallbackEntry.messages, user.uid, activeSessionId);
+        React.startTransition(() => {
+          setCurrentMessages(fallbackMessages);
+          setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: fallbackMessages } : s));
+        });
+      }
       handleFirestoreError(error, OperationType.LIST, `users/${user?.uid}/sessions/${activeSessionId}/messages`);
     });
   }, [activeSessionId, isStorageResetReady, richSessionUsesCoworkSnapshots, user]);
@@ -1586,6 +1601,7 @@ export default function App() {
     setPendingAttachments([]);
     setAttachmentNotice(null);
     setCustomTitle(null);
+    pendingMediaSessionRef.current = null;
     setActiveSessionId('local-new', { remember: false });
   }, [activeMode, openNewConversationWindow, setActiveSessionId]);
 
@@ -2909,6 +2925,18 @@ export default function App() {
     const isGeneratedAppRun = effectiveSession.sessionKind === 'generated_app' && Boolean(effectiveSession.generatedAppWorkspace);
     const isMediaMode = MEDIA_MODES.includes(effectiveMode as MediaGenerationMode);
     const isRichToolRun = isCoworkRun || isAgentRun || isGeneratedAppRun;
+    const pendingMediaSession = pendingMediaSessionRef.current;
+    if (
+      isMediaMode
+      && !runtimeSessionOverride
+      && (currentSessionId === 'local-new' || !currentSessionId)
+      && pendingMediaSession
+      && pendingMediaSession.mode === effectiveMode
+      && Date.now() - pendingMediaSession.createdAt < 8_000
+    ) {
+      currentSessionId = pendingMediaSession.session.id;
+      effectiveSession = pendingMediaSession.session;
+    }
     if (!isMediaMode && currentSessionId && currentSessionId !== 'local-new' && isSessionRunInFlight(currentSessionId)) return;
 
     const optimisticOriginalPrompt = isMediaMode
@@ -2951,6 +2979,13 @@ export default function App() {
       };
       upsertSessionLocal(nextSession, { pendingRemote: true });
       void persistSessionShell(nextSession);
+      if (isMediaMode) {
+        pendingMediaSessionRef.current = {
+          mode: effectiveMode as MediaGenerationMode,
+          session: nextSession,
+          createdAt: Date.now(),
+        };
+      }
       setCustomTitle(null);
       currentSessionId = newId;
       effectiveSession = nextSession;
@@ -2974,6 +3009,7 @@ export default function App() {
     // the first network await, causing the visible freeze the user experiences.
     let earlyUserMessageId: string | null = null;
     const runSessionId = currentSessionId;
+    const mediaRunId = isMediaMode ? createClientMessageId('media-run') : undefined;
     const initialRichRunMessage: Message | null = isRichToolRun ? {
       id: `${isGeneratedAppRun ? 'gapp' : isAgentRun ? 'agent' : 'cowork'}-${Date.now()}`,
       role: 'model',
@@ -3098,7 +3134,10 @@ export default function App() {
       const mediaGenerationMeta = isMediaMode
         ? {
             mode: effectiveMode as MediaGenerationMode,
+            runId: mediaRunId,
+            sourceMessageId: earlyUserMessageId || (overrideMessages ? overrideMessages[overrideMessages.length - 1]?.id : undefined),
             prompt: finalPrompt,
+            refinedPrompt: sanitizeOptionalText(mediaRequest?.refinedPrompt),
             model: typeof effectiveConfig?.model === 'string' ? effectiveConfig.model : undefined,
           }
         : undefined;

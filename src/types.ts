@@ -39,6 +39,8 @@ export type MediaGenerationMode = Extract<AppMode, 'image' | 'video' | 'audio' |
 
 export interface AttachmentGenerationMeta {
   mode: MediaGenerationMode;
+  runId?: string;
+  sourceMessageId?: string;
   prompt?: string;
   refinedPrompt?: string;
   model?: string;

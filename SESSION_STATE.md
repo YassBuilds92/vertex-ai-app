@@ -4449,3 +4449,47 @@
 ### Limites restantes
 - Le navigateur integre Codex n'a pas ouvert de nouvel onglet via `window.open` pendant le test automatise, mais le lien et le handler Ctrl/Cmd sont presents pour un navigateur utilisateur normal.
 - Les smokes Chat/Cowork reels n'ont pas ete lances car l'UI locale affiche l'etat non connecte dans ce contexte.
+
+## Mise a jour 2026-05-09 - Refonte totale du mode Image + historique visible
+
+### Demande utilisateur
+- Les historiques ne se synchronisaient pas correctement entre la sidebar, les sessions media et la galerie image.
+- Le mode image etait juge moche, trop cache, avec une galerie peu visible.
+- La generation image n'avait pas de vrai historique exploitable.
+- L'envoi de plusieurs prompts en meme temps pouvait creer une mauvaise experience de sauvegarde/session.
+
+### Correctifs appliques
+- `src/components/SidebarLeft.tsx`
+  - l'historique est de nouveau visible pour les modes `image`, `video`, `audio` et `lyria`, au lieu d'etre masque pour les modes media.
+- `src/components/ImageStudio.tsx`
+  - remplacement du layout image par une surface en 3 zones:
+    - prompt stack + refs + parametres a gauche;
+    - scene active au centre;
+    - historique visuel permanent a droite;
+  - ajout d'un strip d'historique mobile en premier viewport;
+  - ajout d'une pile de prompts: l'utilisateur peut ajouter plusieurs prompts puis lancer `Generer N`;
+  - la galerie ne disparait plus pendant `isLoading`; les runs en cours apparaissent en overlay live;
+  - les prompts sources restent visibles/copieurs depuis la scene et les rendus restent selectionnables.
+- `src/App.tsx`
+  - ajout d'une session media transitoire partagee pendant quelques secondes pour qu'un batch lance depuis `local-new` reste dans le meme fil;
+  - ajout de metas `runId` et `sourceMessageId` sur les attachments generes;
+  - fallback local des messages si le listener Firestore d'un fil echoue.
+- `src/types.ts` / `src/utils/media-gallery-history.ts`
+  - ajout et propagation de `runId` / `sourceMessageId` pour relier chaque rendu a son prompt source.
+- `firestore.rules`
+  - la limite de liste `attachments` par message passe de 20 a 200 pour eviter qu'un gros batch image soit rejete par les regles avant meme la limite native Firestore.
+
+### Validation effectuee
+- Recherche officielle rapide:
+  - React state immutable / arrays
+  - Firestore realtime listeners
+- `npm run lint` : OK
+- `npm run build` : OK
+- Browser local `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio`:
+  - desktop: historique permanent visible a droite;
+  - interaction: ajout d'un prompt dans la stack puis detection de `Generer 2`;
+  - mobile 430x932: strip d'historique visible en haut.
+
+### Limites restantes
+- Pas de smoke authentifie avec vraie generation image Vertex/GPT dans cette session.
+- Les nouvelles `firestore.rules` devront etre deployees pour que la limite `attachments: 200` soit active en prod.

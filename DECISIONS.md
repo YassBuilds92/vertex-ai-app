@@ -1,5 +1,16 @@
 # DECISIONS
 
+## 2026-05-09 - Les niveaux de thinking image suivent le support Vertex exact
+- Statut: adopte et deploye
+- Contexte: Nano Banana Pro en production renvoyait `thinking_level is not supported by this model` car l'UI pouvait envoyer un niveau persiste ou selectionne autre que `high`.
+- Decision:
+  - limiter Nano Banana Pro (`gemini-3-pro-image-preview`) au niveau `high`
+  - limiter Nano Banana 2 (`gemini-3.1-flash-image-preview`) aux niveaux `minimal` et `high`
+  - garder un repli backend pour corriger les anciens etats navigateur avant appel Vertex
+- Consequence:
+  - l'UI ne propose plus de niveaux impossibles
+  - les vieux localStorage qui gardent `low` ou `medium` ne cassent plus la generation image
+
 ## 2026-05-08 - Gemini 3.1 Flash-Lite stable remplace le preview rapide
 - Statut: adopte localement
 - Contexte: Google liste maintenant `gemini-3.1-flash-lite` comme modele stable mis a jour en mai 2026. Le projet utilisait encore `gemini-3.1-flash-lite-preview` pour plusieurs chemins rapides.

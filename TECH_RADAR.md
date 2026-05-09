@@ -9,6 +9,22 @@
 - Cout
 - Sources officielles
 
+## 2026-05-09 - Thinking Gemini Image borne par modele
+- Statut: retenu, applique et deploye
+- Date de verification: 2026-05-09
+- Technologie: Vertex AI Gemini Image / Google GenAI SDK
+- Choix:
+  - `gemini-3.1-flash-image-preview` expose uniquement `minimal` et `high` dans le mode image.
+  - `gemini-3-pro-image-preview` expose uniquement `high`.
+  - `buildThinkingConfig()` normalise defensivement les anciens etats persistants image: Nano Banana Pro -> `high`; Nano Banana 2 -> `minimal` si demande explicitement, sinon `high`.
+- Pourquoi:
+  - la documentation Vertex AI Thinking liste des niveaux differents selon les modeles Gemini 3.
+  - l'erreur prod Nano Banana Pro venait d'un `thinking_level` non supporte par le modele image choisi.
+- Sources officielles:
+  - [Vertex AI Thinking](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/thinking)
+  - [Gemini 3 Pro Image](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image)
+  - [Gemini 3.1 Flash Image](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-image)
+
 ## 2026-05-08 - Chat/Cowork sans plafond applicatif de sortie ni budget thinking
 - Statut: retenu, applique et deploye
 - Date de verification: 2026-05-08

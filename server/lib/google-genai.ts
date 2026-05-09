@@ -20,6 +20,25 @@ export type RetryOptions = {
   }) => void | Promise<void>;
 };
 
+function normalizeGemini3ThinkingLevel(modelId: string, requestedThinkingLevel?: GeminiThinkingLevel): GeminiThinkingLevel | undefined {
+  if (!requestedThinkingLevel) return undefined;
+
+  if (modelId.includes('gemini-3-pro-image')) {
+    return 'high';
+  }
+
+  if (modelId.includes('gemini-3.1-flash-image')) {
+    return requestedThinkingLevel === 'minimal' ? 'minimal' : 'high';
+  }
+
+  const supportsMinimalThinking = modelId.includes('flash');
+  if (requestedThinkingLevel === 'minimal' && !supportsMinimalThinking) {
+    return 'low';
+  }
+
+  return requestedThinkingLevel;
+}
+
 let loggedLegacyAuthWarning = false;
 
 export function getVertexConfig() {
@@ -202,12 +221,8 @@ export function buildThinkingConfig(
   }
 
   if (isGemini3Series) {
-    if (requestedThinkingLevel) {
-      const supportsMinimalThinking = normalizedModel.includes('flash');
-      thinkingConfig.thinkingLevel = requestedThinkingLevel === 'minimal' && !supportsMinimalThinking
-        ? 'low'
-        : requestedThinkingLevel;
-    }
+    const safeThinkingLevel = normalizeGemini3ThinkingLevel(normalizedModel, requestedThinkingLevel);
+    if (safeThinkingLevel) thinkingConfig.thinkingLevel = safeThinkingLevel;
   }
 
   return Object.keys(thinkingConfig).length > 0 ? thinkingConfig : undefined;

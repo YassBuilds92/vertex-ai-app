@@ -130,6 +130,15 @@ export const GEMINI_THINKING_LEVEL_OPTIONS = [
   { value: 'high', label: 'High' },
 ] as const satisfies readonly ImageOptionChoice[];
 
+export const GEMINI_31_FLASH_IMAGE_THINKING_LEVEL_OPTIONS = [
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'high', label: 'High' },
+] as const satisfies readonly ImageOptionChoice[];
+
+export const GEMINI_PRO_IMAGE_THINKING_LEVEL_OPTIONS = [
+  { value: 'high', label: 'High' },
+] as const satisfies readonly ImageOptionChoice[];
+
 export const IMAGE_MODEL_OPTIONS = [
   {
     id: DEFAULT_IMAGE_MODEL,
@@ -138,7 +147,7 @@ export const IMAGE_MODEL_OPTIONS = [
     provider: 'google-gemini',
     aspectRatioOptions: GEMINI_31_ASPECT_RATIOS,
     imageSizeOptions: GEMINI_31_IMAGE_SIZES,
-    thinkingLevelOptions: GEMINI_THINKING_LEVEL_OPTIONS,
+    thinkingLevelOptions: GEMINI_31_FLASH_IMAGE_THINKING_LEVEL_OPTIONS,
     safetySettingOptions: GEMINI_SAFETY_SETTING_OPTIONS,
     supportsAutoAspectRatio: true,
     supportsImageSize: true,
@@ -157,7 +166,7 @@ export const IMAGE_MODEL_OPTIONS = [
     provider: 'google-gemini',
     aspectRatioOptions: GEMINI_CORE_ASPECT_RATIOS,
     imageSizeOptions: GEMINI_PRO_IMAGE_SIZES,
-    thinkingLevelOptions: GEMINI_THINKING_LEVEL_OPTIONS,
+    thinkingLevelOptions: GEMINI_PRO_IMAGE_THINKING_LEVEL_OPTIONS,
     safetySettingOptions: GEMINI_SAFETY_SETTING_OPTIONS,
     supportsAutoAspectRatio: true,
     supportsImageSize: true,

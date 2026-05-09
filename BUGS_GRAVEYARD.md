@@ -1,5 +1,26 @@
 # BUGS GRAVEYARD
 
+## 2026-05-09 - Nano Banana Pro refusait `thinking_level`
+- Statut: corrige et deploye en production
+- Symptome:
+  - en mode image avec Nano Banana Pro, la prod affichait:
+    - `Unable to submit request because thinking_level is not supported by this model`
+- Cause racine:
+  - `shared/image-models.ts` exposait `minimal`, `low`, `medium` et `high` pour tous les modeles image Gemini 3.
+  - la doc Vertex AI Thinking indique pourtant que `Gemini 3 Pro Image` accepte seulement `HIGH`, et que `Gemini 3.1 Flash Image` accepte seulement `MINIMAL` et `HIGH`.
+  - un ancien etat navigateur ou un choix UI pouvait donc envoyer un `thinking_level` invalide.
+- Resolution:
+  - options UI image corrigees par modele: Nano Banana Pro -> `High` seul, Nano Banana 2 -> `Minimal`/`High`.
+  - `buildThinkingConfig()` normalise defensivement les niveaux invalides des modeles image avant appel Vertex.
+  - ajout de `verify-image-thinking-config.ts` pour verrouiller le contrat.
+- Preuve:
+  - `node node_modules/tsx/dist/cli.mjs verify-image-thinking-config.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - `npx vercel deploy --prod --yes` : OK, alias `https://vertex-ai-app-pearl.vercel.app`
+  - `GET https://vertex-ai-app-pearl.vercel.app/api/status` : 200, Vertex/GCS configures
+  - bundle prod `main-DE09I87P.js` contient les modeles image corriges
+
 ## 2026-05-08 - Cowork cassait avec `thinking_budget` + `thinking_level`, puis suppression des plafonds Chat/Cowork
 - Statut: corrige et deploye en production
 - Symptome:

@@ -1,5 +1,38 @@
 # SESSION STATE
 
+## 2026-05-09 - Nano Banana Pro repare sur `thinking_level`
+
+### Demande utilisateur
+- En production, le mode image Nano Banana Pro affichait une popup:
+  - `Unable to submit request because thinking_level is not supported by this model`
+
+### Diagnostic
+- Verification officielle Vertex AI Thinking:
+  - `Gemini 3.1 Flash Image` supporte seulement `MINIMAL` et `HIGH`.
+  - `Gemini 3 Pro Image` supporte seulement `HIGH`.
+- Le catalogue local proposait encore `minimal`, `low`, `medium`, `high` pour les deux modeles image Gemini 3.
+- Un ancien etat localStorage ou un choix UI pouvait donc envoyer `low` ou `medium` a Nano Banana Pro.
+
+### Correctifs appliques
+- `shared/image-models.ts`
+  - Nano Banana 2 expose maintenant seulement `Minimal` et `High`.
+  - Nano Banana Pro expose maintenant seulement `High`.
+- `server/lib/google-genai.ts`
+  - `buildThinkingConfig()` normalise les anciens niveaux invalides pour les modeles image avant appel Vertex.
+- `verify-image-thinking-config.ts`
+  - verrouille les options exposees et les replis backend.
+
+### Validation locale
+- `node node_modules/tsx/dist/cli.mjs verify-image-thinking-config.ts` : OK
+- `npm run lint` : OK
+- `npm run build` : OK
+
+### Validation production
+- `npx vercel deploy --prod --yes` : OK
+- Alias public actif: `https://vertex-ai-app-pearl.vercel.app`
+- `GET /api/status` : 200, Vertex et GCS configures
+- bundle prod `main-DE09I87P.js` verifie avec les modeles image corriges
+
 ## 2026-05-08 - Gemini 3.1 Flash-Lite stable ajoute
 
 ### Ce qui a ete accompli

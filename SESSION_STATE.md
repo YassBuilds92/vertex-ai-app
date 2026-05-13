@@ -1,5 +1,22 @@
 # SESSION STATE
 
+## 2026-05-13 - Estimation image: ne plus apprendre sur les blocages moderation
+
+### Demande utilisateur
+- Quand une image est bloquee tres vite par moderation/flag, la duree courte ne doit pas faire baisser l'estimation de generation comme si une image avait ete generee.
+
+### Correctif applique
+- `src/components/ImageStudio.tsx`
+  - memorise le nombre d'images et la derniere date d'image au debut d'un run;
+  - n'enregistre une duree dans la moyenne locale que si une nouvelle image apparait reellement pendant le run;
+  - attend 700 ms apres la fin du loading pour eviter une course entre fin de run et arrivee du message image;
+  - ignore les anciennes moyennes stockees sous 6s et refuse les nouveaux echantillons sous 6s.
+
+### Validation effectuee
+- `npm run lint` : OK
+- `npm run build` : OK
+- `node node_modules/tsx/dist/cli.mjs verify-azure-image-config.ts` : OK
+
 ## 2026-05-13 - Mode Image: badges de lot et loader non bloquant
 
 ### Demande utilisateur

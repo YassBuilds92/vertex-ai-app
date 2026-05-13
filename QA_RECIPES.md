@@ -953,6 +953,9 @@
   - GPT Image 2 ne propose pas `Transparent` dans `Fond`
   - un vieux payload GPT Image 2 `imageBackground=transparent` est refuse localement avant appel Azure
   - `background=auto`, PNG, moderation low passe en smoke reel hors saturation fournisseur
+- Attendus estimation:
+  - un run bloque/refuse sans nouvelle image ne doit pas mettre a jour la moyenne locale du loader
+  - une ancienne moyenne locale inferieure a 6s doit etre ignoree au profit du fallback/du prochain succes reel
 - Validation authentifiee restante:
   - lancer deux prompts image depuis `Nouvelle image`
   - verifier que les deux prompts restent dans le meme fil

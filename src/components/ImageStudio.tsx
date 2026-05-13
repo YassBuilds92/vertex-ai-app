@@ -82,6 +82,7 @@ const imageTone: MediaStudioTone = {
 };
 
 const IMAGE_TIMING_STORAGE_KEY = 'studio-image-generation-timing-v1';
+const MIN_IMAGE_TIMING_SAMPLE_MS = 6_000;
 
 interface ImageStudioProps {
   onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
@@ -162,11 +163,12 @@ function writeTimingStore(store: Record<string, TimingRecord>) {
 
 function getStoredDurationMs(key: string) {
   const record = readTimingStore()[key];
-  return record?.averageMs && Number.isFinite(record.averageMs) ? record.averageMs : null;
+  if (!record?.averageMs || !Number.isFinite(record.averageMs)) return null;
+  return record.averageMs >= MIN_IMAGE_TIMING_SAMPLE_MS ? record.averageMs : null;
 }
 
 function recordGenerationDuration(key: string, durationMs: number) {
-  if (!key || !Number.isFinite(durationMs) || durationMs < 1000) return;
+  if (!key || !Number.isFinite(durationMs) || durationMs < MIN_IMAGE_TIMING_SAMPLE_MS) return;
   const store = readTimingStore();
   const previous = store[key];
   const runs = Math.min(50, (previous?.runs || 0) + 1);
@@ -384,9 +386,19 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const [showArchive, setShowArchive] = useState(false);
   const [loadingNow, setLoadingNow] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const generationStartRef = useRef<{ startedAt: number; key: string } | null>(null);
+  const generationStartRef = useRef<{
+    startedAt: number;
+    key: string;
+    imageCount: number;
+    latestImageCreatedAt: number;
+  } | null>(null);
+  const imageHistoryRef = useRef({ count: 0, latestCreatedAt: 0 });
 
   const allImages = useMemo(() => buildImageHistory(messages), [messages]);
+  const latestImageCreatedAt = useMemo(
+    () => allImages.reduce((latest, image) => Math.max(latest, image.createdAt || 0), 0),
+    [allImages],
+  );
   const archiveGalleryImages = useMemo(
     () => mergeImageEntries([...archiveImages, ...allImages]),
     [allImages, archiveImages],
@@ -470,6 +482,13 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     ?? estimateFallbackDurationMs(config.model, outputCount, sourceImages.length, currentImageQuality, currentImageSize);
   const elapsedMs = generationStartRef.current ? Math.max(0, loadingNow - generationStartRef.current.startedAt) : 0;
   const loadingProgress = isLoading ? Math.min(0.92, Math.max(0.06, elapsedMs / estimatedDurationMs)) : 0;
+
+  useEffect(() => {
+    imageHistoryRef.current = {
+      count: allImages.length,
+      latestCreatedAt: latestImageCreatedAt,
+    };
+  }, [allImages.length, latestImageCreatedAt]);
 
   useEffect(() => {
     if (!galleryImages.length) {
@@ -570,19 +589,36 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
 
   useEffect(() => {
     if (isLoading && !generationStartRef.current) {
-      generationStartRef.current = { startedAt: Date.now(), key: generationTimingKey };
+      generationStartRef.current = {
+        startedAt: Date.now(),
+        key: generationTimingKey,
+        imageCount: allImages.length,
+        latestImageCreatedAt,
+      };
       setLoadingNow(Date.now());
     }
 
     if (!isLoading && generationStartRef.current) {
-      recordGenerationDuration(
-        generationStartRef.current.key,
-        Date.now() - generationStartRef.current.startedAt,
-      );
+      const completedGeneration = generationStartRef.current;
       generationStartRef.current = null;
       setLoadingNow(Date.now());
+
+      window.setTimeout(() => {
+        const currentHistory = imageHistoryRef.current;
+        const didCreateImage = currentHistory.count > completedGeneration.imageCount
+          || currentHistory.latestCreatedAt > completedGeneration.latestImageCreatedAt;
+
+        if (didCreateImage) {
+          recordGenerationDuration(
+            completedGeneration.key,
+            Date.now() - completedGeneration.startedAt,
+          );
+        }
+      }, 700);
     }
-  }, [generationTimingKey, isLoading]);
+
+    return undefined;
+  }, [allImages.length, generationTimingKey, isLoading, latestImageCreatedAt]);
 
   useEffect(() => {
     if (!isLoading) return undefined;

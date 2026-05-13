@@ -1,5 +1,52 @@
 # SESSION STATE
 
+## 2026-05-13 - GPT Image 2 accepte les references image Azure
+
+### Demande utilisateur
+- Le mode image devait accepter des images de reference avec `GPT Image 2`.
+- L'erreur visible etait:
+  - `erreur d'envoi error azure openai image failed 404 error code 404 message resource not found`
+
+### Diagnostic
+- Le flux avec refs utilise `images/edits`, pas `images/generations`.
+- L'environnement local pointait sur:
+  - `AZURE_OPENAI_IMAGE_API_VERSION=2024-02-01`
+  - endpoint `cognitiveservices.azure.com`
+- La doc officielle actuelle pour GPT Image / Azure Images demande une API preview recente; les exemples multipart multi-images utilisent `image[]`.
+
+### Correctifs appliques
+- `server/lib/config.ts`
+  - defaut `AZURE_OPENAI_IMAGE_API_VERSION=2025-04-01-preview`.
+- `server/lib/media-generation.ts`
+  - routage Azure plus robuste pour `/openai/deployments/{deployment}/images/{generations|edits}` et `/openai/v1/images/{generations|edits}`;
+  - refs envoyees sous `image[]`;
+  - ajout de `model=<deployment>` pour les endpoints v1;
+  - message 404 enrichi avec endpoint/deployment/version a verifier.
+- `.env.example`
+  - exemple Azure passe sur `https://your-resource.openai.azure.com` et `2025-04-01-preview`.
+- `.env`
+  - endpoint local passe sur `https://antig-mon17ii7-eastus2.openai.azure.com`;
+  - API version locale passee sur `2025-04-01-preview`;
+  - cle Azure inchangee.
+- `verify-azure-image-config.ts`
+  - regression sans cout Azure pour URL, version, endpoint v1 et multipart refs.
+
+### Validation effectuee
+- Recherche officielle:
+  - Microsoft Learn Azure OpenAI image generation
+  - Microsoft Learn REST preview / v1 preview
+  - OpenAI GPT Image 2 / Images API
+- `node node_modules/tsx/dist/cli.mjs verify-azure-image-config.ts` : OK
+- `npm run lint` : OK
+- `npm run build` : OK
+- Smoke reel Azure:
+  - `generateImageBinary()` avec `gpt-image-2`, une PNG 1x1 en reference, `quality=low`, `1024x1024`
+  - resultat: `image/png`, `provider=azure-openai`, `refs=1`
+
+### Limites restantes
+- Pas de redeploiement production effectue dans cette intervention.
+- Si la prod Vercel utilise ses propres variables, elle devra recevoir les memes valeurs Azure (`endpoint openai.azure.com`, `api-version=2025-04-01-preview`).
+
 ## 2026-05-09 - Nano Banana Pro repare sur `thinking_level`
 
 ### Demande utilisateur

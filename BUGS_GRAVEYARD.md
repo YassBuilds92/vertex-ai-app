@@ -1,5 +1,28 @@
 # BUGS GRAVEYARD
 
+## 2026-05-13 - GPT Image 2 Azure refusait les images de reference avec 404
+- Statut: corrige localement, smoke reel Azure OK
+- Symptome:
+  - en mode image avec `GPT Image 2` et au moins une image de reference, l'app affichait:
+    - `erreur d'envoi error azure openai image failed 404 error code 404 message resource not found`
+- Cause racine:
+  - le `.env` local utilisait `AZURE_OPENAI_IMAGE_API_VERSION=2024-02-01`, trop ancien pour le flux GPT Image moderne sur `images/edits`.
+  - l'endpoint local etait `https://...cognitiveservices.azure.com`, alors que la doc et le smoke image passent avec l'endpoint Azure OpenAI `https://...openai.azure.com`.
+  - le multipart de references utilisait `image` au lieu de `image[]`, moins aligne avec les exemples officiels pour plusieurs images.
+- Resolution:
+  - defaut backend `AZURE_OPENAI_IMAGE_API_VERSION` passe a `2025-04-01-preview`.
+  - `.env.example` et `.env` local alignes sur `https://<resource>.openai.azure.com` + `2025-04-01-preview`.
+  - `server/lib/media-generation.ts` envoie les refs sur `images/edits` avec `image[]`, supporte les endpoints `/openai/v1/images/*`, ajoute `model=<deployment>` quand le endpoint v1 l'exige, et rend le 404 Azure diagnostique.
+  - ajout de `verify-azure-image-config.ts` pour verrouiller le routage et le FormData sans consommer Azure.
+- Preuve:
+  - `node node_modules/tsx/dist/cli.mjs verify-azure-image-config.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - smoke reel `generateImageBinary()` avec `gpt-image-2`, une PNG 1x1 en reference, `quality=low`, `1024x1024` : OK, `image/png`, `refs=1`
+- Prevention:
+  - ne jamais laisser les chemins Azure image retomber sur une version API generique ancienne.
+  - pour les refs GPT Image, verifier explicitement le chemin `images/edits` avec une requete reelle minimale avant de conclure.
+
 ## 2026-05-09 - Nano Banana Pro refusait `thinking_level`
 - Statut: corrige et deploye en production
 - Symptome:

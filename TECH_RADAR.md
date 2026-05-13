@@ -9,6 +9,49 @@
 - Cout
 - Sources officielles
 
+## 2026-05-13 - GPT Image 2 Azure avec images de reference
+- Statut: retenu et applique localement
+- Date de verification: 2026-05-13
+- Technologie: Azure OpenAI / Microsoft Foundry Images REST pour `gpt-image-2`
+- Choix:
+  - garder le chemin sans refs sur `/images/generations` et le chemin avec refs sur `/images/edits`;
+  - passer le defaut `AZURE_OPENAI_IMAGE_API_VERSION` a `2025-04-01-preview`, car l'ancien `2024-02-01` ne connait pas le flux GPT Image recent;
+  - envoyer les refs en multipart sous `image[]`, avec support defensif des endpoints modernes `/openai/v1/images/*`;
+  - aligner le `.env` local sur l'endpoint Azure OpenAI `https://<resource>.openai.azure.com` et conserver la cle uniquement cote serveur.
+- Alternatives evaluees:
+  - garder l'ancien endpoint/version:
+    - ecarte: les refs image tombaient en `404 Resource not found` sur `images/edits`.
+  - basculer tout le chemin Azure sur SDK OpenAI:
+    - ecarte pour cette passe: le REST existant suffit et evite une nouvelle dependance.
+- Cout:
+  - aucun cout de dependance;
+  - un smoke reel Azure low-quality a consomme un appel image minimal.
+- Sources officielles:
+  - [Azure OpenAI image generation guide](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/dall-e)
+  - [Azure OpenAI REST preview reference](https://learn.microsoft.com/en-us/azure/foundry/openai/reference-preview)
+  - [Azure OpenAI v1 preview reference](https://learn.microsoft.com/en-us/azure/foundry/openai/reference-preview-latest)
+  - [OpenAI GPT Image 2 model page](https://developers.openai.com/api/docs/models/gpt-image-2)
+  - [OpenAI Images API reference](https://platform.openai.com/docs/api-reference/images)
+
+## 2026-05-09 - Pack setup autre app: Azure GPT Image 2 + Gemini 3.1 Pro/3 Flash
+- Statut: verifie pour transmission a un autre agent, pas applique dans ce repo
+- Date de verification: 2026-05-09
+- Technologie: Azure OpenAI Images REST pour `gpt-image-2`; Gemini API / Google GenAI SDK pour `gemini-3.1-pro-preview` et `gemini-3-flash-preview`
+- Choix:
+  - demander a l'autre app de garder `gpt-image-2` cote serveur via un deploiement Azure OpenAI / Foundry et l'API Images, avec `api-version=2025-04-01-preview` ou plus recent
+  - utiliser `GEMINI_API_KEY` + `@google/genai` pour le chemin le plus simple hors Vertex
+  - exposer les IDs Gemini exacts: `gemini-3.1-pro-preview` pour les taches complexes, `gemini-3-flash-preview` pour les taches rapides/agentiques
+  - ne pas exposer les cles dans le frontend (`VITE_` / `NEXT_PUBLIC_` interdits pour ces secrets)
+- Sources officielles:
+  - [OpenAI GPT Image 2 model page](https://developers.openai.com/api/docs/models/gpt-image-2)
+  - [OpenAI Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
+  - [Azure OpenAI image generation models](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/dall-e?tabs=gpt-image-1)
+  - [Microsoft Foundry GPT-image-2 catalog](https://ai.azure.com/catalog/models/gpt-image-2)
+  - [Gemini 3.1 Pro Preview](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview)
+  - [Gemini 3 Flash Preview](https://ai.google.dev/gemini-api/docs/models/gemini-3-flash-preview)
+  - [Gemini API keys](https://ai.google.dev/gemini-api/docs/api-key)
+  - [Gemini API libraries](https://ai.google.dev/gemini-api/docs/libraries)
+
 ## 2026-05-09 - Thinking Gemini Image borne par modele
 - Statut: retenu, applique et deploye
 - Date de verification: 2026-05-09

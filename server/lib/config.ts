@@ -1,6 +1,7 @@
 export const PORT = parseInt(process.env.PORT || '3000', 10);
 export const MAX_PAYLOAD = '50mb';
 export const COWORK_WORKERS_DEFAULT_TIMEOUT_MS = 30_000;
+export const AZURE_OPENAI_IMAGE_DEFAULT_API_VERSION = '2025-04-01-preview';
 
 export function envFlagEnabled(value?: string): boolean {
   return /^(1|true|yes|on)$/i.test(String(value || '').trim());
@@ -43,7 +44,7 @@ export function getAzureOpenAIImageConfig() {
   return {
     endpoint: String(process.env.AZURE_OPENAI_IMAGE_ENDPOINT || '').trim(),
     apiKey: String(process.env.AZURE_OPENAI_IMAGE_API_KEY || process.env.AZURE_API_KEY || '').trim(),
-    apiVersion: String(process.env.AZURE_OPENAI_IMAGE_API_VERSION || '2024-02-01').trim() || '2024-02-01',
+    apiVersion: String(process.env.AZURE_OPENAI_IMAGE_API_VERSION || AZURE_OPENAI_IMAGE_DEFAULT_API_VERSION).trim() || AZURE_OPENAI_IMAGE_DEFAULT_API_VERSION,
     deployment: String(process.env.AZURE_OPENAI_IMAGE_DEPLOYMENT || 'gpt-image-2').trim() || 'gpt-image-2',
   };
 }

@@ -31,7 +31,7 @@ import {
   normalizeImageModelId,
 } from '../../shared/image-models.js';
 import { DEFAULT_LYRIA_MODEL as SHARED_DEFAULT_LYRIA_MODEL } from '../../shared/lyria-models.js';
-import { getAzureOpenAIImageConfig } from './config.js';
+import { AZURE_OPENAI_IMAGE_DEFAULT_API_VERSION, getAzureOpenAIImageConfig } from './config.js';
 import { buildThinkingConfig, createGoogleAI, getVertexConfig, parseApiError, retryWithBackoff } from './google-genai.js';
 import { getGcpCredentials } from './storage.js';
 
@@ -155,6 +155,11 @@ type ParsedWaveAudio = {
   formatTag: number;
   frameCount: number;
   samples: Float32Array;
+};
+
+type AzureImageRoute = {
+  url: string;
+  style: 'deployment' | 'v1' | 'direct';
 };
 
 function clipText(value: unknown, max = 240): string {
@@ -1175,7 +1180,26 @@ function getAiplatformBaseUrl(location: string): string {
   return `https://${location === 'global' ? 'global-aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`}`;
 }
 
-function resolveAzureImageUrl(kind: 'generations' | 'edits'): string {
+function appendAzureApiVersion(url: string, apiVersion: string): string {
+  return url.includes('api-version=')
+    ? url
+    : `${url}${url.includes('?') ? '&' : '?'}api-version=${encodeURIComponent(apiVersion)}`;
+}
+
+function classifyAzureImageRoute(url: string): AzureImageRoute['style'] {
+  if (/\/openai\/v1(?:\/|$)/i.test(url)) return 'v1';
+  if (/\/openai\/deployments\//i.test(url)) return 'deployment';
+  return 'direct';
+}
+
+function resolveAzureApiVersionForRoute(routeStyle: AzureImageRoute['style'], configuredApiVersion: string): string {
+  if (routeStyle === 'v1' && configuredApiVersion === AZURE_OPENAI_IMAGE_DEFAULT_API_VERSION) {
+    return 'preview';
+  }
+  return configuredApiVersion;
+}
+
+function resolveAzureImageUrl(kind: 'generations' | 'edits'): AzureImageRoute {
   const { endpoint, apiVersion, deployment } = getAzureOpenAIImageConfig();
   if (!endpoint) {
     throw new Error("Azure OpenAI image non configure: renseigne AZURE_OPENAI_IMAGE_ENDPOINT.");
@@ -1184,10 +1208,26 @@ function resolveAzureImageUrl(kind: 'generations' | 'edits'): string {
   const trimmed = endpoint.replace(/\/+$/, '');
   if (/\/images\/(generations|edits)(\?|$)/i.test(trimmed)) {
     const routed = trimmed.replace(/\/images\/(generations|edits)/i, `/images/${kind}`);
-    return routed.includes('api-version=') ? routed : `${routed}${routed.includes('?') ? '&' : '?'}api-version=${encodeURIComponent(apiVersion)}`;
+    const style = classifyAzureImageRoute(routed);
+    return {
+      url: appendAzureApiVersion(routed, resolveAzureApiVersionForRoute(style, apiVersion)),
+      style,
+    };
   }
 
-  return `${trimmed}/openai/deployments/${encodeURIComponent(deployment)}/images/${kind}?api-version=${encodeURIComponent(apiVersion)}`;
+  const openAIV1Base = trimmed.match(/\/openai\/v1(?:\/images)?$/i);
+  if (openAIV1Base) {
+    const base = /\/images$/i.test(trimmed) ? trimmed : `${trimmed}/images`;
+    return {
+      url: appendAzureApiVersion(`${base}/${kind}`, resolveAzureApiVersionForRoute('v1', apiVersion)),
+      style: 'v1',
+    };
+  }
+
+  return {
+    url: `${trimmed}/openai/deployments/${encodeURIComponent(deployment)}/images/${kind}?api-version=${encodeURIComponent(apiVersion)}`,
+    style: 'deployment',
+  };
 }
 
 function mapAzureImageSizeFromAspectRatio(aspectRatio?: string): string {
@@ -1292,6 +1332,48 @@ function getAzureImageAuthHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+function shouldSendAzureModelInBody(route: AzureImageRoute): boolean {
+  return route.style !== 'deployment';
+}
+
+function getAzureImageRequestModel(): string {
+  return getAzureOpenAIImageConfig().deployment;
+}
+
+function buildAzureOpenAIImageRequestBody(
+  payload: ReturnType<typeof buildAzureOpenAIImagePayload>,
+  route: AzureImageRoute,
+): Record<string, unknown> {
+  return shouldSendAzureModelInBody(route)
+    ? { model: getAzureImageRequestModel(), ...payload }
+    : payload;
+}
+
+function formatAzureImageError(
+  status: number,
+  bodyText: string,
+  route: AzureImageRoute,
+  hasReferenceImages: boolean,
+): string {
+  let providerMessage = clipText(bodyText, 500);
+  try {
+    const parsed = JSON.parse(bodyText);
+    providerMessage = clipText(
+      parsed?.error?.message || parsed?.message || parsed?.error?.code || bodyText,
+      500,
+    );
+  } catch {}
+
+  const { apiVersion, deployment } = getAzureOpenAIImageConfig();
+  const operation = hasReferenceImages ? 'images/edits' : 'images/generations';
+  const routeLabel = route.style === 'v1' ? '/openai/v1' : '/openai/deployments/{deployment}';
+  const hint = status === 404
+    ? ` Hint: ${hasReferenceImages ? 'les images de reference utilisent obligatoirement `images/edits`; ' : ''}verifie AZURE_OPENAI_IMAGE_ENDPOINT, AZURE_OPENAI_IMAGE_DEPLOYMENT=${deployment}, AZURE_OPENAI_IMAGE_API_VERSION=${apiVersion}, et que le deploiement GPT-image existe bien sur cette ressource. Route tentee: ${routeLabel}/${operation}.`
+    : '';
+
+  return `Azure OpenAI image failed (${status}): ${providerMessage || `HTTP ${status}`}${hint}`;
+}
+
 function buildAzureOpenAIImagePayload(
   options: ImageGenerationOptions,
   model: string,
@@ -1378,7 +1460,11 @@ async function generateAzureOpenAIImageBinaries(
 
   const response = await retryWithBackoff(async () => {
     if (referenceImages.length > 0) {
+      const route = resolveAzureImageUrl('edits');
       const form = new FormData();
+      if (shouldSendAzureModelInBody(route)) {
+        form.set('model', getAzureImageRequestModel());
+      }
       form.set('prompt', commonPayload.prompt);
       form.set('size', commonPayload.size);
       form.set('quality', commonPayload.quality);
@@ -1390,31 +1476,32 @@ async function generateAzureOpenAIImageBinaries(
       referenceImages.forEach((reference, index) => {
         const bytes = decodeBinaryData(reference.data);
         form.append(
-          'image',
+          'image[]',
           new Blob([bytes], { type: reference.mimeType }),
           `reference-${index + 1}.${guessExtensionFromMimeType(reference.mimeType)}`,
         );
       });
-      return fetch(resolveAzureImageUrl('edits'), {
+      return fetch(route.url, {
         method: 'POST',
         headers: getAzureImageAuthHeaders(apiKey),
         body: form,
       });
     }
 
-    return fetch(resolveAzureImageUrl('generations'), {
+    const route = resolveAzureImageUrl('generations');
+    return fetch(route.url, {
       method: 'POST',
       headers: {
         ...getAzureImageAuthHeaders(apiKey),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(commonPayload),
+      body: JSON.stringify(buildAzureOpenAIImageRequestBody(commonPayload, route)),
     });
   });
 
   const bodyText = await response.text();
   if (!response.ok) {
-    throw new Error(`Azure OpenAI image failed (${response.status}): ${clipText(bodyText, 500)}`);
+    throw new Error(formatAzureImageError(response.status, bodyText, resolveAzureImageUrl(referenceImages.length > 0 ? 'edits' : 'generations'), referenceImages.length > 0));
   }
 
   let body: any;
@@ -2035,4 +2122,15 @@ export const __podcastMediaInternals = {
   cleanGeneratedPodcastScript,
   getWaveDurationSeconds,
   mixPodcastEpisodeWavFallback,
+};
+
+export const __imageMediaInternals = {
+  appendAzureApiVersion,
+  buildAzureOpenAIImagePayload,
+  buildAzureOpenAIImageRequestBody,
+  classifyAzureImageRoute,
+  formatAzureImageError,
+  resolveAzureApiVersionForRoute,
+  resolveAzureImageUrl,
+  shouldSendAzureModelInBody,
 };

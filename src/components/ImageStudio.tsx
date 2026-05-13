@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Archive,
   Brain,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Download,
   Globe2,
@@ -13,7 +15,7 @@ import {
   ListPlus,
   Loader2,
   Maximize2,
-  SlidersHorizontal,
+  Settings2,
   Sparkles,
   Trash2,
   Upload,
@@ -72,17 +74,20 @@ import {
 } from './MediaStudioLayout';
 
 const imageTone: MediaStudioTone = {
-  accent: '#9fe7c6',
-  accentRgb: '159,231,198',
-  accentInk: '#06110d',
-  washRgb: '14,165,233',
+  accent: '#a78bfa',
+  accentRgb: '167,139,250',
+  accentInk: '#0d0718',
+  washRgb: '99,102,241',
   icon: ImageIcon,
 };
+
+const IMAGE_TIMING_STORAGE_KEY = 'studio-image-generation-timing-v1';
 
 interface ImageStudioProps {
   onGenerate: (prompt: string, request?: MediaGenerationRequest) => void;
   isLoading: boolean;
   messages: Message[];
+  archiveImages?: MediaHistoryEntry[];
   onImageClick: (url: string) => void;
   pendingAttachments: Attachment[];
   onAddAttachments: (files: FileList | File[]) => Promise<void>;
@@ -93,6 +98,12 @@ type PendingImageRun = {
   id: string;
   prompt: string;
   createdAt: number;
+};
+
+type TimingRecord = {
+  averageMs: number;
+  runs: number;
+  updatedAt: number;
 };
 
 type CssVars = React.CSSProperties & Record<`--${string}`, string>;
@@ -107,6 +118,82 @@ function formatShortTime(timestamp: number) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(timestamp));
+}
+
+function formatDuration(ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) return '0s';
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
+function canUseLocalStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function readTimingStore(): Record<string, TimingRecord> {
+  if (!canUseLocalStorage()) return {};
+  try {
+    const raw = window.localStorage.getItem(IMAGE_TIMING_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, TimingRecord> : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeTimingStore(store: Record<string, TimingRecord>) {
+  if (!canUseLocalStorage()) return;
+  try {
+    window.localStorage.setItem(IMAGE_TIMING_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Estimation only. Ignore quota/private-mode failures.
+  }
+}
+
+function getStoredDurationMs(key: string) {
+  const record = readTimingStore()[key];
+  return record?.averageMs && Number.isFinite(record.averageMs) ? record.averageMs : null;
+}
+
+function recordGenerationDuration(key: string, durationMs: number) {
+  if (!key || !Number.isFinite(durationMs) || durationMs < 1000) return;
+  const store = readTimingStore();
+  const previous = store[key];
+  const runs = Math.min(50, (previous?.runs || 0) + 1);
+  const alpha = previous ? 0.35 : 1;
+  const averageMs = previous
+    ? Math.round(previous.averageMs * (1 - alpha) + durationMs * alpha)
+    : Math.round(durationMs);
+  store[key] = {
+    averageMs,
+    runs,
+    updatedAt: Date.now(),
+  };
+  writeTimingStore(store);
+}
+
+function estimateFallbackDurationMs(model: string, outputCount: number, referenceCount: number, quality?: string, size?: string) {
+  const isAzure = isAzureOpenAIImageModel(model);
+  const base = isAzure ? 32_000 : 24_000;
+  const qualityFactor = quality === 'high' ? 1.35 : quality === 'medium' ? 1.12 : 0.86;
+  const sizeFactor = size === '4K' ? 1.75 : size === '2K' ? 1.28 : 1;
+  const outputFactor = Math.max(1, Math.min(4, outputCount)) ** 0.72;
+  const refsFactor = 1 + Math.min(8, referenceCount) * 0.08;
+  return Math.round(base * qualityFactor * sizeFactor * outputFactor * refsFactor);
+}
+
+function mergeImageEntries(entries: MediaHistoryEntry[]) {
+  const unique = new Map<string, MediaHistoryEntry>();
+  for (const entry of [...entries].sort((left, right) => right.createdAt - left.createdAt)) {
+    const key = entry.url || entry.id;
+    if (!key || unique.has(key)) continue;
+    unique.set(key, entry);
+  }
+  return Array.from(unique.values()).sort((left, right) => right.createdAt - left.createdAt);
 }
 
 function buildPendingImageRuns(
@@ -145,10 +232,71 @@ function buildPendingImageRuns(
     }));
 }
 
+function CompactControl({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <label className={cn(
+      'flex h-12 w-[7.5rem] shrink-0 flex-col justify-center border border-white/[0.08] bg-white/[0.035] px-3',
+      className,
+    )}>
+      <span className="text-[10px] font-semibold text-[var(--app-text-muted)]">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function AdaptiveImageLoader({
+  elapsedMs,
+  estimatedMs,
+  progress,
+}: {
+  elapsedMs: number;
+  estimatedMs: number;
+  progress: number;
+}) {
+  const percentage = Math.round(Math.min(0.92, Math.max(0.06, progress)) * 100);
+  const degrees = Math.round(percentage * 3.6);
+
+  return (
+    <div className="flex min-h-[22rem] h-full flex-col items-center justify-center px-6 text-center">
+      <div className="relative h-28 w-28">
+        <div
+          className="absolute inset-0"
+          style={{
+            background: `conic-gradient(var(--media-accent) ${degrees}deg, rgba(255,255,255,0.08) 0deg)`,
+          }}
+        />
+        <div className="absolute inset-2 bg-[rgba(var(--app-bg-rgb),0.88)]" />
+        <div className="absolute inset-5 animate-spin border border-transparent border-t-[var(--media-accent)]" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Sparkles size={22} className="text-[var(--media-accent)]" />
+        </div>
+      </div>
+      <div className="mt-5 h-1 w-52 overflow-hidden bg-white/[0.08]">
+        <div
+          className="h-full bg-[var(--media-accent)] transition-[width] duration-300"
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <div className="mt-3 text-xs font-semibold tabular-nums text-[var(--app-text-muted)]">
+        {formatDuration(elapsedMs)} / ~{formatDuration(estimatedMs)}
+      </div>
+    </div>
+  );
+}
+
 export const ImageStudio: React.FC<ImageStudioProps> = ({
   onGenerate,
   isLoading,
   messages,
+  archiveImages = [],
   onImageClick,
   pendingAttachments,
   onAddAttachments,
@@ -175,20 +323,29 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const [prompt, setPrompt] = useState('');
   const [queuedPrompts, setQueuedPrompts] = useState<string[]>([]);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
+  const [loadingNow, setLoadingNow] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const generationStartRef = useRef<{ startedAt: number; key: string } | null>(null);
 
   const allImages = useMemo(() => buildImageHistory(messages), [messages]);
+  const archiveGalleryImages = useMemo(
+    () => mergeImageEntries([...archiveImages, ...allImages]),
+    [allImages, archiveImages],
+  );
+  const galleryImages = showArchive ? archiveGalleryImages : allImages;
   const pendingRuns = useMemo(
     () => buildPendingImageRuns(messages, allImages, isLoading),
     [allImages, isLoading, messages],
   );
   const featuredImage = useMemo(
-    () => allImages.find((image) => image.id === selectedImageId) || allImages[0] || null,
-    [allImages, selectedImageId],
+    () => galleryImages.find((image) => image.id === selectedImageId) || galleryImages[0] || null,
+    [galleryImages, selectedImageId],
   );
   const visibleHistoryImages = useMemo(
-    () => allImages.filter((image) => image.id !== featuredImage?.id),
-    [allImages, featuredImage?.id],
+    () => galleryImages.filter((image) => image.id !== featuredImage?.id),
+    [featuredImage?.id, galleryImages],
   );
   const sourceImages = useMemo(
     () => pendingAttachments.filter((attachment) => attachment.type === 'image'),
@@ -200,7 +357,9 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     () => [...queuedPrompts, ...(draftPrompt ? [draftPrompt] : [])],
     [draftPrompt, queuedPrompts],
   );
-  const canSubmit = promptsToSend.length > 0;
+  const maxReferenceImages = selectedModel?.maxReferenceImages || 3;
+  const referenceOverflow = sourceImages.length > maxReferenceImages;
+  const canSubmit = promptsToSend.length > 0 && !referenceOverflow;
   const selectedModelLabel = selectedModel?.label || getImageModelLabel(config.model);
   const currentOutputFormat = config.imageOutputFormat || getImageModelDefaultOutputFormat(config.model);
   const currentImageDimensions = config.imageDimensions || getImageModelDefaultImageDimensions(config.model);
@@ -214,20 +373,52 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
   const style: CssVars = {
     '--media-accent': imageTone.accent,
     '--media-accent-rgb': imageTone.accentRgb,
-    '--media-accent-ink': imageTone.accentInk || '#06110d',
+    '--media-accent-ink': imageTone.accentInk || '#0d0718',
     '--media-wash-rgb': imageTone.washRgb || imageTone.accentRgb,
   };
 
+  const generationTimingKey = useMemo(() => [
+    config.model,
+    config.aspectRatio || 'auto',
+    currentImageSize || '-',
+    currentImageDimensions || '-',
+    currentImageQuality || '-',
+    currentOutputFormat || '-',
+    currentBackground || '-',
+    currentModeration || '-',
+    currentSafetySetting || '-',
+    outputCount,
+    sourceImages.length,
+    promptsToSend.length || 1,
+  ].join('|'), [
+    config.aspectRatio,
+    config.model,
+    currentBackground,
+    currentImageDimensions,
+    currentImageQuality,
+    currentImageSize,
+    currentModeration,
+    currentOutputFormat,
+    currentSafetySetting,
+    outputCount,
+    promptsToSend.length,
+    sourceImages.length,
+  ]);
+  const estimatedDurationMs = getStoredDurationMs(generationTimingKey)
+    ?? estimateFallbackDurationMs(config.model, outputCount, sourceImages.length, currentImageQuality, currentImageSize);
+  const elapsedMs = generationStartRef.current ? Math.max(0, loadingNow - generationStartRef.current.startedAt) : 0;
+  const loadingProgress = isLoading ? Math.min(0.92, Math.max(0.06, elapsedMs / estimatedDurationMs)) : 0;
+
   useEffect(() => {
-    if (!allImages.length) {
+    if (!galleryImages.length) {
       setSelectedImageId(null);
       return;
     }
 
-    if (!selectedImageId || !allImages.some((image) => image.id === selectedImageId)) {
-      setSelectedImageId(allImages[0].id);
+    if (!selectedImageId || !galleryImages.some((image) => image.id === selectedImageId)) {
+      setSelectedImageId(galleryImages[0].id);
     }
-  }, [allImages, selectedImageId]);
+  }, [galleryImages, selectedImageId]);
 
   useEffect(() => {
     if (!supportsAutoRatio && !config.aspectRatio) {
@@ -252,11 +443,17 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     if (backgroundOptions.length > 0 && !isImageModelBackgroundSupported(config.model, config.imageBackground || '')) {
       nextConfig.imageBackground = getImageModelDefaultBackground(config.model);
     }
-    if (moderationOptions.length > 0 && !isImageModelModerationSupported(config.model, config.imageModeration || '')) {
-      nextConfig.imageModeration = getImageModelDefaultModeration(config.model);
+    if (moderationOptions.length > 0 && config.imageModeration !== 'low') {
+      nextConfig.imageModeration = 'low';
+    }
+    if (safetySettingOptions.length > 0 && config.safetySetting !== 'BLOCK_NONE') {
+      nextConfig.safetySetting = 'BLOCK_NONE';
     }
     if (safetySettingOptions.length > 0 && !isImageModelSafetySettingSupported(config.model, config.safetySetting || '')) {
       nextConfig.safetySetting = getImageModelDefaultSafetySetting(config.model);
+    }
+    if (moderationOptions.length > 0 && !isImageModelModerationSupported(config.model, config.imageModeration || '')) {
+      nextConfig.imageModeration = getImageModelDefaultModeration(config.model);
     }
     if (thinkingLevelOptions.length > 0 && !isImageModelThinkingLevelSupported(config.model, config.thinkingLevel || '')) {
       nextConfig.thinkingLevel = getImageModelDefaultThinkingLevel(config.model);
@@ -293,7 +490,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     config.imageQuality,
     config.imageSize,
     config.model,
-    config.numberOfImages,
     config.safetySetting,
     config.thinkingLevel,
     dimensionOptions.length,
@@ -310,12 +506,38 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     thinkingLevelOptions.length,
   ]);
 
+  useEffect(() => {
+    if (isLoading && !generationStartRef.current) {
+      generationStartRef.current = { startedAt: Date.now(), key: generationTimingKey };
+      setLoadingNow(Date.now());
+    }
+
+    if (!isLoading && generationStartRef.current) {
+      recordGenerationDuration(
+        generationStartRef.current.key,
+        Date.now() - generationStartRef.current.startedAt,
+      );
+      generationStartRef.current = null;
+      setLoadingNow(Date.now());
+    }
+  }, [generationTimingKey, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) return undefined;
+    const intervalId = window.setInterval(() => setLoadingNow(Date.now()), 250);
+    return () => window.clearInterval(intervalId);
+  }, [isLoading]);
+
   const handleOpenFilePicker = () => {
     fileInputRef.current?.click();
   };
 
   const handleSourceFiles = async (files: FileList | File[]) => {
-    const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'));
+    const remainingSlots = Math.max(0, maxReferenceImages - sourceImages.length);
+    if (remainingSlots <= 0) return;
+    const imageFiles = Array.from(files)
+      .filter((file) => file.type.startsWith('image/'))
+      .slice(0, remainingSlots);
     if (imageFiles.length === 0) return;
     await onAddAttachments(imageFiles);
   };
@@ -341,61 +563,9 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     setPrompt('');
   };
 
-  const settings = (
-    <div className="min-h-0 border-t border-white/[0.07] pt-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--app-text)]">
-          <SlidersHorizontal size={14} className="text-[var(--media-accent)]" />
-          Parametres
-        </div>
-        <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-          {isAzureImageModel ? 'GPT' : 'Google'}
-        </div>
-      </div>
-
-      <div className="grid max-h-44 min-h-0 grid-cols-2 gap-x-3 gap-y-2 overflow-y-auto pr-1">
-        <MediaField label="Modele">
-          <MediaSelect
-            value={config.model}
-            onChange={(event) => setConfig({ model: event.target.value })}
-          >
-            {IMAGE_MODEL_OPTIONS.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.label}
-              </option>
-            ))}
-          </MediaSelect>
-        </MediaField>
-
-        <MediaField label="Sorties">
-          <MediaInput
-            type="number"
-            min={1}
-            step={1}
-            value={config.numberOfImages || 1}
-            onChange={(event) => {
-              const raw = Number(event.target.value);
-              const next = Number.isFinite(raw)
-                ? Math.max(1, Math.round(raw))
-                : 1;
-              setConfig({ numberOfImages: next });
-            }}
-          />
-        </MediaField>
-
-        <MediaField label="Ratio">
-          <MediaSelect
-            value={config.aspectRatio || ''}
-            onChange={(event) => setConfig({ aspectRatio: event.target.value as any })}
-          >
-            {aspectRatioOptions.map((option) => (
-              <option key={option.value || 'auto'} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </MediaSelect>
-        </MediaField>
-
+  const settingsPanel = (
+    <div className="absolute right-0 top-full z-30 mt-2 w-[min(92vw,42rem)] border border-white/[0.1] bg-[rgba(var(--app-bg-rgb),0.96)] p-4 shadow-2xl shadow-black/30 backdrop-blur">
+      <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
         {imageSizeOptions.length > 0 && (
           <MediaField label="Taille">
             <MediaSelect
@@ -403,9 +573,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               onChange={(event) => setConfig({ imageSize: event.target.value as any })}
             >
               {imageSizeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </MediaSelect>
           </MediaField>
@@ -421,9 +589,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             />
             <datalist id="gpt-image-dimensions">
               {dimensionOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </datalist>
           </MediaField>
@@ -436,9 +602,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               onChange={(event) => setConfig({ imageQuality: event.target.value as any })}
             >
               {qualityOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </MediaSelect>
           </MediaField>
@@ -448,12 +612,37 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           <MediaField label="Format">
             <MediaSelect
               value={currentOutputFormat}
-              onChange={(event) => setConfig({ imageOutputFormat: event.target.value as any })}
+              onChange={(event) => {
+                const nextFormat = event.target.value as any;
+                setConfig({
+                  imageOutputFormat: nextFormat,
+                  imageBackground: currentBackground === 'transparent' && nextFormat !== 'png'
+                    ? 'auto'
+                    : currentBackground as any,
+                });
+              }}
             >
               {outputFormatOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </MediaSelect>
+          </MediaField>
+        )}
+
+        {backgroundOptions.length > 0 && (
+          <MediaField label="Fond">
+            <MediaSelect
+              value={currentBackground}
+              onChange={(event) => {
+                const nextBackground = event.target.value as any;
+                setConfig({
+                  imageBackground: nextBackground,
+                  imageOutputFormat: nextBackground === 'transparent' ? 'png' : currentOutputFormat as any,
+                });
+              }}
+            >
+              {backgroundOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </MediaSelect>
           </MediaField>
@@ -476,21 +665,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
           </MediaField>
         )}
 
-        {backgroundOptions.length > 0 && (
-          <MediaField label="Fond">
-            <MediaSelect
-              value={currentBackground}
-              onChange={(event) => setConfig({ imageBackground: event.target.value as any })}
-            >
-              {backgroundOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </MediaSelect>
-          </MediaField>
-        )}
-
         {moderationOptions.length > 0 && (
           <MediaField label="Moderation">
             <MediaSelect
@@ -498,9 +672,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               onChange={(event) => setConfig({ imageModeration: event.target.value as any })}
             >
               {moderationOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </MediaSelect>
           </MediaField>
@@ -513,9 +685,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               onChange={(event) => setConfig({ safetySetting: event.target.value })}
             >
               {safetySettingOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </MediaSelect>
           </MediaField>
@@ -528,20 +698,15 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               onChange={(event) => setConfig({ thinkingLevel: event.target.value as any })}
             >
               {thinkingLevelOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </MediaSelect>
           </MediaField>
         )}
 
         {supportsGoogleSearch && (
-          <label className="flex h-9 min-w-0 items-center justify-between gap-3 border-b border-white/[0.12] text-xs font-semibold text-[var(--app-text)]">
-            <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
-              <Globe2 size={13} className="text-[var(--media-accent)]" />
-              Search
-            </span>
+          <label className="flex h-10 items-center justify-between gap-3 border-b border-white/[0.12] text-xs font-semibold text-[var(--app-text)]">
+            <span className="inline-flex items-center gap-2"><Globe2 size={14} /> Search</span>
             <input
               type="checkbox"
               checked={Boolean(config.googleSearch)}
@@ -552,11 +717,8 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         )}
 
         {supportsIncludeThoughts && (
-          <label className="flex h-9 min-w-0 items-center justify-between gap-3 border-b border-white/[0.12] text-xs font-semibold text-[var(--app-text)]">
-            <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
-              <Brain size={13} className="text-[var(--media-accent)]" />
-              Thoughts
-            </span>
+          <label className="flex h-10 items-center justify-between gap-3 border-b border-white/[0.12] text-xs font-semibold text-[var(--app-text)]">
+            <span className="inline-flex items-center gap-2"><Brain size={14} /> Thoughts</span>
             <input
               type="checkbox"
               checked={Boolean(config.imageIncludeThoughts)}
@@ -578,34 +740,127 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         multiple
         className="hidden"
         onChange={(event) => {
-          if (event.target.files) {
-            void handleSourceFiles(event.target.files);
-          }
-          event.target.value = '';
+          const files = event.target.files;
+          if (files) void handleSourceFiles(files);
+          event.currentTarget.value = '';
         }}
       />
 
       <div
         data-image-studio-scroll="true"
         style={style}
-        className="relative h-full w-full max-w-full overflow-y-auto overflow-x-hidden bg-[linear-gradient(118deg,rgba(var(--media-wash-rgb),0.09),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.018),transparent_44%),var(--app-bg)] lg:overflow-hidden"
+        className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-[linear-gradient(135deg,rgba(var(--media-wash-rgb),0.07),rgba(var(--app-bg-rgb),0)_34%),var(--app-bg)] lg:overflow-hidden"
       >
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.012)_1px,transparent_1px)] bg-[size:64px_64px] opacity-50" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.012)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:64px_64px] opacity-40" />
 
-        <div className="relative mx-auto grid min-h-full w-full max-w-[112rem] gap-3 px-3 py-3 sm:px-4 lg:h-full lg:grid-cols-[minmax(20rem,0.7fr)_minmax(0,1.5fr)_minmax(17rem,0.55fr)] lg:gap-4 lg:overflow-hidden lg:px-5">
-          {allImages.length > 0 && (
+        <div className="relative mx-auto flex min-h-full w-full max-w-[118rem] flex-col gap-3 px-3 py-3 sm:px-4 lg:h-full lg:px-5">
+          <header className="relative flex shrink-0 flex-col gap-3 border-b border-white/[0.07] pb-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--media-accent)]">
+                <ImageIcon size={26} />
+              </div>
+              <h1 className="text-2xl font-bold tracking-normal text-[var(--app-text)]">Image</h1>
+            </div>
+
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 xl:w-auto">
+              <CompactControl label="Modele" className="w-[15rem] max-w-full">
+                <MediaSelect
+                  value={config.model}
+                  onChange={(event) => setConfig({ model: event.target.value })}
+                  className="h-6 border-b-0 text-sm"
+                >
+                  {IMAGE_MODEL_OPTIONS.map((model) => (
+                    <option key={model.id} value={model.id}>{model.label}</option>
+                  ))}
+                </MediaSelect>
+              </CompactControl>
+
+              <CompactControl label="Sorties" className="w-[5.5rem]">
+                <MediaInput
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={config.numberOfImages || 1}
+                  onChange={(event) => {
+                    const raw = Number(event.target.value);
+                    const next = Number.isFinite(raw) ? Math.max(1, Math.round(raw)) : 1;
+                    setConfig({ numberOfImages: next });
+                  }}
+                  className="h-6 border-b-0 text-sm"
+                />
+              </CompactControl>
+
+              <CompactControl label="Ratio" className="w-[7rem]">
+                <MediaSelect
+                  value={config.aspectRatio || ''}
+                  onChange={(event) => setConfig({ aspectRatio: event.target.value as any })}
+                  className="h-6 border-b-0 text-sm"
+                >
+                  {aspectRatioOptions.map((option) => (
+                    <option key={option.value || 'auto'} value={option.value}>{option.label}</option>
+                  ))}
+                </MediaSelect>
+              </CompactControl>
+
+              <button
+                type="button"
+                onClick={handleOpenFilePicker}
+                className={cn(
+                  'flex h-12 w-[5.75rem] shrink-0 flex-col justify-center border bg-white/[0.035] px-3 text-left',
+                  referenceOverflow ? 'border-red-400/60' : 'border-white/[0.08] hover:border-[rgba(var(--media-accent-rgb),0.42)]',
+                )}
+                title="Ajouter des references"
+                aria-label="Ajouter des references"
+              >
+                <span className="text-[10px] font-semibold text-[var(--app-text-muted)]">Refs</span>
+                <span className="text-sm font-semibold tabular-nums text-[var(--app-text)]">{sourceImages.length} / {maxReferenceImages}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowArchive((value) => !value)}
+                className={cn(
+                  'flex h-12 w-12 shrink-0 items-center justify-center border text-[var(--app-text)]',
+                  showArchive
+                    ? 'border-[var(--media-accent)] bg-[rgba(var(--media-accent-rgb),0.14)]'
+                    : 'border-white/[0.08] bg-white/[0.035] hover:border-[rgba(var(--media-accent-rgb),0.42)]',
+                )}
+                title="Archives"
+                aria-label="Archives"
+              >
+                <Archive size={18} />
+              </button>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen((value) => !value)}
+                  className={cn(
+                    'flex h-12 w-12 shrink-0 items-center justify-center gap-2 border text-sm font-semibold text-[var(--app-text)]',
+                    isSettingsOpen
+                      ? 'border-[var(--media-accent)] bg-[rgba(var(--media-accent-rgb),0.14)]'
+                      : 'border-white/[0.08] bg-white/[0.035] hover:border-[rgba(var(--media-accent-rgb),0.42)]',
+                  )}
+                >
+                  <Settings2 size={16} />
+                  <ChevronDown size={14} className={cn('transition-transform', isSettingsOpen && 'rotate-180')} />
+                </button>
+                {isSettingsOpen && settingsPanel}
+              </div>
+            </div>
+          </header>
+
+          {galleryImages.length > 0 && (
             <div className="min-w-0 overflow-hidden border-b border-white/[0.08] pb-3 lg:hidden">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-                  <History size={13} className="text-[var(--media-accent)]" />
-                  Historique
+                  {showArchive ? <Archive size={13} className="text-[var(--media-accent)]" /> : <History size={13} className="text-[var(--media-accent)]" />}
+                  {showArchive ? 'Archives' : 'Historique'}
                 </div>
-                <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-                  {allImages.length} rendu{allImages.length > 1 ? 's' : ''}
-                </div>
+                <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">{galleryImages.length}</div>
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {allImages.slice(0, 10).map((image) => (
+                {galleryImages.slice(0, 12).map((image) => (
                   <button
                     key={`mobile-${image.id}`}
                     type="button"
@@ -624,119 +879,89 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
             </div>
           )}
 
-          <section className="flex min-h-[34rem] min-w-0 flex-col overflow-y-auto overflow-x-hidden border-b border-white/[0.08] pb-3 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
-            <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-                  <ImageIcon size={13} className="text-[var(--media-accent)]" />
-                  Image
-                </div>
-                <div className="mt-1 truncate text-sm font-semibold text-[var(--app-text)]">
-                  {selectedModelLabel}
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-right text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-                <div>
-                  <div className="text-[var(--app-text)]">{outputCount}</div>
-                  <div>Sorties</div>
-                </div>
-                <div>
-                  <div className="text-[var(--app-text)]">{config.aspectRatio || 'Auto'}</div>
-                  <div>Ratio</div>
-                </div>
-                <div>
-                  <div className="text-[var(--app-text)]">{sourceImages.length}</div>
-                  <div>Refs</div>
-                </div>
-              </div>
-            </div>
+          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(18rem,0.62fr)_minmax(0,1.7fr)_minmax(16rem,0.52fr)] lg:gap-4 lg:overflow-hidden">
+            <section className="flex min-h-[34rem] min-w-0 flex-col overflow-y-auto overflow-x-hidden border-b border-white/[0.08] pb-3 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
+              <div className="grid min-h-0 flex-1 grid-rows-[minmax(9rem,0.95fr)_auto_auto] gap-4">
+                <MediaField label="Prompt" className="min-h-0">
+                  <MediaTextarea
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                        event.preventDefault();
+                        void handleSubmit();
+                      }
+                    }}
+                    placeholder="Decris l'image..."
+                    rows={8}
+                    maxLength={3000}
+                    className="border border-white/[0.1] border-l-[rgba(var(--media-accent-rgb),0.38)] bg-white/[0.03] px-4 py-3 text-[15px]"
+                  />
+                </MediaField>
 
-            <div className="grid min-h-0 flex-1 grid-rows-[minmax(6rem,0.82fr)_auto_auto_auto] gap-3 pt-3">
-              <MediaField label="Prompt" className="min-h-0">
-                <MediaTextarea
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                      event.preventDefault();
-                      void handleSubmit();
-                    }
-                  }}
-                  placeholder="Decris l'image..."
-                  rows={8}
-                  className="border-l-[rgba(var(--media-accent-rgb),0.28)] text-[15px]"
-                />
-              </MediaField>
-
-              <div className="min-h-0 border-t border-white/[0.07] pt-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--app-text)]">
-                    <Layers3 size={14} className="text-[var(--media-accent)]" />
-                    Stack
+                <div className="min-h-0 border-t border-white/[0.07] pt-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--app-text)]">
+                      <Layers3 size={14} className="text-[var(--media-accent)]" />
+                      Stack
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addDraftToQueue}
+                      disabled={!draftPrompt}
+                      className={cn(
+                        'inline-flex h-8 items-center gap-1.5 border-b px-1 text-xs font-semibold',
+                        draftPrompt
+                          ? 'border-white/[0.18] text-[var(--app-text)] hover:border-[var(--media-accent)]'
+                          : 'cursor-not-allowed border-white/[0.08] text-[var(--app-text-muted)]',
+                      )}
+                    >
+                      <ListPlus size={14} />
+                      <span className="hidden sm:inline">Ajouter</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={addDraftToQueue}
-                    disabled={!draftPrompt}
-                    className={cn(
-                      'inline-flex h-8 items-center gap-1.5 border-b px-1 text-xs font-semibold',
-                      draftPrompt
-                        ? 'border-white/[0.18] text-[var(--app-text)] hover:border-[var(--media-accent)]'
-                        : 'cursor-not-allowed border-white/[0.08] text-[var(--app-text-muted)]',
-                    )}
-                  >
-                    <ListPlus size={14} />
-                    Ajouter
-                  </button>
+
+                  {queuedPrompts.length > 0 ? (
+                    <div className="grid max-h-28 gap-2 overflow-y-auto pr-1">
+                      {queuedPrompts.map((queuedPrompt, index) => (
+                        <div key={`${queuedPrompt}-${index}`} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-l border-white/[0.12] pl-2">
+                          <span className="text-[10px] font-semibold tabular-nums text-[var(--media-accent)]">{index + 1}</span>
+                          <span className="truncate text-xs text-[var(--app-text)]">{queuedPrompt}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeQueuedPrompt(index)}
+                            className="flex h-7 w-7 items-center justify-center text-[var(--app-text-muted)] hover:text-[var(--app-text)]"
+                            title="Retirer"
+                            aria-label="Retirer"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex h-11 items-center border-l border-white/[0.08] pl-3 text-xs text-[var(--app-text-muted)]">
+                      Prompt direct
+                    </div>
+                  )}
                 </div>
 
-                {queuedPrompts.length > 0 ? (
-                  <div className="grid max-h-24 gap-2 overflow-y-auto pr-1">
-                    {queuedPrompts.map((queuedPrompt, index) => (
-                      <div key={`${queuedPrompt}-${index}`} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-l border-white/[0.12] pl-2">
-                        <span className="text-[10px] font-semibold tabular-nums text-[var(--media-accent)]">
-                          {index + 1}
-                        </span>
-                        <span className="truncate text-xs text-[var(--app-text)]">
-                          {queuedPrompt}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeQueuedPrompt(index)}
-                          className="flex h-7 w-7 items-center justify-center text-[var(--app-text-muted)] hover:text-[var(--app-text)]"
-                          title="Retirer"
-                          aria-label="Retirer"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex h-10 items-center border-l border-white/[0.08] pl-3 text-xs text-[var(--app-text-muted)]">
-                    Prompt direct
-                  </div>
-                )}
-              </div>
-
-              {settings}
-
-              <div className="grid gap-3">
                 <div className="min-h-0 border-t border-white/[0.07] pt-3">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="text-xs font-semibold text-[var(--app-text)]">Refs</div>
                     <button
                       type="button"
                       onClick={handleOpenFilePicker}
-                      className="inline-flex items-center gap-1.5 border-b border-white/[0.16] px-1 py-1 text-xs font-semibold text-[var(--app-text)] hover:border-[var(--media-accent)]"
+                      className="inline-flex h-8 w-8 items-center justify-center bg-white/[0.07] text-[var(--app-text)] hover:bg-white/[0.12]"
+                      title="Ajouter"
+                      aria-label="Ajouter"
                     >
                       <Upload size={15} />
-                      +
                     </button>
                   </div>
 
                   {sourceImages.length > 0 ? (
-                    <div className="grid max-h-20 grid-cols-5 gap-2 overflow-y-auto pr-1">
+                    <div className="grid max-h-24 grid-cols-5 gap-2 overflow-y-auto pr-1">
                       {sourceImages.map((attachment) => (
                         <div key={attachment.id} className="group relative overflow-hidden border border-white/[0.08]">
                           <button type="button" onClick={() => onImageClick(attachment.url)} className="block w-full">
@@ -758,207 +983,223 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                     <button
                       type="button"
                       onClick={handleOpenFilePicker}
-                      className="flex h-12 w-full items-center justify-center border border-dashed border-white/[0.12] text-xs font-semibold text-[var(--app-text-muted)] hover:border-[rgba(var(--media-accent-rgb),0.42)] hover:text-[var(--app-text)]"
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        void handleSourceFiles(event.dataTransfer.files);
+                      }}
+                      className="flex h-24 w-full flex-col items-center justify-center gap-2 border border-dashed border-white/[0.14] text-xs font-semibold text-[var(--app-text-muted)] hover:border-[rgba(var(--media-accent-rgb),0.42)] hover:text-[var(--app-text)]"
                     >
+                      <Upload size={21} />
                       Deposer
                     </button>
                   )}
                 </div>
-
-                <PrimaryActionButton
-                  onClick={handleSubmit}
-                  disabled={!canSubmit}
-                  loading={false}
-                  loadingLabel="..."
-                  idleLabel={promptsToSend.length > 1 ? `Generer ${promptsToSend.length}` : 'Generer'}
-                  icon={Sparkles}
-                  className="h-11"
-                />
               </div>
-            </div>
-          </section>
+            </section>
 
-          <main className="flex min-h-[36rem] min-w-0 flex-col overflow-hidden border-b border-white/[0.08] pb-3 lg:h-full lg:min-h-0 lg:border-b-0 lg:pb-0">
-            <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-                  <Grid2X2 size={13} className="text-[var(--media-accent)]" />
-                  Scene
-                </div>
-                <div className="mt-1 truncate text-sm font-semibold text-[var(--app-text)]">
-                  {featuredImage?.name || (isLoading ? 'Generation en cours' : 'Aucun rendu')}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-[var(--app-text-muted)]">
-                {isLoading ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin text-[var(--media-accent)]" />
-                    Live
-                  </>
-                ) : featuredImage ? (
-                  <>
-                    <CheckCircle2 size={14} className="text-[var(--media-accent)]" />
-                    Sauve
-                  </>
-                ) : (
-                  <>
-                    <Images size={14} />
-                    Vide
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-3 pt-3">
-              <div className="group relative min-h-0 overflow-hidden border border-white/[0.08] bg-[linear-gradient(135deg,rgba(255,255,255,0.035),transparent_34%),rgba(0,0,0,0.2)]">
-                {featuredImage ? (
-                  <>
-                    <button type="button" onClick={() => onImageClick(featuredImage.url)} className="block h-full w-full">
-                      <img
-                        src={featuredImage.url}
-                        alt={featuredImage.name || 'Image generee'}
-                        className="h-full w-full object-contain"
-                      />
-                    </button>
-                    <div className="absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      <button
-                        type="button"
-                        onClick={() => onImageClick(featuredImage.url)}
-                        className="inline-flex h-8 w-8 items-center justify-center bg-black/45 text-white/80 hover:text-white"
-                        title="Agrandir"
-                        aria-label="Agrandir"
-                      >
-                        <Maximize2 size={15} />
-                      </button>
-                      <a
-                        href={featuredImage.url}
-                        download={featuredImage.name || 'image-generee.png'}
-                        className="inline-flex h-8 w-8 items-center justify-center bg-black/45 text-white/80 hover:text-white"
-                        title="Telecharger"
-                        aria-label="Telecharger"
-                      >
-                        <Download size={15} />
-                      </a>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex h-full min-h-[22rem] flex-col items-center justify-center px-6 text-center">
-                    {isLoading ? (
-                      <>
-                        <Loader2 size={28} className="animate-spin text-[var(--media-accent)]" />
-                        <p className="mt-3 text-sm font-semibold text-[var(--app-text)]">Generation en cours</p>
-                      </>
-                    ) : (
-                      <>
-                        <Images size={28} className="text-[var(--media-accent)]" />
-                        <p className="mt-3 text-sm font-semibold text-[var(--app-text)]">Aucun rendu image</p>
-                      </>
-                    )}
+            <main className="flex min-h-[36rem] min-w-0 flex-col overflow-hidden border-b border-white/[0.08] pb-3 lg:h-full lg:min-h-0 lg:border-b-0 lg:pb-0">
+              <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
+                    <Grid2X2 size={13} className="text-[var(--media-accent)]" />
+                    Scene
                   </div>
-                )}
+                  <div className="mt-1 truncate text-sm font-semibold text-[var(--app-text)]">
+                    {featuredImage?.name || selectedModelLabel}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--app-text-muted)]">
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin text-[var(--media-accent)]" />
+                      <span className="hidden sm:inline">Live</span>
+                    </>
+                  ) : featuredImage ? (
+                    <>
+                      <CheckCircle2 size={14} className="text-[var(--media-accent)]" />
+                      <span className="hidden sm:inline">Sauve</span>
+                    </>
+                  ) : (
+                    <>
+                      <Images size={14} />
+                      <span className="hidden sm:inline">Vide</span>
+                    </>
+                  )}
+                </div>
+              </div>
 
-                {isLoading && (
-                  <div className="absolute bottom-0 left-0 right-0 border-t border-white/[0.08] bg-[rgba(var(--app-bg-rgb),0.86)] px-3 py-2 backdrop-blur">
-                    <div className="flex items-center gap-2 overflow-x-auto">
-                      {(pendingRuns.length > 0 ? pendingRuns : Array.from({ length: Math.max(1, Math.min(4, promptsToSend.length || outputCount)) }).map((_, index) => ({
-                        id: `loading-${index}`,
-                        prompt: 'Generation',
-                        createdAt: Date.now(),
-                      }))).map((run) => (
-                        <div key={run.id} className="flex min-w-[11rem] items-center gap-2 border-l border-[rgba(var(--media-accent-rgb),0.38)] pl-2">
-                          <Loader2 size={13} className="shrink-0 animate-spin text-[var(--media-accent)]" />
-                          <div className="min-w-0">
-                            <div className="truncate text-xs font-semibold text-[var(--app-text)]">{run.prompt}</div>
-                            <div className="text-[10px] text-[var(--app-text-muted)]">{formatShortTime(run.createdAt)}</div>
+              <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-3 pt-3">
+                <div className="group relative min-h-0 overflow-hidden border border-white/[0.08] bg-[linear-gradient(135deg,rgba(255,255,255,0.045),transparent_34%),rgba(0,0,0,0.22)]">
+                  {featuredImage ? (
+                    <>
+                      <button type="button" onClick={() => onImageClick(featuredImage.url)} className="block h-full w-full">
+                        <img
+                          src={featuredImage.url}
+                          alt={featuredImage.name || 'Image generee'}
+                          className="h-full w-full object-contain"
+                        />
+                      </button>
+                      <div className="absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => onImageClick(featuredImage.url)}
+                          className="inline-flex h-9 w-9 items-center justify-center bg-black/45 text-white/80 hover:text-white"
+                          title="Agrandir"
+                          aria-label="Agrandir"
+                        >
+                          <Maximize2 size={16} />
+                        </button>
+                        <a
+                          href={featuredImage.url}
+                          download={featuredImage.name || 'image-generee.png'}
+                          className="inline-flex h-9 w-9 items-center justify-center bg-black/45 text-white/80 hover:text-white"
+                          title="Telecharger"
+                          aria-label="Telecharger"
+                        >
+                          <Download size={16} />
+                        </a>
+                      </div>
+                    </>
+                  ) : isLoading ? (
+                    <AdaptiveImageLoader
+                      elapsedMs={elapsedMs}
+                      estimatedMs={estimatedDurationMs}
+                      progress={loadingProgress}
+                    />
+                  ) : (
+                    <div className="flex h-full min-h-[22rem] flex-col items-center justify-center px-6 text-center">
+                      <Images size={44} className="text-[var(--app-text-muted)]/70" />
+                      <p className="mt-4 text-sm font-semibold text-[var(--app-text)]">Votre image apparaitra ici</p>
+                    </div>
+                  )}
+
+                  {isLoading && featuredImage && (
+                    <div className="absolute inset-0 bg-[rgba(var(--app-bg-rgb),0.68)] backdrop-blur-sm">
+                      <AdaptiveImageLoader
+                        elapsedMs={elapsedMs}
+                        estimatedMs={estimatedDurationMs}
+                        progress={loadingProgress}
+                      />
+                    </div>
+                  )}
+
+                  {isLoading && (
+                    <div className="absolute bottom-0 left-0 right-0 border-t border-white/[0.08] bg-[rgba(var(--app-bg-rgb),0.88)] px-3 py-2 backdrop-blur">
+                      <div className="flex items-center gap-2 overflow-x-auto">
+                        {(pendingRuns.length > 0 ? pendingRuns : Array.from({ length: Math.max(1, Math.min(4, promptsToSend.length || outputCount)) }).map((_, index) => ({
+                          id: `loading-${index}`,
+                          prompt: 'Generation',
+                          createdAt: Date.now(),
+                        }))).map((run) => (
+                          <div key={run.id} className="flex min-w-[11rem] items-center gap-2 border-l border-[rgba(var(--media-accent-rgb),0.38)] pl-2">
+                            <Loader2 size={13} className="shrink-0 animate-spin text-[var(--media-accent)]" />
+                            <div className="min-w-0">
+                              <div className="truncate text-xs font-semibold text-[var(--app-text)]">{run.prompt}</div>
+                              <div className="text-[10px] text-[var(--app-text-muted)]">{formatShortTime(run.createdAt)}</div>
+                            </div>
                           </div>
-                        </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid gap-3 border-t border-white/[0.07] pt-3">
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,0.42fr)] md:items-center">
+                    <PromptSource
+                      prompt={featuredImage?.prompt || pendingRuns[0]?.prompt || draftPrompt}
+                      title="Prompt"
+                      className="border-t-0 pt-0"
+                    />
+                    <PrimaryActionButton
+                      onClick={handleSubmit}
+                      disabled={!canSubmit}
+                      loading={false}
+                      loadingLabel="..."
+                      idleLabel={promptsToSend.length > 1 ? `Generer ${promptsToSend.length}` : 'Generer'}
+                      icon={Sparkles}
+                      className="h-12 bg-[rgba(var(--media-accent-rgb),0.86)] text-[var(--media-accent-ink)] hover:bg-[var(--media-accent)]"
+                    />
+                  </div>
+
+                  {visibleHistoryImages.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {visibleHistoryImages.slice(0, 10).map((image) => (
+                        <button
+                          key={image.id}
+                          type="button"
+                          onClick={() => setSelectedImageId(image.id)}
+                          className="h-14 w-14 shrink-0 overflow-hidden border border-white/[0.08] hover:border-[rgba(var(--media-accent-rgb),0.55)]"
+                        >
+                          <img src={image.url} alt={image.name || 'Image generee'} className="h-full w-full object-cover" />
+                        </button>
                       ))}
                     </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid gap-2 border-t border-white/[0.07] pt-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">Prompt source</div>
-                    <div className="mt-1 truncate text-xs text-[var(--app-text)]">
-                      {featuredImage?.prompt || (pendingRuns[0]?.prompt ?? draftPrompt) || 'Vide'}
-                    </div>
-                  </div>
-                  <PromptSource prompt={featuredImage?.prompt || pendingRuns[0]?.prompt || draftPrompt} title="Copie" className="shrink-0 border-t-0 pt-0" />
-                </div>
-
-                {visibleHistoryImages.length > 0 && (
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {visibleHistoryImages.slice(0, 8).map((image) => (
-                      <button
-                        key={image.id}
-                        type="button"
-                        onClick={() => setSelectedImageId(image.id)}
-                        className="h-14 w-14 shrink-0 overflow-hidden border border-white/[0.08] hover:border-[rgba(var(--media-accent-rgb),0.55)]"
-                      >
-                        <img src={image.url} alt={image.name || 'Image generee'} className="h-full w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </main>
-
-          <aside className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden lg:h-full lg:min-h-0 lg:border-l lg:border-white/[0.08] lg:pl-4">
-            <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-                  <History size={13} className="text-[var(--media-accent)]" />
-                  Historique
-                </div>
-                <div className="mt-1 truncate text-sm font-semibold text-[var(--app-text)]">
-                  {allImages.length} rendu{allImages.length > 1 ? 's' : ''}
+                  )}
                 </div>
               </div>
-              <div className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
-                Session
-              </div>
-            </div>
+            </main>
 
-            {allImages.length > 0 ? (
-              <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-2 content-start gap-2 overflow-y-auto pt-3 pr-1">
-                {allImages.map((image, index) => (
+            <aside className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden lg:h-full lg:min-h-0 lg:border-l lg:border-white/[0.08] lg:pl-4">
+              <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--app-text-muted)]">
+                    {showArchive ? <Archive size={13} className="text-[var(--media-accent)]" /> : <History size={13} className="text-[var(--media-accent)]" />}
+                    {showArchive ? 'Archives' : 'Historique'}
+                  </div>
+                  <div className="mt-1 truncate text-sm font-semibold text-[var(--app-text)]">
+                    {galleryImages.length} rendu{galleryImages.length > 1 ? 's' : ''}
+                  </div>
+                </div>
+                {showArchive && (
                   <button
-                    key={image.id}
                     type="button"
-                    onClick={() => setSelectedImageId(image.id)}
-                    className={cn(
-                      'group relative min-w-0 overflow-hidden border bg-black/20 text-left',
-                      selectedImageId === image.id
-                        ? 'border-[var(--media-accent)]'
-                        : 'border-white/[0.08] hover:border-[rgba(var(--media-accent-rgb),0.5)]',
-                    )}
+                    onClick={() => setShowArchive(false)}
+                    className="text-[10px] font-semibold uppercase text-[var(--app-text-muted)] hover:text-[var(--app-text)]"
                   >
-                    <img src={image.url} alt={image.name || 'Image generee'} className="aspect-square w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/78 to-transparent px-2 pb-2 pt-7">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-semibold tabular-nums text-white/86">
-                          {String(allImages.length - index).padStart(2, '0')}
-                        </span>
-                        <span className="text-[10px] text-white/62">{formatShortTime(image.createdAt)}</span>
-                      </div>
-                      <div className="mt-1 truncate text-[11px] font-semibold text-white/90">
-                        {image.shotLabel || image.name || image.prompt || 'Image'}
-                      </div>
-                    </div>
+                    Session
                   </button>
-                ))}
+                )}
               </div>
-            ) : (
-              <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 text-center">
-                <Clock3 size={22} className="text-[var(--media-accent)]" />
-                <p className="mt-3 text-sm font-semibold text-[var(--app-text)]">Aucune image dans ce fil</p>
-              </div>
-            )}
-          </aside>
+
+              {galleryImages.length > 0 ? (
+                <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-2 content-start gap-2 overflow-y-auto pt-3 pr-1">
+                  {galleryImages.map((image, index) => (
+                    <button
+                      key={image.id}
+                      type="button"
+                      onClick={() => setSelectedImageId(image.id)}
+                      className={cn(
+                        'group relative min-w-0 overflow-hidden border bg-black/20 text-left',
+                        selectedImageId === image.id
+                          ? 'border-[var(--media-accent)]'
+                          : 'border-white/[0.08] hover:border-[rgba(var(--media-accent-rgb),0.5)]',
+                      )}
+                    >
+                      <img src={image.url} alt={image.name || 'Image generee'} className="aspect-square w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/78 to-transparent px-2 pb-2 pt-7">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-semibold tabular-nums text-white/86">
+                            {String(galleryImages.length - index).padStart(2, '0')}
+                          </span>
+                          <span className="text-[10px] text-white/62">{formatShortTime(image.createdAt)}</span>
+                        </div>
+                        <div className="mt-1 truncate text-[11px] font-semibold text-white/90">
+                          {image.shotLabel || image.name || image.prompt || 'Image'}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 text-center">
+                  <Clock3 size={22} className="text-[var(--media-accent)]" />
+                  <p className="mt-3 text-sm font-semibold text-[var(--app-text)]">Aucune image</p>
+                </div>
+              )}
+            </aside>
+          </div>
         </div>
       </div>
     </>

@@ -1,5 +1,112 @@
 # SESSION STATE
 
+## 2026-05-13 - Mode Image epure + archive globale + garde-fou GPT Image 2 transparent
+
+### Demande utilisateur
+- Rendre le mode Image proche du mockup fourni: epure, tres peu de texte, fournisseur automatique.
+- Garder qualite, format, fond, ratio, sorties, resolution et autres parametres modifiables.
+- Mettre toutes les moderations/safety au minimum.
+- Corriger le probleme API GPT Image 2 avec `Fond=Transparent`.
+- Ajouter une belle animation de chargement image, idealement estimee sans mentir.
+- Ajouter un bouton pour voir les images archivees toutes conversations confondues.
+
+### Correctifs appliques
+- `src/components/ImageStudio.tsx`
+  - suppression du bloc visible `Parametres / Fournisseur`;
+  - nouvelle barre compacte: modele, sorties, ratio, refs, archives, options;
+  - panneau options discret pour taille/resolution, qualite, format, fond, compression, moderation, securite, thinking, search/thoughts;
+  - bouton `Archives` qui bascule entre historique de session et galerie archivee;
+  - loader image avec anneau/barre estimee via moyenne mobile locale par modele/parametres/refs/sorties;
+  - UI mobile ajustee pour eviter le debordement horizontal.
+- `src/App.tsx`
+  - construit `imageArchiveImages` depuis les sessions chargees, la conversation active et les snapshots locaux, puis le passe a `ImageStudio`.
+- `shared/image-models.ts`
+  - defaults Gemini Image `BLOCK_NONE`;
+  - GPT Image 2 garde `moderation: low`;
+  - GPT Image 2 ne propose plus `transparent` dans `Fond` car le deploiement Azure le rejette.
+- `src/store/useStore.ts`
+  - default image `safetySetting: BLOCK_NONE`;
+  - migration des anciens etats persistants `imageModeration:auto` et `safetySetting:BLOCK_MEDIUM_AND_ABOVE` vers les niveaux minimums.
+- `server/lib/media-generation.ts`
+  - refus local clair des vieux payloads GPT Image 2 `imageBackground=transparent`, avant appel Azure.
+- `verify-azure-image-config.ts`
+  - regressions sur moderation low, safety BLOCK_NONE, absence de `transparent` GPT Image 2 et refus backend.
+- `tmp/media-modes-preview.tsx`
+  - ajout de `?loading=1` pour verifier le loader dans le harness.
+
+### Validation effectuee
+- Recherche officielle:
+  - OpenAI Image generation / Images API / GPT Image 2
+  - Azure OpenAI image generation
+  - Gemini API safety settings
+- Reproduction reelle du bug:
+  - `gpt-image-2`, `background=transparent`, PNG -> `400 Transparent background is not supported for this model.`
+- Smoke reel corrige:
+  - `gpt-image-2`, PNG, `background=auto`, `quality=low`, `moderation=low`
+  - resultat: `image/png`, 120447 bytes, environ 29.9s
+- `node node_modules/tsx/dist/cli.mjs verify-azure-image-config.ts` : OK
+- `npm run lint` : OK
+- `npm run build` : OK
+- Captures locales Vite source:
+  - `tmp/image-studio-epure-desktop.png`
+  - `tmp/image-studio-epure-mobile-fixed2.png`
+  - `tmp/image-studio-loading-desktop.png`
+
+### Limites restantes
+- L'archive globale repose sur les sessions chargees et les snapshots locaux deja presents dans le navigateur; elle ne lance pas encore une requete Firestore collectionGroup dediee pour recuperer toutes les anciennes images jamais chargees sur cet appareil.
+- La barre de chargement est une estimation adaptative locale, pas un vrai pourcentage fournisseur; elle se calibre avec les generations reelles.
+- Pour un vrai fond transparent avec alpha, GPT Image 2 ne suffit pas dans le deploiement teste; il faudra un modele compatible ou un post-traitement explicite.
+
+## 2026-05-13 - Moderation GPT Image 2 abaissee par defaut
+
+### Demande utilisateur
+- Verifier s'il est possible de baisser la censure avec l'API Azure de GPT Image 2.
+
+### Diagnostic
+- La reference REST Azure/OpenAI expose `moderation` avec deux valeurs publiques: `auto` et `low`.
+- `low` est documente comme moins restrictif.
+- Les filtres de contenu Azure restent un niveau separe au deploiement: ils peuvent etre configures dans Azure AI Foundry par seuils, mais leur desactivation ou le mode annotate-only demandent une approbation Microsoft.
+
+### Correctifs appliques
+- `shared/image-models.ts`
+  - GPT Image 2 utilise maintenant `defaultModeration: 'low'`.
+- `src/store/useStore.ts`
+  - le default local du mode image passe aussi a `imageModeration: 'low'`.
+- `verify-azure-image-config.ts`
+  - verifie que le payload Azure par defaut contient `moderation=low`, y compris sur le chemin refs `images/edits`.
+
+### Validation effectuee
+- Recherche officielle:
+  - Azure OpenAI REST v1 preview Images
+  - Azure content filters / configurability
+- `node node_modules/tsx/dist/cli.mjs verify-azure-image-config.ts` : OK
+- `npm run lint` : OK
+- `npm run build` : OK
+
+### Limites restantes
+- Si un navigateur a deja persiste `imageModeration: auto`, il peut garder cet ancien choix local jusqu'a changement manuel ou reset des parametres image.
+- Pour reduire davantage les blocages, il faut configurer le content filter Azure associe au deploiement dans Foundry; le code seul ne peut pas supprimer les filtres fournisseur.
+
+## 2026-05-13 - Description neutre Image Studio pour IA generatrice d'image
+
+### Demande utilisateur
+- Produire un fichier texte decrivant tous les boutons et toutes les listes de la page, pour le fournir a une IA generatrice d'image.
+- Contrainte: ne jamais imposer une position, un placement ou une composition.
+
+### Travail effectue
+- Creation de `description_page_image_studio_pour_ia.txt`.
+- Le fichier couvre:
+  - boutons et actions;
+  - champs;
+  - listes/options par modele;
+  - etats vides, live, sauvegardes;
+  - references, stack, scene, prompt source et historique;
+  - regles explicites pour rester neutre sur le layout.
+
+### Validation
+- Options extraites de `src/components/ImageStudio.tsx`, `src/components/MediaStudioLayout.tsx` et `shared/image-models.ts`.
+- Pas de test code necessaire: generation documentaire uniquement.
+
 ## 2026-05-13 - GPT Image 2 accepte les references image Azure
 
 ### Demande utilisateur

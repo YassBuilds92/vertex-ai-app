@@ -928,20 +928,35 @@
   - verifier que le mode Image expose clairement la galerie et l'historique de session
   - verifier qu'un batch de prompts reste lisible avant generation
   - verifier que les rendus existants restent visibles pendant un run en cours
+  - verifier que l'UI epuree ne montre plus de bloc `Parametres / Fournisseur`
+  - verifier que le loader estime reste honnete et que l'archive globale est accessible
 - Validation code:
   - `npm run lint`
   - `npm run build`
 - Harness visuel local:
   - ouvrir `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio`
+  - ouvrir `http://127.0.0.1:4174/tmp/media-modes-preview.html?mode=image&surface=studio&loading=1` pour le loader
 - Attendus desktop:
-  - rail gauche: prompt stack, refs et parametres sans chevauchement
+  - rail gauche: prompt, stack et refs sans bloc fournisseur
   - centre: image active visible et prompt source copiable
   - rail droit: `Historique` visible avec les thumbnails de la session
+  - bouton `Archives` visible dans la barre compacte
+  - bouton options ouvre taille/resolution, qualite, format, fond, moderation/safety et thinking selon modele
   - ajouter un prompt dans `Stack`, saisir un deuxieme prompt, verifier le CTA `Generer 2`
 - Attendus mobile:
   - un strip `Historique` avec thumbnails apparait en haut du mode Image
   - aucun texte ou controle ne se superpose dans le premier viewport
+  - aucun controle du header ne deborde horizontalement
+- Attendus API:
+  - GPT Image 2 ne propose pas `Transparent` dans `Fond`
+  - un vieux payload GPT Image 2 `imageBackground=transparent` est refuse localement avant appel Azure
+  - `background=auto`, PNG, moderation low passe en smoke reel hors saturation fournisseur
 - Validation authentifiee restante:
   - lancer deux prompts image depuis `Nouvelle image`
   - verifier que les deux prompts restent dans le meme fil
   - verifier que la sidebar gauche affiche le fil image et permet de le rouvrir
+  - ouvrir `Archives` et verifier que les images des autres fils deja chargees/snapshottees apparaissent
+- Captures 2026-05-13:
+  - `tmp/image-studio-epure-desktop.png`
+  - `tmp/image-studio-epure-mobile-fixed2.png`
+  - `tmp/image-studio-loading-desktop.png`

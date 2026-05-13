@@ -1305,6 +1305,9 @@ function normalizeAzureOutputFormat(options: ImageGenerationOptions, model: stri
 
 function normalizeAzureBackground(options: ImageGenerationOptions, model: string): 'auto' | 'opaque' | 'transparent' {
   const value = String(options.imageBackground || '').trim().toLowerCase();
+  if (normalizeImageModelId(model, '') === 'gpt-image-2' && value === 'transparent') {
+    throw new Error("Le fond transparent n'est pas supporte par GPT Image 2. Utilise Auto/Opaque ou un modele avec sortie alpha native.");
+  }
   if (value === 'auto' || value === 'opaque' || value === 'transparent') return value;
   const fallback = getImageModelDefaultBackground(model);
   return fallback === 'opaque' || fallback === 'transparent' ? fallback : 'auto';

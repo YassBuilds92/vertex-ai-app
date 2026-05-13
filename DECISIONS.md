@@ -1,5 +1,30 @@
 # DECISIONS
 
+## 2026-05-13 - GPT Image 2 ne promet plus de fond transparent natif
+- Statut: adopte localement
+- Contexte: l'utilisateur a repere une erreur API quand `Fond` etait regle sur `Transparent` avec GPT Image 2. La verification reelle Azure confirme un `400 Transparent background is not supported for this model.`
+- Decision:
+  - retirer `Transparent` des options `Fond` de GPT Image 2 dans le catalogue partage
+  - refuser defensivement les vieux payloads `background=transparent` avant l'appel Azure
+  - garder `Fond` modifiable sur les valeurs supportees (`Auto`, `Opaque`)
+  - ne pas faire de fallback silencieux vers `Auto` quand l'utilisateur demande explicitement de la transparence via API
+- Consequence:
+  - plus d'appel Azure casse pour ce parametre depuis l'UI actuelle
+  - si l'utilisateur veut un vrai PNG avec alpha, il faudra ajouter un modele qui supporte nativement la transparence ou une etape explicite de detourage/post-traitement
+
+## 2026-05-13 - Mode Image epure avec archives globales et loader estime
+- Statut: adopte localement
+- Contexte: l'utilisateur veut une surface proche du mockup fourni, avec tres peu de texte, fournisseur automatique, tous les parametres utiles encore accessibles, et une galerie d'archives toutes conversations.
+- Decision:
+  - garder le titre simple `Image` et une barre compacte pour modele, sorties, ratio, refs, archives et options
+  - deplacer les reglages detailles dans un panneau discret au lieu d'une section `Parametres / Fournisseur`
+  - ajouter un bouton `Archives` qui fusionne la galerie courante, les sessions chargees et les snapshots locaux
+  - afficher une animation de generation avec estimation adaptative locale, plafonnee pendant l'attente fournisseur
+- Consequence:
+  - l'ecran principal contient moins de texte et moins de panneaux visibles
+  - les controles API restent accessibles sans dupliquer le fournisseur
+  - l'archive globale est disponible localement pour les conversations deja chargees/snapshottees, sans nouvelle collection Firestore
+
 ## 2026-05-09 - Les niveaux de thinking image suivent le support Vertex exact
 - Statut: adopte et deploye
 - Contexte: Nano Banana Pro en production renvoyait `thinking_level is not supported by this model` car l'UI pouvait envoyer un niveau persiste ou selectionne autre que `high`.

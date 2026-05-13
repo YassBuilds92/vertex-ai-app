@@ -1,5 +1,33 @@
 # BUGS GRAVEYARD
 
+## 2026-05-13 - GPT Image 2 Azure cassait quand `Fond=Transparent`
+- Statut: corrige localement
+- Symptome:
+  - en mode image avec `GPT Image 2`, choisir `Fond=Transparent` provoquait une erreur API.
+  - smoke reel reproduit:
+    - `Azure OpenAI image failed (400): Transparent background is not supported for this model.`
+- Cause racine:
+  - le catalogue local exposait `transparent` dans les options GPT Image 2.
+  - le frontend forcait bien PNG, mais le modele/deploiement Azure rejette quand meme `background=transparent`.
+  - la documentation OpenAI actuelle de generation image ne liste la transparence native que pour les familles GPT Image 1/1.5/mini, pas pour GPT Image 2.
+- Resolution:
+  - `shared/image-models.ts`
+    - GPT Image 2 ne propose plus que `Auto` et `Opaque` pour `Fond`.
+  - `server/lib/media-generation.ts`
+    - les vieux payloads `imageBackground=transparent` sont refuses avant appel Azure avec une erreur locale claire.
+  - `src/components/ImageStudio.tsx`
+    - la normalisation UI remet un ancien etat `transparent` vers le defaut supporte.
+  - `verify-azure-image-config.ts`
+    - verrouille l'absence de l'option transparente et le refus backend.
+- Preuve:
+  - `node node_modules/tsx/dist/cli.mjs verify-azure-image-config.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - smoke reel Azure `gpt-image-2`, `background=auto`, PNG, qualite low, moderation low : OK, `image/png`, 120447 bytes, environ 30s
+- Prevention:
+  - ne pas se fier a une option generique `GPT image models` quand le modele exact a une capacite plus restrictive.
+  - pour chaque option Azure exposee dans l'UI, garder une regression locale et au moins un smoke reel apres changement de capacite.
+
 ## 2026-05-13 - GPT Image 2 Azure refusait les images de reference avec 404
 - Statut: corrige localement, smoke reel Azure OK
 - Symptome:

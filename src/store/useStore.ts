@@ -51,10 +51,10 @@ const initialConfigs: Record<AppMode, ModelConfig> = {
     imageOutputFormat: 'png',
     imageOutputCompression: 100,
     imageBackground: 'auto',
-    imageModeration: 'auto',
+    imageModeration: 'low',
     imageIncludeThoughts: false,
     numberOfImages: 1,
-    safetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
+    safetySetting: 'BLOCK_NONE',
     personGeneration: 'allow_adult',
     thinkingLevel: 'high',
   },
@@ -164,6 +164,13 @@ export const useStore = create<AppState>()(
             ...(persistedConfigs[m] || {})
           };
         }
+        mergedConfigs.image = {
+          ...mergedConfigs.image,
+          imageModeration: mergedConfigs.image.imageModeration === 'auto' ? 'low' : (mergedConfigs.image.imageModeration || 'low'),
+          safetySetting: !mergedConfigs.image.safetySetting || mergedConfigs.image.safetySetting === 'BLOCK_MEDIUM_AND_ABOVE'
+            ? 'BLOCK_NONE'
+            : mergedConfigs.image.safetySetting,
+        };
 
         return {
           ...currentState,

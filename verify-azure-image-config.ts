@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 
+import { getImageModelBackgroundOptions, getImageModelDefaultSafetySetting } from './shared/image-models.ts';
 import { AZURE_OPENAI_IMAGE_DEFAULT_API_VERSION, getAzureOpenAIImageConfig } from './server/lib/config.ts';
 import { __imageMediaInternals, generateImageBinary } from './server/lib/media-generation.ts';
 
@@ -48,10 +49,24 @@ try {
     prompt: 'A minimal image',
     model: 'gpt-image-2',
   }, 'gpt-image-2');
+  assert.equal(v1Payload.moderation, 'low');
   assert.equal(
     __imageMediaInternals.buildAzureOpenAIImageRequestBody(v1Payload, v1GenerationRoute).model,
     'custom-gpt-image-2',
   );
+  assert.equal(getImageModelDefaultSafetySetting('gemini-3.1-flash-image-preview'), 'BLOCK_NONE');
+  assert.equal(getImageModelDefaultSafetySetting('gemini-3-pro-image-preview'), 'BLOCK_NONE');
+  assert.equal(getImageModelDefaultSafetySetting('gemini-2.5-flash-image'), 'BLOCK_NONE');
+  assert.deepEqual(
+    getImageModelBackgroundOptions('gpt-image-2').map((option) => option.value),
+    ['auto', 'opaque'],
+  );
+  assert.throws(() => __imageMediaInternals.buildAzureOpenAIImagePayload({
+    prompt: 'A transparent icon',
+    model: 'gpt-image-2',
+    imageBackground: 'transparent',
+    imageOutputFormat: 'png',
+  }, 'gpt-image-2'), /fond transparent n'est pas supporte par GPT Image 2/);
 
   setAzureEnv('https://example.openai.azure.com', '2025-04-01-preview');
   let capturedRequest: { url: string; body: FormData } | null = null;
@@ -87,6 +102,7 @@ try {
   const formKeys = Array.from(capturedRequest!.body.keys());
   assert.ok(formKeys.includes('image[]'));
   assert.equal(formKeys.includes('image'), false);
+  assert.equal(capturedRequest!.body.get('moderation'), 'low');
 
   console.log('verify-azure-image-config: OK');
 } finally {

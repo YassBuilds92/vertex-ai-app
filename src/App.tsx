@@ -72,6 +72,7 @@ import {
   buildApiAttachmentPayloads,
   buildApiHistoryFromMessages,
 } from './utils/chat-parts';
+import { buildImageHistory, type MediaHistoryEntry } from './utils/media-gallery-history';
 import {
   installStudioDebugInstrumentation,
   logCoworkStreamEventDebug,
@@ -1016,6 +1017,38 @@ export default function App() {
 
     return Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt);
   }, [activeSessionId, currentMessages, optimisticMessagesBySession, liveCoworkMessage]);
+  const imageArchiveImages = React.useMemo<MediaHistoryEntry[]>(() => {
+    const candidateMessages: Message[] = [];
+
+    for (const session of sessions) {
+      if (session.mode === 'image' || (session.messages || []).some((message) => (
+        (message.attachments || []).some((attachment) => attachment.generationMeta?.mode === 'image')
+      ))) {
+        candidateMessages.push(...(session.messages || []));
+      }
+    }
+
+    candidateMessages.push(...displayedMessages);
+
+    if (user?.uid) {
+      for (const entry of loadLocalSessionSnapshotEntries(user.uid)) {
+        if (entry.messages.some((message) => (
+          (message.attachments || []).some((attachment) => attachment.generationMeta?.mode === 'image')
+        ))) {
+          candidateMessages.push(...entry.messages);
+        }
+      }
+    }
+
+    const unique = new Map<string, MediaHistoryEntry>();
+    for (const image of buildImageHistory(candidateMessages)) {
+      const key = image.url || image.id;
+      if (!key || unique.has(key)) continue;
+      unique.set(key, image);
+    }
+
+    return Array.from(unique.values()).sort((left, right) => right.createdAt - left.createdAt);
+  }, [displayedMessages, sessions, user?.uid]);
   const hiddenMessagesCount = Math.max(0, displayedMessages.length - MESSAGE_VISIBILITY_LIMIT);
   const visibleMessageOffset = hiddenMessagesCount;
   const visibleMessages = React.useMemo(
@@ -4396,6 +4429,7 @@ export default function App() {
                         onGenerate={(prompt, request) => { void handleSend(prompt, undefined, undefined, request); }}
                         isLoading={isLoading}
                         messages={displayedMessages}
+                        archiveImages={imageArchiveImages}
                         onImageClick={setSelectedImage}
                         pendingAttachments={pendingAttachments}
                         onAddAttachments={processFiles}

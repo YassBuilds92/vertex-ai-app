@@ -108,7 +108,6 @@ const GPT_IMAGE_OUTPUT_FORMAT_OPTIONS = [
 const GPT_IMAGE_BACKGROUND_OPTIONS = [
   { value: 'auto', label: 'Auto' },
   { value: 'opaque', label: 'Opaque' },
-  { value: 'transparent', label: 'Transparent' },
 ] as const satisfies readonly ImageOptionChoice[];
 
 const GPT_IMAGE_MODERATION_OPTIONS = [
@@ -156,7 +155,7 @@ export const IMAGE_MODEL_OPTIONS = [
     maxReferenceImages: 14,
     defaultAspectRatio: '',
     defaultImageSize: '1K',
-    defaultSafetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
+    defaultSafetySetting: 'BLOCK_NONE',
     defaultThinkingLevel: 'high',
   },
   {
@@ -175,7 +174,7 @@ export const IMAGE_MODEL_OPTIONS = [
     maxReferenceImages: 14,
     defaultAspectRatio: '',
     defaultImageSize: '1K',
-    defaultSafetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
+    defaultSafetySetting: 'BLOCK_NONE',
     defaultThinkingLevel: 'high',
   },
   {
@@ -189,7 +188,7 @@ export const IMAGE_MODEL_OPTIONS = [
     supportsImageSize: false,
     maxReferenceImages: 3,
     defaultAspectRatio: '',
-    defaultSafetySetting: 'BLOCK_MEDIUM_AND_ABOVE',
+    defaultSafetySetting: 'BLOCK_NONE',
   },
   {
     id: 'gpt-image-2',
@@ -213,7 +212,7 @@ export const IMAGE_MODEL_OPTIONS = [
     defaultOutputFormat: 'png',
     defaultOutputCompression: 100,
     defaultBackground: 'auto',
-    defaultModeration: 'auto',
+    defaultModeration: 'low',
   },
 ] as const satisfies readonly ImageModelOption[];
 
@@ -408,7 +407,7 @@ export function getImageModelDefaultModeration(model: string | null | undefined)
 }
 
 export function getImageModelDefaultSafetySetting(model: string | null | undefined): string {
-  return getImageModelOption(model)?.defaultSafetySetting ?? 'BLOCK_MEDIUM_AND_ABOVE';
+  return getImageModelOption(model)?.defaultSafetySetting ?? 'BLOCK_NONE';
 }
 
 export function getImageModelDefaultThinkingLevel(model: string | null | undefined): string {

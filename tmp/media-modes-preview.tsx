@@ -17,6 +17,7 @@ const mode = (params.get('mode') as AppMode | null) || 'image';
 const surface = params.get('surface') || 'empty';
 const linkedPromptEnabled = params.get('linked') === '1';
 const scrollTarget = params.get('scroll') || '';
+const loadingEnabled = params.get('loading') === '1';
 
 const previewSelectedPrompt = linkedPromptEnabled
   ? {
@@ -344,7 +345,7 @@ function PreviewApp() {
         {mode === 'image' && (
           <ImageStudio
             onGenerate={() => {}}
-            isLoading={false}
+            isLoading={loadingEnabled}
             messages={mockMessages}
             onImageClick={() => {}}
             pendingAttachments={pendingAttachments}

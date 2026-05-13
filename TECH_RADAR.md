@@ -9,6 +9,56 @@
 - Cout
 - Sources officielles
 
+## 2026-05-13 - Image Studio epure, moderation minimale et GPT Image 2 sans transparent natif
+- Statut: retenu et applique localement
+- Date de verification: 2026-05-13
+- Technologie: React/Tailwind existants, Azure OpenAI Images REST pour `gpt-image-2`, Gemini safety settings.
+- Choix:
+  - retirer le bloc visible `Parametres / fournisseur` du mode Image et passer les reglages dans une barre compacte + panneau d'options discret;
+  - garder les reglages utiles modifiables: modele, sorties, ratio, refs, taille/resolution, qualite, format, fond, compression, moderation, securite, thinking, search/thoughts selon modele;
+  - appliquer `moderation: low` par defaut sur GPT Image 2 et `BLOCK_NONE` sur les modeles Gemini Image;
+  - migrer les anciens localStorage image `auto`/`BLOCK_MEDIUM_AND_ABOVE` vers les niveaux les moins restrictifs;
+  - retirer `background: transparent` des options GPT Image 2 et bloquer les vieux payloads avant l'appel Azure, car le smoke reel Azure renvoie `400 Transparent background is not supported for this model`;
+  - ajouter une animation de chargement basee sur une estimation adaptative par modele/parametres/refs/sorties, stockee localement par moyenne mobile, sans presenter cette progression comme un statut exact fournisseur;
+  - ajouter un bouton `Archives` dans le mode Image qui fusionne les rendus image de la session courante, des sessions chargees et des snapshots locaux.
+- Alternatives evaluees:
+  - laisser `Transparent` visible avec un fallback silencieux vers `Auto`:
+    - ecarte, car cela ferait croire que l'image est transparente alors que GPT Image 2 ne livre pas d'alpha natif.
+  - garder les parametres avances dans la colonne gauche:
+    - ecarte pour reduire le texte visible et rapprocher l'interface du mockup epure fourni.
+  - utiliser un vrai progress provider:
+    - non disponible dans le flux REST actuel de l'app; l'estimation adaptative est honnete et se corrige avec les durees observees.
+- Cout:
+  - pas de nouvelle dependance;
+  - un smoke transparent a echoue avant generation sur validation fournisseur;
+  - un smoke reel Azure `gpt-image-2`, PNG, `background=auto`, `quality=low`, `moderation=low` a consomme un appel et a retourne `image/png`.
+- Sources officielles:
+  - [OpenAI Image generation guide](https://platform.openai.com/docs/guides/image-generation)
+  - [OpenAI Images API reference](https://platform.openai.com/docs/api-reference/images)
+  - [OpenAI GPT Image 2 model page](https://developers.openai.com/api/docs/models/gpt-image-2)
+  - [Azure OpenAI image generation guide](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/dall-e)
+  - [Gemini API safety settings](https://ai.google.dev/docs/safety_setting_gemini)
+
+## 2026-05-13 - Moderation GPT Image 2 Azure au niveau le moins restrictif disponible
+- Statut: retenu et applique localement
+- Date de verification: 2026-05-13
+- Technologie: Azure OpenAI / Microsoft Foundry Images REST pour `gpt-image-2`
+- Choix:
+  - utiliser `moderation: low` comme defaut applicatif pour GPT Image 2, car la reference REST indique que `low` est le niveau moins restrictif que `auto`;
+  - conserver l'option UI `Auto` si l'utilisateur veut revenir au comportement fournisseur par defaut;
+  - ne pas tenter de contourner les filtres Azure: les filtres de contenu de deploiement restent geres dans Azure AI Foundry et peuvent etre configures par seuils; l'absence de filtre ou l'annotate-only exigent une approbation Microsoft.
+- Alternatives evaluees:
+  - desactiver cote code toute moderation:
+    - impossible via les parametres Images REST publics; seuls `auto` et `low` sont exposes.
+  - configurer un content filter Azure plus permissif:
+    - possible cote portail/deploiement Azure, pas dans ce repo sans connaitre le policy id/deploiement voulu.
+- Cout:
+  - aucun cout runtime supplementaire; validation sans appel Azure reel.
+- Sources officielles:
+  - [Azure OpenAI REST v1 preview - Images](https://learn.microsoft.com/en-us/azure/foundry/openai/reference-preview-latest)
+  - [Azure OpenAI content filters](https://learn.microsoft.com/en-us/azure/foundry-classic/openai/how-to/content-filters)
+  - [Azure content filter configurability](https://learn.microsoft.com/en-us/azure/foundry-classic/foundry-models/concepts/content-filter)
+
 ## 2026-05-13 - GPT Image 2 Azure avec images de reference
 - Statut: retenu et applique localement
 - Date de verification: 2026-05-13

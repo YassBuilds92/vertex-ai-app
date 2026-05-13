@@ -940,6 +940,8 @@
   - rail gauche: prompt, stack et refs sans bloc fournisseur
   - centre: image active visible et prompt source copiable
   - rail droit: `Historique` visible avec les thumbnails de la session
+  - les images issues du meme prompt affichent un badge de lot `1/N`, `2/N`, etc.
+  - pendant une generation encore active, une image deja rendue reste cliquable; le loader ne doit pas creer un overlay bloquant
   - bouton `Archives` visible dans la barre compacte
   - bouton options ouvre taille/resolution, qualite, format, fond, moderation/safety et thinking selon modele
   - ajouter un prompt dans `Stack`, saisir un deuxieme prompt, verifier le CTA `Generer 2`
@@ -960,3 +962,5 @@
   - `tmp/image-studio-epure-desktop.png`
   - `tmp/image-studio-epure-mobile-fixed2.png`
   - `tmp/image-studio-loading-desktop.png`
+  - `tmp/image-studio-batch-badges-desktop.png`
+  - `tmp/image-studio-nonblocking-loader-desktop.png`

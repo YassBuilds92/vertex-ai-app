@@ -1,5 +1,26 @@
 # SESSION STATE
 
+## 2026-05-13 - Mode Image: badges de lot et loader non bloquant
+
+### Demande utilisateur
+- Quand une generation produit plusieurs images depuis le meme prompt, afficher un repere montrant qu'elles appartiennent au meme prompt.
+- Quand plusieurs generations tournent en parallele, ne pas empecher de cliquer une image deja terminee a cause de l'animation de chargement des autres images.
+
+### Correctifs appliques
+- `src/components/ImageStudio.tsx`
+  - groupe les images par `runId`, puis `sourceMessageId`, puis fallback `messageId + prompt`;
+  - ajoute des badges discrets `1/2`, `2/2`, etc. sur la scene, le rail d'historique et le strip mobile;
+  - remplace le voile plein ecran de chargement, quand une image existe deja, par une petite barre estimee en `pointer-events-none`;
+  - met aussi le rail de runs en cours en `pointer-events-none` pour laisser l'image clickable.
+
+### Validation effectuee
+- `npm run lint` : OK
+- `node node_modules/tsx/dist/cli.mjs verify-azure-image-config.ts` : OK
+- `npm run build` : OK
+- Captures locales:
+  - `tmp/image-studio-batch-badges-desktop.png`
+  - `tmp/image-studio-nonblocking-loader-desktop.png`
+
 ## 2026-05-13 - Mode Image epure + archive globale + garde-fou GPT Image 2 transparent
 
 ### Demande utilisateur

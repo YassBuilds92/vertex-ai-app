@@ -106,6 +106,12 @@ type TimingRecord = {
   updatedAt: number;
 };
 
+type ImageBatchInfo = {
+  key: string;
+  count: number;
+  index: number;
+};
+
 type CssVars = React.CSSProperties & Record<`--${string}`, string>;
 
 function normalizePromptKey(value?: string) {
@@ -194,6 +200,40 @@ function mergeImageEntries(entries: MediaHistoryEntry[]) {
     unique.set(key, entry);
   }
   return Array.from(unique.values()).sort((left, right) => right.createdAt - left.createdAt);
+}
+
+function buildImageBatchKey(image: MediaHistoryEntry) {
+  if (image.runId) return `run:${image.runId}`;
+  if (image.sourceMessageId) return `source:${image.sourceMessageId}`;
+  return `message:${image.messageId}:${normalizePromptKey(image.prompt) || image.messageId}`;
+}
+
+function buildImageBatchInfoMap(images: MediaHistoryEntry[]) {
+  const groups = new Map<string, MediaHistoryEntry[]>();
+
+  for (const image of images) {
+    const key = buildImageBatchKey(image);
+    groups.set(key, [...(groups.get(key) || []), image]);
+  }
+
+  const result = new Map<string, ImageBatchInfo>();
+  for (const [key, batch] of groups) {
+    const ordered = [...batch].sort((left, right) => {
+      const createdDelta = left.createdAt - right.createdAt;
+      if (createdDelta !== 0) return createdDelta;
+      return left.id.localeCompare(right.id);
+    });
+
+    ordered.forEach((image, index) => {
+      result.set(image.id, {
+        key,
+        count: ordered.length,
+        index: index + 1,
+      });
+    });
+  }
+
+  return result;
 }
 
 function buildPendingImageRuns(
@@ -292,6 +332,23 @@ function AdaptiveImageLoader({
   );
 }
 
+function ImageBatchBadge({ info, compact = false }: { info?: ImageBatchInfo; compact?: boolean }) {
+  if (!info || info.count <= 1) return null;
+
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 bg-black/62 font-bold tabular-nums text-white shadow-sm shadow-black/25 backdrop-blur',
+        compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]',
+      )}
+      title={`Image ${info.index} sur ${info.count} du meme prompt`}
+    >
+      <Layers3 size={compact ? 10 : 12} />
+      {info.index}/{info.count}
+    </span>
+  );
+}
+
 export const ImageStudio: React.FC<ImageStudioProps> = ({
   onGenerate,
   isLoading,
@@ -347,6 +404,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     () => galleryImages.filter((image) => image.id !== featuredImage?.id),
     [featuredImage?.id, galleryImages],
   );
+  const batchInfoByImageId = useMemo(
+    () => buildImageBatchInfoMap(galleryImages),
+    [galleryImages],
+  );
+  const featuredBatchInfo = featuredImage ? batchInfoByImageId.get(featuredImage.id) : undefined;
   const sourceImages = useMemo(
     () => pendingAttachments.filter((attachment) => attachment.type === 'image'),
     [pendingAttachments],
@@ -866,13 +928,16 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                     type="button"
                     onClick={() => setSelectedImageId(image.id)}
                     className={cn(
-                      'h-16 w-16 shrink-0 overflow-hidden border',
+                      'relative h-16 w-16 shrink-0 overflow-hidden border',
                       selectedImageId === image.id
                         ? 'border-[var(--media-accent)]'
                         : 'border-white/[0.08]',
                     )}
-                  >
+                      >
                     <img src={image.url} alt={image.name || 'Image generee'} className="h-full w-full object-cover" />
+                    <span className="absolute left-1 top-1">
+                      <ImageBatchBadge info={batchInfoByImageId.get(image.id)} compact />
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1040,6 +1105,9 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                           className="h-full w-full object-contain"
                         />
                       </button>
+                      <div className="pointer-events-none absolute left-3 top-3">
+                        <ImageBatchBadge info={featuredBatchInfo} />
+                      </div>
                       <div className="absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         <button
                           type="button"
@@ -1075,17 +1143,24 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                   )}
 
                   {isLoading && featuredImage && (
-                    <div className="absolute inset-0 bg-[rgba(var(--app-bg-rgb),0.68)] backdrop-blur-sm">
-                      <AdaptiveImageLoader
-                        elapsedMs={elapsedMs}
-                        estimatedMs={estimatedDurationMs}
-                        progress={loadingProgress}
-                      />
+                    <div className="pointer-events-none absolute left-3 top-14 w-[min(16rem,calc(100%-1.5rem))] border border-white/[0.08] bg-[rgba(var(--app-bg-rgb),0.78)] px-3 py-2 backdrop-blur">
+                      <div className="flex items-center gap-2">
+                        <Loader2 size={13} className="shrink-0 animate-spin text-[var(--media-accent)]" />
+                        <div className="h-1 min-w-0 flex-1 overflow-hidden bg-white/[0.08]">
+                          <div
+                            className="h-full bg-[var(--media-accent)] transition-[width] duration-300"
+                            style={{ width: `${Math.round(loadingProgress * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] font-semibold tabular-nums text-[var(--app-text-muted)]">
+                          ~{formatDuration(estimatedDurationMs)}
+                        </span>
+                      </div>
                     </div>
                   )}
 
                   {isLoading && (
-                    <div className="absolute bottom-0 left-0 right-0 border-t border-white/[0.08] bg-[rgba(var(--app-bg-rgb),0.88)] px-3 py-2 backdrop-blur">
+                    <div className="pointer-events-none absolute bottom-0 left-0 right-0 border-t border-white/[0.08] bg-[rgba(var(--app-bg-rgb),0.88)] px-3 py-2 backdrop-blur">
                       <div className="flex items-center gap-2 overflow-x-auto">
                         {(pendingRuns.length > 0 ? pendingRuns : Array.from({ length: Math.max(1, Math.min(4, promptsToSend.length || outputCount)) }).map((_, index) => ({
                           id: `loading-${index}`,
@@ -1130,9 +1205,12 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                           key={image.id}
                           type="button"
                           onClick={() => setSelectedImageId(image.id)}
-                          className="h-14 w-14 shrink-0 overflow-hidden border border-white/[0.08] hover:border-[rgba(var(--media-accent-rgb),0.55)]"
+                          className="relative h-14 w-14 shrink-0 overflow-hidden border border-white/[0.08] hover:border-[rgba(var(--media-accent-rgb),0.55)]"
                         >
                           <img src={image.url} alt={image.name || 'Image generee'} className="h-full w-full object-cover" />
+                          <span className="absolute left-1 top-1">
+                            <ImageBatchBadge info={batchInfoByImageId.get(image.id)} compact />
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -1166,6 +1244,9 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
               {galleryImages.length > 0 ? (
                 <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-2 content-start gap-2 overflow-y-auto pt-3 pr-1">
                   {galleryImages.map((image, index) => (
+                    (() => {
+                      const batchInfo = batchInfoByImageId.get(image.id);
+                      return (
                     <button
                       key={image.id}
                       type="button"
@@ -1178,6 +1259,9 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                       )}
                     >
                       <img src={image.url} alt={image.name || 'Image generee'} className="aspect-square w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
+                      <div className="absolute left-2 top-2">
+                        <ImageBatchBadge info={batchInfo} compact />
+                      </div>
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/78 to-transparent px-2 pb-2 pt-7">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[10px] font-semibold tabular-nums text-white/86">
@@ -1186,10 +1270,14 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
                           <span className="text-[10px] text-white/62">{formatShortTime(image.createdAt)}</span>
                         </div>
                         <div className="mt-1 truncate text-[11px] font-semibold text-white/90">
-                          {image.shotLabel || image.name || image.prompt || 'Image'}
+                          {batchInfo && batchInfo.count > 1
+                            ? `Prompt ${batchInfo.index}/${batchInfo.count}`
+                            : (image.shotLabel || image.name || image.prompt || 'Image')}
                         </div>
                       </div>
                     </button>
+                      );
+                    })()
                   ))}
                 </div>
               ) : (

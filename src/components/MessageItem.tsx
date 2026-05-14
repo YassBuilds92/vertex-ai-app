@@ -10,6 +10,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { AttachmentGallery } from './AttachmentGallery';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { detectPlainTextBlockKind, getPlainTextBlockLabel, normalizeTextLineEndings } from '../utils/preformatted-text';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -448,6 +449,8 @@ const MessageItemComponent = ({
   const [editText, setEditText] = useState(msg.content);
   const [isCollapsed, setIsCollapsed] = useState(msg.role === 'user' && msg.content && msg.content.length > 800);
   const isCoworkMessage = Boolean(msg.runMeta?.mode || (msg.activity?.length ?? 0) > 0 || msg.runState);
+  const plainTextBlockKind = msg.role === 'model' ? detectPlainTextBlockKind(msg.content) : null;
+  const plainTextContent = plainTextBlockKind ? normalizeTextLineEndings(msg.content) : '';
 
   const handleCopyMsg = async () => {
     const didCopy = await copyTextToClipboard(msg.content);
@@ -721,7 +724,17 @@ const MessageItemComponent = ({
                 </div>
               )}
               
-              {msg.content && (
+              {msg.content && plainTextBlockKind ? (
+                <div className="relative my-1 max-w-full overflow-hidden rounded-xl border border-white/[0.1] bg-[#000000]">
+                  <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] bg-[#0a0a0a] px-4 py-3">
+                    <span className="text-xs font-mono text-zinc-400">{getPlainTextBlockLabel(plainTextBlockKind)}</span>
+                    <CopyCodeButton code={plainTextContent} />
+                  </div>
+                  <pre className="message-copy max-h-[70vh] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[13px] leading-relaxed text-zinc-100">
+                    <code>{plainTextContent}</code>
+                  </pre>
+                </div>
+              ) : msg.content && (
                 <div className="markdown-body message-copy w-full min-w-0 max-w-full text-[var(--app-text)]/90">
                   <Markdown
                     components={{

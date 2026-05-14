@@ -1,5 +1,26 @@
 # BUGS GRAVEYARD
 
+## 2026-05-14 - Les SRT bruts du chat perdaient leurs retours ligne a l'affichage
+- Statut: corrige localement
+- Symptome:
+  - un SRT genere dans le chat paraissait aplati en une seule ligne dans l'interface;
+  - l'utilisateur pouvait selectionner/copier le rendu visuel et obtenir un texte impropre a coller directement en `.srt`.
+- Cause racine:
+  - les messages modele etaient rendus par `react-markdown`;
+  - en Markdown, les retours ligne simples dans un paragraphe sont traites comme des espaces a l'affichage, ce qui casse les formats stricts type SRT quand ils ne sont pas fences en bloc code.
+- Resolution:
+  - detection locale des contenus SRT bruts dans `src/utils/preformatted-text.ts`;
+  - rendu SRT en bloc preformate dans `src/components/MessageItem.tsx`;
+  - copie dediee du bloc et preservation des retours ligne dans `src/utils/clipboard.ts`.
+- Preuve:
+  - `node node_modules/tsx/dist/cli.mjs verify-preformatted-text.ts` : OK
+  - `npm run lint` : OK
+  - `npm run build` : OK
+  - Browser local: le bloc preview garde `\n\n2\n00:00:02,500` dans le DOM et dans le presse-papiers apres clic sur `Copier`.
+- Prevention:
+  - ne pas rendre les formats a structure ligne stricte uniquement via Markdown;
+  - ajouter une detection ou un rendu preformate pour tout nouveau format texte qui doit etre copiable tel quel.
+
 ## 2026-05-13 - GPT Image 2 Azure cassait quand `Fond=Transparent`
 - Statut: corrige localement
 - Symptome:

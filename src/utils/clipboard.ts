@@ -1,6 +1,6 @@
 export async function copyTextToClipboard(value: string) {
-  const text = String(value || '').trim();
-  if (!text) return false;
+  const text = String(value || '');
+  if (!text.trim()) return false;
 
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     try {

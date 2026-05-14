@@ -1,5 +1,32 @@
 # SESSION STATE
 
+## 2026-05-14 - Chat: preservation des retours ligne SRT
+
+### Demande utilisateur
+- Les reponses SRT generees dans le chat semblaient avoir des retours ligne, mais l'UI les affichait/copiait comme une seule ligne quand l'utilisateur selectionnait le texte rendu.
+
+### Correctif applique
+- `src/components/MessageItem.tsx`
+  - detecte les contenus SRT bruts dans les messages modele;
+  - rend ces contenus dans un bloc preformate avec copie dediee au lieu de les laisser passer par `react-markdown`.
+- `src/utils/preformatted-text.ts`
+  - ajoute la detection SRT et la normalisation CRLF/LF.
+- `src/utils/clipboard.ts`
+  - ne supprime plus les blancs/retours ligne de debut/fin avant copie; seul le test de contenu vide reste trimme.
+- Harness local:
+  - `tmp/message-srt-preview.html`
+  - `tmp/message-srt-preview.tsx`
+- Test:
+  - `verify-preformatted-text.ts`
+
+### Validation effectuee
+- `node node_modules/tsx/dist/cli.mjs verify-preformatted-text.ts` : OK
+- `npm run lint` : OK
+- `npm run build` : OK
+- Browser local `http://127.0.0.1:4176/tmp/message-srt-preview.html` :
+  - le DOM du bloc SRT contient bien les vrais `\n` et `\n\n`;
+  - le bouton copier du bloc place dans le presse-papiers un SRT avec separateur vide entre les cues.
+
 ## 2026-05-13 - Estimation image: ne plus apprendre sur les blocages moderation
 
 ### Demande utilisateur

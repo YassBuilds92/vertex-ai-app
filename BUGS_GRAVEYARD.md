@@ -1,5 +1,27 @@
 # BUGS GRAVEYARD
 
+## 2026-05-14 - Cowork affichait la reponse live au-dessus de la question
+- Statut: corrige et deploye en production
+- Symptome:
+  - en mode Cowork, la reponse de l'IA pouvait apparaitre au-dessus de la question utilisateur dans le fil.
+  - le probleme etait visible surtout sur des prompts longs, car la question utilisateur etait affichee comme une grosse bulle repliee sous la reponse.
+- Cause racine:
+  - le message live Cowork etait initialise avec `createdAt: Date.now()` avant l'insertion optimiste de la question.
+  - puis la question etait remplacee apres upload avec un nouveau `createdAt`, encore plus tardif.
+  - le rendu fusionne/trie les messages par `createdAt`, donc la bulle modele gagnait la position avant la bulle utilisateur.
+- Resolution:
+  - dans `src/App.tsx`, le timestamp de la question est fige a `requestStartedAt`.
+  - le message live Cowork/agent/generated app prend `requestStartedAt + 1`.
+  - les remplacements optimistes apres upload conservent le timestamp initial de la question.
+- Preuve:
+  - `npm run lint` : OK
+  - `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+  - `npm run build` : OK
+  - deploiement Vercel production cree et inspecte comme `Ready`, alias `https://vertex-ai-app-pearl.vercel.app`.
+- Prevention:
+  - ne jamais recalculer `createdAt` lors du remplacement d'un message optimiste.
+  - pour les reponses live creees avant le depart reseau, leur timestamp doit etre derive du timestamp de la question, pas d'un `Date.now()` independant.
+
 ## 2026-05-14 - Les SRT bruts du chat perdaient leurs retours ligne a l'affichage
 - Statut: corrige localement
 - Symptome:

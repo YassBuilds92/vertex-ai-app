@@ -3042,6 +3042,8 @@ export default function App() {
     // the first network await, causing the visible freeze the user experiences.
     let earlyUserMessageId: string | null = null;
     const runSessionId = currentSessionId;
+    const userMessageCreatedAt = requestStartedAt;
+    const modelMessageCreatedAt = requestStartedAt + 1;
     const mediaRunId = isMediaMode ? createClientMessageId('media-run') : undefined;
     const initialRichRunMessage: Message | null = isRichToolRun ? {
       id: `${isGeneratedAppRun ? 'gapp' : isAgentRun ? 'agent' : 'cowork'}-${Date.now()}`,
@@ -3061,7 +3063,7 @@ export default function App() {
       }],
       runState: 'running',
       runMeta: createEmptyRunMeta(),
-      createdAt: Date.now(),
+      createdAt: modelMessageCreatedAt,
     } : null;
     flushSync(() => {
       if (!overrideMessages) {
@@ -3070,7 +3072,7 @@ export default function App() {
           id: earlyUserMessageId!,
           role: 'user' as const,
           content: optimisticOriginalPrompt,
-          createdAt: Date.now(),
+          createdAt: userMessageCreatedAt,
           // Show local attachment data for instant feedback; URLs are filled in after upload.
           attachments: pendingAttachments.map(({ file: _file, ...rest }) => rest),
           refinedInstruction: optimisticRefinedPrompt,
@@ -3184,7 +3186,7 @@ export default function App() {
         if (!overrideMessages) {
           const userMessage: Message = {
             id: earlyUserMessageId!,
-            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction
+            role: 'user', content: finalPrompt, createdAt: userMessageCreatedAt, attachments: cleanAttachments, refinedInstruction
           };
           // Update the early optimistic entry with real attachment URLs.
           updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
@@ -3270,7 +3272,7 @@ export default function App() {
             id: earlyUserMessageId!,
             role: 'user',
             content: finalPrompt,
-            createdAt: Date.now(),
+            createdAt: userMessageCreatedAt,
             attachments: cleanAttachments,
             refinedInstruction,
           };
@@ -3324,7 +3326,7 @@ export default function App() {
             id: earlyUserMessageId!,
             role: 'user',
             content: finalPrompt,
-            createdAt: Date.now(),
+            createdAt: userMessageCreatedAt,
             attachments: cleanAttachments,
             refinedInstruction,
           };
@@ -3377,7 +3379,7 @@ export default function App() {
             id: earlyUserMessageId!,
             role: 'user',
             content: finalPrompt,
-            createdAt: Date.now(),
+            createdAt: userMessageCreatedAt,
             attachments: cleanAttachments,
           };
           updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
@@ -3526,7 +3528,7 @@ export default function App() {
           }],
           runState: 'running',
           runMeta: createEmptyRunMeta(),
-          createdAt: Date.now(),
+          createdAt: modelMessageCreatedAt,
         };
 
         coworkStorageModeRef.current = 'rich';
@@ -3674,7 +3676,7 @@ export default function App() {
         if (!overrideMessages) {
           const userMessage: Message = {
             id: earlyUserMessageId!,
-            role: 'user', content: finalPrompt, createdAt: Date.now(), attachments: cleanAttachments, refinedInstruction
+            role: 'user', content: finalPrompt, createdAt: userMessageCreatedAt, attachments: cleanAttachments, refinedInstruction
           };
           updateOptimisticMessage(currentSessionId, earlyUserMessageId!, userMessage);
           void persistSessionMessage(currentSessionId, userMessage);
@@ -3725,7 +3727,7 @@ export default function App() {
           id: earlyUserMessageId!,
           role: 'user',
           content: finalPrompt,
-          createdAt: Date.now(),
+          createdAt: userMessageCreatedAt,
           attachments: cleanAttachments,
           refinedInstruction
         };

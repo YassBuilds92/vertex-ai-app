@@ -1,5 +1,58 @@
 # SESSION STATE
 
+## 2026-05-14 - Cowork: la reponse live passait au-dessus de la question
+
+### Demande utilisateur
+- En Cowork, la reponse de l'IA apparaissait visuellement au-dessus de la question utilisateur.
+
+### Cause racine
+- Le message live Cowork etait cree juste avant l'insertion optimiste de la question utilisateur.
+- Apres upload/persistence, la question etait remplacee avec un nouveau `createdAt: Date.now()`, potentiellement posterieur au message modele live.
+- Comme `displayedMessages` trie par `createdAt`, la bulle modele pouvait remonter au-dessus de la bulle utilisateur.
+
+### Correctif applique
+- `src/App.tsx`
+  - capture un timestamp stable `userMessageCreatedAt = requestStartedAt` pour la question;
+  - assigne `modelMessageCreatedAt = requestStartedAt + 1` au message live Cowork/agent/generated app;
+  - reutilise le timestamp utilisateur stable quand la bulle optimiste est remplacee apres upload.
+
+### Validation effectuee
+- `npm run lint` : OK
+- `node node_modules/tsx/dist/cli.mjs test-cowork-loop.ts` : OK
+- `npm run build` : OK
+- `npx vercel deploy --prod --yes` a depasse le timeout local, mais Vercel a bien cree un deploiement Production `Ready`.
+- `npx vercel inspect https://vertex-ai-oi6q59fm6-yaskows-projects.vercel.app` :
+  - status `Ready`;
+  - alias actif `https://vertex-ai-app-pearl.vercel.app`.
+
+## 2026-05-14 - Diagnostic GPT Image 2: ChatGPT web vs site Azure
+
+### Demande utilisateur
+- Comprendre pourquoi un prompt qui genere une image de Piccolo dans ChatGPT web se fait bloquer immediatement dans le site avec `GPT Image 2`.
+
+### Diagnostic
+- Le site ne prefiltre pas localement le prompt Piccolo: `ImageStudio` envoie le prompt brut via `onGenerate`, puis `src/App.tsx` poste vers `/api/generate-image`.
+- Le chemin `gpt-image-2` du projet est `Azure OpenAI GPT Image 2`, pas l'experience ChatGPT web.
+- Le backend envoie `moderation: low`, le niveau public le moins restrictif expose par l'API image.
+- Azure ajoute un content filter de deploiement distinct, configurable dans Foundry, qui peut bloquer meme si ChatGPT web accepte une demande proche.
+- Les prompts avec personnage nomme/propriete intellectuelle connue, ou avec image de reference, peuvent etre classes differemment selon la surface produit et selon le filtre Azure.
+
+### Verification effectuee
+- Lecture de `direction.md`, `TECH_RADAR.md`, `SYSTEM_MAP.md`, `AI_LEARNINGS.md`, `BUGS_GRAVEYARD.md`.
+- Verification officielle:
+  - OpenAI Image generation guide / GPT Image 2 model page;
+  - Azure content filters.
+- Code relu:
+  - `src/components/ImageStudio.tsx`
+  - `src/App.tsx`
+  - `shared/image-models.ts`
+  - `server/lib/media-generation.ts`
+- `node node_modules/tsx/dist/cli.mjs verify-azure-image-config.ts` : OK
+
+### Suite conseillee
+- Capturer le `details` exact renvoye par Azure pour un prompt bloque afin de distinguer content filter, protected material, prompt shield ou autre code fournisseur.
+- Si l'objectif est de reduire les faux positifs, regler le content filter associe au deploiement Azure dans Foundry; le code ne peut pas supprimer ces filtres au-dela de `moderation: low`.
+
 ## 2026-05-14 - Chat: preservation des retours ligne SRT
 
 ### Demande utilisateur
